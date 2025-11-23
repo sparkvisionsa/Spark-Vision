@@ -1,3 +1,52 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-illustration",
+      "description": "Abstract 3D shape representing technology and innovation.",
+      "imageUrl": "https://images.unsplash.com/photo-1633596683562-4a47eb4983c5?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxhYnN0cmFjdCUyMDNkfGVufDB8fHx8MTc2MzgwNjQ4OXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "abstract 3d"
+    },
+    {
+      "id": "portfolio-1",
+      "description": "Dashboard of a custom software application.",
+      "imageUrl": "https://images.unsplash.com/photo-1457305237443-44c3d5a30b89?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHxzb2Z0d2FyZSUyMGRhc2hib2FyZHxlbnwwfHx8fDE3NjM4OTU0MDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "software dashboard"
+    },
+    {
+      "id": "portfolio-2",
+      "description": "A modern mobile application interface.",
+      "imageUrl": "https://images.unsplash.com/photo-1558655146-364adaf1fcc9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxtb2JpbGUlMjBhcHB8ZW58MHx8fHwxNzYzODg5OTI1fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "mobile app"
+    },
+    {
+      "id": "portfolio-3",
+      "description": "Cloud infrastructure diagram.",
+      "imageUrl": "https://images.unsplash.com/photo-1508179846671-714307e3bc09?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw1fHxjbG91ZCUyMGluZnJhc3RydWN0dXJlfGVufDB8fHx8MTc2MzgyMTUwMXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "cloud infrastructure"
+    },
+    {
+      "id": "portfolio-4",
+      "description": "AI and data analytics visualization.",
+      "imageUrl": "https://images.unsplash.com/photo-1642775196125-38a9eb496568?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxBSSUyMGFuYWx5dGljc3xlbnwwfHx8fDE3NjM4OTU0MDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "AI analytics"
+    },
+    {
+      "id": "testimonial-1",
+      "description": "Professional headshot of a client.",
+      "imageUrl": "https://images.unsplash.com/photo-1595211877493-41a4e5f236b3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBwb3J0cmFpdHxlbnwwfHx8fDE3NjM4NjAyODl8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "professional portrait"
+    },
+    {
+      "id": "testimonial-2",
+      "description": "Corporate headshot of a satisfied client.",
+      "imageUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxjb3Jwb3JhdGUlMjBoZWFkc2hvdHxlbnwwfHx8fDE3NjM4MTA0MTd8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "corporate headshot"
+    },
+    {
+      "id": "testimonial-3",
+      "description": "Friendly face of a startup founder.",
+      "imageUrl": "https://images.unsplash.com/photo-1602594487983-a13e0a56c6b9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw1fHxmcmllbmRseSUyMHBlcnNvbnxlbnwwfHx8fDE3NjM3ODkxOTR8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "friendly person"
+    }
+  ]
 }
