@@ -86,7 +86,7 @@ export default function ContactSection() {
           >
             <div className="overflow-hidden rounded-lg">
               <iframe
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3168.963333333333!2d-122.0840!3d37.4220!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x808fba024255c3df%3A0x495f465f182c6a47!2sGoogleplex!5e0!3m2!1sen!2sus!4v1620833111867!5m2!1sen!2sus"
+                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3627.8381350447876!2d46.6953046!3d24.594781799999996!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3e2f0fcb2b754a53%3A0x8b191ed59492134b!2sSuper%20Office!5e0!3m2!1sen!2ssa!4v1763898523770!5m2!1sen!2ssa"
                 width="100%"
                 height="450"
                 style={{ border: 0 }}

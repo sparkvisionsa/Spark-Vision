@@ -1,38 +1,14 @@
 "use client";
 
 import React, { useContext } from "react";
+import Image from "next/image";
+import SparkLogo from "@/app/Spark.jpg";
 import { LanguageContext } from "@/components/layout-provider";
 import { content } from "@/lib/content";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Button } from "./ui/button";
 
-const SparkleIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    {...props}
-  >
-    <path d="M9.5 2.5a2.5 2.5 0 0 1 5 0" />
-    <path d="M12 6.36V3" />
-    <path d="M15.41 7.5l2.09-2.09" />
-    <path d="M17.5 9.5a2.5 2.5 0 0 1 0 5" />
-    <path d="M17.64 12H21" />
-    <path d="M15.41 16.5l2.09 2.09" />
-    <path d="M12 17.64V21" />
-    <path d="M8.59 16.5l-2.09 2.09" />
-    <path d="M6.5 14.5a2.5 2.5 0 0 1 0-5" />
-    <path d="M6.36 12H3" />
-    <path d="M8.59 7.5L6.5 5.41" />
-  </svg>
-);
 
 export default function Footer() {
   const langContext = useContext(LanguageContext);
@@ -49,7 +25,15 @@ export default function Footer() {
         <div className="xl:grid xl:grid-cols-3 xl:gap-8">
           <div className="space-y-8 xl:col-span-1">
             <Link href="/" className="flex items-center gap-2">
-              <SparkleIcon className="h-7 w-7 text-primary" />
+              <div className="w-9 h-9 overflow-hidden rounded-md">
+                <Image
+                  src={SparkLogo}
+                  alt="Spark Vision"
+                  width={36}
+                  height={36}
+                  className="object-cover object-center w-full h-full"
+                />
+              </div>
               <span className="text-xl font-bold text-foreground">
                 Spark Vision
               </span>
