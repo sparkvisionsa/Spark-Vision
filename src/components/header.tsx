@@ -112,9 +112,9 @@ export default function Header() {
           <span className="font-bold">Spark Vision</span>
         </Link>
 
-        {/* <div className="flex flex-1 items-center justify-end space-x-2 rtl:space-x-reverse">
+        <div className="flex flex-1 items-center justify-end space-x-2 rtl:space-x-reverse">
           <LanguageSwitcher />
-        </div> */}
+        </div>
       </div>
     </header>
   );
