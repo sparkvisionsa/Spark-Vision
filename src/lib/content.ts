@@ -181,6 +181,14 @@ export const content = {
         button: "Send Message",
       },
     },
+    maintenance: {
+      badge: "Scheduled Maintenance",
+      title: "We Are Under Maintenance",
+      description:
+        "We are applying a fresh coat of polish to the site. Hang tight while we bring the new experience online.",
+      note:
+        "Need to reach us? Our contact channels stay open while we finish up.",
+    },
     footer: {
       title: "Footer",
       description: "Smart software solutions for a smarter future.",
@@ -391,6 +399,14 @@ export const content = {
         message: "الرسالة",
         button: "إرسال الرسالة",
       },
+    },
+    maintenance: {
+      badge: "صيانة مجدولة",
+      title: "نقوم بصيانة موقع سبارك فيجن",
+      description:
+        "نضيف بعض اللمسات الجديدة على الموقع. سنعود إليك قريبًا بتجربة محسنة.",
+      note:
+        "هل تحتاج للتواصل الآن؟ قنوات الاتصال بنا متاحة أثناء الصيانة.",
     },
     footer: {
       title: "تذييل",

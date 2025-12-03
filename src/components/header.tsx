@@ -11,10 +11,11 @@ import SparkLogo from "@/app/Spark.jpg";
 import { LanguageContext } from "./layout-provider";
 import { content } from "@/lib/content";
 
+interface HeaderProps {
+  navDisabled?: boolean;
+}
 
-
-
-export default function Header() {
+export default function Header({ navDisabled = false }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const langContext = useContext(LanguageContext);
 
@@ -28,7 +29,13 @@ export default function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
           <div className="mr-4 hidden md:flex">
-          <Link href="/" className="mr-6 flex items-center space-x-2 rtl:space-x-reverse">
+          <Link
+            href="/"
+            className={`mr-6 flex items-center space-x-2 rtl:space-x-reverse ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
+            aria-disabled={navDisabled}
+            tabIndex={navDisabled ? -1 : undefined}
+            onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+          >
             <div className="w-10 h-10 overflow-hidden rounded-md">
               <Image
                 src={SparkLogo}
@@ -45,7 +52,10 @@ export default function Header() {
               <Link
                 key={item.name}
                 href={item.href}
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
+                className={`transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                aria-disabled={navDisabled}
+                tabIndex={navDisabled ? -1 : undefined}
+                onClick={navDisabled ? (e) => e.preventDefault() : undefined}
               >
                 {item.name}
               </Link>
@@ -68,8 +78,11 @@ export default function Header() {
             <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
             <Link
               href="/"
-              className="flex items-center"
+              className={`flex items-center ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
               onClick={() => setIsOpen(false)}
+              aria-disabled={navDisabled}
+              tabIndex={navDisabled ? -1 : undefined}
+              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
             >
               <div className="mr-2 w-9 h-9 overflow-hidden rounded-md">
                 <Image
@@ -89,7 +102,10 @@ export default function Header() {
                     key={item.href}
                     href={item.href}
                     onClick={() => setIsOpen(false)}
-                    className="text-foreground"
+                    className={`text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                    aria-disabled={navDisabled}
+                    tabIndex={navDisabled ? -1 : undefined}
+                    onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
                   >
                     {item.name}
                   </Link>
@@ -99,7 +115,13 @@ export default function Header() {
           </SheetContent>
         </Sheet>
         
-        <Link href="/" className="flex items-center space-x-2 rtl:space-x-reverse md:hidden">
+        <Link
+          href="/"
+          className={`flex items-center space-x-2 rtl:space-x-reverse md:hidden ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
+          aria-disabled={navDisabled}
+          tabIndex={navDisabled ? -1 : undefined}
+          onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+        >
           <div className="w-9 h-9 overflow-hidden rounded-md">
             <Image
               src={SparkLogo}
