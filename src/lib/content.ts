@@ -30,6 +30,10 @@ export const content = {
         "Spark Vision delivers innovative software, AI automation, and digital solutions for fast-growing businesses.",
       cta: "Get a Free Consultation",
     },
+    video: {
+      header: `Spark Vision: Cutting-Edge Technology Powering Innovation
+                and Driving the Next Generation of Digital Transformation.`,
+    },
     about: {
       title: "Who We Are",
       description:
@@ -141,8 +145,7 @@ export const content = {
     },
     testimonials: {
       title: "What Our Clients Say",
-      subtitle:
-        "We are proud to have earned the trust of our amazing clients.",
+      subtitle: "We are proud to have earned the trust of our amazing clients.",
       items: [
         {
           quote:
@@ -200,29 +203,29 @@ export const content = {
         ],
       },
       socials: [
-        {
-          name: "Facebook",
-          href: "#",
-          icon: Facebook,
-        },
+        // {
+        //   name: "Facebook",
+        //   href: "#",
+        //   icon: Facebook,
+        // },
         {
           name: "Twitter",
-          href: "#",
+          href: "https://x.com/sparkvisiosa",
           icon: Twitter,
         },
         {
           name: "LinkedIn",
-          href: "#",
+          href: "https://www.linkedin.com/in/spark-vision-59b1b4387/",
           icon: Linkedin,
         },
         {
           name: "Snapchat",
-          href: "#",
+          href: "https://www.snapchat.com/@sparkvisionsa",
           icon: MessageCircle,
         },
-         {
+        {
           name: "TikTok",
-          href: "#",
+          href: "https://www.tiktok.com/@sparkvisionsa",
           icon: TicketCheck,
         },
       ],
@@ -241,6 +244,10 @@ export const content = {
         "سبارك فيجن تقدم برمجيات مبتكرة، وأتمتة بالذكاء الاصطناعي، وحلول رقمية للأعمال المتنامية.",
       cta: "احجز استشارة مجانية",
     },
+    video: {
+      header:
+        "رؤية سبارك: التكنولوجيا المتطورة التي تدعم الابتكار وتقود الجيل القادم من التحول الرقمي.",
+    },
     about: {
       title: "من نحن",
       description:
@@ -253,8 +260,7 @@ export const content = {
       items: [
         {
           title: "تطوير البرمجيات المخصصة",
-          description:
-            "حلول برمجية مصممة خصيصًا لتلبية متطلبات عملك الفريدة.",
+          description: "حلول برمجية مصممة خصيصًا لتلبية متطلبات عملك الفريدة.",
           icon: CodeXml,
         },
         {
@@ -277,7 +283,8 @@ export const content = {
         },
         {
           title: "استشارات تقنية المعلومات",
-          description: "إرشادات استراتيجية لمساعدتك في التنقل في عالم التكنولوجيا المعقد.",
+          description:
+            "إرشادات استراتيجية لمساعدتك في التنقل في عالم التكنولوجيا المعقد.",
           icon: Briefcase,
         },
       ],
@@ -288,7 +295,8 @@ export const content = {
       features: [
         {
           name: "تطوير عالي الجودة",
-          description: "يضمن فريق الخبراء لدينا جودة عالية في كل سطر من التعليمات البرمجية.",
+          description:
+            "يضمن فريق الخبراء لدينا جودة عالية في كل سطر من التعليمات البرمجية.",
           icon: Award,
         },
         {
@@ -298,17 +306,20 @@ export const content = {
         },
         {
           name: "تسليم سريع",
-          description: "منهجيات Agile للتطوير السريع والتسليم في الوقت المحدد لمشاريعك.",
+          description:
+            "منهجيات Agile للتطوير السريع والتسليم في الوقت المحدد لمشاريعك.",
           icon: Zap,
         },
         {
           name: "فريق دعم مخصص",
-          description: "فريق الدعم لدينا موجود دائمًا لمساعدتك في أي مشكلات أو أسئلة.",
+          description:
+            "فريق الدعم لدينا موجود دائمًا لمساعدتك في أي مشكلات أو أسئلة.",
           icon: Users2,
         },
         {
           name: "أمن سيبراني متقدم",
-          description: "نحن نعطي الأولوية للأمن لحماية بياناتك وتطبيقاتك من التهديدات.",
+          description:
+            "نحن نعطي الأولوية للأمن لحماية بياناتك وتطبيقاتك من التهديدات.",
           icon: ShieldCheck,
         },
       ],
@@ -319,22 +330,26 @@ export const content = {
       projects: [
         {
           title: "نظام تخطيط موارد المؤسسات (ERP)",
-          description: "نظام ERP شامل لتبسيط العمليات التجارية لعميل في قطاع التصنيع.",
+          description:
+            "نظام ERP شامل لتبسيط العمليات التجارية لعميل في قطاع التصنيع.",
           imageId: "portfolio-1",
         },
         {
           title: "تطبيق جوال للتجارة الإلكترونية",
-          description: "تطبيق جوال غني بالميزات لشركة بيع بالتجزئة، يعزز تفاعل العملاء.",
+          description:
+            "تطبيق جوال غني بالميزات لشركة بيع بالتجزئة، يعزز تفاعل العملاء.",
           imageId: "portfolio-2",
         },
         {
           title: "ترحيل سحابي لشركة ناشئة في التكنولوجيا المالية",
-          description: "تم ترحيل منصة تكنولوجيا مالية بنجاح إلى بنية تحتية سحابية آمنة وقابلة للتطوير.",
+          description:
+            "تم ترحيل منصة تكنولوجيا مالية بنجاح إلى بنية تحتية سحابية آمنة وقابلة للتطوير.",
           imageId: "portfolio-3",
         },
         {
           title: "منصة تحليلات مدعومة بالذكاء الاصطناعي",
-          description: "تطوير منصة ذكاء اصطناعي لتحليل البيانات والنمذجة التنبؤية لمزود رعاية صحية.",
+          description:
+            "تطوير منصة ذكاء اصطناعي لتحليل البيانات والنمذجة التنبؤية لمزود رعاية صحية.",
           imageId: "portfolio-4",
         },
       ],
@@ -344,19 +359,22 @@ export const content = {
       subtitle: "نحن فخورون بأننا كسبنا ثقة عملائنا الرائعين.",
       items: [
         {
-          quote: "قامت سبارك فيجن بتحويل أعمالنا من خلال حلولها البرمجية المبتكرة. كان فريقهم محترفًا، وكان التسليم في الوقت المحدد.",
+          quote:
+            "قامت سبارك فيجن بتحويل أعمالنا من خلال حلولها البرمجية المبتكرة. كان فريقهم محترفًا، وكان التسليم في الوقت المحدد.",
           name: "جون دو",
           company: "الرئيس التنفيذي، Innovate Inc.",
           imageId: "testimonial-1",
         },
         {
-          quote: "كان تطبيق الجوال الذي طوروه لنا بمثابة تغيير جذري. تفاعل المستخدمين في أعلى مستوياته على الإطلاق!",
+          quote:
+            "كان تطبيق الجوال الذي طوروه لنا بمثابة تغيير جذري. تفاعل المستخدمين في أعلى مستوياته على الإطلاق!",
           name: "جين سميث",
           company: "مديرة التسويق، RetailCo",
           imageId: "testimonial-2",
         },
         {
-          quote: "خبرتهم في الذكاء الاصطناعي والأتمتة حسنت بشكل كبير من كفاءتنا التشغيلية. موصى به للغاية.",
+          quote:
+            "خبرتهم في الذكاء الاصطناعي والأتمتة حسنت بشكل كبير من كفاءتنا التشغيلية. موصى به للغاية.",
           name: "سام ويلسون",
           company: "مدير العمليات، HealthFirst",
           imageId: "testimonial-3",
@@ -365,7 +383,8 @@ export const content = {
     },
     contact: {
       title: "تواصل معنا",
-      subtitle: "هل لديك مشروع في ذهنك؟ نود أن نسمع منك. املأ النموذج أدناه للبدء.",
+      subtitle:
+        "هل لديك مشروع في ذهنك؟ نود أن نسمع منك. املأ النموذج أدناه للبدء.",
       form: {
         name: "الاسم",
         email: "البريد الإلكتروني",
@@ -380,35 +399,40 @@ export const content = {
       solutions: {
         title: "الحلول",
         items: [
-            { name: "برمجيات مخصصة", href: "#services" },
-            { name: "تطبيقات الجوال", href: "#services" },
-            { name: "الذكاء الاصطناعي والأتمتة", href: "#services" },
-            { name: "التكامل السحابي", href: "#services" },
+          { name: "برمجيات مخصصة", href: "#services" },
+          { name: "تطبيقات الجوال", href: "#services" },
+          { name: "الذكاء الاصطناعي والأتمتة", href: "#services" },
+          { name: "التكامل السحابي", href: "#services" },
         ],
       },
       company: {
         title: "الشركة",
         items: [
-            { name: "من نحن", href: "#about" },
-            { name: "أعمالنا", href: "#portfolio" },
-            { name: "اتصل بنا", href: "#contact" },
+          { name: "من نحن", href: "#about" },
+          { name: "أعمالنا", href: "#portfolio" },
+          { name: "اتصل بنا", href: "#contact" },
         ],
       },
       socials: [
         {
-          name: "فيسبوك",
-          href: "#",
-          icon: Facebook,
-        },
-        {
           name: "تويتر",
-          href: "#",
+          href: "https://x.com/sparkvisiosa",
           icon: Twitter,
         },
         {
-          name: "لينكد إن",
-          href: "#",
+          name: "لينكدان",
+          href: "https://www.linkedin.com/in/spark-vision-59b1b4387/",
           icon: Linkedin,
+        },
+        {
+          name: "سناب شات",
+          href: "https://www.snapchat.com/@sparkvisionsa",
+          icon: MessageCircle,
+        },
+        {
+          name: "تيكتوك",
+          href: "https://www.tiktok.com/@sparkvisionsa",
+          icon: TicketCheck,
         },
       ],
     },

@@ -55,8 +55,8 @@ export default function HeroSection() {
             {/* Overlay text positioned on top of the image/video */}
             <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
               <div className=" text-white px-5 py-3 rounded-full backdrop-blur-sm shadow-lg animate-slide-in-up">
-                <span className="text-2xl md:text-3xl font-semibold">
-                 Spark Vision: Cutting-Edge Technology Powering Innovation <br /> and Driving the Next Generation of Digital Transformation.
+                <span className="text-2xl md:text-3xl font-semibold whitespace-pre-line text-center">
+                 {c.video.header}
                 </span>
               </div>
             </div>
