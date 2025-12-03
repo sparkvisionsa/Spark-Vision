@@ -12,6 +12,8 @@ import {
   Linkedin,
   Twitter,
   Facebook,
+  MessageCircle,
+  TicketCheck,
 } from "lucide-react";
 
 export const content = {
@@ -212,6 +214,16 @@ export const content = {
           name: "LinkedIn",
           href: "#",
           icon: Linkedin,
+        },
+        {
+          name: "Snapchat",
+          href: "#",
+          icon: MessageCircle,
+        },
+         {
+          name: "TikTok",
+          href: "#",
+          icon: TicketCheck,
         },
       ],
     },

@@ -12,10 +12,8 @@ import PortfolioSection from "@/components/sections/portfolio";
 import TestimonialsSection from "@/components/sections/testimonials";
 import ContactSection from "@/components/sections/contact";
 import Footer from "@/components/footer";
-import MaintenancePage from "./maintenance/page";
 
 export default function Home() {
-  const MAINTENANCE = process.env.NEXT_PUBLIC_MAINTENANCE_MODE === 'true';
 
   const langContext = useContext(LanguageContext);
 
@@ -26,10 +24,7 @@ export default function Home() {
   const { language } = langContext;
   const c = content[language];
 
-   if (MAINTENANCE) {
-    return <MaintenancePage />;
-  }
-
+ 
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
