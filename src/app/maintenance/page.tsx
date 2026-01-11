@@ -32,7 +32,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-background via-background to-secondary/30">
-      <Header navDisabled />
+      <Header />
       <main className="flex flex-1 items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
         <style>{animationStyles}</style>
         <section className="relative w-full max-w-4xl overflow-hidden rounded-3xl border border-border/60 bg-card/70 p-10 shadow-xl backdrop-blur">

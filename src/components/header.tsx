@@ -3,9 +3,15 @@
 import React, { useContext, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { LanguageSwitcher } from "./language-switcher";
-import { Menu } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
 import Image from "next/image";
 import SparkLogo from "@/app/Spark.jpg";
 import { LanguageContext } from "./layout-provider";
@@ -48,18 +54,42 @@ export default function Header({ navDisabled = false }: HeaderProps) {
             <span className="hidden font-bold sm:inline-block">Spark Vision</span>
           </Link>
           <nav className="flex items-center space-x-6 text-sm font-medium rtl:space-x-reverse">
-            {c.nav.map((item) => (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                aria-disabled={navDisabled}
-                tabIndex={navDisabled ? -1 : undefined}
-                onClick={navDisabled ? (e) => e.preventDefault() : undefined}
-              >
-                {item.name}
-              </Link>
-            ))}
+            {c.nav.map((item) =>
+              item.href === "#services" ? (
+                <DropdownMenu key={item.name}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className={`flex items-center gap-2 transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                      aria-disabled={navDisabled}
+                      tabIndex={navDisabled ? -1 : undefined}
+                      disabled={navDisabled}
+                    >
+                      {item.name}
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem asChild>
+                      <Link href="/value-tech" className="flex w-full items-center justify-between">
+                        Value Tech Application
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                  aria-disabled={navDisabled}
+                  tabIndex={navDisabled ? -1 : undefined}
+                  onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+                >
+                  {item.name}
+                </Link>
+              )
+            )}
           </nav>
         </div>
 
@@ -97,19 +127,45 @@ export default function Header({ navDisabled = false }: HeaderProps) {
             </Link>
             <div className="my-4 h-[calc(100vh-8rem)] pb-10 pl-6">
               <div className="flex flex-col space-y-3">
-                {c.nav.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setIsOpen(false)}
-                    className={`text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                    aria-disabled={navDisabled}
-                    tabIndex={navDisabled ? -1 : undefined}
-                    onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                  >
-                    {item.name}
-                  </Link>
-                ))}
+                {c.nav.map((item) =>
+                  item.href === "#services" ? (
+                    <details key={item.href} className="group">
+                      <summary
+                        className={`flex cursor-pointer list-none items-center justify-between text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                        aria-disabled={navDisabled}
+                        tabIndex={navDisabled ? -1 : undefined}
+                        onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+                      >
+                        <span>{item.name}</span>
+                        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="mt-2 flex flex-col gap-2 pl-4">
+                        <Link
+                          href="/value-tech"
+                          onClick={() => setIsOpen(false)}
+                          className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                          aria-disabled={navDisabled}
+                          tabIndex={navDisabled ? -1 : undefined}
+                          onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                        >
+                          Value Tech Application
+                        </Link>
+                      </div>
+                    </details>
+                  ) : (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setIsOpen(false)}
+                      className={`text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                      aria-disabled={navDisabled}
+                      tabIndex={navDisabled ? -1 : undefined}
+                      onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                    >
+                      {item.name}
+                    </Link>
+                  )
+                )}
               </div>
             </div>
           </SheetContent>
