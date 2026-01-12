@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SectionHeading } from "../ui/heading";
 import { LanguageContext } from "../layout-provider";
 import { content } from "@/lib/content";
-import { MapPin } from "lucide-react";
+import { MapPin, MessageCircle, Phone } from "lucide-react";
 
 export default function ContactSection() {
   const langContext = useContext(LanguageContext);
@@ -72,9 +72,24 @@ export default function ContactSection() {
                   className="mt-2 bg-background"
                 />
               </div>
-              <div className="text-center">
+              <div className="text-center space-y-4">
                 <Button type="submit" size="lg" className="w-full sm:w-auto">
                   {c.contact.form.button}
+                </Button>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                >
+                  <a
+                    href={`https://wa.me/${c.contact.form.whatsappNumber}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Phone className="w-4 h-4 mr-2" />
+                    {c.contact.form.whatsappButton}
+                  </a>
                 </Button>
               </div>
             </form>
