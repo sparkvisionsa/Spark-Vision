@@ -314,7 +314,7 @@ export const content = {
         { value: "24/7", label: "توافر سطح المكتب" },
       ],
       desktopApplication: "تطبيق سطح مكتب",
-      desktopTitle: "مركز قيادة سطح مكتب",
+      desktopTitle: "مركز تطبيق سطح مكتب",
       desktopDescription: "سير عمل موجه للتحميلات.",
       focusedContentDescription: "تحميل التقارير بخطوات واضحة.",
       focusedContentBadge1: "تحميل التقارير",
