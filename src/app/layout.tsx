@@ -14,8 +14,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+  
     <html lang="en" suppressHydrationWarning={true}>
+       <meta name="google-site-verification" content="google22f31ed303cc4cfe.html" />
       {/* <head>
+
+       <meta name="google-site-verification" content="YOUR_VERIFICATION_CODE" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
