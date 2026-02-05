@@ -75,6 +75,11 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                         Value Tech Application
                       </Link>
                     </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/evaluation-source" className="flex w-full items-center justify-between">
+                        Evaluation Source
+                      </Link>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
@@ -149,6 +154,16 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                           onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
                         >
                           Value Tech Application
+                        </Link>
+                        <Link
+                          href="/evaluation-source"
+                          onClick={() => setIsOpen(false)}
+                          className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                          aria-disabled={navDisabled}
+                          tabIndex={navDisabled ? -1 : undefined}
+                          onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                        >
+                          Evaluation Source
                         </Link>
                       </div>
                     </details>
