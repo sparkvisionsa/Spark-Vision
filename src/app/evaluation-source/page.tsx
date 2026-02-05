@@ -100,6 +100,7 @@ const defaultFilters = {
   maxPrice: "",
   hasImage: "any",
   hasPrice: "any",
+  hasComments: "any",
   dateFrom: "",
   dateTo: "",
   sort: "newest",
@@ -147,6 +148,7 @@ export default function EvaluationSourcePage() {
     if (appliedFilters.maxPrice) params.set("maxPrice", appliedFilters.maxPrice);
     if (appliedFilters.hasImage !== "any") params.set("hasImage", appliedFilters.hasImage);
     if (appliedFilters.hasPrice !== "any") params.set("hasPrice", appliedFilters.hasPrice);
+    if (appliedFilters.hasComments !== "any") params.set("hasComments", appliedFilters.hasComments);
     if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
     if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
     if (appliedFilters.sort) params.set("sort", appliedFilters.sort);
@@ -389,6 +391,21 @@ export default function EvaluationSourcePage() {
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <Label className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Has comments</Label>
+                  <div className="flex items-center gap-3 rounded-md border border-input bg-background px-3 py-2 text-sm">
+                    <Checkbox
+                      id="has-comments"
+                      checked={draftFilters.hasComments === "true"}
+                      onCheckedChange={(checked) =>
+                        setDraftFilters({ ...draftFilters, hasComments: checked ? "true" : "any" })
+                      }
+                    />
+                    <Label htmlFor="has-comments" className="text-sm font-normal text-slate-600">
+                      Show only records with comments
+                    </Label>
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Date from</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -496,7 +513,13 @@ export default function EvaluationSourcePage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">{item.city || "-"}</TableCell>
-                          <TableCell className="text-sm text-slate-600">
+                          <TableCell
+                            className={`text-sm ${
+                              item.priceNumeric || item.priceFormatted
+                                ? "font-semibold text-amber-600"
+                                : "text-slate-600"
+                            }`}
+                          >
                             {formatPrice(item.priceNumeric, item.priceFormatted)}
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">{formatEpoch(item.postDate)}</TableCell>
@@ -645,7 +668,7 @@ export default function EvaluationSourcePage() {
               <p className="text-sm text-slate-500">Full record insights with structured sections.</p>
             </DialogHeader>
             <ScrollArea className="max-h-[80vh]">
-              <div className="grid gap-6 p-6 lg:grid-cols-[0.22fr_0.78fr]">
+              <div className="grid gap-6 p-6 lg:grid-cols-[30%_70%]">
                 <div className="space-y-4">
                   <div className="rounded-3xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-lg">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Images</p>

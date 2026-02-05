@@ -24,6 +24,7 @@ export async function listHarajScrapesRoute(request: NextRequest) {
     maxPrice: parseNumber(searchParams.get("maxPrice")),
     hasImage: parseBoolean(searchParams.get("hasImage")),
     hasPrice: parseBoolean(searchParams.get("hasPrice")),
+    hasComments: parseBoolean(searchParams.get("hasComments")),
     dateFrom: searchParams.get("dateFrom") ?? undefined,
     dateTo: searchParams.get("dateTo") ?? undefined,
     sort: searchParams.get("sort") ?? undefined,

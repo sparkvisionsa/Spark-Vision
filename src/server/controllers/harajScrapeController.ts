@@ -9,6 +9,7 @@ export type HarajScrapeListQuery = {
   maxPrice?: number;
   hasImage?: boolean;
   hasPrice?: boolean;
+  hasComments?: boolean;
   dateFrom?: string;
   dateTo?: string;
   sort?: string;
@@ -59,14 +60,23 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
   if (query.hasPrice === true) {
     andFilters.push({
       $and: [
-        { hasPrice: true },
+        { $or: [{ hasPrice: true }, { hasPrice: "true" }] },
         {
           $or: [
             { priceNumeric: { $exists: true, $ne: null, $gt: 0 } },
             { "item.price.numeric": { $exists: true, $ne: null, $gt: 0 } },
-            { "item.price.formattedPrice": { $exists: true, $ne: "" } },
+            { "item.price.formattedPrice": { $exists: true, $nin: ["", null] } },
           ],
         },
+      ],
+    });
+  }
+
+  if (query.hasComments === true) {
+    andFilters.push({
+      $or: [
+        { "comments.0": { $exists: true } },
+        { "gql.comments.json.data.comments.items.0": { $exists: true } },
       ],
     });
   }

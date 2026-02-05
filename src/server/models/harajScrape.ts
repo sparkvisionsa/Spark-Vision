@@ -11,7 +11,7 @@ export interface HarajScrapeDoc {
   url?: string;
   phone?: string;
   priceNumeric?: number;
-  hasPrice?: boolean;
+  hasPrice?: boolean | string;
   hasImage?: boolean;
   hasVideo?: boolean;
   imagesList?: string[];
