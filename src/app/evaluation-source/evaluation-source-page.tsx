@@ -216,14 +216,14 @@ const copy = {
   ar: {
     filters: {
       badge: "مرشحات ذكية",
-      title: "تصفية وتنقيح",
+      title: "تصفية ",
       subtitle: "نتائج فورية أثناء الكتابة.",
       search: "بحث",
       searchPlaceholder: "العنوان، الوصف",
       city: "المدينة",
       cityPlaceholder: "ابحث عن مدينة",
-      brand: "العلامة",
-      brandPlaceholder: "اكتب أو اختر العلامة",
+      brand: "الماركة",
+      brandPlaceholder: "اكتب أو اختر الماركة",
       model: "الموديل",
       modelPlaceholder: "اكتب أو اختر الموديل",
       manufactureYear: "سنة الصنع",
@@ -594,9 +594,9 @@ export default function EvaluationSourcePage({
 
               <div className="relative flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <span className="inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white">
+                  {/* <span className="inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white">
                     {t.filters.badge}
-                  </span>
+                  </span> */}
                   <h2 className={`text-lg font-semibold text-slate-900 ${sora.className}`}>{t.filters.title}</h2>
                   <p className="text-xs text-slate-500">{t.filters.subtitle}</p>
                 </div>
@@ -1031,7 +1031,7 @@ export default function EvaluationSourcePage({
         </Dialog>
 
         <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-          <DialogContent className="max-w-[1600px] w-[96vw] border border-slate-200 bg-white/95 p-0">
+          <DialogContent className="w-[98vw] max-w-[98vw] border border-slate-200 bg-white/95 p-0 sm:w-[96vw] sm:max-w-[1600px]">
             <DialogHeader className="border-b border-slate-200 px-6 py-4">
               <DialogTitle className={`text-2xl font-semibold ${sora.className}`}>{t.modals.detailTitle}</DialogTitle>
               <p className="text-sm text-slate-500">{t.modals.detailSubtitle}</p>
