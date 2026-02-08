@@ -7,6 +7,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -75,11 +78,28 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                         Value Tech Application
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/evaluation-source" className="flex w-full items-center justify-between">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex w-full items-center justify-between">
                         Evaluation Source
-                      </Link>
-                    </DropdownMenuItem>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-52">
+                        <DropdownMenuItem asChild>
+                          <Link href="/evaluation-source/cars" className="flex w-full items-center justify-between">
+                            Cars
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/evaluation-source/real-estate" className="flex w-full items-center justify-between">
+                            Real Estate
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/evaluation-source/other" className="flex w-full items-center justify-between">
+                            Other
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
@@ -155,16 +175,49 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                         >
                           Value Tech Application
                         </Link>
-                        <Link
-                          href="/evaluation-source"
-                          onClick={() => setIsOpen(false)}
-                          className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                          aria-disabled={navDisabled}
-                          tabIndex={navDisabled ? -1 : undefined}
-                          onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                        >
-                          Evaluation Source
-                        </Link>
+                        <details className="group">
+                          <summary
+                            className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                            aria-disabled={navDisabled}
+                            tabIndex={navDisabled ? -1 : undefined}
+                            onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+                          >
+                            <span>Evaluation Source</span>
+                            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                          </summary>
+                          <div className="mt-2 flex flex-col gap-2 pl-4">
+                            <Link
+                              href="/evaluation-source/cars"
+                              onClick={() => setIsOpen(false)}
+                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                              aria-disabled={navDisabled}
+                              tabIndex={navDisabled ? -1 : undefined}
+                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                            >
+                              Cars
+                            </Link>
+                            <Link
+                              href="/evaluation-source/real-estate"
+                              onClick={() => setIsOpen(false)}
+                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                              aria-disabled={navDisabled}
+                              tabIndex={navDisabled ? -1 : undefined}
+                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                            >
+                              Real Estate
+                            </Link>
+                            <Link
+                              href="/evaluation-source/other"
+                              onClick={() => setIsOpen(false)}
+                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                              aria-disabled={navDisabled}
+                              tabIndex={navDisabled ? -1 : undefined}
+                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                            >
+                              Other
+                            </Link>
+                          </div>
+                        </details>
                       </div>
                     </details>
                   ) : (

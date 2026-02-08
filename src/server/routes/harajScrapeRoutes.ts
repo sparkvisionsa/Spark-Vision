@@ -30,6 +30,11 @@ export async function listHarajScrapesRoute(request: NextRequest) {
     sort: searchParams.get("sort") ?? undefined,
     page: parseNumber(searchParams.get("page")),
     limit: parseNumber(searchParams.get("limit")),
+    tag0: searchParams.get("tag0") ?? undefined,
+    tag1: searchParams.get("tag1") ?? undefined,
+    tag2: searchParams.get("tag2") ?? undefined,
+    carModelYear: parseNumber(searchParams.get("carModelYear")),
+    excludeTag1: searchParams.get("excludeTag1") ?? undefined,
   };
 
   const data = await listHarajScrapes(query);

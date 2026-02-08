@@ -15,6 +15,11 @@ export type HarajScrapeListQuery = {
   sort?: string;
   page?: number;
   limit?: number;
+  tag0?: string;
+  tag1?: string;
+  tag2?: string;
+  carModelYear?: number;
+  excludeTag1?: string;
 };
 
 const DEFAULT_LIMIT = 25;
@@ -29,16 +34,22 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
   const andFilters: Filter<HarajScrapeDoc>[] = [];
 
   if (query.search) {
-    const searchRegex = toRegex(query.search);
-    andFilters.push({
-      $or: [
-        { title: searchRegex },
-        { "item.title": searchRegex },
-        { "item.bodyTEXT": searchRegex },
-        { phone: searchRegex },
-        { "item.authorUsername": searchRegex },
-      ],
-    });
+    const terms = query.search
+      .split(/\s+/)
+      .map((term) => term.trim())
+      .filter(Boolean);
+    for (const term of terms) {
+      const searchRegex = toRegex(term);
+      andFilters.push({
+        $or: [
+          { title: searchRegex },
+          { "item.title": searchRegex },
+          { "item.bodyTEXT": searchRegex },
+          { "gql.posts.json.data.posts.items.title": searchRegex },
+          { "gql.posts.json.data.posts.items.bodyTEXT": searchRegex },
+        ],
+      });
+    }
   }
 
   if (query.city) {
@@ -112,6 +123,48 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
     }
   }
 
+  if (query.tag0) {
+    andFilters.push({
+      $or: [{ "tags.0": query.tag0 }, { "item.tags.0": query.tag0 }],
+    });
+  }
+
+  if (query.tag1) {
+    const tagRegex = toRegex(query.tag1);
+    andFilters.push({
+      $or: [{ "tags.1": tagRegex }, { "item.tags.1": tagRegex }],
+    });
+  }
+
+  if (query.tag2) {
+    const tagRegex = toRegex(query.tag2);
+    andFilters.push({
+      $or: [{ "tags.2": tagRegex }, { "item.tags.2": tagRegex }],
+    });
+  }
+
+  if (query.excludeTag1) {
+    andFilters.push({
+      $nor: [
+        { "tags.1": query.excludeTag1 },
+        { "item.tags.1": query.excludeTag1 },
+        { "gql.posts.json.data.posts.items.tags.1": query.excludeTag1 },
+      ],
+    });
+  }
+
+  if (query.carModelYear !== undefined) {
+    const yearValues = [query.carModelYear, String(query.carModelYear)];
+    andFilters.push({
+      $or: [
+        { "item.carInfo.model": { $in: yearValues } },
+        { "carInfo.model": { $in: yearValues } },
+        { "gql.posts.json.data.posts.items.0.carInfo.model": { $in: yearValues } },
+        { "gql.posts.json.data.posts.items.carInfo.model": { $in: yearValues } },
+      ],
+    });
+  }
+
   if (andFilters.length > 0) {
     filter.$and = andFilters;
   }
@@ -174,6 +227,9 @@ export async function listHarajScrapes(query: HarajScrapeListQuery) {
         "item.price": 1,
         "item.URL": 1,
         "item.imagesList": 1,
+        "item.carInfo.model": 1,
+        "carInfo.model": 1,
+        "gql.posts.json.data.posts.items.carInfo.model": 1,
       })
       .toArray(),
     collection.countDocuments(filter),
@@ -186,6 +242,11 @@ export async function listHarajScrapes(query: HarajScrapeListQuery) {
       doc.imagesList?.length ??
       0;
     const hasImages = imageCount > 0;
+    const carModelYear =
+      doc.item?.carInfo?.model ??
+      (doc as any)?.carInfo?.model ??
+      (doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.model ??
+      null;
     return {
       id: doc.postId ?? doc._id,
       title: doc.title ?? doc.item?.title ?? "Untitled",
@@ -198,6 +259,7 @@ export async function listHarajScrapes(query: HarajScrapeListQuery) {
       hasVideo: doc.item?.hasVideo ?? doc.hasVideo ?? false,
       commentsCount: doc.commentsCount ?? doc.item?.commentCount ?? 0,
       tags: doc.tags ?? doc.item?.tags ?? [],
+      carModelYear,
       phone: doc.phone ?? "",
       url: doc.url ?? (doc.item?.URL ? `https://haraj.com.sa/${doc.item.URL}` : ""),
     };
