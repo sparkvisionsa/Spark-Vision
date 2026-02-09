@@ -66,6 +66,12 @@ type EvaluationSourceItem = {
   carModelYear: number | null;
   phone: string;
   url: string;
+  source: "haraj" | "yallamotor";
+  priceCompare?: {
+    min?: string | number | null;
+    max?: string | number | null;
+    current?: string | number | null;
+  } | null;
 };
 
 type ListResponse = {
@@ -80,6 +86,7 @@ type EvaluationSourcePageProps = {
   enableBrandFilter?: boolean;
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
+  dataSources?: Array<"haraj" | "yallamotor">;
 };
 
 const animationStyles = `
@@ -107,9 +114,8 @@ const defaultFilters = {
   brand: "",
   model: "",
   modelYear: "",
+  source: "all",
   excludeAccessories: false,
-  minPrice: "",
-  maxPrice: "",
   hasImage: "any",
   hasPrice: "any",
   hasComments: "any",
@@ -132,9 +138,13 @@ const copy = {
       modelPlaceholder: "Type or select model",
       manufactureYear: "Manufacture Year",
       manufactureYearPlaceholder: "Type or select year",
-      priceRange: "Price range",
-      min: "Min",
-      max: "Max",
+      source: "Source",
+      sourcePlaceholder: "All sources",
+      sourceOptions: {
+        all: "All sources",
+        haraj: "Haraj",
+        yallamotor: "Yalla Motor",
+      },
       excludeAccessories: "Exclude Car accessories",
       hasImages: "Has images",
       hasPrice: "Has price",
@@ -158,6 +168,12 @@ const copy = {
       date: "Date",
       images: "Images",
       comments: "Comments",
+      priceCompareLabel: {
+        min: "Min",
+        max: "Max",
+        current: "Current",
+      },
+      noPriceCompare: "No price compare",
       actions: "Actions",
       viewImages: (count: number) => `View images (${count})`,
       noImages: "No images",
@@ -201,10 +217,15 @@ const copy = {
       titleLabel: "Title",
       cityLabel: "City",
       priceLabel: "Price",
+      dateLabel: "Fetched",
+      sectionLabel: "Section",
       phoneLabel: "Phone",
       sourceLabel: "Source",
       openListing: "Open listing",
       anonymous: "Anonymous",
+      featuresTitle: "Features",
+      noFeatures: "No features listed.",
+      priceCompareTitle: "Price compare",
     },
     carInfo: {
       title: "Car info",
@@ -228,9 +249,13 @@ const copy = {
       modelPlaceholder: "اكتب أو اختر الموديل",
       manufactureYear: "سنة الصنع",
       manufactureYearPlaceholder: "اكتب أو اختر السنة",
-      priceRange: "نطاق السعر",
-      min: "الحد الأدنى",
-      max: "الحد الأعلى",
+      source: "المصدر",
+      sourcePlaceholder: "كل المصادر",
+      sourceOptions: {
+        all: "كل المصادر",
+        haraj: "حراج",
+        yallamotor: "يلا موتور",
+      },
       excludeAccessories: "استبعاد قطع الغيار والملحقات",
       hasImages: "مع صور",
       hasPrice: "مع سعر",
@@ -254,6 +279,12 @@ const copy = {
       date: "التاريخ",
       images: "الصور",
       comments: "التعليقات",
+      priceCompareLabel: {
+        min: "الأدنى",
+        max: "الأعلى",
+        current: "الحالي",
+      },
+      noPriceCompare: "لا توجد مقارنة سعر",
       actions: "الإجراءات",
       viewImages: (count: number) => `عرض الصور (${count})`,
       noImages: "بدون صور",
@@ -297,10 +328,15 @@ const copy = {
       titleLabel: "العنوان",
       cityLabel: "المدينة",
       priceLabel: "السعر",
+      dateLabel: "تاريخ الجلب",
+      sectionLabel: "القسم",
       phoneLabel: "الهاتف",
       sourceLabel: "المصدر",
       openListing: "فتح الإعلان",
       anonymous: "مجهول",
+      featuresTitle: "الميزات",
+      noFeatures: "لا توجد ميزات.",
+      priceCompareTitle: "مقارنة السعر",
     },
     carInfo: {
       title: "معلومات السيارة",
@@ -311,9 +347,22 @@ const copy = {
   },
 } as const;
 
-function formatEpoch(value: number | null) {
+function formatEpoch(value: number | string | Date | null) {
   if (!value) return "-";
-  const asDate = value > 1_000_000_000_000 ? new Date(value) : new Date(value * 1000);
+
+  if (typeof value === "object" && value !== null && "$date" in value) {
+    return formatEpoch((value as { $date?: string }).$date ?? null);
+  }
+
+  const asDate =
+    value instanceof Date
+      ? value
+      : typeof value === "string"
+        ? new Date(value)
+        : value > 1_000_000_000_000
+          ? new Date(value)
+          : new Date(value * 1000);
+
   if (Number.isNaN(asDate.getTime())) return "-";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -337,10 +386,17 @@ export default function EvaluationSourcePage({
   enableBrandFilter = false,
   enableModelFilter = false,
   enableModelYearFilter = false,
+  dataSources,
 }: EvaluationSourcePageProps) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "en";
   const t = language === "ar" ? copy.ar : copy.en;
+  const resolvedSources = useMemo(
+    () => (dataSources?.length ? dataSources : ["haraj"]),
+    [dataSources]
+  );
+  const useCombinedSources = resolvedSources.length > 1 || resolvedSources[0] !== "haraj";
+  const listEndpoint = useCombinedSources ? "/api/cars-sources" : "/api/haraj-scrape";
   const [filters, setFilters] = useState(defaultFilters);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
@@ -355,6 +411,9 @@ export default function EvaluationSourcePage({
   const [modalStatus, setModalStatus] = useState<"idle" | "loading" | "error">("idle");
   const [modalImages, setModalImages] = useState<string[]>([]);
   const [modalComments, setModalComments] = useState<Array<Record<string, any>>>([]);
+  const [commentsMode, setCommentsMode] = useState<"comments" | "priceCompare">("comments");
+  const [modalPriceCompare, setModalPriceCompare] =
+    useState<EvaluationSourceItem["priceCompare"] | null>(null);
 
   const updateFilters = (updates: Partial<typeof defaultFilters>) => {
     setFilters((prev) => ({ ...prev, ...updates }));
@@ -365,13 +424,22 @@ export default function EvaluationSourcePage({
     const params = new URLSearchParams();
     if (filters.search) params.set("search", filters.search);
     if (filters.city) params.set("city", filters.city);
-    if (filters.minPrice) params.set("minPrice", filters.minPrice);
-    if (filters.maxPrice) params.set("maxPrice", filters.maxPrice);
     if (filters.hasImage !== "any") params.set("hasImage", filters.hasImage);
     if (filters.hasPrice !== "any") params.set("hasPrice", filters.hasPrice);
     if (filters.hasComments !== "any") params.set("hasComments", filters.hasComments);
     if (filters.sort) params.set("sort", filters.sort);
     if (tag0) params.set("tag0", tag0);
+    if (useCombinedSources) {
+      const selectedSource = filters.source?.trim();
+      const availableSources = resolvedSources;
+      const sourcesParam =
+        !selectedSource || selectedSource === "all"
+          ? availableSources
+          : availableSources.includes(selectedSource as "haraj" | "yallamotor")
+            ? [selectedSource]
+            : availableSources;
+      params.set("sources", sourcesParam.join(","));
+    }
     if (enableBrandFilter && filters.brand) params.set("tag1", filters.brand);
     if (enableModelFilter && filters.model) params.set("tag2", filters.model);
     if (enableModelYearFilter && filters.modelYear) params.set("carModelYear", filters.modelYear);
@@ -379,7 +447,17 @@ export default function EvaluationSourcePage({
     params.set("page", String(page));
     params.set("limit", String(limit));
     return params.toString();
-  }, [filters, page, limit, tag0, enableBrandFilter, enableModelFilter, enableModelYearFilter]);
+  }, [
+    filters,
+    page,
+    limit,
+    tag0,
+    enableBrandFilter,
+    enableModelFilter,
+    enableModelYearFilter,
+    useCombinedSources,
+    resolvedSources,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -387,7 +465,7 @@ export default function EvaluationSourcePage({
       setStatus("loading");
       setError(null);
       try {
-        const response = await fetch(`/api/haraj-scrape?${queryString}`, {
+        const response = await fetch(`${listEndpoint}?${queryString}`, {
           cache: "no-store",
         });
         if (!response.ok) {
@@ -410,7 +488,7 @@ export default function EvaluationSourcePage({
     return () => {
       active = false;
     };
-  }, [queryString]);
+  }, [queryString, listEndpoint]);
 
   const items = data?.items ?? [];
   const totalPages = Math.max(Math.ceil((data?.total ?? 0) / limit), 1);
@@ -428,6 +506,16 @@ export default function EvaluationSourcePage({
       )
     ).sort();
   }, [items]);
+
+  const sourceOptions = useMemo(() => {
+    const map = {
+      all: t.filters.sourceOptions.all,
+      haraj: t.filters.sourceOptions.haraj,
+      yallamotor: t.filters.sourceOptions.yallamotor,
+    } as const;
+    const options = resolvedSources.filter((source) => source in map);
+    return ["all", ...options] as Array<keyof typeof map>;
+  }, [resolvedSources, t.filters.sourceOptions]);
 
   const modelOptions = useMemo(() => {
     const selectedBrand = normalizeTag(filters.brand);
@@ -484,22 +572,25 @@ export default function EvaluationSourcePage({
     }
   }, [filters.modelYear, enableModelYearFilter, modelYearOptions]);
 
-  const fetchDetail = async (itemId: string) => {
-    const response = await fetch(`/api/haraj-scrape/${encodeURIComponent(itemId)}`, {
+  const fetchDetail = async (item: EvaluationSourceItem) => {
+    const source = item.source ?? "haraj";
+    const endpoint = source === "yallamotor" ? "/api/yallamotor-scrape" : "/api/haraj-scrape";
+    const response = await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
       cache: "no-store",
     });
     if (!response.ok) {
       throw new Error("Unable to load document details.");
     }
-    return (await response.json()) as Record<string, any>;
+    const doc = (await response.json()) as Record<string, any>;
+    return { ...doc, __source: source } as Record<string, any>;
   };
 
-  const openDetails = async (itemId: string) => {
+  const openDetails = async (item: EvaluationSourceItem) => {
     setDetailOpen(true);
     setDetailStatus("loading");
     setDetail(null);
     try {
-      const doc = await fetchDetail(itemId);
+      const doc = await fetchDetail(item);
       setDetail(doc);
       setDetailStatus("idle");
     } catch (err) {
@@ -507,13 +598,16 @@ export default function EvaluationSourcePage({
     }
   };
 
-  const openImages = async (itemId: string) => {
+  const openImages = async (item: EvaluationSourceItem) => {
     setImagesOpen(true);
     setModalStatus("loading");
     setModalImages([]);
     try {
-      const doc = await fetchDetail(itemId);
-      const images = (doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[];
+      const doc = (await fetchDetail(item)) as Record<string, any>;
+      const images =
+        item.source === "yallamotor"
+          ? ((doc?.detail?.images ?? doc?.images ?? []) as string[])
+          : ((doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[]);
       setModalImages(images);
       setModalStatus("idle");
     } catch (err) {
@@ -521,12 +615,22 @@ export default function EvaluationSourcePage({
     }
   };
 
-  const openComments = async (itemId: string) => {
+  const openComments = async (item: EvaluationSourceItem) => {
+    if (item.source === "yallamotor") {
+      setCommentsOpen(true);
+      setCommentsMode("priceCompare");
+      setModalStatus("idle");
+      setModalComments([]);
+      setModalPriceCompare(item.priceCompare ?? null);
+      return;
+    }
     setCommentsOpen(true);
+    setCommentsMode("comments");
     setModalStatus("loading");
     setModalComments([]);
+    setModalPriceCompare(null);
     try {
-      const doc = await fetchDetail(itemId);
+      const doc = (await fetchDetail(item)) as Record<string, any>;
       const comments =
         (doc?.comments ??
           doc?.gql?.comments?.json?.data?.comments?.items ??
@@ -538,19 +642,119 @@ export default function EvaluationSourcePage({
     }
   };
 
-  const detailImages = (detail?.item?.imagesList ?? []) as string[];
-  const detailTags = (detail?.tags ?? detail?.item?.tags ?? []) as string[];
-  const detailComments = (detail?.comments ?? []) as Array<Record<string, any>>;
-  const carInfo = (detail?.item?.carInfo ??
-    detail?.carInfo ??
-    detail?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo ??
-    null) as Record<string, any> | null;
-  const carMileage = carInfo?.mileage ?? null;
+  const detailSource = (detail as any)?.__source ?? (detail as any)?.source ?? "haraj";
+  const isYallaDetail = detailSource === "yallamotor";
+  const detailImages = (isYallaDetail
+    ? detail?.detail?.images ?? detail?.images ?? []
+    : detail?.item?.imagesList ?? detail?.imagesList ?? []) as string[];
+  const detailTags = (isYallaDetail
+    ? detail?.detail?.breadcrumb ?? detail?.breadcrumb ?? []
+    : detail?.tags ?? detail?.item?.tags ?? []) as string[];
+  const detailComments = (isYallaDetail
+    ? []
+    : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>;
+  const carInfo = (isYallaDetail
+    ? detail?.detail?.importantSpecs
+    : detail?.item?.carInfo ??
+      detail?.carInfo ??
+      detail?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo ??
+      null) as Record<string, any> | null;
+  const carMileage = !isYallaDetail ? (carInfo as any)?.mileage ?? null : null;
   const carInfoEntries =
     carInfo && typeof carInfo === "object" && !Array.isArray(carInfo)
       ? Object.entries(carInfo).filter(
-          ([key, value]) => key !== "mileage" && value !== null && value !== undefined && value !== ""
+          ([key, value]) =>
+            (isYallaDetail ? true : key !== "mileage") &&
+            value !== null &&
+            value !== undefined &&
+            value !== ""
         )
+      : [];
+  const detailFeatures = (isYallaDetail ? detail?.detail?.features ?? [] : []) as string[];
+  const detailPriceCompare = isYallaDetail ? detail?.detail?.priceCompare ?? detail?.priceCompare ?? null : null;
+  const detailNotes = isYallaDetail
+    ? detail?.detail?.description ?? t.modals.noDescription
+    : detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? t.modals.noDescription;
+  const normalizedDetailTags = detailTags.filter((tag): tag is string => Boolean(tag));
+  const normalizedFeatures = detailFeatures.filter((feature) => Boolean(feature));
+  const priceCompareEntries = detailPriceCompare
+    ? [
+        { label: t.table.priceCompareLabel.min, value: detailPriceCompare.min ?? "-" },
+        { label: t.table.priceCompareLabel.max, value: detailPriceCompare.max ?? "-" },
+        { label: t.table.priceCompareLabel.current, value: detailPriceCompare.current ?? "-" },
+      ]
+    : [];
+  const detailUrl = detail?.url ?? detail?.detail?.url ?? "";
+  const summarySourceValue = detailUrl ? (
+    <a
+      href={detailUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium text-slate-900 hover:text-slate-950"
+    >
+      {t.modals.openListing} <ArrowUpRight className="h-3 w-3" />
+    </a>
+  ) : (
+    <span className="font-medium text-slate-900">-</span>
+  );
+  const summaryItems =
+    detail && detailStatus === "idle"
+      ? isYallaDetail
+        ? [
+            {
+              label: t.modals.titleLabel,
+              value: detail?.cardTitle ?? detail?.detail?.breadcrumb?.slice(-1)?.[0] ?? "-",
+            },
+            {
+              label: t.modals.cityLabel,
+              value: detail?.detail?.breadcrumb?.[2] ?? "-",
+            },
+            {
+              label: t.modals.priceLabel,
+              value: detail?.cardPriceText ?? "-",
+            },
+            {
+              label: t.modals.dateLabel,
+              value: formatEpoch(detail?.fetchedAt ?? detail?.detailScrapedAt ?? null),
+            },
+            ...(detail?.sectionLabel
+              ? [
+                  {
+                    label: t.modals.sectionLabel,
+                    value: detail.sectionLabel,
+                  },
+                ]
+              : []),
+            {
+              label: t.modals.sourceLabel,
+              value: summarySourceValue,
+            },
+          ]
+        : [
+            {
+              label: t.modals.titleLabel,
+              value: detail?.title ?? detail?.item?.title ?? "-",
+            },
+            {
+              label: t.modals.cityLabel,
+              value: detail?.city ?? detail?.item?.city ?? detail?.item?.geoCity ?? "-",
+            },
+            {
+              label: t.modals.priceLabel,
+              value: formatPrice(
+                detail?.priceNumeric ?? detail?.item?.price?.numeric ?? null,
+                detail?.item?.price?.formattedPrice ?? null
+              ),
+            },
+            {
+              label: t.modals.phoneLabel,
+              value: detail?.phone ?? "-",
+            },
+            {
+              label: t.modals.sourceLabel,
+              value: summarySourceValue,
+            },
+          ]
       : [];
 
   return (
@@ -603,209 +807,218 @@ export default function EvaluationSourcePage({
               </div>
 
               <div className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]">
-                <div className="grid gap-[1px] overflow-hidden rounded-[15px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
-                  <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                    <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                      {t.filters.search}
-                    </Label>
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <Input
-                        value={filters.search}
-                        onChange={(event) => updateFilters({ search: event.target.value })}
-                        placeholder={t.filters.searchPlaceholder}
-                        className="h-9 pl-8 text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                    <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                      {t.filters.city}
-                    </Label>
-                    <div className="relative flex-1">
-                      <MapPin className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <Input
-                        list="city-options"
-                        value={filters.city}
-                        onChange={(event) => updateFilters({ city: event.target.value })}
-                        placeholder={t.filters.cityPlaceholder}
-                        className="h-9 pl-8 text-sm"
-                      />
-                      <datalist id="city-options">
-                        {cityOptions.map((city) => (
-                          <option key={city} value={city} />
-                        ))}
-                      </datalist>
-                    </div>
-                  </div>
-                  {enableBrandFilter ? (
+                <div className="overflow-hidden rounded-[15px] bg-slate-200/70">
+                  <div className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
                       <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                        {t.filters.brand}
+                        {t.filters.search}
                       </Label>
                       <div className="relative flex-1">
-                        <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                         <Input
-                          list="brand-options"
-                          value={filters.brand}
-                          onChange={(event) => updateFilters({ brand: event.target.value })}
-                          placeholder={t.filters.brandPlaceholder}
+                          value={filters.search}
+                          onChange={(event) => updateFilters({ search: event.target.value })}
+                          placeholder={t.filters.searchPlaceholder}
                           className="h-9 pl-8 text-sm"
                         />
-                        <datalist id="brand-options">
-                          {brandOptions.map((brand) => (
-                            <option key={brand} value={brand} />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                      <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                        {t.filters.city}
+                      </Label>
+                      <div className="relative flex-1">
+                        <MapPin className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Input
+                          list="city-options"
+                          value={filters.city}
+                          onChange={(event) => updateFilters({ city: event.target.value })}
+                          placeholder={t.filters.cityPlaceholder}
+                          className="h-9 pl-8 text-sm"
+                        />
+                        <datalist id="city-options">
+                          {cityOptions.map((city) => (
+                            <option key={city} value={city} />
                           ))}
                         </datalist>
                       </div>
                     </div>
-                  ) : null}
-                  {enableModelFilter ? (
-                    <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                      <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                        {t.filters.model}
-                      </Label>
-                      <div className="relative flex-1">
-                        <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <Input
-                          list="model-options"
-                          value={filters.model}
-                          onChange={(event) => updateFilters({ model: event.target.value })}
-                          placeholder={t.filters.modelPlaceholder}
-                          className="h-9 pl-8 text-sm"
-                        />
-                        <datalist id="model-options">
-                          {modelOptions.map((model) => (
-                            <option key={model} value={model} />
-                          ))}
-                        </datalist>
+                    {enableBrandFilter ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                          {t.filters.brand}
+                        </Label>
+                        <div className="relative flex-1">
+                          <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <Input
+                            list="brand-options"
+                            value={filters.brand}
+                            onChange={(event) => updateFilters({ brand: event.target.value })}
+                            placeholder={t.filters.brandPlaceholder}
+                            className="h-9 pl-8 text-sm"
+                          />
+                          <datalist id="brand-options">
+                            {brandOptions.map((brand) => (
+                              <option key={brand} value={brand} />
+                            ))}
+                          </datalist>
+                        </div>
+                      </div>
+                    ) : null}
+                    {enableModelFilter ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                          {t.filters.model}
+                        </Label>
+                        <div className="relative flex-1">
+                          <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <Input
+                            list="model-options"
+                            value={filters.model}
+                            onChange={(event) => updateFilters({ model: event.target.value })}
+                            placeholder={t.filters.modelPlaceholder}
+                            className="h-9 pl-8 text-sm"
+                          />
+                          <datalist id="model-options">
+                            {modelOptions.map((model) => (
+                              <option key={model} value={model} />
+                            ))}
+                          </datalist>
+                        </div>
+                      </div>
+                    ) : null}
+                    {enableModelYearFilter ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                          {t.filters.manufactureYear}
+                        </Label>
+                        <div className="relative flex-1">
+                          <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <Input
+                            list="model-year-options"
+                            value={filters.modelYear}
+                            onChange={(event) => updateFilters({ modelYear: event.target.value })}
+                            placeholder={t.filters.manufactureYearPlaceholder}
+                            className="h-9 pl-8 text-sm"
+                          />
+                          <datalist id="model-year-options">
+                            {modelYearOptions.map((year) => (
+                              <option key={year} value={year} />
+                            ))}
+                          </datalist>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-6">
+                    <div className="bg-white/95 px-2 py-2 lg:col-span-4">
+                      <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-4">
+                        <button
+                          type="button"
+                          aria-pressed={filters.excludeAccessories}
+                          onClick={() => updateFilters({ excludeAccessories: !filters.excludeAccessories })}
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
+                            filters.excludeAccessories
+                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                              : "bg-white text-slate-500 hover:text-emerald-600"
+                          }`}
+                        >
+                          {filters.excludeAccessories ? <Check className="h-3.5 w-3.5" /> : null}
+                          {t.filters.excludeAccessories}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={filters.hasImage === "true"}
+                          onClick={() =>
+                            updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
+                          }
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
+                            filters.hasImage === "true"
+                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                              : "bg-white text-slate-500 hover:text-emerald-600"
+                          }`}
+                        >
+                          {filters.hasImage === "true" ? <Check className="h-3.5 w-3.5" /> : null}
+                          {t.filters.hasImages}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={filters.hasPrice === "true"}
+                          onClick={() =>
+                            updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
+                          }
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
+                            filters.hasPrice === "true"
+                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                              : "bg-white text-slate-500 hover:text-emerald-600"
+                          }`}
+                        >
+                          {filters.hasPrice === "true" ? <Check className="h-3.5 w-3.5" /> : null}
+                          {t.filters.hasPrice}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={filters.hasComments === "true"}
+                          onClick={() =>
+                            updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
+                          }
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
+                            filters.hasComments === "true"
+                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                              : "bg-white text-slate-500 hover:text-emerald-600"
+                          }`}
+                        >
+                          {filters.hasComments === "true" ? <Check className="h-3.5 w-3.5" /> : null}
+                          {t.filters.hasComments}
+                        </button>
                       </div>
                     </div>
-                  ) : null}
-                  {enableModelYearFilter ? (
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
                       <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                        {t.filters.manufactureYear}
+                        {t.filters.sortBy}
                       </Label>
-                      <div className="relative flex-1">
-                        <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <Input
-                          list="model-year-options"
-                          value={filters.modelYear}
-                          onChange={(event) => updateFilters({ modelYear: event.target.value })}
-                          placeholder={t.filters.manufactureYearPlaceholder}
-                          className="h-9 pl-8 text-sm"
-                        />
-                        <datalist id="model-year-options">
-                          {modelYearOptions.map((year) => (
-                            <option key={year} value={year} />
-                          ))}
-                        </datalist>
+                      <div className="flex-1">
+                        <Select
+                          value={filters.sort}
+                          onValueChange={(value) => updateFilters({ sort: value })}
+                        >
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder={t.filters.sortOptions.newest} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="newest">{t.filters.sortOptions.newest}</SelectItem>
+                            <SelectItem value="oldest">{t.filters.sortOptions.oldest}</SelectItem>
+                            <SelectItem value="price-high">{t.filters.sortOptions.priceHigh}</SelectItem>
+                            <SelectItem value="price-low">{t.filters.sortOptions.priceLow}</SelectItem>
+                            <SelectItem value="comments">{t.filters.sortOptions.comments}</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                  ) : null}
-                  <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                    <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                      {t.filters.priceRange}
-                    </Label>
-                    <div className="grid flex-1 grid-cols-2 gap-1">
-                      <Input
-                        value={filters.minPrice}
-                        onChange={(event) => updateFilters({ minPrice: event.target.value })}
-                        placeholder={t.filters.min}
-                        className="h-9 text-sm"
-                      />
-                      <Input
-                        value={filters.maxPrice}
-                        onChange={(event) => updateFilters({ maxPrice: event.target.value })}
-                        placeholder={t.filters.max}
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="bg-white/95 px-2 py-2 lg:col-span-3">
-                    <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-4">
-                      <button
-                        type="button"
-                        aria-pressed={filters.excludeAccessories}
-                        onClick={() => updateFilters({ excludeAccessories: !filters.excludeAccessories })}
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                          filters.excludeAccessories
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
-                      >
-                        {filters.excludeAccessories ? <Check className="h-3.5 w-3.5" /> : null}
-                        {t.filters.excludeAccessories}
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={filters.hasImage === "true"}
-                        onClick={() =>
-                          updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
-                        }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                          filters.hasImage === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
-                      >
-                        {filters.hasImage === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                        {t.filters.hasImages}
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={filters.hasPrice === "true"}
-                        onClick={() =>
-                          updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
-                        }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                          filters.hasPrice === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
-                      >
-                        {filters.hasPrice === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                        {t.filters.hasPrice}
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={filters.hasComments === "true"}
-                        onClick={() =>
-                          updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
-                        }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                          filters.hasComments === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
-                      >
-                        {filters.hasComments === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                        {t.filters.hasComments}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                    <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
-                      {t.filters.sortBy}
-                    </Label>
-                    <div className="flex-1">
-                      <Select
-                        value={filters.sort}
-                        onValueChange={(value) => updateFilters({ sort: value })}
-                      >
-                        <SelectTrigger className="h-9 text-sm">
-                          <SelectValue placeholder={t.filters.sortOptions.newest} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="newest">{t.filters.sortOptions.newest}</SelectItem>
-                          <SelectItem value="oldest">{t.filters.sortOptions.oldest}</SelectItem>
-                          <SelectItem value="price-high">{t.filters.sortOptions.priceHigh}</SelectItem>
-                          <SelectItem value="price-low">{t.filters.sortOptions.priceLow}</SelectItem>
-                          <SelectItem value="comments">{t.filters.sortOptions.comments}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {useCombinedSources ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                          {t.filters.source}
+                        </Label>
+                        <div className="flex-1">
+                          <Select
+                            value={filters.source}
+                            onValueChange={(value) => updateFilters({ source: value })}
+                          >
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder={t.filters.sourcePlaceholder} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sourceOptions.map((source) => (
+                                <SelectItem key={source} value={source}>
+                                  {t.filters.sourceOptions[source]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -872,7 +1085,7 @@ export default function EvaluationSourcePage({
                             <div className="space-y-1">
                               <button
                                 type="button"
-                                onClick={() => openDetails(item.id)}
+                                onClick={() => openDetails(item)}
                                 className="group inline-flex max-w-[280px] items-start rounded-md px-1 py-0.5 text-left rtl:text-right text-slate-900 transition-all hover:bg-emerald-50/70 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-white group-hover:scale-[1.02]"
                               >
                                 <span className="line-clamp-2 underline decoration-transparent decoration-2 underline-offset-4 transition-colors group-hover:decoration-emerald-300">
@@ -896,7 +1109,7 @@ export default function EvaluationSourcePage({
                             {item.imagesCount > 0 ? (
                               <button
                                 type="button"
-                                onClick={() => openImages(item.id)}
+                                onClick={() => openImages(item)}
                                 className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                               >
                                 <ImageIcon className="h-3 w-3" />
@@ -910,10 +1123,18 @@ export default function EvaluationSourcePage({
                             )}
                           </TableCell>
                           <TableCell className="text-xs text-slate-600">
-                            {item.commentsCount > 0 ? (
+                            {item.source === "yallamotor" ? (
                               <button
                                 type="button"
-                                onClick={() => openComments(item.id)}
+                                onClick={() => openComments(item)}
+                                className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                              >
+                                {t.modals.priceCompareTitle}
+                              </button>
+                            ) : item.commentsCount > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => openComments(item)}
                                 className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                               >
                                 {t.table.commentsCount(item.commentsCount)}
@@ -929,22 +1150,29 @@ export default function EvaluationSourcePage({
                               <Button
                                 size="sm"
                                 className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
-                                onClick={() => openDetails(item.id)}
+                                onClick={() => openDetails(item)}
                               >
                                 <Eye className="h-4 w-4" />
                                 {t.table.seeMore}
                               </Button>
-                              {item.url ? (
-                                <a
-                                  href={item.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
-                                >
-                                  {t.table.openSource}
-                                  <ArrowUpRight className="h-3 w-3" />
-                                </a>
-                              ) : null}
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                                  {item.source}
+                                </span>
+                                {item.url ? (
+                                  <a
+                                    href={item.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 hover:text-slate-900"
+                                  >
+                                    {t.table.openSource}
+                                    <ArrowUpRight className="h-3 w-3" />
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400">-</span>
+                                )}
+                              </div>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1015,6 +1243,22 @@ export default function EvaluationSourcePage({
                   </div>
                 ) : modalStatus === "error" ? (
                   <p className="text-sm text-rose-500">{t.modals.unableComments}</p>
+                ) : commentsMode === "priceCompare" ? (
+                  <div className="space-y-3">
+                    {[
+                      { label: t.table.priceCompareLabel.min, value: modalPriceCompare?.min ?? "-" },
+                      { label: t.table.priceCompareLabel.max, value: modalPriceCompare?.max ?? "-" },
+                      { label: t.table.priceCompareLabel.current, value: modalPriceCompare?.current ?? "-" },
+                    ].map((entry) => (
+                      <div
+                        key={entry.label}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                      >
+                        <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{entry.label}</span>
+                        <span className="font-medium">{String(entry.value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 ) : modalComments.length === 0 ? (
                   <p className="text-sm text-slate-500">{t.modals.noComments}</p>
                 ) : (
@@ -1063,10 +1307,12 @@ export default function EvaluationSourcePage({
                         <p className="mt-3 text-xs text-slate-500">{t.carInfo.empty}</p>
                       ) : (
                         <div className="mt-3 space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                            <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{t.carInfo.mileage}</span>
-                            <span className="font-medium">{carMileage ?? "-"}</span>
-                          </div>
+                          {!isYallaDetail ? (
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                              <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{t.carInfo.mileage}</span>
+                              <span className="font-medium">{carMileage ?? "-"}</span>
+                            </div>
+                          ) : null}
                           {carInfoEntries.map(([key, value]) => (
                             <div
                               key={key}
@@ -1097,53 +1343,44 @@ export default function EvaluationSourcePage({
                     ) : detail ? (
                       <div className="mt-4">
                         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
-                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
-                            <span className="text-xs text-slate-400">{t.modals.titleLabel}</span>
-                            <span className="font-medium text-slate-900">{detail?.title ?? detail?.item?.title ?? "-"}</span>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
-                            <span className="text-xs text-slate-400">{t.modals.cityLabel}</span>
-                            <span className="font-medium text-slate-900">
-                              {detail?.city ?? detail?.item?.city ?? detail?.item?.geoCity ?? "-"}
-                            </span>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
-                            <span className="text-xs text-slate-400">{t.modals.priceLabel}</span>
-                            <span className="font-medium text-slate-900">
-                              {formatPrice(detail?.priceNumeric ?? detail?.item?.price?.numeric ?? null, detail?.item?.price?.formattedPrice ?? null)}
-                            </span>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
-                            <span className="text-xs text-slate-400">{t.modals.phoneLabel}</span>
-                            <span className="font-medium text-slate-900">{detail?.phone ?? "-"}</span>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
-                            <span className="text-xs text-slate-400">{t.modals.sourceLabel}</span>
-                            {detail?.url ? (
-                              <a
-                                href={detail.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 font-medium text-slate-900 hover:text-slate-950"
-                              >
-                                {t.modals.openListing} <ArrowUpRight className="h-3 w-3" />
-                              </a>
-                            ) : (
-                              <span className="font-medium text-slate-900">-</span>
-                            )}
-                          </div>
+                          {summaryItems.map((item) => (
+                            <div
+                              key={item.label}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1"
+                            >
+                              <span className="text-xs text-slate-400">{item.label}</span>
+                              <span className="font-medium text-slate-900">{item.value}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     ) : null}
                   </div>
 
+                  {isYallaDetail && priceCompareEntries.length > 0 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.priceCompareTitle}</p>
+                      <div className="mt-3 space-y-2">
+                        {priceCompareEntries.map((entry) => (
+                          <div
+                            key={entry.label}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                          >
+                            <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{entry.label}</span>
+                            <span className="font-medium">{String(entry.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.tags}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {detailTags.length === 0 ? (
+                      {normalizedDetailTags.length === 0 ? (
                         <span className="text-xs text-slate-500">{t.modals.noTags}</span>
                       ) : (
-                        detailTags.map((tag) => (
+                        normalizedDetailTags.map((tag) => (
                           <span key={tag} className="rounded-full bg-slate-900/10 px-3 py-1 text-[11px] text-slate-700">
                             {tag}
                           </span>
@@ -1155,28 +1392,46 @@ export default function EvaluationSourcePage({
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.notes}</p>
                     <p className="mt-3 text-sm text-slate-600 whitespace-pre-line">
-                      {detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? t.modals.noDescription}
+                      {detailNotes}
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.commentsSection}</p>
-                    <div className="mt-3 space-y-3">
-                      {detailComments.length === 0 ? (
-                        <span className="text-xs text-slate-500">{t.modals.noComments}</span>
-                      ) : (
-                        detailComments.slice(0, 6).map((comment, index) => (
-                          <div
-                            key={`${comment.id ?? index}`}
-                            className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+                  {isYallaDetail && normalizedFeatures.length > 0 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.featuresTitle}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {normalizedFeatures.map((feature) => (
+                          <span
+                            key={feature}
+                            className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] text-emerald-700"
                           >
-                            <p className="text-xs text-slate-400">{comment.authorUsername ?? t.modals.anonymous}</p>
-                            <p className="mt-1 whitespace-pre-line">{comment.body ?? "-"}</p>
-                          </div>
-                        ))
-                      )}
+                            {feature}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
+
+                  {!isYallaDetail ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.commentsSection}</p>
+                      <div className="mt-3 space-y-3">
+                        {detailComments.length === 0 ? (
+                          <span className="text-xs text-slate-500">{t.modals.noComments}</span>
+                        ) : (
+                          detailComments.slice(0, 6).map((comment, index) => (
+                            <div
+                              key={`${comment.id ?? index}`}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600"
+                            >
+                              <p className="text-xs text-slate-400">{comment.authorUsername ?? t.modals.anonymous}</p>
+                              <p className="mt-1 whitespace-pre-line">{comment.body ?? "-"}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </ScrollArea>

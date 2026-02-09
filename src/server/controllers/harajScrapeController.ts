@@ -25,6 +25,10 @@ export type HarajScrapeListQuery = {
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
 
+type ListOptions = {
+  maxLimit?: number;
+};
+
 function toRegex(value: string) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 }
@@ -187,11 +191,15 @@ function buildSort(sort?: string): Sort {
   }
 }
 
-export async function listHarajScrapes(query: HarajScrapeListQuery) {
+export async function listHarajScrapes(
+  query: HarajScrapeListQuery,
+  options: ListOptions = {}
+) {
   const db = await getMongoDb();
   const collection = getHarajScrapeCollection(db);
 
-  const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const maxLimit = options.maxLimit ?? MAX_LIMIT;
+  const limit = Math.min(query.limit ?? DEFAULT_LIMIT, maxLimit);
   const page = Math.max(query.page ?? 1, 1);
   const filter = buildFilter(query);
   const sort = buildSort(query.sort);
@@ -262,6 +270,7 @@ export async function listHarajScrapes(query: HarajScrapeListQuery) {
       carModelYear,
       phone: doc.phone ?? "",
       url: doc.url ?? (doc.item?.URL ? `https://haraj.com.sa/${doc.item.URL}` : ""),
+      source: "haraj",
     };
   });
 
