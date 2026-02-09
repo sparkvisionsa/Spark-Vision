@@ -1037,8 +1037,8 @@ export default function EvaluationSourcePage({
               <p className="text-sm text-slate-500">{t.modals.detailSubtitle}</p>
             </DialogHeader>
             <ScrollArea className="max-h-[80vh]">
-              <div className="grid gap-6 p-6 lg:grid-cols-[30%_70%]">
-                <div className="space-y-4">
+              <div className="grid gap-6 p-4 sm:p-6 grid-cols-1 lg:grid-cols-[minmax(0,30%)_minmax(0,70%)]">
+                <div className="min-w-0 space-y-4">
                   <div className="rounded-3xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-lg">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.imagesSection}</p>
                     <div className="mt-4 max-h-[45vh] space-y-3 overflow-y-auto pr-2">
@@ -1084,7 +1084,7 @@ export default function EvaluationSourcePage({
                   ) : null}
                 </div>
 
-                <div className="space-y-4">
+                <div className="min-w-0 space-y-4">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.summary}</p>
                     {detailStatus === "loading" ? (
@@ -1095,8 +1095,8 @@ export default function EvaluationSourcePage({
                     ) : detailStatus === "error" ? (
                       <p className="mt-3 text-sm text-rose-500">{t.modals.unableDetails}</p>
                     ) : detail ? (
-                      <div className="mt-4 overflow-x-auto">
-                        <div className="flex items-center gap-4 text-sm text-slate-700 whitespace-nowrap">
+                      <div className="mt-4">
+                        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
                           <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
                             <span className="text-xs text-slate-400">{t.modals.titleLabel}</span>
                             <span className="font-medium text-slate-900">{detail?.title ?? detail?.item?.title ?? "-"}</span>
