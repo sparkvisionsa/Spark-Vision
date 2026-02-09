@@ -391,6 +391,7 @@ export default function EvaluationSourcePage({
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "en";
   const t = language === "ar" ? copy.ar : copy.en;
+  const isArabic = language === "ar";
   const resolvedSources = useMemo(
     () => (dataSources?.length ? dataSources : ["haraj"]),
     [dataSources]
@@ -810,7 +811,7 @@ export default function EvaluationSourcePage({
                 <div className="overflow-hidden rounded-[15px] bg-slate-200/70">
                   <div className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                      <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                    <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
                       </Label>
                       <div className="relative flex-1">
@@ -824,7 +825,7 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                      <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                    <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.city}
                       </Label>
                       <div className="relative flex-1">
@@ -845,7 +846,7 @@ export default function EvaluationSourcePage({
                     </div>
                     {enableBrandFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                           {t.filters.brand}
                         </Label>
                         <div className="relative flex-1">
@@ -867,7 +868,7 @@ export default function EvaluationSourcePage({
                     ) : null}
                     {enableModelFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                           {t.filters.model}
                         </Label>
                         <div className="relative flex-1">
@@ -889,7 +890,7 @@ export default function EvaluationSourcePage({
                     ) : null}
                     {enableModelYearFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                           {t.filters.manufactureYear}
                         </Label>
                         <div className="relative flex-1">
@@ -917,11 +918,11 @@ export default function EvaluationSourcePage({
                           type="button"
                           aria-pressed={filters.excludeAccessories}
                           onClick={() => updateFilters({ excludeAccessories: !filters.excludeAccessories })}
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                            filters.excludeAccessories
-                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                              : "bg-white text-slate-500 hover:text-emerald-600"
-                          }`}
+                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          filters.excludeAccessories
+                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                            : "bg-white text-slate-500 hover:text-emerald-600"
+                        }`}
                         >
                           {filters.excludeAccessories ? <Check className="h-3.5 w-3.5" /> : null}
                           {t.filters.excludeAccessories}
@@ -932,11 +933,11 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                            filters.hasImage === "true"
-                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                              : "bg-white text-slate-500 hover:text-emerald-600"
-                          }`}
+                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          filters.hasImage === "true"
+                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                            : "bg-white text-slate-500 hover:text-emerald-600"
+                        }`}
                         >
                           {filters.hasImage === "true" ? <Check className="h-3.5 w-3.5" /> : null}
                           {t.filters.hasImages}
@@ -947,11 +948,11 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                            filters.hasPrice === "true"
-                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                              : "bg-white text-slate-500 hover:text-emerald-600"
-                          }`}
+                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          filters.hasPrice === "true"
+                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                            : "bg-white text-slate-500 hover:text-emerald-600"
+                        }`}
                         >
                           {filters.hasPrice === "true" ? <Check className="h-3.5 w-3.5" /> : null}
                           {t.filters.hasPrice}
@@ -962,11 +963,11 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-[10px] uppercase tracking-[0.24em] transition ${
-                            filters.hasComments === "true"
-                              ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                              : "bg-white text-slate-500 hover:text-emerald-600"
-                          }`}
+                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          filters.hasComments === "true"
+                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                            : "bg-white text-slate-500 hover:text-emerald-600"
+                        }`}
                         >
                           {filters.hasComments === "true" ? <Check className="h-3.5 w-3.5" /> : null}
                           {t.filters.hasComments}
@@ -974,7 +975,7 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                      <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                      <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.sortBy}
                       </Label>
                       <div className="flex-1">
@@ -997,7 +998,7 @@ export default function EvaluationSourcePage({
                     </div>
                     {useCombinedSources ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-slate-500">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                           {t.filters.source}
                         </Label>
                         <div className="flex-1">
@@ -1069,13 +1070,27 @@ export default function EvaluationSourcePage({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.title}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.city}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.price}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.date}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.images}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.comments}</TableHead>
-                        <TableHead className="text-[11px] uppercase tracking-[0.18em]">{t.table.actions}</TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.title}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.city}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.price}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.date}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.images}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.comments}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.actions}
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1156,7 +1171,13 @@ export default function EvaluationSourcePage({
                                 {t.table.seeMore}
                               </Button>
                               <div className="flex items-center gap-2 text-xs text-slate-500">
-                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-slate-500">
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] ${
+                                    item.source === "yallamotor"
+                                      ? "border-sky-200 bg-sky-50 text-sky-700"
+                                      : "border-blue-200 bg-blue-50 text-blue-700"
+                                  }`}
+                                >
                                   {item.source}
                                 </span>
                                 {item.url ? (
