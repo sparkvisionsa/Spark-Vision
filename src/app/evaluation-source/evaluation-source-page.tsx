@@ -30,12 +30,10 @@ import {
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  ArrowUpRight,
   Check,
   Eye,
   Image as ImageIcon,
   Loader2,
-  MapPin,
   Search,
   Tag,
 } from "lucide-react";
@@ -163,6 +161,8 @@ const copy = {
         `Showing ${count} records (page ${page} of ${total})`,
       title: "Title",
       brand: "Brand",
+      model: "Model",
+      manufactureYear: "Year",
       price: "Price",
       date: "Date",
       images: "Images",
@@ -244,8 +244,8 @@ const copy = {
       cityPlaceholder: "ابحث عن مدينة",
       brand: "الماركة",
       brandPlaceholder: "اكتب أو اختر الماركة",
-      model: "الموديل",
-      modelPlaceholder: "اكتب أو اختر الموديل",
+      model: "الطراز",
+      modelPlaceholder: "اكتب أو اختر الطراز",
       manufactureYear: "سنة الصنع",
       manufactureYearPlaceholder: "اكتب أو اختر السنة",
       source: "المصدر",
@@ -273,6 +273,8 @@ const copy = {
         `عرض ${count} سجل (الصفحة ${page} من ${total})`,
       title: "العنوان",
       brand: "الماركة",
+      model: "الطراز",
+      manufactureYear: "سنة الصنع",
       price: "السعر",
       date: "التاريخ",
       images: "الصور",
@@ -671,10 +673,6 @@ export default function EvaluationSourcePage({
   const items = data?.items ?? [];
   const totalPages = Math.max(Math.ceil((data?.total ?? 0) / limit), 1);
 
-  const cityOptions = useMemo(() => {
-    return Array.from(new Set(items.map((item) => item.city).filter(Boolean))).sort();
-  }, [items]);
-
   const brandOptions = useMemo(() => {
     return Array.from(
       new Set(
@@ -684,16 +682,6 @@ export default function EvaluationSourcePage({
       )
     ).sort();
   }, [items]);
-
-  const sourceOptions = useMemo(() => {
-    const map = {
-      all: t.filters.sourceOptions.all,
-      haraj: t.filters.sourceOptions.haraj,
-      yallamotor: t.filters.sourceOptions.yallamotor,
-    } as const;
-    const options = resolvedSources.filter((source) => source in map);
-    return ["all", ...options] as Array<keyof typeof map>;
-  }, [resolvedSources, t.filters.sourceOptions]);
 
   const modelOptions = useMemo(() => {
     const selectedBrand = normalizeTag(filters.brand);
@@ -882,19 +870,6 @@ export default function EvaluationSourcePage({
         { label: t.table.priceCompareLabel.current, value: detailPriceCompare.current ?? "-" },
       ]
     : [];
-  const detailUrl = detail?.url ?? detail?.detail?.url ?? "";
-  const summarySourceValue = detailUrl ? (
-    <a
-      href={detailUrl}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1 font-medium text-slate-900 hover:text-slate-950"
-    >
-      {t.modals.openListing} <ArrowUpRight className="h-3 w-3" />
-    </a>
-  ) : (
-    <span className="font-medium text-slate-900">-</span>
-  );
   const summaryItems =
     detail && detailStatus === "idle"
       ? isYallaDetail
@@ -923,10 +898,6 @@ export default function EvaluationSourcePage({
                   },
                 ]
               : []),
-            {
-              label: t.modals.sourceLabel,
-              value: summarySourceValue,
-            },
           ]
         : [
             {
@@ -947,10 +918,6 @@ export default function EvaluationSourcePage({
             {
               label: t.modals.phoneLabel,
               value: detail?.phone ?? "-",
-            },
-            {
-              label: t.modals.sourceLabel,
-              value: summarySourceValue,
             },
           ]
       : [];
@@ -1006,7 +973,7 @@ export default function EvaluationSourcePage({
 
               <div className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]">
                 <div className="overflow-hidden rounded-[15px] bg-slate-200/70">
-                  <div className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
+                  <div className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-4">
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
                     <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
@@ -1019,26 +986,6 @@ export default function EvaluationSourcePage({
                           placeholder={t.filters.searchPlaceholder}
                           className="h-9 pl-8 text-sm"
                         />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                    <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
-                        {t.filters.city}
-                      </Label>
-                      <div className="relative flex-1">
-                        <MapPin className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <Input
-                          list="city-options"
-                          value={filters.city}
-                          onChange={(event) => updateFilters({ city: event.target.value })}
-                          placeholder={t.filters.cityPlaceholder}
-                          className="h-9 pl-8 text-sm"
-                        />
-                        <datalist id="city-options">
-                          {cityOptions.map((city) => (
-                            <option key={city} value={city} />
-                          ))}
-                        </datalist>
                       </div>
                     </div>
                     {enableBrandFilter ? (
@@ -1108,7 +1055,7 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                   </div>
-                  <div className="mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-6">
+                  <div className="mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
                     <div className="bg-white/95 px-2 py-2 lg:col-span-4">
                       <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-3">
                         <button
@@ -1180,30 +1127,6 @@ export default function EvaluationSourcePage({
                         </Select>
                       </div>
                     </div>
-                    {useCombinedSources ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
-                          {t.filters.source}
-                        </Label>
-                        <div className="flex-1">
-                          <Select
-                            value={filters.source}
-                            onValueChange={(value) => updateFilters({ source: value })}
-                          >
-                            <SelectTrigger className="h-9 text-sm">
-                              <SelectValue placeholder={t.filters.sourcePlaceholder} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sourceOptions.map((source) => (
-                                <SelectItem key={source} value={source}>
-                                  {t.filters.sourceOptions[source]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1261,6 +1184,12 @@ export default function EvaluationSourcePage({
                           {t.table.brand}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.model}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {t.table.manufactureYear}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
                           {t.table.price}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
@@ -1294,6 +1223,8 @@ export default function EvaluationSourcePage({
                             </div>
                           </TableCell>
                           <TableCell className="text-sm text-slate-600">{item.tags?.[1] || "-"}</TableCell>
+                          <TableCell className="text-sm text-slate-600">{item.tags?.[2] || "-"}</TableCell>
+                          <TableCell className="text-sm text-slate-600">{item.carModelYear ?? "-"}</TableCell>
                           <TableCell
                             className={`text-sm ${
                               item.priceNumeric || item.priceFormatted
@@ -1345,40 +1276,14 @@ export default function EvaluationSourcePage({
                             )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap items-center gap-3">
-                              <Button
-                                size="sm"
-                                className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
-                                onClick={() => openDetails(item)}
-                              >
-                                <Eye className="h-4 w-4" />
-                                {t.table.seeMore}
-                              </Button>
-                              <div className="flex items-center gap-2 text-xs text-slate-500">
-                                <span
-                                  className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] ${
-                                    item.source === "yallamotor"
-                                      ? "border-sky-200 bg-sky-50 text-sky-700"
-                                      : "border-blue-200 bg-blue-50 text-blue-700"
-                                  }`}
-                                >
-                                  {item.source}
-                                </span>
-                                {item.url ? (
-                                  <a
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 hover:text-slate-900"
-                                  >
-                                    {t.table.openSource}
-                                    <ArrowUpRight className="h-3 w-3" />
-                                  </a>
-                                ) : (
-                                  <span className="text-slate-400">-</span>
-                                )}
-                              </div>
-                            </div>
+                            <Button
+                              size="sm"
+                              className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
+                              onClick={() => openDetails(item)}
+                            >
+                              <Eye className="h-4 w-4" />
+                              {t.table.seeMore}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
