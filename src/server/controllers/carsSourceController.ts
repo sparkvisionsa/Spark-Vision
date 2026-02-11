@@ -8,6 +8,7 @@ export type CarsSourcesListQuery = HarajScrapeListQuery & {
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 200;
 const MAX_INTERNAL_LIMIT = 3000;
+const MAX_MODEL_YEAR_SPAN = 300;
 
 function normalizeSource(value: string) {
   return value.trim().toLowerCase();
@@ -72,6 +73,62 @@ function sortItems(items: Array<Record<string, any>>, sort?: string) {
   return [...items].sort(compare);
 }
 
+function toNumericYear(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function buildYearOnlyItems(years: number[]) {
+  return years.map((year) => ({
+    id: `model-year-${year}`,
+    title: "Untitled",
+    city: "",
+    postDate: null,
+    priceNumeric: null,
+    priceFormatted: null,
+    hasImage: false,
+    imagesCount: 0,
+    commentsCount: 0,
+    tags: [],
+    carModelYear: year,
+    mileage: null,
+    phone: "",
+    url: "",
+    source: "haraj" as const,
+    priceCompare: null,
+  }));
+}
+
+function buildDescendingYearRange(years: number[]) {
+  const uniqueSortedYears = Array.from(
+    new Set(
+      years
+        .map((year) => Math.trunc(year))
+        .filter((year) => Number.isFinite(year))
+    )
+  ).sort((a, b) => b - a);
+
+  if (uniqueSortedYears.length === 0) {
+    return [];
+  }
+
+  const newestYear = uniqueSortedYears[0];
+  const oldestYear = uniqueSortedYears[uniqueSortedYears.length - 1];
+  if (newestYear - oldestYear > MAX_MODEL_YEAR_SPAN) {
+    return uniqueSortedYears;
+  }
+
+  const fullRange: number[] = [];
+  for (let year = newestYear; year >= oldestYear; year -= 1) {
+    fullRange.push(year);
+  }
+  return fullRange;
+}
+
 export async function listCarsSources(query: CarsSourcesListQuery) {
   const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const page = Math.max(query.page ?? 1, 1);
@@ -86,6 +143,51 @@ export async function listCarsSources(query: CarsSourcesListQuery) {
       total: 0,
       page,
       limit,
+    };
+  }
+
+  if (query.fields === "modelYears") {
+    const modelYearsQuery: CarsSourcesListQuery = {
+      ...query,
+      tag1: undefined,
+      tag2: undefined,
+      carModelYear: undefined,
+    };
+    const [harajData, yallaData] = await Promise.all([
+      includeHaraj
+        ? listHarajScrapes(
+            {
+              ...modelYearsQuery,
+              page: 1,
+              limit: MAX_INTERNAL_LIMIT,
+              fields: "modelYears",
+            },
+            { maxLimit: MAX_INTERNAL_LIMIT }
+          )
+        : Promise.resolve({ items: [] as Array<Record<string, any>> }),
+      includeYalla
+        ? listYallaMotors(
+            {
+              ...modelYearsQuery,
+              page: 1,
+              limit: MAX_INTERNAL_LIMIT,
+              fields: "modelYears",
+            },
+            { maxLimit: MAX_INTERNAL_LIMIT }
+          )
+        : Promise.resolve({ items: [] as Array<Record<string, any>> }),
+    ]);
+
+    const years = [...harajData.items, ...yallaData.items]
+      .map((item) => toNumericYear((item as Record<string, any>).carModelYear))
+      .filter((value): value is number => value !== null);
+    const items = buildYearOnlyItems(buildDescendingYearRange(years));
+
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      limit: items.length || 1,
     };
   }
 

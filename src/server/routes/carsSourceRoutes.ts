@@ -48,12 +48,15 @@ export async function listCarsSourcesRoute(request: NextRequest) {
     mileageMax: parseNumber(searchParams.get("mileageMax")),
     excludeTag1: searchParams.get("excludeTag1") ?? undefined,
     sources: parseSources(searchParams.get("sources")),
-    fields:
-      searchParams.get("fields") === "options"
-        ? "options"
-        : undefined,
+    fields: (() => {
+      const fieldsParam = searchParams.get("fields");
+      return fieldsParam === "options" || fieldsParam === "modelYears"
+        ? fieldsParam
+        : undefined;
+    })(),
   };
 
   const data = await listCarsSources(query);
   return NextResponse.json(data);
 }
+

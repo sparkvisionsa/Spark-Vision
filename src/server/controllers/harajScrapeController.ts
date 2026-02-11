@@ -24,11 +24,12 @@ export type HarajScrapeListQuery = {
   mileageMin?: number;
   mileageMax?: number;
   excludeTag1?: string | string[];
-  fields?: "default" | "options";
+  fields?: "default" | "options" | "modelYears";
 };
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
+const MAX_MODEL_YEAR_SPAN = 300;
 
 type ListOptions = {
   maxLimit?: number;
@@ -359,6 +360,53 @@ function buildSort(sort?: string): Sort {
   }
 }
 
+function buildYearOnlyItems(years: number[]) {
+  return years.map((year) => ({
+    id: `model-year-${year}`,
+    title: "Untitled",
+    city: "",
+    postDate: null,
+    priceNumeric: null,
+    priceFormatted: null,
+    hasImage: false,
+    imagesCount: 0,
+    hasVideo: false,
+    commentsCount: 0,
+    tags: [],
+    carModelYear: year,
+    mileage: null,
+    phone: "",
+    url: "",
+    source: "haraj" as const,
+  }));
+}
+
+function buildDescendingYearRange(years: number[]) {
+  const uniqueSortedYears = Array.from(
+    new Set(
+      years
+        .map((year) => Math.trunc(year))
+        .filter((year) => Number.isFinite(year))
+    )
+  ).sort((a, b) => b - a);
+
+  if (uniqueSortedYears.length === 0) {
+    return [];
+  }
+
+  const newestYear = uniqueSortedYears[0];
+  const oldestYear = uniqueSortedYears[uniqueSortedYears.length - 1];
+  if (newestYear - oldestYear > MAX_MODEL_YEAR_SPAN) {
+    return uniqueSortedYears;
+  }
+
+  const fullRange: number[] = [];
+  for (let year = newestYear; year >= oldestYear; year -= 1) {
+    fullRange.push(year);
+  }
+  return fullRange;
+}
+
 export async function listHarajScrapes(
   query: HarajScrapeListQuery,
   options: ListOptions = {}
@@ -370,6 +418,57 @@ export async function listHarajScrapes(
   const limit = Math.min(query.limit ?? DEFAULT_LIMIT, maxLimit);
   const page = Math.max(query.page ?? 1, 1);
   const filter = buildFilter(query);
+  if (query.fields === "modelYears") {
+    const modelYearFilter = buildFilter({
+      ...query,
+      tag1: undefined,
+      tag2: undefined,
+      carModelYear: undefined,
+    });
+    const yearRows = await collection
+      .aggregate([
+        { $match: modelYearFilter },
+        {
+          $project: {
+            carModelYear: {
+              $convert: {
+                input: {
+                  $ifNull: [
+                    "$item.carInfo.model",
+                    {
+                      $ifNull: [
+                        "$carInfo.model",
+                        "$gql.posts.json.data.posts.items.0.carInfo.model",
+                      ],
+                    },
+                  ],
+                },
+                to: "int",
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+        { $match: { carModelYear: { $ne: null } } },
+        { $group: { _id: "$carModelYear" } },
+        { $sort: { _id: -1 } },
+      ])
+      .toArray();
+
+    const years = yearRows
+      .map((row) => (typeof row?._id === "number" ? row._id : null))
+      .filter((value): value is number => value !== null);
+    const items = buildYearOnlyItems(buildDescendingYearRange(years));
+
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      limit: items.length || 1,
+    };
+  }
+
   const sort = buildSort(query.sort);
 
   const [items, total] = await Promise.all([

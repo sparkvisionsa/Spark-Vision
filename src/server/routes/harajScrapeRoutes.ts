@@ -38,10 +38,12 @@ export async function listHarajScrapesRoute(request: NextRequest) {
     mileageMin: parseNumber(searchParams.get("mileageMin")),
     mileageMax: parseNumber(searchParams.get("mileageMax")),
     excludeTag1: searchParams.get("excludeTag1") ?? undefined,
-    fields:
-      searchParams.get("fields") === "options"
-        ? "options"
-        : undefined,
+    fields: (() => {
+      const fieldsParam = searchParams.get("fields");
+      return fieldsParam === "options" || fieldsParam === "modelYears"
+        ? fieldsParam
+        : undefined;
+    })(),
   };
 
   const data = await listHarajScrapes(query);
@@ -57,3 +59,4 @@ export async function getHarajScrapeByIdRoute(_request: NextRequest, id: string)
 
   return NextResponse.json(doc);
 }
+

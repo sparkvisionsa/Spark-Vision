@@ -616,6 +616,52 @@ function pickPreferredLabel(current: string | undefined, candidate: string) {
   return current;
 }
 
+function sortYearOptionsDescending(values: string[]) {
+  return [...values].sort((a, b) => {
+    const numA = Number(a);
+    const numB = Number(b);
+    if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+      return numB - numA;
+    }
+    return b.localeCompare(a);
+  });
+}
+
+const MAX_MODEL_YEAR_SPAN = 300;
+
+function buildContinuousYearOptions(values: string[]) {
+  const uniqueSortedYears = sortYearOptionsDescending(
+    Array.from(
+      new Set(
+        values
+          .map((value) => Number.parseInt(value, 10))
+          .filter((year) => Number.isFinite(year))
+          .map((year) => String(year))
+      )
+    )
+  );
+
+  if (uniqueSortedYears.length === 0) {
+    return [];
+  }
+
+  const newestYear = Number.parseInt(uniqueSortedYears[0], 10);
+  const oldestYear = Number.parseInt(uniqueSortedYears[uniqueSortedYears.length - 1], 10);
+  if (
+    Number.isNaN(newestYear) ||
+    Number.isNaN(oldestYear) ||
+    newestYear - oldestYear > MAX_MODEL_YEAR_SPAN
+  ) {
+    return uniqueSortedYears;
+  }
+
+  const fullRange: string[] = [];
+  for (let year = newestYear; year >= oldestYear; year -= 1) {
+    fullRange.push(String(year));
+  }
+  return fullRange;
+}
+
 const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
 
 function filterVisibleComments(comments: Array<Record<string, any>>) {
@@ -666,6 +712,7 @@ export default function EvaluationSourcePage({
   const [modalImages, setModalImages] = useState<string[]>([]);
   const [modalComments, setModalComments] = useState<Array<Record<string, any>>>([]);
   const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
+  const [allModelYearOptions, setAllModelYearOptions] = useState<string[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
   const [optionPoolLoaded, setOptionPoolLoaded] = useState(false);
@@ -719,11 +766,7 @@ export default function EvaluationSourcePage({
   };
 
   const ensureOptionPoolLoaded = () => {
-    if (
-      !enableBrandFilter &&
-      !enableModelFilter &&
-      !enableModelYearFilter
-    ) {
+    if (!enableBrandFilter && !enableModelFilter) {
       return;
     }
     if (optionPoolLoaded || optionPoolLoading) return;
@@ -800,6 +843,20 @@ export default function EvaluationSourcePage({
     return params.toString();
   }, [tag0, excludeTag1Values, useCombinedSources, resolvedSources]);
 
+  const modelYearOptionsQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (tag0) params.set("tag0", tag0);
+    params.set("fields", "modelYears");
+    if (useCombinedSources) {
+      params.set("sources", resolvedSources.join(","));
+    }
+    if (excludeTag1Values && excludeTag1Values.length > 0) {
+      const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
+      if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
+    }
+    return params.toString();
+  }, [tag0, excludeTag1Values, useCombinedSources, resolvedSources]);
+
   useEffect(() => {
     if (requireSearchClickToApplyFilters) return;
     setAppliedFilters(filters);
@@ -860,11 +917,42 @@ export default function EvaluationSourcePage({
   }, [queryString, listEndpoint]);
 
   useEffect(() => {
-    if (
-      !enableBrandFilter &&
-      !enableModelFilter &&
-      !enableModelYearFilter
-    ) {
+    if (!enableModelYearFilter) return;
+    let active = true;
+
+    const loadModelYears = async () => {
+      try {
+        const response = await fetch(`${listEndpoint}?${modelYearOptionsQueryString}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to fetch model year options.");
+        }
+        const result = (await response.json()) as ListResponse;
+        const years = result.items
+          .map((item) => item.carModelYear)
+          .filter((value): value is number => value !== null && value !== undefined)
+          .map((value) => String(value).trim())
+          .filter(Boolean);
+        const uniqueSortedYears = buildContinuousYearOptions(years);
+        if (active) {
+          setAllModelYearOptions(uniqueSortedYears);
+        }
+      } catch {
+        if (active) {
+          setAllModelYearOptions([]);
+        }
+      }
+    };
+
+    loadModelYears();
+    return () => {
+      active = false;
+    };
+  }, [enableModelYearFilter, listEndpoint, modelYearOptionsQueryString]);
+
+  useEffect(() => {
+    if (!enableBrandFilter && !enableModelFilter) {
       return;
     }
     if (!shouldLoadOptionPool) return;
@@ -924,7 +1012,6 @@ export default function EvaluationSourcePage({
   }, [
     enableBrandFilter,
     enableModelFilter,
-    enableModelYearFilter,
     listEndpoint,
     optionsBaseQueryString,
     shouldLoadOptionPool,
@@ -964,27 +1051,16 @@ export default function EvaluationSourcePage({
   }, [optionItems, filters.brand]);
 
   const modelYearOptions = useMemo(() => {
-    const filteredByBrandModel = optionItems.filter(
-      (item) =>
-        (!filters.brand || isVehicleTextMatch(item.tags?.[1], filters.brand)) &&
-        (!filters.model || isVehicleTextMatch(item.tags?.[2], filters.model))
-    );
-    const years = filteredByBrandModel
+    if (allModelYearOptions.length > 0) {
+      return allModelYearOptions;
+    }
+    const years = optionItems
       .map((item) => item.carModelYear)
       .filter((value): value is number => value !== null && value !== undefined)
       .map((value) => String(value).trim())
       .filter(Boolean);
-    const uniqueYears = Array.from(new Set(years));
-    uniqueYears.sort((a, b) => {
-      const numA = Number(a);
-      const numB = Number(b);
-      if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
-        return numB - numA;
-      }
-      return b.localeCompare(a);
-    });
-    return uniqueYears;
-  }, [optionItems, filters.brand, filters.model]);
+    return buildContinuousYearOptions(years);
+  }, [allModelYearOptions, optionItems]);
 
   useEffect(() => {
     if (!enableModelFilter) return;
@@ -998,17 +1074,6 @@ export default function EvaluationSourcePage({
       setFilters((prev) => ({ ...prev, model: "" }));
     }
   }, [filters.brand, filters.model, enableModelFilter, modelOptions, optionPoolLoaded]);
-
-  useEffect(() => {
-    if (!enableModelYearFilter) return;
-    if (!optionPoolLoaded) return;
-    if (!filters.modelYear) return;
-    const normalizedYear = filters.modelYear.trim();
-    const validYears = new Set(modelYearOptions);
-    if (!validYears.has(normalizedYear)) {
-      setFilters((prev) => ({ ...prev, modelYear: "" }));
-    }
-  }, [filters.modelYear, enableModelYearFilter, modelYearOptions, optionPoolLoaded]);
 
   const fetchDetail = async (item: EvaluationSourceItem) => {
     const source = item.source ?? "haraj";
@@ -1388,7 +1453,6 @@ export default function EvaluationSourcePage({
                             list="model-year-options"
                             value={filters.modelYear}
                             onChange={(event) => updateFilters({ modelYear: event.target.value })}
-                            onFocus={ensureOptionPoolLoaded}
                             placeholder={t.filters.manufactureYearPlaceholder}
                             className="h-9 pl-8 text-sm"
                           />
@@ -1590,14 +1654,16 @@ export default function EvaluationSourcePage({
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
-                    className="h-9 w-9 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                    className="h-9 border-emerald-200 px-3 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
                     onClick={exportCurrentRows}
                     disabled={items.length === 0}
-                    title="Export to Excel"
-                    aria-label="Export to Excel"
+                    title={isArabic ? "تصدير اكسيل" : "Export to Excel"}
+                    aria-label={isArabic ? "تصدير اكسيل" : "Export to Excel"}
                   >
                     <FileSpreadsheet className="h-4 w-4" />
+                    <span className="text-xs font-semibold uppercase tracking-[0.08em]">
+                      {isArabic ? "تصدير اكسيل" : "Export Excel"}
+                    </span>
                   </Button>
               </div>
             </div>
@@ -1984,4 +2050,3 @@ export default function EvaluationSourcePage({
     </div>
   );
 }
-

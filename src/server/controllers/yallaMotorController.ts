@@ -13,6 +13,7 @@ type ListOptions = {
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
+const MAX_MODEL_YEAR_SPAN = 300;
 
 function toRegex(value: string) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
@@ -293,6 +294,53 @@ function toNumber(value: unknown) {
   return null;
 }
 
+function buildYearOnlyItems(years: number[]) {
+  return years.map((year) => ({
+    id: `model-year-${year}`,
+    postDate: null,
+    tags: [],
+    carModelYear: year,
+    mileage: null,
+    title: "Untitled",
+    city: "",
+    priceNumeric: null,
+    priceFormatted: null,
+    imagesCount: 0,
+    hasImage: false,
+    commentsCount: 0,
+    url: "",
+    phone: "",
+    source: "yallamotor" as const,
+    priceCompare: null,
+  }));
+}
+
+function buildDescendingYearRange(years: number[]) {
+  const uniqueSortedYears = Array.from(
+    new Set(
+      years
+        .map((year) => Math.trunc(year))
+        .filter((year) => Number.isFinite(year))
+    )
+  ).sort((a, b) => b - a);
+
+  if (uniqueSortedYears.length === 0) {
+    return [];
+  }
+
+  const newestYear = uniqueSortedYears[0];
+  const oldestYear = uniqueSortedYears[uniqueSortedYears.length - 1];
+  if (newestYear - oldestYear > MAX_MODEL_YEAR_SPAN) {
+    return uniqueSortedYears;
+  }
+
+  const fullRange: number[] = [];
+  for (let year = newestYear; year >= oldestYear; year -= 1) {
+    fullRange.push(year);
+  }
+  return fullRange;
+}
+
 export async function listYallaMotors(query: YallaMotorListQuery, options: ListOptions = {}) {
   const db = await getMongoDb();
   const collection = getYallaMotorCollection(db);
@@ -302,6 +350,48 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
   const page = Math.max(query.page ?? 1, 1);
   const skip = (page - 1) * limit;
   const filter = buildFilter(query);
+
+  if (query.fields === "modelYears") {
+    const modelYearFilter = buildFilter({
+      ...query,
+      tag1: undefined,
+      tag2: undefined,
+      carModelYear: undefined,
+    });
+    const yearRows = await collection
+      .aggregate([
+        { $match: modelYearFilter },
+        {
+          $project: {
+            carModelYear: {
+              $convert: {
+                input: { $arrayElemAt: ["$detail.breadcrumb", 5] },
+                to: "int",
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+        { $match: { carModelYear: { $ne: null } } },
+        { $group: { _id: "$carModelYear" } },
+        { $sort: { _id: -1 } },
+      ])
+      .toArray();
+
+    const years = yearRows
+      .map((row) => toNumber(row?._id))
+      .filter((value): value is number => value !== null);
+    const items = buildYearOnlyItems(buildDescendingYearRange(years));
+
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      limit: items.length || 1,
+    };
+  }
+
   const sort = buildSort(query.sort);
   const isOptionsMode = query.fields === "options";
   const needsNumericPrice =
