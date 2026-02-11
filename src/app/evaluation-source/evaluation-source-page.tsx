@@ -32,6 +32,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Check,
   Eye,
+  FileSpreadsheet,
   Image as ImageIcon,
   Loader2,
   Search,
@@ -39,6 +40,10 @@ import {
 } from "lucide-react";
 import { IBM_Plex_Sans, Sora } from "next/font/google";
 import { LanguageContext } from "@/components/layout-provider";
+import {
+  isVehicleTextMatch,
+  toVehicleCanonicalKey,
+} from "@/lib/vehicle-name-match";
 
 const sora = Sora({
   subsets: ["latin"],
@@ -377,6 +382,14 @@ function formatPrice(value: number | null, formatted?: string | null) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function escapeCsvValue(value: unknown) {
+  const cell = String(value ?? "");
+  if (/[",\r\n]/.test(cell)) {
+    return `"${cell.replace(/"/g, '""')}"`;
+  }
+  return cell;
+}
+
 function formatYallaDescription(value: string) {
   if (!value) return "";
   const arabicTokens = [
@@ -551,8 +564,22 @@ function formatYallaDescription(value: string) {
   return text.trim();
 }
 
-function normalizeTag(value?: string | null) {
-  return (value ?? "").trim().toLowerCase();
+function pickPreferredLabel(current: string | undefined, candidate: string) {
+  if (!current) return candidate;
+  const currentHasLatin = /[a-z]/i.test(current);
+  const candidateHasLatin = /[a-z]/i.test(candidate);
+  if (candidateHasLatin && !currentHasLatin) return candidate;
+  if (candidate.length < current.length) return candidate;
+  return current;
+}
+
+const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
+
+function filterVisibleComments(comments: Array<Record<string, any>>) {
+  return comments.filter((comment) => {
+    const body = typeof comment?.body === "string" ? comment.body.replace(/\s+/g, " ").trim() : "";
+    return !body.includes(PRIVATE_COMMENT_MARKER);
+  });
 }
 
 export default function EvaluationSourcePage({
@@ -587,6 +614,7 @@ export default function EvaluationSourcePage({
   const [modalStatus, setModalStatus] = useState<"idle" | "loading" | "error">("idle");
   const [modalImages, setModalImages] = useState<string[]>([]);
   const [modalComments, setModalComments] = useState<Array<Record<string, any>>>([]);
+  const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
   const [commentsMode, setCommentsMode] = useState<"comments" | "priceCompare">("comments");
   const [modalPriceCompare, setModalPriceCompare] =
     useState<EvaluationSourceItem["priceCompare"] | null>(null);
@@ -639,6 +667,19 @@ export default function EvaluationSourcePage({
     resolvedSources,
   ]);
 
+  const optionsBaseQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (tag0) params.set("tag0", tag0);
+    if (useCombinedSources) {
+      params.set("sources", resolvedSources.join(","));
+    }
+    if (excludeTag1Values && excludeTag1Values.length > 0) {
+      const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
+      if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
+    }
+    return params.toString();
+  }, [tag0, excludeTag1Values, useCombinedSources, resolvedSources]);
+
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -670,35 +711,93 @@ export default function EvaluationSourcePage({
     };
   }, [queryString, listEndpoint]);
 
+  useEffect(() => {
+    if (!enableBrandFilter && !enableModelFilter && !enableModelYearFilter) return;
+    let active = true;
+
+    const loadOptions = async () => {
+      try {
+        const pageSize = 5000;
+        const maxPages = 20;
+        let currentPage = 1;
+        let totalItems = Infinity;
+        const collected: EvaluationSourceItem[] = [];
+
+        while (active && currentPage <= maxPages && collected.length < totalItems) {
+          const query = new URLSearchParams(optionsBaseQueryString);
+          query.set("page", String(currentPage));
+          query.set("limit", String(pageSize));
+
+          const response = await fetch(`${listEndpoint}?${query.toString()}`, {
+            cache: "no-store",
+          });
+          if (!response.ok) break;
+          const result = (await response.json()) as ListResponse;
+          collected.push(...(result.items ?? []));
+          totalItems = result.total ?? collected.length;
+          currentPage += 1;
+        }
+
+        if (active) {
+          setOptionPool(collected);
+        }
+      } catch {
+        if (active) setOptionPool([]);
+      }
+    };
+
+    loadOptions();
+    return () => {
+      active = false;
+    };
+  }, [
+    enableBrandFilter,
+    enableModelFilter,
+    enableModelYearFilter,
+    listEndpoint,
+    optionsBaseQueryString,
+  ]);
+
   const items = data?.items ?? [];
+  const optionItems = optionPool.length > 0 ? optionPool : items;
   const totalPages = Math.max(Math.ceil((data?.total ?? 0) / limit), 1);
 
   const brandOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        items
-          .map((item) => item.tags?.[1])
-          .filter((value): value is string => Boolean(value))
-      )
-    ).sort();
-  }, [items]);
+    const optionsMap = new Map<string, string>();
+    optionItems
+      .map((item) => item.tags?.[1]?.trim())
+      .filter((value): value is string => Boolean(value))
+      .forEach((brand) => {
+        const key = toVehicleCanonicalKey(brand);
+        if (!key) return;
+        optionsMap.set(key, pickPreferredLabel(optionsMap.get(key), brand));
+      });
+    return Array.from(optionsMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [optionItems]);
 
   const modelOptions = useMemo(() => {
-    const selectedBrand = normalizeTag(filters.brand);
-    const filteredItems = selectedBrand
-      ? items.filter((item) => normalizeTag(item.tags?.[1]) === selectedBrand)
-      : items;
-    return Array.from(
-      new Set(
-        filteredItems
-          .map((item) => item.tags?.[2])
-          .filter((value): value is string => Boolean(value))
-      )
-    ).sort();
-  }, [items, filters.brand]);
+    const filteredByBrand = filters.brand
+      ? optionItems.filter((item) => isVehicleTextMatch(item.tags?.[1], filters.brand))
+      : optionItems;
+    const optionsMap = new Map<string, string>();
+    filteredByBrand
+      .map((item) => item.tags?.[2]?.trim())
+      .filter((value): value is string => Boolean(value))
+      .forEach((model) => {
+        const key = toVehicleCanonicalKey(model);
+        if (!key) return;
+        optionsMap.set(key, pickPreferredLabel(optionsMap.get(key), model));
+      });
+    return Array.from(optionsMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [optionItems, filters.brand]);
 
   const modelYearOptions = useMemo(() => {
-    const years = items
+    const filteredByBrandModel = optionItems.filter(
+      (item) =>
+        (!filters.brand || isVehicleTextMatch(item.tags?.[1], filters.brand)) &&
+        (!filters.model || isVehicleTextMatch(item.tags?.[2], filters.model))
+    );
+    const years = filteredByBrandModel
       .map((item) => item.carModelYear)
       .filter((value): value is number => value !== null && value !== undefined)
       .map((value) => String(value).trim())
@@ -713,15 +812,16 @@ export default function EvaluationSourcePage({
       return a.localeCompare(b);
     });
     return uniqueYears;
-  }, [items]);
+  }, [optionItems, filters.brand, filters.model]);
 
   useEffect(() => {
     if (!enableModelFilter) return;
     if (!filters.model) return;
-    const selectedBrand = normalizeTag(filters.brand);
-    if (!selectedBrand) return;
-    const validModels = new Set(modelOptions.map((model) => normalizeTag(model)));
-    if (!validModels.has(normalizeTag(filters.model))) {
+    if (!filters.brand) return;
+    const hasValidModel = modelOptions.some((model) =>
+      isVehicleTextMatch(model, filters.model)
+    );
+    if (!hasValidModel) {
       setFilters((prev) => ({ ...prev, model: "" }));
       setPage(1);
     }
@@ -801,7 +901,7 @@ export default function EvaluationSourcePage({
         (doc?.comments ??
           doc?.gql?.comments?.json?.data?.comments?.items ??
           []) as Array<Record<string, any>>;
-      setModalComments(comments);
+      setModalComments(filterVisibleComments(comments));
       setModalStatus("idle");
     } catch (err) {
       setModalStatus("error");
@@ -816,9 +916,11 @@ export default function EvaluationSourcePage({
   const detailTags = (isYallaDetail
     ? detail?.detail?.breadcrumb ?? detail?.breadcrumb ?? []
     : detail?.tags ?? detail?.item?.tags ?? []) as string[];
-  const detailComments = (isYallaDetail
-    ? []
-    : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>;
+  const detailComments = filterVisibleComments(
+    (isYallaDetail
+      ? []
+      : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>
+  );
   const carInfo = (isYallaDetail
     ? detail?.detail?.importantSpecs
     : detail?.item?.carInfo ??
@@ -921,6 +1023,50 @@ export default function EvaluationSourcePage({
             },
           ]
       : [];
+
+  const exportCurrentRows = () => {
+    if (items.length === 0) return;
+
+    const headers = [
+      t.table.title,
+      t.table.brand,
+      t.table.model,
+      t.table.manufactureYear,
+      t.table.price,
+      t.table.date,
+      t.table.images,
+      t.table.comments,
+    ];
+
+    const rows = items.map((item) => {
+      const commentsValue =
+        item.source === "yallamotor" ? t.modals.priceCompareTitle : String(item.commentsCount ?? 0);
+
+      return [
+        item.title ?? "-",
+        item.tags?.[1] ?? "-",
+        item.tags?.[2] ?? "-",
+        item.carModelYear ?? "-",
+        formatPrice(item.priceNumeric, item.priceFormatted),
+        formatEpoch(item.postDate),
+        item.imagesCount ?? 0,
+        commentsValue,
+      ];
+    });
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((value) => escapeCsvValue(value)).join(","))
+      .join("\r\n");
+
+    const blob = new Blob(["\uFEFF", csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    anchor.href = url;
+    anchor.download = `evaluation-source-${items.length}-rows-${stamp}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className={`min-h-screen bg-[#f7f4ee] text-slate-900 ${plex.className}`}>
@@ -1064,14 +1210,22 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
                           }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
-                          filters.hasImage === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                            filters.hasImage === "true"
+                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
+                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
                         >
-                          {filters.hasImage === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                          {t.filters.hasImages}
+                          <span
+                            className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                              filters.hasImage === "true"
+                                ? "border-white bg-white/20"
+                                : "border-emerald-600 bg-white"
+                            }`}
+                          >
+                            {filters.hasImage === "true" ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          <span>{t.filters.hasImages}</span>
                         </button>
                         <button
                           type="button"
@@ -1079,14 +1233,22 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
                           }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
-                          filters.hasPrice === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                            filters.hasPrice === "true"
+                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
+                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
                         >
-                          {filters.hasPrice === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                          {t.filters.hasPrice}
+                          <span
+                            className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                              filters.hasPrice === "true"
+                                ? "border-white bg-white/20"
+                                : "border-emerald-600 bg-white"
+                            }`}
+                          >
+                            {filters.hasPrice === "true" ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          <span>{t.filters.hasPrice}</span>
                         </button>
                         <button
                           type="button"
@@ -1094,14 +1256,22 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
                           }
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
-                          filters.hasComments === "true"
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                            filters.hasComments === "true"
+                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
+                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
                         >
-                          {filters.hasComments === "true" ? <Check className="h-3.5 w-3.5" /> : null}
-                          {t.filters.hasComments}
+                          <span
+                            className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                              filters.hasComments === "true"
+                                ? "border-white bg-white/20"
+                                : "border-emerald-600 bg-white"
+                            }`}
+                          >
+                            {filters.hasComments === "true" ? <Check className="h-3 w-3" /> : null}
+                          </span>
+                          <span>{t.filters.hasComments}</span>
                         </button>
                       </div>
                     </div>
@@ -1160,6 +1330,18 @@ export default function EvaluationSourcePage({
                       <SelectItem value="100">{t.table.rowsLabel(100)}</SelectItem>
                   </SelectContent>
                 </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                    onClick={exportCurrentRows}
+                    disabled={items.length === 0}
+                    title="Export to Excel"
+                    aria-label="Export to Excel"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" />
+                  </Button>
               </div>
             </div>
 

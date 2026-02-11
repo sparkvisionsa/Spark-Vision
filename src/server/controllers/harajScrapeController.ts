@@ -24,6 +24,7 @@ export type HarajScrapeListQuery = {
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
+const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
 
 type ListOptions = {
   maxLimit?: number;
@@ -37,6 +38,13 @@ function normalizeList(value?: string | string[]) {
   if (!value) return [];
   const values = Array.isArray(value) ? value : value.split(",");
   return values.map((item) => item.trim()).filter(Boolean);
+}
+
+function countVisibleComments(comments: Array<Record<string, unknown>>) {
+  return comments.filter((comment) => {
+    const body = typeof comment?.body === "string" ? comment.body.replace(/\s+/g, " ").trim() : "";
+    return !body.includes(PRIVATE_COMMENT_MARKER);
+  }).length;
 }
 
 function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
@@ -228,6 +236,7 @@ export async function listHarajScrapes(
         phone: 1,
         tags: 1,
         commentsCount: 1,
+        comments: 1,
         hasImage: 1,
         hasVideo: 1,
         imagesList: 1,
@@ -245,6 +254,7 @@ export async function listHarajScrapes(
         "item.carInfo.model": 1,
         "carInfo.model": 1,
         "gql.posts.json.data.posts.items.carInfo.model": 1,
+        "gql.comments.json.data.comments.items.body": 1,
       })
       .toArray(),
     collection.countDocuments(filter),
@@ -262,6 +272,13 @@ export async function listHarajScrapes(
       (doc as any)?.carInfo?.model ??
       (doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.model ??
       null;
+    const rawComments =
+      ((doc as any)?.comments ??
+        (doc as any)?.gql?.comments?.json?.data?.comments?.items ??
+        []) as Array<Record<string, unknown>>;
+    const fallbackCommentsCount = doc.commentsCount ?? doc.item?.commentCount ?? 0;
+    const commentsCount =
+      rawComments.length > 0 ? countVisibleComments(rawComments) : fallbackCommentsCount;
     return {
       id: doc.postId ?? doc._id,
       title: doc.title ?? doc.item?.title ?? "Untitled",
@@ -272,7 +289,7 @@ export async function listHarajScrapes(
       hasImage: hasImages,
       imagesCount: imageCount,
       hasVideo: doc.item?.hasVideo ?? doc.hasVideo ?? false,
-      commentsCount: doc.commentsCount ?? doc.item?.commentCount ?? 0,
+      commentsCount,
       tags: doc.tags ?? doc.item?.tags ?? [],
       carModelYear,
       phone: doc.phone ?? "",

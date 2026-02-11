@@ -117,7 +117,7 @@ export const content = {
       cta: "Upload your report now and excel in your profession!",
       mission: "Reliable uploads to Taqeem.",
       requestDemo: "Contact Us",
-      whatsappNumber: "201140943934",
+      whatsappNumber: "",
       installApp: "Install the App",
       stats: [
         { value: "98%", label: "Upload success rate" },
@@ -306,7 +306,7 @@ export const content = {
       cta: "ارفع تقريرك الآن وتميز في مهنتك!",
       mission: "تحميلات موثوقة إلى تقييم.",
       requestDemo: "تواصل معنا",
-      whatsappNumber: "201140943934",
+      whatsappNumber: "",
       installApp: "تثبيت التطبيق",
       stats: [
         { value: "98%", label: "معدل نجاح التحميل" },
@@ -649,7 +649,7 @@ export const content = {
         message: "Message",
         button: "Send Message",
         whatsappButton: "Contact Us",
-        whatsappNumber: "201140943934",
+        whatsappNumber: "",
       },
     },
     maintenance: {

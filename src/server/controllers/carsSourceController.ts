@@ -1,12 +1,13 @@
 import { listHarajScrapes, type HarajScrapeListQuery } from "./harajScrapeController";
 import { listYallaMotors } from "./yallaMotorController";
+import { isVehicleTextMatch } from "../../lib/vehicle-name-match";
 
 export type CarsSourcesListQuery = HarajScrapeListQuery & {
   sources?: string[];
 };
 
 const DEFAULT_LIMIT = 25;
-const MAX_LIMIT = 100;
+const MAX_LIMIT = 5000;
 const MAX_INTERNAL_LIMIT = 5000;
 
 function normalizeSource(value: string) {
@@ -58,7 +59,15 @@ function sortItems(items: Array<Record<string, any>>, sort?: string) {
 export async function listCarsSources(query: CarsSourcesListQuery) {
   const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const page = Math.max(query.page ?? 1, 1);
-  const perSourceLimit = Math.min(limit * page, MAX_INTERNAL_LIMIT);
+  const brandQuery = query.tag1?.trim() ?? "";
+  const modelQuery = query.tag2?.trim() ?? "";
+  const useVehicleNameMatching = Boolean(brandQuery || modelQuery);
+  const perSourceLimit = useVehicleNameMatching
+    ? MAX_INTERNAL_LIMIT
+    : Math.min(limit * page, MAX_INTERNAL_LIMIT);
+  const sourceQuery = useVehicleNameMatching
+    ? { ...query, tag1: undefined, tag2: undefined }
+    : query;
 
   const sources = (query.sources ?? ["haraj", "yallamotor"]).map(normalizeSource);
   const includeHaraj = sources.includes("haraj");
@@ -68,7 +77,7 @@ export async function listCarsSources(query: CarsSourcesListQuery) {
     includeHaraj
       ? listHarajScrapes(
           {
-            ...query,
+            ...sourceQuery,
             page: 1,
             limit: perSourceLimit,
           },
@@ -78,7 +87,7 @@ export async function listCarsSources(query: CarsSourcesListQuery) {
     includeYalla
       ? listYallaMotors(
           {
-            ...query,
+            ...sourceQuery,
             page: 1,
             limit: perSourceLimit,
           },
@@ -100,10 +109,17 @@ export async function listCarsSources(query: CarsSourcesListQuery) {
     source: "yallamotor",
   }));
 
-  const combinedItems = sortItems([...normalizedHaraj, ...normalizedYalla], query.sort);
+  const matchedItems = [...normalizedHaraj, ...normalizedYalla].filter((item) => {
+    const brand = item?.tags?.[1] ?? "";
+    const model = item?.tags?.[2] ?? "";
+    return isVehicleTextMatch(brand, brandQuery) && isVehicleTextMatch(model, modelQuery);
+  });
+  const combinedItems = sortItems(matchedItems, query.sort);
   const start = (page - 1) * limit;
   const pagedItems = combinedItems.slice(start, start + limit);
-  const total = harajData.total + yallaData.total;
+  const total = useVehicleNameMatching
+    ? combinedItems.length
+    : harajData.total + yallaData.total;
 
   return {
     items: pagedItems,
