@@ -130,6 +130,9 @@ const defaultFilters = {
   sort: "newest",
 };
 
+const SEARCH_HISTORY_STORAGE_KEY = "evaluation-source-search-history";
+const SEARCH_HISTORY_MAX_ITEMS = 10;
+
 const copy = {
   en: {
     filters: {
@@ -139,6 +142,7 @@ const copy = {
       searchModeSubtitle: "Results update after you click Search.",
       search: "Search",
       searchPlaceholder: "Title, Description",
+      clearHistory: "Clear history",
       city: "City",
       cityPlaceholder: "Search city",
       brand: "Brand",
@@ -259,6 +263,7 @@ const copy = {
       searchModeSubtitle: "يتم تحديث النتائج بعد الضغط على زر البحث.",
       search: "بحث",
       searchPlaceholder: "العنوان، الوصف",
+      clearHistory: "مسح السجل",
       city: "المدينة",
       cityPlaceholder: "ابحث عن مدينة",
       brand: "الماركة",
@@ -661,6 +666,7 @@ export default function EvaluationSourcePage({
   const [modalImages, setModalImages] = useState<string[]>([]);
   const [modalComments, setModalComments] = useState<Array<Record<string, any>>>([]);
   const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
   const [optionPoolLoaded, setOptionPoolLoaded] = useState(false);
   const [optionPoolLoading, setOptionPoolLoading] = useState(false);
@@ -672,7 +678,35 @@ export default function EvaluationSourcePage({
     setFilters((prev) => ({ ...prev, ...updates }));
   };
 
+  const saveSearchToHistory = (searchValue: string) => {
+    const normalizedValue = searchValue.trim();
+    if (!normalizedValue) return;
+
+    setSearchHistory((previous) => {
+      const updated = [
+        normalizedValue,
+        ...previous.filter((item) => item.toLowerCase() !== normalizedValue.toLowerCase()),
+      ].slice(0, SEARCH_HISTORY_MAX_ITEMS);
+      try {
+        window.localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // localStorage can fail in strict privacy modes; keep in-memory history.
+      }
+      return updated;
+    });
+  };
+
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    try {
+      window.localStorage.removeItem(SEARCH_HISTORY_STORAGE_KEY);
+    } catch {
+      // localStorage can fail in strict privacy modes; state is already cleared.
+    }
+  };
+
   const applyFilters = () => {
+    saveSearchToHistory(filters.search);
     setAppliedFilters({ ...filters });
     setPage(1);
   };
@@ -771,6 +805,28 @@ export default function EvaluationSourcePage({
     setAppliedFilters(filters);
     setPage(1);
   }, [filters, requireSearchClickToApplyFilters]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+
+      const sanitized = parsed
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .slice(0, SEARCH_HISTORY_MAX_ITEMS);
+
+      if (sanitized.length > 0) {
+        setSearchHistory(sanitized);
+      }
+    } catch {
+      setSearchHistory([]);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1248,14 +1304,31 @@ export default function EvaluationSourcePage({
                     <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
                       </Label>
-                      <div className="relative flex-1">
-                        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <Input
-                          value={filters.search}
-                          onChange={(event) => updateFilters({ search: event.target.value })}
-                          placeholder={t.filters.searchPlaceholder}
-                          className="h-9 pl-8 text-sm"
-                        />
+                      <div className="flex flex-1 items-center gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <Input
+                            list="search-history-options"
+                            value={filters.search}
+                            onChange={(event) => updateFilters({ search: event.target.value })}
+                            placeholder={t.filters.searchPlaceholder}
+                            className="h-9 pl-8 text-sm"
+                          />
+                          <datalist id="search-history-options">
+                            {searchHistory.map((value) => (
+                              <option key={value} value={value} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 shrink-0 border-slate-300 px-2 text-[11px] uppercase tracking-[0.12em]"
+                          onClick={clearSearchHistory}
+                          disabled={searchHistory.length === 0}
+                        >
+                          {t.filters.clearHistory}
+                        </Button>
                       </div>
                     </div>
                     {enableBrandFilter ? (
