@@ -83,6 +83,7 @@ type ListResponse = {
 
 type EvaluationSourcePageProps = {
   tag0?: string;
+  excludeTag1Values?: string[];
   enableBrandFilter?: boolean;
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
@@ -115,7 +116,6 @@ const defaultFilters = {
   model: "",
   modelYear: "",
   source: "all",
-  excludeAccessories: false,
   hasImage: "any",
   hasPrice: "any",
   hasComments: "any",
@@ -145,7 +145,6 @@ const copy = {
         haraj: "Haraj",
         yallamotor: "Yalla Motor",
       },
-      excludeAccessories: "Exclude Car accessories",
       hasImages: "Has images",
       hasPrice: "Has price",
       hasComments: "Has comments",
@@ -163,7 +162,7 @@ const copy = {
       showing: (count: number, page: number, total: number) =>
         `Showing ${count} records (page ${page} of ${total})`,
       title: "Title",
-      city: "City",
+      brand: "Brand",
       price: "Price",
       date: "Date",
       images: "Images",
@@ -203,12 +202,12 @@ const copy = {
       loadingComments: "Loading comments...",
       unableComments: "Unable to load comments.",
       noComments: "No comments recorded.",
-      detailTitle: "Evaluation Source Detail",
+      detailTitle: "Details",
       detailSubtitle: "Full record insights with structured sections.",
       summary: "Summary",
       tags: "Tags",
       noTags: "No tags listed.",
-      notes: "Notes",
+      notes: "Description",
       noDescription: "No detailed description provided.",
       commentsSection: "Comments",
       imagesSection: "Images",
@@ -217,7 +216,7 @@ const copy = {
       titleLabel: "Title",
       cityLabel: "City",
       priceLabel: "Price",
-      dateLabel: "Fetched",
+      dateLabel: "date",
       sectionLabel: "Section",
       phoneLabel: "Phone",
       sourceLabel: "Source",
@@ -256,7 +255,6 @@ const copy = {
         haraj: "حراج",
         yallamotor: "يلا موتور",
       },
-      excludeAccessories: "استبعاد قطع الغيار والملحقات",
       hasImages: "مع صور",
       hasPrice: "مع سعر",
       hasComments: "مع تعليقات",
@@ -274,7 +272,7 @@ const copy = {
       showing: (count: number, page: number, total: number) =>
         `عرض ${count} سجل (الصفحة ${page} من ${total})`,
       title: "العنوان",
-      city: "المدينة",
+      brand: "الماركة",
       price: "السعر",
       date: "التاريخ",
       images: "الصور",
@@ -314,12 +312,12 @@ const copy = {
       loadingComments: "جارٍ تحميل التعليقات...",
       unableComments: "تعذّر تحميل التعليقات.",
       noComments: "لا توجد تعليقات.",
-      detailTitle: "تفاصيل مصدر التقييم",
+      detailTitle: "التفاصيل",
       detailSubtitle: "تفاصيل كاملة بشكل منظّم.",
       summary: "ملخص",
       tags: "الوسوم",
       noTags: "لا توجد وسوم.",
-      notes: "ملاحظات",
+      notes: "الوصف",
       noDescription: "لا يوجد وصف تفصيلي.",
       commentsSection: "التعليقات",
       imagesSection: "الصور",
@@ -328,7 +326,7 @@ const copy = {
       titleLabel: "العنوان",
       cityLabel: "المدينة",
       priceLabel: "السعر",
-      dateLabel: "تاريخ الجلب",
+      dateLabel: "التاريخ ",
       sectionLabel: "القسم",
       phoneLabel: "الهاتف",
       sourceLabel: "المصدر",
@@ -377,12 +375,187 @@ function formatPrice(value: number | null, formatted?: string | null) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function formatYallaDescription(value: string) {
+  if (!value) return "";
+  const arabicTokens = [
+    "أبواب",
+    "ابواب",
+    "أبواب",
+    "باب",
+    "أمام",
+    "امام",
+    "خلف",
+    "جانبي",
+    "جانبية",
+    "نهارية",
+    "تشغيل",
+    "قيادة",
+    "تحكم",
+    "عجلات",
+    "عجلة",
+    "طارة",
+    "مقود",
+    "مرايا",
+    "مرآة",
+    "كشاف",
+    "مصابيح",
+    "ضباب",
+    "إضاءة",
+    "اضاءة",
+    "LED",
+    "ليد",
+    "نظام",
+    "فرامل",
+    "ABS",
+    "EBD",
+    "ESP",
+    "ISOFIX",
+    "USB",
+    "AUX",
+    "CD",
+    "DVD",
+    "كهربائية",
+    "كهربائي",
+    "يدوية",
+    "يدوي",
+    "أوتوماتيك",
+    "اوتوماتيك",
+    "ناقل",
+    "الحركة",
+    "دفع",
+    "رباعي",
+    "ثنائي",
+    "شاشة",
+    "معلومات",
+    "وسائط",
+    "ملاحة",
+    "GPS",
+    "بلوتوث",
+    "اتصال",
+    "فتحة",
+    "فتحت",
+    "سقف",
+    "بانورامي",
+    "بانوراما",
+    "نور",
+    "أمان",
+    "امان",
+    "وسائد",
+    "هوائية",
+    "حزام",
+    "إنذار",
+    "انذار",
+    "قفل",
+    "مركزي",
+    "ذكي",
+    "مفتاح",
+    "دخول",
+    "بدون",
+    "مفتاح",
+    "سمارت",
+    "نظام",
+    "مقاعد",
+    "مقعد",
+    "كاميرا",
+    "حساس",
+    "حساسات",
+    "مستشعر",
+    "مستشعرات",
+    "رادار",
+    "بلوتوث",
+    "تحكم",
+    "دخول",
+    "بدون",
+    "مفتاح",
+    "شحن",
+    "لاسلكي",
+    "ملاحة",
+    "صوت",
+    "سماعات",
+    "هوائية",
+    "وسائد",
+    "جلد",
+    "جلدية",
+    "بانورامي",
+    "تشغيل",
+    "نهارية",
+    "إضاءة",
+    "اضاءة",
+    "مكيف",
+    "تكييف",
+    "تبريد",
+    "تدفئة",
+    "تسخين",
+    "تدليك",
+    "تهوية",
+    "مساعد",
+    "تنبيه",
+    "تحذير",
+    "مراقبة",
+    "نقطة",
+    "عمياء",
+    "ركن",
+    "بارك",
+    "صف",
+    "أصوات",
+    "ضغط",
+    "إطارات",
+    "اطارات",
+    "شحن",
+    "سريع",
+    "نظام",
+    "ملاحة",
+    "مواصفات",
+    "خليجية",
+    "صينية",
+    "أوروبية",
+    "اوروبية",
+    "أمريكية",
+    "امريكية",
+  ];
+
+  const escapeRegex = (input: string) => input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  let text = value.replace(/\r\n/g, "\n").trim();
+  text = text.replace(/\*\*/g, "\n");
+
+  text = text
+    .replace(/([\u0600-\u06FF])و(?=ال)/g, "$1 و")
+    .replace(/([\u0600-\u06FF])ف(?=ال)/g, "$1 ف")
+    .replace(/([\u0600-\u06FF])ب(?=ال)/g, "$1 ب")
+    .replace(/([\u0600-\u06FF])ل(?=ال)/g, "$1 ل")
+    .replace(/([\u0600-\u06FF])(ال)/g, "$1 $2")
+    .replace(/ة(?=[\u0600-\u06FF])/g, "ة ");
+
+  for (const token of arabicTokens.sort((a, b) => b.length - a.length)) {
+    const escaped = escapeRegex(token);
+    const afterToken = new RegExp(`(${escaped})([\\u0600-\\u06FF])`, "g");
+    const beforeToken = new RegExp(`([\\u0600-\\u06FF])(${escaped})`, "g");
+    text = text.replace(afterToken, "$1 $2");
+    text = text.replace(beforeToken, "$1 $2");
+  }
+
+  text = text
+    .replace(/([a-z])([A-Z])/g, "$1\n$2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1\n$2")
+    .replace(/([0-9])([A-Za-z])/g, "$1\n$2")
+    .replace(/([A-Za-z])([0-9])/g, "$1\n$2")
+    .replace(/([\u0600-\u06FF])([A-Za-z0-9])/g, "$1\n$2")
+    .replace(/([A-Za-z0-9])([\u0600-\u06FF])/g, "$1\n$2")
+    .replace(/([.،!?:;])\s*/g, "$1\n");
+  text = text.replace(/[ \t]+/g, " ");
+  text = text.replace(/\s*\n\s*/g, "\n");
+  text = text.replace(/\n{2,}/g, "\n");
+  return text.trim();
+}
+
 function normalizeTag(value?: string | null) {
   return (value ?? "").trim().toLowerCase();
 }
 
 export default function EvaluationSourcePage({
   tag0,
+  excludeTag1Values,
   enableBrandFilter = false,
   enableModelFilter = false,
   enableModelYearFilter = false,
@@ -444,7 +617,10 @@ export default function EvaluationSourcePage({
     if (enableBrandFilter && filters.brand) params.set("tag1", filters.brand);
     if (enableModelFilter && filters.model) params.set("tag2", filters.model);
     if (enableModelYearFilter && filters.modelYear) params.set("carModelYear", filters.modelYear);
-    if (filters.excludeAccessories) params.set("excludeTag1", "قطع غيار وملحقات");
+    if (excludeTag1Values && excludeTag1Values.length > 0) {
+      const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
+      if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
+    }
     params.set("page", String(page));
     params.set("limit", String(limit));
     return params.toString();
@@ -453,6 +629,7 @@ export default function EvaluationSourcePage({
     page,
     limit,
     tag0,
+    excludeTag1Values,
     enableBrandFilter,
     enableModelFilter,
     enableModelYearFilter,
@@ -674,10 +851,30 @@ export default function EvaluationSourcePage({
   const detailFeatures = (isYallaDetail ? detail?.detail?.features ?? [] : []) as string[];
   const detailPriceCompare = isYallaDetail ? detail?.detail?.priceCompare ?? detail?.priceCompare ?? null : null;
   const detailNotes = isYallaDetail
-    ? detail?.detail?.description ?? t.modals.noDescription
+    ? formatYallaDescription(detail?.detail?.description ?? "") || t.modals.noDescription
     : detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? t.modals.noDescription;
-  const normalizedDetailTags = detailTags.filter((tag): tag is string => Boolean(tag));
+  const normalizedDetailTags = detailTags
+    .filter((tag): tag is string => Boolean(tag))
+    .slice(isYallaDetail ? 3 : 1);
   const normalizedFeatures = detailFeatures.filter((feature) => Boolean(feature));
+  const carInfoGridEntries = carInfo
+    ? [
+        ...(!isYallaDetail
+          ? [
+              {
+                key: "mileage",
+                label: t.carInfo.mileage,
+                value: carMileage ?? "-",
+              },
+            ]
+          : []),
+        ...carInfoEntries.map(([key, value]) => ({
+          key,
+          label: key === "sellOrWaiver" ? t.carInfo.sellOrWaiver : key,
+          value,
+        })),
+      ]
+    : [];
   const priceCompareEntries = detailPriceCompare
     ? [
         { label: t.table.priceCompareLabel.min, value: detailPriceCompare.min ?? "-" },
@@ -913,20 +1110,7 @@ export default function EvaluationSourcePage({
                   </div>
                   <div className="mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-6">
                     <div className="bg-white/95 px-2 py-2 lg:col-span-4">
-                      <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-4">
-                        <button
-                          type="button"
-                          aria-pressed={filters.excludeAccessories}
-                          onClick={() => updateFilters({ excludeAccessories: !filters.excludeAccessories })}
-                        className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] px-3 text-xs uppercase tracking-[0.24em] transition ${
-                          filters.excludeAccessories
-                            ? "bg-emerald-50 text-emerald-700 shadow-sm"
-                            : "bg-white text-slate-500 hover:text-emerald-600"
-                        }`}
-                        >
-                          {filters.excludeAccessories ? <Check className="h-3.5 w-3.5" /> : null}
-                          {t.filters.excludeAccessories}
-                        </button>
+                      <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-3">
                         <button
                           type="button"
                           aria-pressed={filters.hasImage === "true"}
@@ -1074,7 +1258,7 @@ export default function EvaluationSourcePage({
                           {t.table.title}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
-                          {t.table.city}
+                          {t.table.brand}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
                           {t.table.price}
@@ -1109,7 +1293,7 @@ export default function EvaluationSourcePage({
                               </button>
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm text-slate-600">{item.city || "-"}</TableCell>
+                          <TableCell className="text-sm text-slate-600">{item.tags?.[1] || "-"}</TableCell>
                           <TableCell
                             className={`text-sm ${
                               item.priceNumeric || item.priceFormatted
@@ -1297,14 +1481,30 @@ export default function EvaluationSourcePage({
 
         <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
           <DialogContent className="w-[98vw] max-w-[98vw] border border-slate-200 bg-white/95 p-0 sm:w-[96vw] sm:max-w-[1600px]">
-            <DialogHeader className="border-b border-slate-200 px-6 py-4">
-              <DialogTitle className={`text-2xl font-semibold ${sora.className}`}>{t.modals.detailTitle}</DialogTitle>
-              <p className="text-sm text-slate-500">{t.modals.detailSubtitle}</p>
+            <DialogHeader className="border-b border-slate-200 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <DialogTitle className={`text-2xl font-semibold ${sora.className}`}>{t.modals.detailTitle}</DialogTitle>
+                {normalizedDetailTags.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {normalizedDetailTags.map((tag) => (
+                      <span key={tag} className="rounded-full bg-slate-900/10 px-3 py-1 text-[11px] text-slate-700">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </DialogHeader>
             <ScrollArea className="max-h-[80vh]">
-              <div className="grid gap-6 p-4 sm:p-6 grid-cols-1 lg:grid-cols-[minmax(0,30%)_minmax(0,70%)]">
-                <div className="min-w-0 space-y-4">
-                  <div className="rounded-3xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-lg">
+              <div className="grid gap-3 px-3 pb-3 pt-2 sm:px-4 sm:pb-4 sm:pt-2 grid-cols-1 lg:grid-cols-[minmax(0,30%)_minmax(0,70%)]">
+                <div className="min-w-0 space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.notes}</p>
+                    <p className="mt-3 text-sm text-slate-600 whitespace-pre-line">
+                      {detailNotes}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-3 shadow-lg">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.imagesSection}</p>
                     <div className="mt-4 max-h-[45vh] space-y-3 overflow-y-auto pr-2">
                       {detailImages.length === 0 ? (
@@ -1321,38 +1521,10 @@ export default function EvaluationSourcePage({
                       )}
                     </div>
                   </div>
-                  {carInfo ? (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-lg">
-                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.carInfo.title}</p>
-                      {carInfoEntries.length === 0 && (carMileage === null || carMileage === undefined) ? (
-                        <p className="mt-3 text-xs text-slate-500">{t.carInfo.empty}</p>
-                      ) : (
-                        <div className="mt-3 space-y-2">
-                          {!isYallaDetail ? (
-                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                              <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{t.carInfo.mileage}</span>
-                              <span className="font-medium">{carMileage ?? "-"}</span>
-                            </div>
-                          ) : null}
-                          {carInfoEntries.map(([key, value]) => (
-                            <div
-                              key={key}
-                              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                            >
-                              <span className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                                {key === "sellOrWaiver" ? t.carInfo.sellOrWaiver : key}
-                              </span>
-                              <span className="font-medium">{String(value)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
                 </div>
 
-                <div className="min-w-0 space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="min-w-0 space-y-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.summary}</p>
                     {detailStatus === "loading" ? (
                       <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
@@ -1379,9 +1551,9 @@ export default function EvaluationSourcePage({
                   </div>
 
                   {isYallaDetail && priceCompareEntries.length > 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.priceCompareTitle}</p>
-                      <div className="mt-3 space-y-2">
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         {priceCompareEntries.map((entry) => (
                           <div
                             key={entry.label}
@@ -1395,30 +1567,31 @@ export default function EvaluationSourcePage({
                     </div>
                   ) : null}
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.tags}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {normalizedDetailTags.length === 0 ? (
-                        <span className="text-xs text-slate-500">{t.modals.noTags}</span>
+                  {carInfo ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.carInfo.title}</p>
+                      {carInfoGridEntries.length === 0 ? (
+                        <p className="mt-3 text-xs text-slate-500">{t.carInfo.empty}</p>
                       ) : (
-                        normalizedDetailTags.map((tag) => (
-                          <span key={tag} className="rounded-full bg-slate-900/10 px-3 py-1 text-[11px] text-slate-700">
-                            {tag}
-                          </span>
-                        ))
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                          {carInfoGridEntries.map((entry) => (
+                            <div
+                              key={entry.key}
+                              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                            >
+                              <span className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                                {entry.label}
+                              </span>
+                              <span className="font-medium">{String(entry.value)}</span>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.notes}</p>
-                    <p className="mt-3 text-sm text-slate-600 whitespace-pre-line">
-                      {detailNotes}
-                    </p>
-                  </div>
+                  ) : null}
 
                   {isYallaDetail && normalizedFeatures.length > 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.featuresTitle}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {normalizedFeatures.map((feature) => (
@@ -1434,7 +1607,7 @@ export default function EvaluationSourcePage({
                   ) : null}
 
                   {!isYallaDetail ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
                       <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.commentsSection}</p>
                       <div className="mt-3 space-y-3">
                         {detailComments.length === 0 ? (

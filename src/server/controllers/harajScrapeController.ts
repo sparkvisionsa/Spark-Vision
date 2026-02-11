@@ -19,7 +19,7 @@ export type HarajScrapeListQuery = {
   tag1?: string;
   tag2?: string;
   carModelYear?: number;
-  excludeTag1?: string;
+  excludeTag1?: string | string[];
 };
 
 const DEFAULT_LIMIT = 25;
@@ -31,6 +31,12 @@ type ListOptions = {
 
 function toRegex(value: string) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+}
+
+function normalizeList(value?: string | string[]) {
+  if (!value) return [];
+  const values = Array.isArray(value) ? value : value.split(",");
+  return values.map((item) => item.trim()).filter(Boolean);
 }
 
 function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
@@ -147,12 +153,13 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
     });
   }
 
-  if (query.excludeTag1) {
+  const excludeTag1Values = normalizeList(query.excludeTag1);
+  if (excludeTag1Values.length > 0) {
     andFilters.push({
       $nor: [
-        { "tags.1": query.excludeTag1 },
-        { "item.tags.1": query.excludeTag1 },
-        { "gql.posts.json.data.posts.items.tags.1": query.excludeTag1 },
+        { "tags.1": { $in: excludeTag1Values } },
+        { "item.tags.1": { $in: excludeTag1Values } },
+        { "gql.posts.json.data.posts.items.tags.1": { $in: excludeTag1Values } },
       ],
     });
   }
