@@ -142,7 +142,7 @@ const copy = {
       searchModeSubtitle: "Results update after you click Search.",
       search: "Search",
       searchPlaceholder: "Title, Description",
-      clearHistory: "Clear history",
+      clearHistory: "Clear",
       city: "City",
       cityPlaceholder: "Search city",
       brand: "Brand",
@@ -1300,19 +1300,19 @@ export default function EvaluationSourcePage({
                   <div
                     className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-4"
                   >
-                    <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                    <div className="flex flex-col gap-2 bg-white/95 px-3 py-2 sm:flex-row sm:items-center">
                     <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
                       </Label>
-                      <div className="flex flex-1 items-center gap-2">
-                        <div className="relative flex-1">
+                      <div className="flex w-full min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                        <div className="relative w-full min-w-0 flex-1">
                           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <Input
                             list="search-history-options"
                             value={filters.search}
                             onChange={(event) => updateFilters({ search: event.target.value })}
                             placeholder={t.filters.searchPlaceholder}
-                            className="h-9 pl-8 text-sm"
+                            className="h-9 w-full pl-8 text-sm"
                           />
                           <datalist id="search-history-options">
                             {searchHistory.map((value) => (
@@ -1323,7 +1323,7 @@ export default function EvaluationSourcePage({
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-9 shrink-0 border-slate-300 px-2 text-[11px] uppercase tracking-[0.12em]"
+                          className="h-8 w-fit shrink-0 whitespace-nowrap border-slate-300 px-2 text-[10px] normal-case tracking-normal sm:h-9 sm:text-[11px] sm:uppercase sm:tracking-[0.12em]"
                           onClick={clearSearchHistory}
                           disabled={searchHistory.length === 0}
                         >
