@@ -44,7 +44,10 @@ export default function LayoutProvider({
     localStorage.setItem("spark-vision-lang", language);
   }, [language]);
 
-  const dir = useMemo(() => (language === "ar" ? "rtl" : "ltr"), [language]);
+  const dir = useMemo<"ltr" | "rtl">(
+    () => (language === "ar" ? "rtl" : "ltr"),
+    [language]
+  );
 
   const value = useMemo(
     () => ({ language, setLanguage, dir }),

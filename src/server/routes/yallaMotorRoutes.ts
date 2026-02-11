@@ -35,6 +35,10 @@ export async function listYallaMotorsRoute(request: NextRequest) {
     tag2: searchParams.get("tag2") ?? undefined,
     carModelYear: parseNumber(searchParams.get("carModelYear")),
     excludeTag1: searchParams.get("excludeTag1") ?? undefined,
+    fields:
+      searchParams.get("fields") === "options"
+        ? "options"
+        : undefined,
   };
 
   const data = await listYallaMotors(query);

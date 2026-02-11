@@ -45,6 +45,10 @@ export async function listCarsSourcesRoute(request: NextRequest) {
     carModelYear: parseNumber(searchParams.get("carModelYear")),
     excludeTag1: searchParams.get("excludeTag1") ?? undefined,
     sources: parseSources(searchParams.get("sources")),
+    fields:
+      searchParams.get("fields") === "options"
+        ? "options"
+        : undefined,
   };
 
   const data = await listCarsSources(query);

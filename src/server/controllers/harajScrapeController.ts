@@ -1,6 +1,7 @@
 import type { Filter, Sort } from "mongodb";
 import { getMongoDb } from "../mongodb";
 import { getHarajScrapeCollection, type HarajScrapeDoc } from "../models/harajScrape";
+import { buildVehicleAliases } from "../../lib/vehicle-name-match";
 
 export type HarajScrapeListQuery = {
   search?: string;
@@ -20,11 +21,11 @@ export type HarajScrapeListQuery = {
   tag2?: string;
   carModelYear?: number;
   excludeTag1?: string | string[];
+  fields?: "default" | "options";
 };
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
 
 type ListOptions = {
   maxLimit?: number;
@@ -40,11 +41,32 @@ function normalizeList(value?: string | string[]) {
   return values.map((item) => item.trim()).filter(Boolean);
 }
 
-function countVisibleComments(comments: Array<Record<string, unknown>>) {
-  return comments.filter((comment) => {
-    const body = typeof comment?.body === "string" ? comment.body.replace(/\s+/g, " ").trim() : "";
-    return !body.includes(PRIVATE_COMMENT_MARKER);
-  }).length;
+function buildAliasRegexes(value: string) {
+  const aliases = [value, ...buildVehicleAliases(value)];
+  const uniqueAliases = Array.from(
+    new Set(aliases.map((item) => item.trim()).filter(Boolean))
+  );
+  return uniqueAliases.map(toRegex);
+}
+
+function toEpochNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (!Number.isNaN(numeric)) return numeric;
+    const parsed = Date.parse(trimmed);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? null : time;
+  }
+  return null;
 }
 
 function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
@@ -92,9 +114,9 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
         { $or: [{ hasPrice: true }, { hasPrice: "true" }] },
         {
           $or: [
-            { priceNumeric: { $exists: true, $ne: null, $gt: 0 } },
-            { "item.price.numeric": { $exists: true, $ne: null, $gt: 0 } },
-            { "item.price.formattedPrice": { $exists: true, $nin: ["", null] } },
+            { priceNumeric: { $exists: true, $gt: 0 } },
+            { "item.price.numeric": { $exists: true, $gt: 0 } },
+            { "item.price.formattedPrice": { $exists: true, $ne: "" } },
           ],
         },
       ],
@@ -148,16 +170,16 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
   }
 
   if (query.tag1) {
-    const tagRegex = toRegex(query.tag1);
+    const tagRegexes = buildAliasRegexes(query.tag1);
     andFilters.push({
-      $or: [{ "tags.1": tagRegex }, { "item.tags.1": tagRegex }],
+      $or: [{ "tags.1": { $in: tagRegexes } }, { "item.tags.1": { $in: tagRegexes } }],
     });
   }
 
   if (query.tag2) {
-    const tagRegex = toRegex(query.tag2);
+    const tagRegexes = buildAliasRegexes(query.tag2);
     andFilters.push({
-      $or: [{ "tags.2": tagRegex }, { "item.tags.2": tagRegex }],
+      $or: [{ "tags.2": { $in: tagRegexes } }, { "item.tags.2": { $in: tagRegexes } }],
     });
   }
 
@@ -225,37 +247,49 @@ export async function listHarajScrapes(
       .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit)
-      .project({
-        _id: 1,
-        postId: 1,
-        title: 1,
-        city: 1,
-        priceNumeric: 1,
-        postDate: 1,
-        url: 1,
-        phone: 1,
-        tags: 1,
-        commentsCount: 1,
-        comments: 1,
-        hasImage: 1,
-        hasVideo: 1,
-        imagesList: 1,
-        "item.title": 1,
-        "item.postDate": 1,
-        "item.city": 1,
-        "item.geoCity": 1,
-        "item.tags": 1,
-        "item.hasImage": 1,
-        "item.hasVideo": 1,
-        "item.commentCount": 1,
-        "item.price": 1,
-        "item.URL": 1,
-        "item.imagesList": 1,
-        "item.carInfo.model": 1,
-        "carInfo.model": 1,
-        "gql.posts.json.data.posts.items.carInfo.model": 1,
-        "gql.comments.json.data.comments.items.body": 1,
-      })
+      .project(
+        query.fields === "options"
+          ? {
+              _id: 1,
+              postId: 1,
+              postDate: 1,
+              tags: 1,
+              "item.postDate": 1,
+              "item.tags": 1,
+              "item.carInfo.model": 1,
+              "carInfo.model": 1,
+              "gql.posts.json.data.posts.items.carInfo.model": 1,
+            }
+          : {
+              _id: 1,
+              postId: 1,
+              title: 1,
+              city: 1,
+              priceNumeric: 1,
+              postDate: 1,
+              url: 1,
+              phone: 1,
+              tags: 1,
+              commentsCount: 1,
+              hasImage: 1,
+              hasVideo: 1,
+              imagesList: 1,
+              "item.title": 1,
+              "item.postDate": 1,
+              "item.city": 1,
+              "item.geoCity": 1,
+              "item.tags": 1,
+              "item.hasImage": 1,
+              "item.hasVideo": 1,
+              "item.commentCount": 1,
+              "item.price": 1,
+              "item.URL": 1,
+              "item.imagesList": 1,
+              "item.carInfo.model": 1,
+              "carInfo.model": 1,
+              "gql.posts.json.data.posts.items.carInfo.model": 1,
+            }
+      )
       .toArray(),
     collection.countDocuments(filter),
   ]);
@@ -272,18 +306,35 @@ export async function listHarajScrapes(
       (doc as any)?.carInfo?.model ??
       (doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.model ??
       null;
-    const rawComments =
-      ((doc as any)?.comments ??
-        (doc as any)?.gql?.comments?.json?.data?.comments?.items ??
-        []) as Array<Record<string, unknown>>;
-    const fallbackCommentsCount = doc.commentsCount ?? doc.item?.commentCount ?? 0;
-    const commentsCount =
-      rawComments.length > 0 ? countVisibleComments(rawComments) : fallbackCommentsCount;
+    const commentsCount = doc.commentsCount ?? doc.item?.commentCount ?? 0;
+    const postDate =
+      toEpochNumber(doc.item?.postDate) ??
+      toEpochNumber(doc.postDate) ??
+      null;
+    if (query.fields === "options") {
+      return {
+        id: doc.postId ?? doc._id,
+        title: "Untitled",
+        city: "",
+        postDate,
+        priceNumeric: null,
+        priceFormatted: null,
+        hasImage: false,
+        imagesCount: 0,
+        hasVideo: false,
+        commentsCount: 0,
+        tags: doc.tags ?? doc.item?.tags ?? [],
+        carModelYear,
+        phone: "",
+        url: "",
+        source: "haraj",
+      };
+    }
     return {
       id: doc.postId ?? doc._id,
       title: doc.title ?? doc.item?.title ?? "Untitled",
       city: doc.city ?? doc.item?.city ?? doc.item?.geoCity ?? "",
-      postDate: doc.postDate ?? doc.item?.postDate ?? null,
+      postDate,
       priceNumeric,
       priceFormatted: doc.item?.price?.formattedPrice ?? (priceNumeric ? priceNumeric.toLocaleString("en-US") : null),
       hasImage: hasImages,

@@ -1,14 +1,13 @@
 import { listHarajScrapes, type HarajScrapeListQuery } from "./harajScrapeController";
 import { listYallaMotors } from "./yallaMotorController";
-import { isVehicleTextMatch } from "../../lib/vehicle-name-match";
 
 export type CarsSourcesListQuery = HarajScrapeListQuery & {
   sources?: string[];
 };
 
 const DEFAULT_LIMIT = 25;
-const MAX_LIMIT = 5000;
-const MAX_INTERNAL_LIMIT = 5000;
+const MAX_LIMIT = 200;
+const MAX_INTERNAL_LIMIT = 3000;
 
 function normalizeSource(value: string) {
   return value.trim().toLowerCase();
@@ -17,6 +16,23 @@ function normalizeSource(value: string) {
 function toEpochMillis(value: number | null) {
   if (!value) return null;
   return value > 1_000_000_000_000 ? value : value * 1000;
+}
+
+function normalizeHarajItems(items: Array<Record<string, any>>) {
+  return items.map((item) => ({
+    ...item,
+    postDate: toEpochMillis(item.postDate ?? null),
+    source: "haraj",
+    priceCompare: null,
+  }));
+}
+
+function normalizeYallaItems(items: Array<Record<string, any>>) {
+  return items.map((item) => ({
+    ...item,
+    postDate: toEpochMillis(item.postDate ?? null),
+    source: "yallamotor",
+  }));
 }
 
 function sortItems(items: Array<Record<string, any>>, sort?: string) {
@@ -57,69 +73,88 @@ function sortItems(items: Array<Record<string, any>>, sort?: string) {
 }
 
 export async function listCarsSources(query: CarsSourcesListQuery) {
-  const limit = Math.min(query.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
+  const limit = Math.min(Math.max(query.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const page = Math.max(query.page ?? 1, 1);
-  const brandQuery = query.tag1?.trim() ?? "";
-  const modelQuery = query.tag2?.trim() ?? "";
-  const useVehicleNameMatching = Boolean(brandQuery || modelQuery);
-  const perSourceLimit = useVehicleNameMatching
-    ? MAX_INTERNAL_LIMIT
-    : Math.min(limit * page, MAX_INTERNAL_LIMIT);
-  const sourceQuery = useVehicleNameMatching
-    ? { ...query, tag1: undefined, tag2: undefined }
-    : query;
 
   const sources = (query.sources ?? ["haraj", "yallamotor"]).map(normalizeSource);
   const includeHaraj = sources.includes("haraj");
   const includeYalla = sources.includes("yallamotor");
 
+  if (!includeHaraj && !includeYalla) {
+    return {
+      items: [],
+      total: 0,
+      page,
+      limit,
+    };
+  }
+
+  if (includeHaraj && !includeYalla) {
+    const harajData = await listHarajScrapes(
+      {
+        ...query,
+        page,
+        limit,
+      },
+      { maxLimit: MAX_LIMIT }
+    );
+
+    return {
+      ...harajData,
+      items: normalizeHarajItems(harajData.items as Array<Record<string, any>>),
+      page,
+      limit,
+    };
+  }
+
+  if (!includeHaraj && includeYalla) {
+    const yallaData = await listYallaMotors(
+      {
+        ...query,
+        page,
+        limit,
+      },
+      { maxLimit: MAX_LIMIT }
+    );
+
+    return {
+      ...yallaData,
+      items: normalizeYallaItems(yallaData.items as Array<Record<string, any>>),
+      page,
+      limit,
+    };
+  }
+
+  const perSourceLimit = Math.min(limit * page, MAX_INTERNAL_LIMIT);
   const [harajData, yallaData] = await Promise.all([
-    includeHaraj
-      ? listHarajScrapes(
-          {
-            ...sourceQuery,
-            page: 1,
-            limit: perSourceLimit,
-          },
-          { maxLimit: perSourceLimit }
-        )
-      : Promise.resolve({ items: [], total: 0, page: 1, limit: perSourceLimit }),
-    includeYalla
-      ? listYallaMotors(
-          {
-            ...sourceQuery,
-            page: 1,
-            limit: perSourceLimit,
-          },
-          { maxLimit: perSourceLimit }
-        )
-      : Promise.resolve({ items: [], total: 0, page: 1, limit: perSourceLimit }),
+    listHarajScrapes(
+      {
+        ...query,
+        page: 1,
+        limit: perSourceLimit,
+      },
+      { maxLimit: perSourceLimit }
+    ),
+    listYallaMotors(
+      {
+        ...query,
+        page: 1,
+        limit: perSourceLimit,
+      },
+      { maxLimit: perSourceLimit }
+    ),
   ]);
 
-  const normalizedHaraj = harajData.items.map((item: any) => ({
-    ...item,
-    postDate: toEpochMillis(item.postDate ?? null),
-    source: "haraj",
-    priceCompare: null,
-  }));
-
-  const normalizedYalla = yallaData.items.map((item: any) => ({
-    ...item,
-    postDate: toEpochMillis(item.postDate ?? null),
-    source: "yallamotor",
-  }));
-
-  const matchedItems = [...normalizedHaraj, ...normalizedYalla].filter((item) => {
-    const brand = item?.tags?.[1] ?? "";
-    const model = item?.tags?.[2] ?? "";
-    return isVehicleTextMatch(brand, brandQuery) && isVehicleTextMatch(model, modelQuery);
-  });
-  const combinedItems = sortItems(matchedItems, query.sort);
+  const combinedItems = sortItems(
+    [
+      ...normalizeHarajItems(harajData.items as Array<Record<string, any>>),
+      ...normalizeYallaItems(yallaData.items as Array<Record<string, any>>),
+    ],
+    query.sort
+  );
   const start = (page - 1) * limit;
   const pagedItems = combinedItems.slice(start, start + limit);
-  const total = useVehicleNameMatching
-    ? combinedItems.length
-    : harajData.total + yallaData.total;
+  const total = harajData.total + yallaData.total;
 
   return {
     items: pagedItems,

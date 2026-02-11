@@ -11,6 +11,7 @@ export default function EvaluationSourceCarsPage() {
       enableModelFilter
       enableModelYearFilter
       dataSources={["haraj", "yallamotor"]}
+      requireSearchClickToApplyFilters
     />
   );
 }

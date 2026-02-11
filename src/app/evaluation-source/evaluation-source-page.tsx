@@ -91,6 +91,7 @@ type EvaluationSourcePageProps = {
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
   dataSources?: Array<"haraj" | "yallamotor">;
+  requireSearchClickToApplyFilters?: boolean;
 };
 
 const animationStyles = `
@@ -131,6 +132,7 @@ const copy = {
       badge: "Magic Filters",
       title: "Filter and refine",
       subtitle: "Instant results as you type.",
+      searchModeSubtitle: "Results update after you click Search.",
       search: "Search",
       searchPlaceholder: "Title, Description",
       city: "City",
@@ -243,6 +245,7 @@ const copy = {
       badge: "مرشحات ذكية",
       title: "تصفية ",
       subtitle: "نتائج فورية أثناء الكتابة.",
+      searchModeSubtitle: "يتم تحديث النتائج بعد الضغط على زر البحث.",
       search: "بحث",
       searchPlaceholder: "العنوان، الوصف",
       city: "المدينة",
@@ -359,14 +362,32 @@ function formatEpoch(value: number | string | Date | null) {
     return formatEpoch((value as { $date?: string }).$date ?? null);
   }
 
-  const asDate =
-    value instanceof Date
-      ? value
-      : typeof value === "string"
-        ? new Date(value)
-        : value > 1_000_000_000_000
-          ? new Date(value)
-          : new Date(value * 1000);
+  const toDate = (input: number | string | Date) => {
+    if (input instanceof Date) return input;
+
+    if (typeof input === "number") {
+      return input > 1_000_000_000_000
+        ? new Date(input)
+        : new Date(input * 1000);
+    }
+
+    const trimmed = input.trim();
+    if (!trimmed) return new Date(NaN);
+
+    const numericCandidate = trimmed.replace(/,/g, "");
+    if (/^-?\d+(\.\d+)?$/.test(numericCandidate)) {
+      const numericValue = Number(numericCandidate);
+      if (!Number.isNaN(numericValue)) {
+        return numericValue > 1_000_000_000_000
+          ? new Date(numericValue)
+          : new Date(numericValue * 1000);
+      }
+    }
+
+    return new Date(trimmed);
+  };
+
+  const asDate = toDate(value);
 
   if (Number.isNaN(asDate.getTime())) return "-";
   return new Intl.DateTimeFormat("en-GB", {
@@ -589,6 +610,7 @@ export default function EvaluationSourcePage({
   enableModelFilter = false,
   enableModelYearFilter = false,
   dataSources,
+  requireSearchClickToApplyFilters = false,
 }: EvaluationSourcePageProps) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "en";
@@ -601,6 +623,7 @@ export default function EvaluationSourcePage({
   const useCombinedSources = resolvedSources.length > 1 || resolvedSources[0] !== "haraj";
   const listEndpoint = useCombinedSources ? "/api/cars-sources" : "/api/haraj-scrape";
   const [filters, setFilters] = useState(defaultFilters);
+  const [appliedFilters, setAppliedFilters] = useState(defaultFilters);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [data, setData] = useState<ListResponse | null>(null);
@@ -615,26 +638,46 @@ export default function EvaluationSourcePage({
   const [modalImages, setModalImages] = useState<string[]>([]);
   const [modalComments, setModalComments] = useState<Array<Record<string, any>>>([]);
   const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
+  const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
+  const [optionPoolLoaded, setOptionPoolLoaded] = useState(false);
+  const [optionPoolLoading, setOptionPoolLoading] = useState(false);
   const [commentsMode, setCommentsMode] = useState<"comments" | "priceCompare">("comments");
   const [modalPriceCompare, setModalPriceCompare] =
     useState<EvaluationSourceItem["priceCompare"] | null>(null);
 
   const updateFilters = (updates: Partial<typeof defaultFilters>) => {
     setFilters((prev) => ({ ...prev, ...updates }));
+  };
+
+  const applyFilters = () => {
+    setAppliedFilters({ ...filters });
     setPage(1);
+  };
+
+  const resetFilters = () => {
+    const resetState = { ...defaultFilters };
+    setFilters(resetState);
+    setAppliedFilters(resetState);
+    setPage(1);
+  };
+
+  const ensureOptionPoolLoaded = () => {
+    if (!enableBrandFilter && !enableModelFilter && !enableModelYearFilter) return;
+    if (optionPoolLoaded || optionPoolLoading) return;
+    setShouldLoadOptionPool(true);
   };
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
-    if (filters.search) params.set("search", filters.search);
-    if (filters.city) params.set("city", filters.city);
-    if (filters.hasImage !== "any") params.set("hasImage", filters.hasImage);
-    if (filters.hasPrice !== "any") params.set("hasPrice", filters.hasPrice);
-    if (filters.hasComments !== "any") params.set("hasComments", filters.hasComments);
-    if (filters.sort) params.set("sort", filters.sort);
+    if (appliedFilters.search) params.set("search", appliedFilters.search);
+    if (appliedFilters.city) params.set("city", appliedFilters.city);
+    if (appliedFilters.hasImage !== "any") params.set("hasImage", appliedFilters.hasImage);
+    if (appliedFilters.hasPrice !== "any") params.set("hasPrice", appliedFilters.hasPrice);
+    if (appliedFilters.hasComments !== "any") params.set("hasComments", appliedFilters.hasComments);
+    if (appliedFilters.sort) params.set("sort", appliedFilters.sort);
     if (tag0) params.set("tag0", tag0);
     if (useCombinedSources) {
-      const selectedSource = filters.source?.trim();
+      const selectedSource = appliedFilters.source?.trim();
       const availableSources = resolvedSources;
       const sourcesParam =
         !selectedSource || selectedSource === "all"
@@ -644,9 +687,11 @@ export default function EvaluationSourcePage({
             : availableSources;
       params.set("sources", sourcesParam.join(","));
     }
-    if (enableBrandFilter && filters.brand) params.set("tag1", filters.brand);
-    if (enableModelFilter && filters.model) params.set("tag2", filters.model);
-    if (enableModelYearFilter && filters.modelYear) params.set("carModelYear", filters.modelYear);
+    if (enableBrandFilter && appliedFilters.brand) params.set("tag1", appliedFilters.brand);
+    if (enableModelFilter && appliedFilters.model) params.set("tag2", appliedFilters.model);
+    if (enableModelYearFilter && appliedFilters.modelYear) {
+      params.set("carModelYear", appliedFilters.modelYear);
+    }
     if (excludeTag1Values && excludeTag1Values.length > 0) {
       const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
       if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
@@ -655,7 +700,7 @@ export default function EvaluationSourcePage({
     params.set("limit", String(limit));
     return params.toString();
   }, [
-    filters,
+    appliedFilters,
     page,
     limit,
     tag0,
@@ -670,6 +715,7 @@ export default function EvaluationSourcePage({
   const optionsBaseQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (tag0) params.set("tag0", tag0);
+    params.set("fields", "options");
     if (useCombinedSources) {
       params.set("sources", resolvedSources.join(","));
     }
@@ -679,6 +725,12 @@ export default function EvaluationSourcePage({
     }
     return params.toString();
   }, [tag0, excludeTag1Values, useCombinedSources, resolvedSources]);
+
+  useEffect(() => {
+    if (requireSearchClickToApplyFilters) return;
+    setAppliedFilters(filters);
+    setPage(1);
+  }, [filters, requireSearchClickToApplyFilters]);
 
   useEffect(() => {
     let active = true;
@@ -713,17 +765,25 @@ export default function EvaluationSourcePage({
 
   useEffect(() => {
     if (!enableBrandFilter && !enableModelFilter && !enableModelYearFilter) return;
+    if (!shouldLoadOptionPool) return;
     let active = true;
 
     const loadOptions = async () => {
+      if (active) setOptionPoolLoading(true);
       try {
-        const pageSize = 5000;
-        const maxPages = 20;
+        const pageSize = 200;
+        const maxPages = 12;
+        const maxItems = 2400;
         let currentPage = 1;
         let totalItems = Infinity;
         const collected: EvaluationSourceItem[] = [];
 
-        while (active && currentPage <= maxPages && collected.length < totalItems) {
+        while (
+          active &&
+          currentPage <= maxPages &&
+          collected.length < totalItems &&
+          collected.length < maxItems
+        ) {
           const query = new URLSearchParams(optionsBaseQueryString);
           query.set("page", String(currentPage));
           query.set("limit", String(pageSize));
@@ -733,16 +793,25 @@ export default function EvaluationSourcePage({
           });
           if (!response.ok) break;
           const result = (await response.json()) as ListResponse;
-          collected.push(...(result.items ?? []));
-          totalItems = result.total ?? collected.length;
+          const fetchedItems = result.items ?? [];
+          collected.push(...fetchedItems);
+          totalItems = Math.min(result.total ?? collected.length, maxItems);
+          if (fetchedItems.length === 0) break;
           currentPage += 1;
         }
 
         if (active) {
           setOptionPool(collected);
+          setOptionPoolLoaded(true);
+          setOptionPoolLoading(false);
+          setShouldLoadOptionPool(false);
         }
       } catch {
-        if (active) setOptionPool([]);
+        if (active) {
+          setOptionPool([]);
+          setOptionPoolLoading(false);
+          setShouldLoadOptionPool(false);
+        }
       }
     };
 
@@ -756,10 +825,11 @@ export default function EvaluationSourcePage({
     enableModelYearFilter,
     listEndpoint,
     optionsBaseQueryString,
+    shouldLoadOptionPool,
   ]);
 
   const items = data?.items ?? [];
-  const optionItems = optionPool.length > 0 ? optionPool : items;
+  const optionItems = optionPoolLoaded && optionPool.length > 0 ? optionPool : items;
   const totalPages = Math.max(Math.ceil((data?.total ?? 0) / limit), 1);
 
   const brandOptions = useMemo(() => {
@@ -816,6 +886,7 @@ export default function EvaluationSourcePage({
 
   useEffect(() => {
     if (!enableModelFilter) return;
+    if (!optionPoolLoaded) return;
     if (!filters.model) return;
     if (!filters.brand) return;
     const hasValidModel = modelOptions.some((model) =>
@@ -823,20 +894,19 @@ export default function EvaluationSourcePage({
     );
     if (!hasValidModel) {
       setFilters((prev) => ({ ...prev, model: "" }));
-      setPage(1);
     }
-  }, [filters.brand, filters.model, enableModelFilter, modelOptions]);
+  }, [filters.brand, filters.model, enableModelFilter, modelOptions, optionPoolLoaded]);
 
   useEffect(() => {
     if (!enableModelYearFilter) return;
+    if (!optionPoolLoaded) return;
     if (!filters.modelYear) return;
     const normalizedYear = filters.modelYear.trim();
     const validYears = new Set(modelYearOptions);
     if (!validYears.has(normalizedYear)) {
       setFilters((prev) => ({ ...prev, modelYear: "" }));
-      setPage(1);
     }
-  }, [filters.modelYear, enableModelYearFilter, modelYearOptions]);
+  }, [filters.modelYear, enableModelYearFilter, modelYearOptions, optionPoolLoaded]);
 
   const fetchDetail = async (item: EvaluationSourceItem) => {
     const source = item.source ?? "haraj";
@@ -1113,7 +1183,11 @@ export default function EvaluationSourcePage({
                     {t.filters.badge}
                   </span> */}
                   <h2 className={`text-lg font-semibold text-slate-900 ${sora.className}`}>{t.filters.title}</h2>
-                  <p className="text-xs text-slate-500">{t.filters.subtitle}</p>
+                  <p className="text-xs text-slate-500">
+                    {requireSearchClickToApplyFilters
+                      ? t.filters.searchModeSubtitle
+                      : t.filters.subtitle}
+                  </p>
                 </div>
               </div>
 
@@ -1145,6 +1219,7 @@ export default function EvaluationSourcePage({
                             list="brand-options"
                             value={filters.brand}
                             onChange={(event) => updateFilters({ brand: event.target.value })}
+                            onFocus={ensureOptionPoolLoaded}
                             placeholder={t.filters.brandPlaceholder}
                             className="h-9 pl-8 text-sm"
                           />
@@ -1167,6 +1242,7 @@ export default function EvaluationSourcePage({
                             list="model-options"
                             value={filters.model}
                             onChange={(event) => updateFilters({ model: event.target.value })}
+                            onFocus={ensureOptionPoolLoaded}
                             placeholder={t.filters.modelPlaceholder}
                             className="h-9 pl-8 text-sm"
                           />
@@ -1189,6 +1265,7 @@ export default function EvaluationSourcePage({
                             list="model-year-options"
                             value={filters.modelYear}
                             onChange={(event) => updateFilters({ modelYear: event.target.value })}
+                            onFocus={ensureOptionPoolLoaded}
                             placeholder={t.filters.manufactureYearPlaceholder}
                             className="h-9 pl-8 text-sm"
                           />
@@ -1298,6 +1375,25 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                   </div>
+                  {requireSearchClickToApplyFilters ? (
+                    <div className="mt-3 flex flex-wrap justify-end gap-2 bg-white/95 px-3 py-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 border-slate-300 px-5 text-xs uppercase tracking-[0.18em]"
+                        onClick={resetFilters}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        type="button"
+                        className="h-9 bg-emerald-600 px-5 text-xs uppercase tracking-[0.18em] text-white hover:bg-emerald-700"
+                        onClick={applyFilters}
+                      >
+                        {t.filters.search}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

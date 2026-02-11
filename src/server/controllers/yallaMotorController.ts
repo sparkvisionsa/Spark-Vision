@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { getMongoDb } from "../mongodb";
 import { getYallaMotorCollection, type YallaMotorDoc } from "../models/yallaMotor";
 import type { HarajScrapeListQuery } from "./harajScrapeController";
+import { buildVehicleAliases } from "../../lib/vehicle-name-match";
 
 export type YallaMotorListQuery = HarajScrapeListQuery;
 
@@ -15,6 +16,14 @@ const MAX_LIMIT = 100;
 
 function toRegex(value: string) {
   return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+}
+
+function buildAliasRegexes(value: string) {
+  const aliases = [value, ...buildVehicleAliases(value)];
+  const uniqueAliases = Array.from(
+    new Set(aliases.map((item) => item.trim()).filter(Boolean))
+  );
+  return uniqueAliases.map(toRegex);
 }
 
 function buildFilter(query: YallaMotorListQuery): Filter<YallaMotorDoc> {
@@ -46,13 +55,13 @@ function buildFilter(query: YallaMotorListQuery): Filter<YallaMotorDoc> {
   }
 
   if (query.tag1) {
-    const tagRegex = toRegex(query.tag1);
-    andFilters.push({ "detail.breadcrumb.3": tagRegex });
+    const tagRegexes = buildAliasRegexes(query.tag1);
+    andFilters.push({ "detail.breadcrumb.3": { $in: tagRegexes } });
   }
 
   if (query.tag2) {
-    const tagRegex = toRegex(query.tag2);
-    andFilters.push({ "detail.breadcrumb.4": tagRegex });
+    const tagRegexes = buildAliasRegexes(query.tag2);
+    andFilters.push({ "detail.breadcrumb.4": { $in: tagRegexes } });
   }
 
   if (query.carModelYear !== undefined) {
@@ -173,6 +182,13 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
   const skip = (page - 1) * limit;
   const filter = buildFilter(query);
   const sort = buildSort(query.sort);
+  const isOptionsMode = query.fields === "options";
+  const needsNumericPrice =
+    !isOptionsMode &&
+    (query.sort === "price-high" ||
+      query.sort === "price-low" ||
+      query.minPrice !== undefined ||
+      query.maxPrice !== undefined);
 
   const priceRange: { $gte?: number; $lte?: number } = {};
   if (query.minPrice !== undefined) priceRange.$gte = query.minPrice;
@@ -184,11 +200,7 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
     {
       $project: {
         id: { $toString: "$_id" },
-        title: { $ifNull: ["$cardTitle", "Untitled"] },
-        city: { $ifNull: [{ $arrayElemAt: ["$detail.breadcrumb", 2] }, ""] },
         postDate: { $toLong: "$fetchedAt" },
-        priceNumeric: buildPriceNumericExpression(),
-        priceFormatted: "$cardPriceText",
         tags: [
           { $ifNull: [{ $arrayElemAt: ["$detail.breadcrumb", 0] }, "yallamotor"] },
           { $ifNull: [{ $arrayElemAt: ["$detail.breadcrumb", 3] }, ""] },
@@ -202,15 +214,21 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
             onNull: null,
           },
         },
-        imagesCount: { $size: { $ifNull: ["$detail.images", []] } },
-        hasImage: {
-          $gt: [{ $size: { $ifNull: ["$detail.images", []] } }, 0],
-        },
+        title: isOptionsMode ? { $literal: "Untitled" } : { $ifNull: ["$cardTitle", "Untitled"] },
+        city: isOptionsMode ? { $literal: "" } : { $ifNull: [{ $arrayElemAt: ["$detail.breadcrumb", 2] }, ""] },
+        priceNumeric: needsNumericPrice ? buildPriceNumericExpression() : { $literal: null },
+        priceFormatted: isOptionsMode ? { $literal: null } : "$cardPriceText",
+        imagesCount: isOptionsMode ? { $literal: 0 } : { $size: { $ifNull: ["$detail.images", []] } },
+        hasImage: isOptionsMode
+          ? { $literal: false }
+          : {
+              $gt: [{ $size: { $ifNull: ["$detail.images", []] } }, 0],
+            },
         commentsCount: { $literal: 0 },
-        url: { $ifNull: ["$url", "$detail.url"] },
+        url: isOptionsMode ? { $literal: "" } : { $ifNull: ["$url", "$detail.url"] },
         phone: { $literal: "" },
         source: { $literal: "yallamotor" },
-        priceCompare: "$detail.priceCompare",
+        priceCompare: isOptionsMode ? { $literal: null } : "$detail.priceCompare",
       },
     },
   ];
@@ -260,7 +278,7 @@ export async function getYallaMotorById(id: string) {
   ];
 
   if (ObjectId.isValid(id)) {
-    filters.push({ _id: new ObjectId(id) } as Filter<YallaMotorDoc>);
+    filters.push({ _id: new ObjectId(id) } as unknown as Filter<YallaMotorDoc>);
   }
 
   const doc = await collection.findOne({ $or: filters });
