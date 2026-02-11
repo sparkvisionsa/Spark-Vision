@@ -10,6 +10,7 @@ export default function EvaluationSourceCarsPage() {
       enableBrandFilter
       enableModelFilter
       enableModelYearFilter
+      enableMileageFilter
       dataSources={["haraj", "yallamotor"]}
       requireSearchClickToApplyFilters
     />

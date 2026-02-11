@@ -1,4 +1,4 @@
-import type { Filter, Sort } from "mongodb";
+import type { Document, Filter, Sort } from "mongodb";
 import { getMongoDb } from "../mongodb";
 import { getHarajScrapeCollection, type HarajScrapeDoc } from "../models/harajScrape";
 import { buildVehicleAliases } from "../../lib/vehicle-name-match";
@@ -20,6 +20,9 @@ export type HarajScrapeListQuery = {
   tag1?: string;
   tag2?: string;
   carModelYear?: number;
+  mileage?: number;
+  mileageMin?: number;
+  mileageMax?: number;
   excludeTag1?: string | string[];
   fields?: "default" | "options";
 };
@@ -67,6 +70,103 @@ function toEpochNumber(value: unknown): number | null {
     return Number.isNaN(time) ? null : time;
   }
   return null;
+}
+
+function toMileageNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalizedDigits = raw
+    .replace(/[٠-٩]/g, (digit) => "٠١٢٣٤٥٦٧٨٩".indexOf(digit).toString())
+    .replace(/,/g, "")
+    .replace(/\./g, "")
+    .replace(/\s+/g, "");
+  const match = normalizedDigits.match(/\d+/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function buildNormalizedDigitExpression(input: Document): Document {
+  const replacements: Array<[string, string]> = [
+    ["٠", "0"],
+    ["١", "1"],
+    ["٢", "2"],
+    ["٣", "3"],
+    ["٤", "4"],
+    ["٥", "5"],
+    ["٦", "6"],
+    ["٧", "7"],
+    ["٨", "8"],
+    ["٩", "9"],
+    [",", ""],
+    [".", ""],
+    [" ", ""],
+  ];
+
+  let output: Document = input;
+  for (const [find, replacement] of replacements) {
+    output = {
+      $replaceAll: {
+        input: output,
+        find,
+        replacement,
+      },
+    };
+  }
+  return output;
+}
+
+function buildMileageNumberExpressionFromPath(path: string): Document {
+  const normalized = buildNormalizedDigitExpression({
+    $convert: {
+      input: { $ifNull: [path, ""] },
+      to: "string",
+      onError: "",
+      onNull: "",
+    },
+  });
+
+  return {
+    $let: {
+      vars: {
+        match: {
+          $regexFind: {
+            input: normalized,
+            regex: /[0-9][0-9]*/,
+          },
+        },
+      },
+      in: {
+        $cond: [
+          { $ne: ["$$match.match", null] },
+          {
+            $convert: {
+              input: "$$match.match",
+              to: "double",
+              onError: null,
+              onNull: null,
+            },
+          },
+          null,
+        ],
+      },
+    },
+  };
+}
+
+function buildCoalescedMileageExpression(paths: string[]): Document {
+  const expressions = paths.map((path) => buildMileageNumberExpressionFromPath(path));
+  if (expressions.length === 0) return null as unknown as Document;
+  return expressions.slice(1).reduce<Document>(
+    (acc, expression) => ({
+      $ifNull: [acc, expression],
+    }),
+    expressions[0]
+  );
 }
 
 function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
@@ -206,6 +306,37 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
     });
   }
 
+  if (
+    query.mileage !== undefined ||
+    query.mileageMin !== undefined ||
+    query.mileageMax !== undefined
+  ) {
+    const mileageExpression = buildCoalescedMileageExpression([
+      "$item.carInfo.mileage",
+      "$carInfo.mileage",
+      "$gql.posts.json.data.posts.items.0.carInfo.mileage",
+      "$gql.posts.json.data.posts.items.carInfo.mileage",
+    ]);
+    const mileageConditions: Document[] = [{ $ne: [mileageExpression, null] }];
+
+    if (query.mileage !== undefined) {
+      mileageConditions.push({ $eq: [mileageExpression, query.mileage] });
+    }
+    if (query.mileageMin !== undefined) {
+      mileageConditions.push({ $gte: [mileageExpression, query.mileageMin] });
+    }
+    if (query.mileageMax !== undefined) {
+      mileageConditions.push({ $lte: [mileageExpression, query.mileageMax] });
+    }
+
+    andFilters.push({
+      $expr:
+        mileageConditions.length === 1
+          ? mileageConditions[0]
+          : { $and: mileageConditions },
+    });
+  }
+
   if (andFilters.length > 0) {
     filter.$and = andFilters;
   }
@@ -257,8 +388,11 @@ export async function listHarajScrapes(
               "item.postDate": 1,
               "item.tags": 1,
               "item.carInfo.model": 1,
+              "item.carInfo.mileage": 1,
               "carInfo.model": 1,
+              "carInfo.mileage": 1,
               "gql.posts.json.data.posts.items.carInfo.model": 1,
+              "gql.posts.json.data.posts.items.carInfo.mileage": 1,
             }
           : {
               _id: 1,
@@ -286,8 +420,11 @@ export async function listHarajScrapes(
               "item.URL": 1,
               "item.imagesList": 1,
               "item.carInfo.model": 1,
+              "item.carInfo.mileage": 1,
               "carInfo.model": 1,
+              "carInfo.mileage": 1,
               "gql.posts.json.data.posts.items.carInfo.model": 1,
+              "gql.posts.json.data.posts.items.carInfo.mileage": 1,
             }
       )
       .toArray(),
@@ -305,6 +442,11 @@ export async function listHarajScrapes(
       doc.item?.carInfo?.model ??
       (doc as any)?.carInfo?.model ??
       (doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.model ??
+      null;
+    const mileage =
+      toMileageNumber(doc.item?.carInfo?.mileage) ??
+      toMileageNumber((doc as any)?.carInfo?.mileage) ??
+      toMileageNumber((doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.mileage) ??
       null;
     const commentsCount = doc.commentsCount ?? doc.item?.commentCount ?? 0;
     const postDate =
@@ -325,6 +467,7 @@ export async function listHarajScrapes(
         commentsCount: 0,
         tags: doc.tags ?? doc.item?.tags ?? [],
         carModelYear,
+        mileage,
         phone: "",
         url: "",
         source: "haraj",
@@ -343,6 +486,7 @@ export async function listHarajScrapes(
       commentsCount,
       tags: doc.tags ?? doc.item?.tags ?? [],
       carModelYear,
+      mileage,
       phone: doc.phone ?? "",
       url: doc.url ?? (doc.item?.URL ? `https://haraj.com.sa/${doc.item.URL}` : ""),
       source: "haraj",

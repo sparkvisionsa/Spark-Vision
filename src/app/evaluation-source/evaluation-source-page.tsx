@@ -67,6 +67,7 @@ type EvaluationSourceItem = {
   commentsCount: number;
   tags: string[];
   carModelYear: number | null;
+  mileage: number | null;
   phone: string;
   url: string;
   source: "haraj" | "yallamotor";
@@ -90,6 +91,7 @@ type EvaluationSourcePageProps = {
   enableBrandFilter?: boolean;
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
+  enableMileageFilter?: boolean;
   dataSources?: Array<"haraj" | "yallamotor">;
   requireSearchClickToApplyFilters?: boolean;
 };
@@ -119,6 +121,8 @@ const defaultFilters = {
   brand: "",
   model: "",
   modelYear: "",
+  mileageMin: "",
+  mileageMax: "",
   source: "all",
   hasImage: "any",
   hasPrice: "any",
@@ -143,6 +147,12 @@ const copy = {
       modelPlaceholder: "Type or select model",
       manufactureYear: "Manufacture Year",
       manufactureYearPlaceholder: "Type or select year",
+      mileage: "Mileage",
+      mileagePlaceholder: "Select mileage",
+      mileageMin: "Min mileage",
+      mileageMinPlaceholder: "Greater than or equal",
+      mileageMax: "Max mileage",
+      mileageMaxPlaceholder: "Less than or equal",
       source: "Source",
       sourcePlaceholder: "All sources",
       sourceOptions: {
@@ -170,6 +180,7 @@ const copy = {
       brand: "Brand",
       model: "Model",
       manufactureYear: "Year",
+      mileage: "Mileage",
       price: "Price",
       date: "Date",
       images: "Images",
@@ -403,6 +414,12 @@ function formatPrice(value: number | null, formatted?: string | null) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+function formatMileage(value: number | null, withUnit = false) {
+  if (value === null || value === undefined) return "-";
+  const base = new Intl.NumberFormat("en-US").format(value);
+  return withUnit ? `${base} km` : base;
+}
+
 function escapeCsvValue(value: unknown) {
   const cell = String(value ?? "");
   if (/[",\r\n]/.test(cell)) {
@@ -609,6 +626,7 @@ export default function EvaluationSourcePage({
   enableBrandFilter = false,
   enableModelFilter = false,
   enableModelYearFilter = false,
+  enableMileageFilter = false,
   dataSources,
   requireSearchClickToApplyFilters = false,
 }: EvaluationSourcePageProps) {
@@ -616,6 +634,11 @@ export default function EvaluationSourcePage({
   const language = langContext?.language ?? "en";
   const t = language === "ar" ? copy.ar : copy.en;
   const isArabic = language === "ar";
+  const mileageLabel = isArabic ? "عداد الكيلومترات" : "Mileage";
+  const mileageMinLabel = isArabic ? "الحد الأدنى لعداد الكيلومترات" : "Min mileage";
+  const mileageMinPlaceholder = isArabic ? "أكبر من أو يساوي" : "Greater than or equal";
+  const mileageMaxLabel = isArabic ? "الحد الأقصى لعداد الكيلومترات" : "Max mileage";
+  const mileageMaxPlaceholder = isArabic ? "أقل من أو يساوي" : "Less than or equal";
   const resolvedSources = useMemo(
     () => (dataSources?.length ? dataSources : ["haraj"]),
     [dataSources]
@@ -662,7 +685,13 @@ export default function EvaluationSourcePage({
   };
 
   const ensureOptionPoolLoaded = () => {
-    if (!enableBrandFilter && !enableModelFilter && !enableModelYearFilter) return;
+    if (
+      !enableBrandFilter &&
+      !enableModelFilter &&
+      !enableModelYearFilter
+    ) {
+      return;
+    }
     if (optionPoolLoaded || optionPoolLoading) return;
     setShouldLoadOptionPool(true);
   };
@@ -692,6 +721,16 @@ export default function EvaluationSourcePage({
     if (enableModelYearFilter && appliedFilters.modelYear) {
       params.set("carModelYear", appliedFilters.modelYear);
     }
+    if (enableMileageFilter) {
+      const mileageMinValue = Number(appliedFilters.mileageMin);
+      const mileageMaxValue = Number(appliedFilters.mileageMax);
+      if (!Number.isNaN(mileageMinValue) && mileageMinValue > 0) {
+        params.set("mileageMin", String(mileageMinValue));
+      }
+      if (!Number.isNaN(mileageMaxValue) && mileageMaxValue > 0) {
+        params.set("mileageMax", String(mileageMaxValue));
+      }
+    }
     if (excludeTag1Values && excludeTag1Values.length > 0) {
       const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
       if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
@@ -708,6 +747,7 @@ export default function EvaluationSourcePage({
     enableBrandFilter,
     enableModelFilter,
     enableModelYearFilter,
+    enableMileageFilter,
     useCombinedSources,
     resolvedSources,
   ]);
@@ -764,7 +804,13 @@ export default function EvaluationSourcePage({
   }, [queryString, listEndpoint]);
 
   useEffect(() => {
-    if (!enableBrandFilter && !enableModelFilter && !enableModelYearFilter) return;
+    if (
+      !enableBrandFilter &&
+      !enableModelFilter &&
+      !enableModelYearFilter
+    ) {
+      return;
+    }
     if (!shouldLoadOptionPool) return;
     let active = true;
 
@@ -877,9 +923,9 @@ export default function EvaluationSourcePage({
       const numA = Number(a);
       const numB = Number(b);
       if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
-        return numA - numB;
+        return numB - numA;
       }
-      return a.localeCompare(b);
+      return b.localeCompare(a);
     });
     return uniqueYears;
   }, [optionItems, filters.brand, filters.model]);
@@ -1102,6 +1148,7 @@ export default function EvaluationSourcePage({
       t.table.brand,
       t.table.model,
       t.table.manufactureYear,
+      mileageLabel,
       t.table.price,
       t.table.date,
       t.table.images,
@@ -1117,6 +1164,7 @@ export default function EvaluationSourcePage({
         item.tags?.[1] ?? "-",
         item.tags?.[2] ?? "-",
         item.carModelYear ?? "-",
+        formatMileage(item.mileage),
         formatPrice(item.priceNumeric, item.priceFormatted),
         formatEpoch(item.postDate),
         item.imagesCount ?? 0,
@@ -1193,7 +1241,9 @@ export default function EvaluationSourcePage({
 
               <div className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]">
                 <div className="overflow-hidden rounded-[15px] bg-slate-200/70">
-                  <div className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-4">
+                  <div
+                    className="grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-4"
+                  >
                     <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
                     <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
@@ -1278,7 +1328,11 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                   </div>
-                  <div className="mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 lg:grid-cols-5">
+                  <div
+                    className={`mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 ${
+                      enableMileageFilter ? "lg:grid-cols-10" : "lg:grid-cols-5"
+                    }`}
+                  >
                     <div className="bg-white/95 px-2 py-2 lg:col-span-4">
                       <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-3">
                         <button
@@ -1352,7 +1406,11 @@ export default function EvaluationSourcePage({
                         </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                    <div
+                      className={`flex items-center gap-2 bg-white/95 px-3 py-2 ${
+                        enableMileageFilter ? "lg:col-span-2" : ""
+                      }`}
+                    >
                       <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.sortBy}
                       </Label>
@@ -1374,6 +1432,36 @@ export default function EvaluationSourcePage({
                         </Select>
                       </div>
                     </div>
+                    {enableMileageFilter ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-2">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                          {mileageMinLabel}
+                        </Label>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          value={filters.mileageMin}
+                          onChange={(event) => updateFilters({ mileageMin: event.target.value })}
+                          placeholder={mileageMinPlaceholder}
+                          className="h-9 w-full flex-1 text-sm"
+                        />
+                      </div>
+                    ) : null}
+                    {enableMileageFilter ? (
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-2">
+                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                          {mileageMaxLabel}
+                        </Label>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          value={filters.mileageMax}
+                          onChange={(event) => updateFilters({ mileageMax: event.target.value })}
+                          placeholder={mileageMaxPlaceholder}
+                          className="h-9 w-full flex-1 text-sm"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                   {requireSearchClickToApplyFilters ? (
                     <div className="mt-3 flex flex-wrap justify-end gap-2 bg-white/95 px-3 py-3">
@@ -1468,6 +1556,9 @@ export default function EvaluationSourcePage({
                           {t.table.manufactureYear}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
+                          {mileageLabel}
+                        </TableHead>
+                        <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
                           {t.table.price}
                         </TableHead>
                         <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
@@ -1503,6 +1594,7 @@ export default function EvaluationSourcePage({
                           <TableCell className="text-sm text-slate-600">{item.tags?.[1] || "-"}</TableCell>
                           <TableCell className="text-sm text-slate-600">{item.tags?.[2] || "-"}</TableCell>
                           <TableCell className="text-sm text-slate-600">{item.carModelYear ?? "-"}</TableCell>
+                          <TableCell className="text-sm text-slate-600">{formatMileage(item.mileage, true)}</TableCell>
                           <TableCell
                             className={`text-sm ${
                               item.priceNumeric || item.priceFormatted
@@ -1819,3 +1911,4 @@ export default function EvaluationSourcePage({
     </div>
   );
 }
+

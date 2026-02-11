@@ -34,6 +34,9 @@ export async function listYallaMotorsRoute(request: NextRequest) {
     tag1: searchParams.get("tag1") ?? undefined,
     tag2: searchParams.get("tag2") ?? undefined,
     carModelYear: parseNumber(searchParams.get("carModelYear")),
+    mileage: parseNumber(searchParams.get("mileage")),
+    mileageMin: parseNumber(searchParams.get("mileageMin")),
+    mileageMax: parseNumber(searchParams.get("mileageMax")),
     excludeTag1: searchParams.get("excludeTag1") ?? undefined,
     fields:
       searchParams.get("fields") === "options"

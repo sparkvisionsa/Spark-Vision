@@ -159,6 +159,127 @@ function buildPriceNumericExpression(): Document {
   };
 }
 
+function buildNormalizedDigitExpression(input: Document): Document {
+  const replacements: Array<[string, string]> = [
+    ["٠", "0"],
+    ["١", "1"],
+    ["٢", "2"],
+    ["٣", "3"],
+    ["٤", "4"],
+    ["٥", "5"],
+    ["٦", "6"],
+    ["٧", "7"],
+    ["٨", "8"],
+    ["٩", "9"],
+    [",", ""],
+    [".", ""],
+    [" ", ""],
+  ];
+
+  let output: Document = input;
+  for (const [find, replacement] of replacements) {
+    output = {
+      $replaceAll: {
+        input: output,
+        find,
+        replacement,
+      },
+    };
+  }
+  return output;
+}
+
+function buildMileageNumericExpression(input: Document): Document {
+  const normalized = buildNormalizedDigitExpression({
+    $convert: {
+      input: { $ifNull: [input, ""] },
+      to: "string",
+      onError: "",
+      onNull: "",
+    },
+  });
+
+  return {
+    $let: {
+      vars: {
+        match: {
+          $regexFind: {
+            input: normalized,
+            regex: /[0-9][0-9]*/,
+          },
+        },
+      },
+      in: {
+        $cond: [
+          { $ne: ["$$match.match", null] },
+          {
+            $convert: {
+              input: "$$match.match",
+              to: "double",
+              onError: null,
+              onNull: null,
+            },
+          },
+          null,
+        ],
+      },
+    },
+  };
+}
+
+function buildYallaMileageRawExpression(): Document {
+  const specsExpression: Document = {
+    $cond: [
+      { $eq: [{ $type: "$detail.importantSpecs" }, "object"] },
+      "$detail.importantSpecs",
+      {},
+    ],
+  };
+  return {
+    $let: {
+      vars: {
+        specs: specsExpression,
+        specsArray: { $objectToArray: specsExpression },
+      },
+      in: {
+        $ifNull: [
+          { $getField: { field: "عدد الكيلومترات", input: "$$specs" } },
+          {
+            $ifNull: [
+              { $getField: { field: "المسافة المقطوعة", input: "$$specs" } },
+              {
+                $ifNull: [
+                  { $getField: { field: "Mileage", input: "$$specs" } },
+                  {
+                    $first: {
+                      $map: {
+                        input: {
+                          $filter: {
+                            input: "$$specsArray",
+                            as: "entry",
+                            cond: {
+                              $regexMatch: {
+                                input: { $toLower: "$$entry.k" },
+                                regex: /(mileage|kilometer|kilometre|كيلومتر|الكيلومترات)/,
+                              },
+                            },
+                          },
+                        },
+                        as: "entry",
+                        in: "$$entry.v",
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+  };
+}
+
 function toNumber(value: unknown) {
   if (value === null || value === undefined) return null;
   if (typeof value === "number") return value;
@@ -194,6 +315,14 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
   if (query.minPrice !== undefined) priceRange.$gte = query.minPrice;
   if (query.maxPrice !== undefined) priceRange.$lte = query.maxPrice;
   const applyPriceRange = Object.keys(priceRange).length > 0;
+  const mileageRange: { $gte?: number; $lte?: number } = {};
+  if (query.mileage !== undefined) {
+    mileageRange.$gte = query.mileage;
+    mileageRange.$lte = query.mileage;
+  }
+  if (query.mileageMin !== undefined) mileageRange.$gte = query.mileageMin;
+  if (query.mileageMax !== undefined) mileageRange.$lte = query.mileageMax;
+  const applyMileageRange = Object.keys(mileageRange).length > 0;
 
   const pipeline: Document[] = [
     { $match: filter },
@@ -214,6 +343,7 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
             onNull: null,
           },
         },
+        mileage: buildMileageNumericExpression(buildYallaMileageRawExpression()),
         title: isOptionsMode ? { $literal: "Untitled" } : { $ifNull: ["$cardTitle", "Untitled"] },
         city: isOptionsMode ? { $literal: "" } : { $ifNull: [{ $arrayElemAt: ["$detail.breadcrumb", 2] }, ""] },
         priceNumeric: needsNumericPrice ? buildPriceNumericExpression() : { $literal: null },
@@ -237,6 +367,10 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
     pipeline.push({ $match: { priceNumeric: priceRange } });
   }
 
+  if (applyMileageRange) {
+    pipeline.push({ $match: { mileage: mileageRange } });
+  }
+
   pipeline.push({
     $facet: {
       items: [
@@ -254,6 +388,7 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
     postDate: toNumber(item.postDate),
     priceNumeric: toNumber(item.priceNumeric),
     carModelYear: toNumber(item.carModelYear),
+    mileage: toNumber(item.mileage),
     imagesCount: toNumber(item.imagesCount) ?? 0,
     commentsCount: toNumber(item.commentsCount) ?? 0,
   }));
