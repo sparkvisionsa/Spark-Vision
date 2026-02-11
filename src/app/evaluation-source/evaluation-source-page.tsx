@@ -32,13 +32,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Check,
   Eye,
-  FileSpreadsheet,
   Image as ImageIcon,
   Loader2,
   Search,
   Tag,
 } from "lucide-react";
 import { IBM_Plex_Sans, Sora } from "next/font/google";
+import Image from "next/image";
 import { LanguageContext } from "@/components/layout-provider";
 import {
   isVehicleTextMatch,
@@ -685,11 +685,9 @@ export default function EvaluationSourcePage({
   const language = langContext?.language ?? "en";
   const t = language === "ar" ? copy.ar : copy.en;
   const isArabic = language === "ar";
-  const mileageLabel = isArabic ? "عداد الكيلومترات" : "Mileage";
-  const mileageMinLabel = isArabic ? "الحد الأدنى لعداد الكيلومترات" : "Min mileage";
-  const mileageMinPlaceholder = isArabic ? "أكبر من أو يساوي" : "Greater than or equal";
-  const mileageMaxLabel = isArabic ? "الحد الأقصى لعداد الكيلومترات" : "Max mileage";
-  const mileageMaxPlaceholder = isArabic ? "أقل من أو يساوي" : "Less than or equal";
+  const mileageLabel = isArabic ? "\u0639\u062f\u0627\u062f \u0627\u0644\u0643\u064a\u0644\u0648\u0645\u062a\u0631\u0627\u062a" : "Mileage";
+  const mileageMinPlaceholder = "Min";
+  const mileageMaxPlaceholder = "Max";
   const resolvedSources = useMemo(
     () => (dataSources?.length ? dataSources : ["haraj"]),
     [dataSources]
@@ -1369,7 +1367,7 @@ export default function EvaluationSourcePage({
                     <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
                         {t.filters.search}
                       </Label>
-                      <div className="flex w-full min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                      <div className="flex w-full min-w-0 flex-1 flex-nowrap items-center gap-2">
                         <div className="relative w-full min-w-0 flex-1">
                           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <Input
@@ -1388,7 +1386,7 @@ export default function EvaluationSourcePage({
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-8 w-fit shrink-0 whitespace-nowrap border-slate-300 px-2 text-[10px] normal-case tracking-normal sm:h-9 sm:text-[11px] sm:uppercase sm:tracking-[0.12em]"
+                          className="h-9 w-fit shrink-0 whitespace-nowrap border-slate-300 px-2 text-[11px] uppercase tracking-[0.12em]"
                           onClick={clearSearchHistory}
                           disabled={searchHistory.length === 0}
                         >
@@ -1570,33 +1568,28 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     {enableMileageFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
-                          {mileageMinLabel}
+                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-4">
+                        <Label className="shrink-0 whitespace-nowrap text-sm font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                          {mileageLabel}
                         </Label>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          value={filters.mileageMin}
-                          onChange={(event) => updateFilters({ mileageMin: event.target.value })}
-                          placeholder={mileageMinPlaceholder}
-                          className="h-9 w-full flex-1 text-sm"
-                        />
-                      </div>
-                    ) : null}
-                    {enableMileageFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
-                          {mileageMaxLabel}
-                        </Label>
-                        <Input
-                          type="number"
-                          inputMode="numeric"
-                          value={filters.mileageMax}
-                          onChange={(event) => updateFilters({ mileageMax: event.target.value })}
-                          placeholder={mileageMaxPlaceholder}
-                          className="h-9 w-full flex-1 text-sm"
-                        />
+                        <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={filters.mileageMin}
+                            onChange={(event) => updateFilters({ mileageMin: event.target.value })}
+                            placeholder={mileageMinPlaceholder}
+                            className="h-9 w-full text-sm"
+                          />
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={filters.mileageMax}
+                            onChange={(event) => updateFilters({ mileageMax: event.target.value })}
+                            placeholder={mileageMaxPlaceholder}
+                            className="h-9 w-full text-sm"
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -1657,12 +1650,19 @@ export default function EvaluationSourcePage({
                     className="h-9 border-emerald-200 px-3 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
                     onClick={exportCurrentRows}
                     disabled={items.length === 0}
-                    title={isArabic ? "تصدير اكسيل" : "Export to Excel"}
-                    aria-label={isArabic ? "تصدير اكسيل" : "Export to Excel"}
+                    title={isArabic ? "تصدير" : "Export"}
+                    aria-label={isArabic ? "تصدير" : "Export"}
                   >
-                    <FileSpreadsheet className="h-4 w-4" />
+                    <Image
+                      src="/excelicon.png"
+                      alt=""
+                      width={18}
+                      height={18}
+                      className="h-[18px] w-[18px] object-contain"
+                      aria-hidden="true"
+                    />
                     <span className="text-xs font-semibold uppercase tracking-[0.08em]">
-                      {isArabic ? "تصدير اكسيل" : "Export Excel"}
+                      {isArabic ? "تصدير" : "Export"}
                     </span>
                   </Button>
               </div>
