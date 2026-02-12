@@ -25,6 +25,7 @@ export async function listYallaMotorsRoute(request: NextRequest) {
     hasImage: parseBoolean(searchParams.get("hasImage")),
     hasPrice: parseBoolean(searchParams.get("hasPrice")),
     hasComments: parseBoolean(searchParams.get("hasComments")),
+    hasMileage: parseBoolean(searchParams.get("hasMileage")),
     dateFrom: searchParams.get("dateFrom") ?? undefined,
     dateTo: searchParams.get("dateTo") ?? undefined,
     sort: searchParams.get("sort") ?? undefined,

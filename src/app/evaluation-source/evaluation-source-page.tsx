@@ -127,6 +127,7 @@ const defaultFilters = {
   hasImage: "any",
   hasPrice: "any",
   hasComments: "any",
+  hasMileage: "any",
   sort: "newest",
 };
 
@@ -167,6 +168,7 @@ const copy = {
       hasImages: "Has images",
       hasPrice: "Has price",
       hasComments: "Has comments",
+      hasMileage: "Has mileage",
       sortBy: "Sort by",
       sortOptions: {
         newest: "Newest",
@@ -282,7 +284,8 @@ const copy = {
       hasImages: "مع صور",
       hasPrice: "مع سعر",
       hasComments: "مع تعليقات",
-      sortBy: "ترتيب حسب",
+      hasMileage: "\u0645\u0639 \u0639\u062f\u0627\u062f \u0627\u0644\u0643\u064a\u0644\u0648\u0645\u062a\u0631\u0627\u062a",
+      sortBy: "\u062A\u0631\u062A\u064A\u0628 \u062D\u0633\u0628",
       sortOptions: {
         newest: "الأحدث",
         oldest: "الأقدم",
@@ -778,6 +781,9 @@ export default function EvaluationSourcePage({
     if (appliedFilters.hasImage !== "any") params.set("hasImage", appliedFilters.hasImage);
     if (appliedFilters.hasPrice !== "any") params.set("hasPrice", appliedFilters.hasPrice);
     if (appliedFilters.hasComments !== "any") params.set("hasComments", appliedFilters.hasComments);
+    if (enableMileageFilter && appliedFilters.hasMileage !== "any") {
+      params.set("hasMileage", appliedFilters.hasMileage);
+    }
     if (appliedFilters.sort) params.set("sort", appliedFilters.sort);
     if (tag0) params.set("tag0", tag0);
     if (useCombinedSources) {
@@ -1469,7 +1475,11 @@ export default function EvaluationSourcePage({
                     }`}
                   >
                     <div className="bg-white/95 px-2 py-2 lg:col-span-4">
-                      <div className="grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 lg:grid-cols-3">
+                      <div
+                        className={`grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 ${
+                          enableMileageFilter ? "lg:grid-cols-4" : "lg:grid-cols-3"
+                        }`}
+                      >
                         <button
                           type="button"
                           aria-pressed={filters.hasImage === "true"}
@@ -1539,32 +1549,31 @@ export default function EvaluationSourcePage({
                           </span>
                           <span>{t.filters.hasComments}</span>
                         </button>
-                      </div>
-                    </div>
-                    <div
-                      className={`flex items-center gap-2 bg-white/95 px-3 py-2 ${
-                        enableMileageFilter ? "lg:col-span-2" : ""
-                      }`}
-                    >
-                      <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
-                        {t.filters.sortBy}
-                      </Label>
-                      <div className="flex-1">
-                        <Select
-                          value={filters.sort}
-                          onValueChange={(value) => updateFilters({ sort: value })}
-                        >
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue placeholder={t.filters.sortOptions.newest} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="newest">{t.filters.sortOptions.newest}</SelectItem>
-                            <SelectItem value="oldest">{t.filters.sortOptions.oldest}</SelectItem>
-                            <SelectItem value="price-high">{t.filters.sortOptions.priceHigh}</SelectItem>
-                            <SelectItem value="price-low">{t.filters.sortOptions.priceLow}</SelectItem>
-                            <SelectItem value="comments">{t.filters.sortOptions.comments}</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {enableMileageFilter ? (
+                          <button
+                            type="button"
+                            aria-pressed={filters.hasMileage === "true"}
+                            onClick={() =>
+                              updateFilters({ hasMileage: filters.hasMileage === "true" ? "any" : "true" })
+                            }
+                            className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                              filters.hasMileage === "true"
+                                ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
+                                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            }`}
+                          >
+                            <span
+                              className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
+                                filters.hasMileage === "true"
+                                  ? "border-white bg-white/20"
+                                  : "border-emerald-600 bg-white"
+                              }`}
+                            >
+                              {filters.hasMileage === "true" ? <Check className="h-3 w-3" /> : null}
+                            </span>
+                            <span>{t.filters.hasMileage}</span>
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                     {enableMileageFilter ? (
@@ -1592,6 +1601,32 @@ export default function EvaluationSourcePage({
                         </div>
                       </div>
                     ) : null}
+                    <div
+                      className={`flex items-center gap-2 bg-white/95 px-3 py-2 ${
+                        enableMileageFilter ? "lg:col-span-2" : ""
+                      }`}
+                    >
+                      <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        {t.filters.sortBy}
+                      </Label>
+                      <div className="flex-1">
+                        <Select
+                          value={filters.sort}
+                          onValueChange={(value) => updateFilters({ sort: value })}
+                        >
+                          <SelectTrigger className="h-9 text-sm">
+                            <SelectValue placeholder={t.filters.sortOptions.newest} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="newest">{t.filters.sortOptions.newest}</SelectItem>
+                            <SelectItem value="oldest">{t.filters.sortOptions.oldest}</SelectItem>
+                            <SelectItem value="price-high">{t.filters.sortOptions.priceHigh}</SelectItem>
+                            <SelectItem value="price-low">{t.filters.sortOptions.priceLow}</SelectItem>
+                            <SelectItem value="comments">{t.filters.sortOptions.comments}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                   </div>
                   {requireSearchClickToApplyFilters ? (
                     <div className="mt-3 flex flex-wrap justify-end gap-2 bg-white/95 px-3 py-3">
@@ -2050,3 +2085,4 @@ export default function EvaluationSourcePage({
     </div>
   );
 }
+

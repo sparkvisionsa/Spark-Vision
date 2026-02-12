@@ -8,6 +8,20 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  async redirects() {
+    return [
+      {
+        source: '/value-tech',
+        destination: '/',
+        permanent: false,
+      },
+      {
+        source: '/value-tech/:path*',
+        destination: '/',
+        permanent: false,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

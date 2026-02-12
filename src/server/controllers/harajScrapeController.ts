@@ -11,6 +11,7 @@ export type HarajScrapeListQuery = {
   hasImage?: boolean;
   hasPrice?: boolean;
   hasComments?: boolean;
+  hasMileage?: boolean;
   dateFrom?: string;
   dateTo?: string;
   sort?: string;
@@ -81,31 +82,46 @@ function toMileageNumber(value: unknown): number | null {
   const raw = String(value).trim();
   if (!raw) return null;
   const normalizedDigits = raw
-    .replace(/[٠-٩]/g, (digit) => "٠١٢٣٤٥٦٧٨٩".indexOf(digit).toString())
-    .replace(/,/g, "")
-    .replace(/\./g, "")
+    .replace(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (digit) => String(digit.charCodeAt(0) - 0x06F0))
+    .replace(/[,\u060C\u066C]/g, "")
+    .replace(/[\.\u066B]/g, "")
+    .replace(/\u00A0/g, "")
     .replace(/\s+/g, "");
   const match = normalizedDigits.match(/\d+/);
   if (!match) return null;
   const parsed = Number(match[0]);
   return Number.isNaN(parsed) ? null : parsed;
 }
-
 function buildNormalizedDigitExpression(input: Document): Document {
   const replacements: Array<[string, string]> = [
-    ["٠", "0"],
-    ["١", "1"],
-    ["٢", "2"],
-    ["٣", "3"],
-    ["٤", "4"],
-    ["٥", "5"],
-    ["٦", "6"],
-    ["٧", "7"],
-    ["٨", "8"],
-    ["٩", "9"],
+    ["\u0660", "0"],
+    ["\u0661", "1"],
+    ["\u0662", "2"],
+    ["\u0663", "3"],
+    ["\u0664", "4"],
+    ["\u0665", "5"],
+    ["\u0666", "6"],
+    ["\u0667", "7"],
+    ["\u0668", "8"],
+    ["\u0669", "9"],
+    ["\u06F0", "0"],
+    ["\u06F1", "1"],
+    ["\u06F2", "2"],
+    ["\u06F3", "3"],
+    ["\u06F4", "4"],
+    ["\u06F5", "5"],
+    ["\u06F6", "6"],
+    ["\u06F7", "7"],
+    ["\u06F8", "8"],
+    ["\u06F9", "9"],
+    ["\u060C", ""],
+    ["\u066C", ""],
+    ["\u066B", ""],
     [",", ""],
     [".", ""],
     [" ", ""],
+    ["\u00A0", ""],
   ];
 
   let output: Document = input;
@@ -120,11 +136,10 @@ function buildNormalizedDigitExpression(input: Document): Document {
   }
   return output;
 }
-
-function buildMileageNumberExpressionFromPath(path: string): Document {
+function buildMileageNumberExpression(input: Document | string): Document {
   const normalized = buildNormalizedDigitExpression({
     $convert: {
-      input: { $ifNull: [path, ""] },
+      input: { $ifNull: [input, ""] },
       to: "string",
       onError: "",
       onNull: "",
@@ -159,8 +174,8 @@ function buildMileageNumberExpressionFromPath(path: string): Document {
   };
 }
 
-function buildCoalescedMileageExpression(paths: string[]): Document {
-  const expressions = paths.map((path) => buildMileageNumberExpressionFromPath(path));
+function buildCoalescedMileageExpression(inputs: Array<Document | string>): Document {
+  const expressions = inputs.map((input) => buildMileageNumberExpression(input));
   if (expressions.length === 0) return null as unknown as Document;
   return expressions.slice(1).reduce<Document>(
     (acc, expression) => ({
@@ -308,15 +323,51 @@ function buildFilter(query: HarajScrapeListQuery): Filter<HarajScrapeDoc> {
   }
 
   if (
+    query.hasMileage === true ||
     query.mileage !== undefined ||
     query.mileageMin !== undefined ||
     query.mileageMax !== undefined
   ) {
+    const gqlItemsArrayMileageExpression: Document = {
+      $let: {
+        vars: {
+          itemsArray: {
+            $cond: [
+              { $isArray: "$gql.posts.json.data.posts.items" },
+              "$gql.posts.json.data.posts.items",
+              [],
+            ],
+          },
+        },
+        in: {
+          $let: {
+            vars: {
+              firstItem: { $arrayElemAt: ["$$itemsArray", 0] },
+            },
+            in: "$$firstItem.carInfo.mileage",
+          },
+        },
+      },
+    };
+    const gqlItemsObjectMileageExpression: Document = {
+      $let: {
+        vars: {
+          itemsValue: "$gql.posts.json.data.posts.items",
+        },
+        in: {
+          $cond: [
+            { $eq: [{ $type: "$$itemsValue" }, "object"] },
+            "$$itemsValue.carInfo.mileage",
+            null,
+          ],
+        },
+      },
+    };
     const mileageExpression = buildCoalescedMileageExpression([
       "$item.carInfo.mileage",
       "$carInfo.mileage",
-      "$gql.posts.json.data.posts.items.0.carInfo.mileage",
-      "$gql.posts.json.data.posts.items.carInfo.mileage",
+      gqlItemsArrayMileageExpression,
+      gqlItemsObjectMileageExpression,
     ]);
     const mileageConditions: Document[] = [{ $ne: [mileageExpression, null] }];
 
@@ -546,6 +597,7 @@ export async function listHarajScrapes(
       toMileageNumber(doc.item?.carInfo?.mileage) ??
       toMileageNumber((doc as any)?.carInfo?.mileage) ??
       toMileageNumber((doc as any)?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo?.mileage) ??
+      toMileageNumber((doc as any)?.gql?.posts?.json?.data?.posts?.items?.carInfo?.mileage) ??
       null;
     const commentsCount = doc.commentsCount ?? doc.item?.commentCount ?? 0;
     const postDate =
@@ -617,3 +669,4 @@ export async function getHarajScrapeById(id: string) {
   const doc = await collection.findOne(filter);
   return doc;
 }
+

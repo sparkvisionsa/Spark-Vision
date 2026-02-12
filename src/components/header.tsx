@@ -33,14 +33,28 @@ export default function Header({ navDisabled = false }: HeaderProps) {
   }
   const { language } = langContext;
   const c = content[language];
+  const serviceMenuLabels =
+    language === "ar"
+      ? {
+          evaluationSource: "مصدر التقييم",
+          cars: "السيارات",
+          realEstate: "العقارات",
+          other: "أخرى",
+        }
+      : {
+          evaluationSource: "Evaluation Source",
+          cars: "Cars",
+          realEstate: "Real Estate",
+          other: "Other",
+        };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
-          <div className="mr-4 hidden md:flex">
+          <div className="hidden md:flex ltr:mr-4 rtl:ml-4">
           <Link
             href="/"
-            className={`mr-6 flex items-center space-x-2 rtl:space-x-reverse ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
+            className={`flex items-center ltr:mr-6 rtl:ml-6 space-x-2 rtl:space-x-reverse ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
             aria-disabled={navDisabled}
             tabIndex={navDisabled ? -1 : undefined}
             onClick={navDisabled ? (e) => e.preventDefault() : undefined}
@@ -73,29 +87,24 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
-                    <DropdownMenuItem asChild>
-                      <Link href="/value-tech" className="flex w-full items-center justify-between">
-                        Value Tech Application
-                      </Link>
-                    </DropdownMenuItem>
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="flex w-full items-center justify-between">
-                        Evaluation Source
+                        {serviceMenuLabels.evaluationSource}
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="w-52">
                         <DropdownMenuItem asChild>
                           <Link href="/evaluation-source/cars" className="flex w-full items-center justify-between">
-                            Cars
+                            {serviceMenuLabels.cars}
                           </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
                           <Link href="/evaluation-source/real-estate" className="flex w-full items-center justify-between">
-                            Real Estate
+                            {serviceMenuLabels.realEstate}
                           </Link>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
                           <Link href="/evaluation-source/other" className="flex w-full items-center justify-between">
-                            Other
+                            {serviceMenuLabels.other}
                           </Link>
                         </DropdownMenuItem>
                       </DropdownMenuSubContent>
@@ -165,16 +174,6 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                         <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
                       </summary>
                       <div className="mt-2 flex flex-col gap-2 pl-4">
-                        <Link
-                          href="/value-tech"
-                          onClick={() => setIsOpen(false)}
-                          className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                          aria-disabled={navDisabled}
-                          tabIndex={navDisabled ? -1 : undefined}
-                          onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                        >
-                          Value Tech Application
-                        </Link>
                         <details className="group">
                           <summary
                             className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
@@ -182,7 +181,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                             tabIndex={navDisabled ? -1 : undefined}
                             onClick={navDisabled ? (e) => e.preventDefault() : undefined}
                           >
-                            <span>Evaluation Source</span>
+                            <span>{serviceMenuLabels.evaluationSource}</span>
                             <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
                           </summary>
                           <div className="mt-2 flex flex-col gap-2 pl-4">
@@ -194,7 +193,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                               tabIndex={navDisabled ? -1 : undefined}
                               onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
                             >
-                              Cars
+                              {serviceMenuLabels.cars}
                             </Link>
                             <Link
                               href="/evaluation-source/real-estate"
@@ -204,7 +203,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                               tabIndex={navDisabled ? -1 : undefined}
                               onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
                             >
-                              Real Estate
+                              {serviceMenuLabels.realEstate}
                             </Link>
                             <Link
                               href="/evaluation-source/other"
@@ -214,7 +213,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                               tabIndex={navDisabled ? -1 : undefined}
                               onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
                             >
-                              Other
+                              {serviceMenuLabels.other}
                             </Link>
                           </div>
                         </details>

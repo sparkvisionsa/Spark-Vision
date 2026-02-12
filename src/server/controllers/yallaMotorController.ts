@@ -162,19 +162,33 @@ function buildPriceNumericExpression(): Document {
 
 function buildNormalizedDigitExpression(input: Document): Document {
   const replacements: Array<[string, string]> = [
-    ["٠", "0"],
-    ["١", "1"],
-    ["٢", "2"],
-    ["٣", "3"],
-    ["٤", "4"],
-    ["٥", "5"],
-    ["٦", "6"],
-    ["٧", "7"],
-    ["٨", "8"],
-    ["٩", "9"],
+    ["\u0660", "0"],
+    ["\u0661", "1"],
+    ["\u0662", "2"],
+    ["\u0663", "3"],
+    ["\u0664", "4"],
+    ["\u0665", "5"],
+    ["\u0666", "6"],
+    ["\u0667", "7"],
+    ["\u0668", "8"],
+    ["\u0669", "9"],
+    ["\u06F0", "0"],
+    ["\u06F1", "1"],
+    ["\u06F2", "2"],
+    ["\u06F3", "3"],
+    ["\u06F4", "4"],
+    ["\u06F5", "5"],
+    ["\u06F6", "6"],
+    ["\u06F7", "7"],
+    ["\u06F8", "8"],
+    ["\u06F9", "9"],
+    ["\u060C", ""],
+    ["\u066C", ""],
+    ["\u066B", ""],
     [",", ""],
     [".", ""],
     [" ", ""],
+    ["\u00A0", ""],
   ];
 
   let output: Document = input;
@@ -189,7 +203,6 @@ function buildNormalizedDigitExpression(input: Document): Document {
   }
   return output;
 }
-
 function buildMileageNumericExpression(input: Document): Document {
   const normalized = buildNormalizedDigitExpression({
     $convert: {
@@ -412,6 +425,7 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
   }
   if (query.mileageMin !== undefined) mileageRange.$gte = query.mileageMin;
   if (query.mileageMax !== undefined) mileageRange.$lte = query.mileageMax;
+  const applyHasMileage = query.hasMileage === true;
   const applyMileageRange = Object.keys(mileageRange).length > 0;
 
   const pipeline: Document[] = [
@@ -455,6 +469,10 @@ export async function listYallaMotors(query: YallaMotorListQuery, options: ListO
 
   if (applyPriceRange) {
     pipeline.push({ $match: { priceNumeric: priceRange } });
+  }
+
+  if (applyHasMileage) {
+    pipeline.push({ $match: { mileage: { $ne: null } } });
   }
 
   if (applyMileageRange) {
@@ -509,3 +527,4 @@ export async function getYallaMotorById(id: string) {
   const doc = await collection.findOne({ $or: filters });
   return doc;
 }
+

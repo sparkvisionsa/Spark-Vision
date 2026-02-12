@@ -27,7 +27,7 @@ export default function LayoutProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [language, setLanguage] = useState<Language>("en");
+  const [language, setLanguage] = useState<Language>("ar");
 
   // Set language from localStorage on initial load
   useIsomorphicLayoutEffect(() => {
