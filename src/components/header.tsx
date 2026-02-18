@@ -37,22 +37,29 @@ export default function Header({ navDisabled = false }: HeaderProps) {
   if (!langContext) {
     return null;
   }
+
   const { language } = langContext;
+  const isArabic = language === "ar";
   const c = content[language];
   const serviceMenuLabels =
-    language === "ar"
+    isArabic
       ? {
-          evaluationSource: "مصادر التقييم",
-          cars: "السيارات",
-          realEstate: "العقارات",
-          other: "أخرى",
+          valueTech: "\u0641\u0627\u0644\u064A\u0648 \u062A\u0643",
+          valueTechApp: "\u062A\u0637\u0628\u064A\u0642 Value Tech",
+          evaluationSource: "\u0645\u0635\u0627\u062F\u0631 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
+          cars: "\u0627\u0644\u0633\u064A\u0627\u0631\u0627\u062A",
+          realEstate: "\u0627\u0644\u0639\u0642\u0627\u0631\u0627\u062A",
+          other: "\u0623\u062E\u0631\u0649",
         }
       : {
+          valueTech: "Value Tech",
+          valueTechApp: "Value Tech App",
           evaluationSource: "Evaluation Source",
           cars: "Cars",
           realEstate: "Real Estate",
           other: "Other",
         };
+  const showValueTechAppLink = false;
 
   const resolveNavHref = (href: string) => {
     if (href.startsWith("#")) {
@@ -72,18 +79,18 @@ export default function Header({ navDisabled = false }: HeaderProps) {
             tabIndex={navDisabled ? -1 : undefined}
             onClick={navDisabled ? (e) => e.preventDefault() : undefined}
           >
-            <div className="w-9 h-9 overflow-hidden rounded-md">
+            <div className="h-9 w-9 overflow-hidden rounded-md">
               <Image
                 src={SparkLogo}
                 alt="Spark Vision"
                 width={36}
                 height={36}
-                className="object-cover object-center w-full h-full"
+                className="h-full w-full object-cover object-center"
               />
             </div>
             <span className="font-bold">Spark Vision</span>
           </Link>
-          <nav className="hidden md:flex items-center space-x-4 text-sm text-foreground/70 rtl:space-x-reverse">
+          <nav className="hidden items-center space-x-4 text-sm text-foreground/70 rtl:space-x-reverse md:flex">
             {c.nav.map((item) => (
               <Link
                 key={item.href}
@@ -108,7 +115,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
-          <div className="hidden md:flex ltr:mr-4 rtl:ml-4">
+        <div className="hidden ltr:mr-4 rtl:ml-4 md:flex">
           <Link
             href="/"
             className={`flex items-center ltr:mr-6 rtl:ml-6 space-x-2 rtl:space-x-reverse ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
@@ -116,25 +123,26 @@ export default function Header({ navDisabled = false }: HeaderProps) {
             tabIndex={navDisabled ? -1 : undefined}
             onClick={navDisabled ? (e) => e.preventDefault() : undefined}
           >
-            <div className="w-10 h-10 overflow-hidden rounded-md">
+            <div className="h-10 w-10 overflow-hidden rounded-md">
               <Image
                 src={SparkLogo}
                 alt="Spark Vision"
                 width={40}
                 height={40}
-                className="object-cover object-center w-full h-full"
+                className="h-full w-full object-cover object-center"
               />
             </div>
             <span className="hidden font-bold sm:inline-block">Spark Vision</span>
           </Link>
+
           <nav className="flex items-center space-x-6 text-sm font-medium rtl:space-x-reverse">
             {c.nav.map((item) =>
               item.href === "#services" ? (
-                <DropdownMenu key={item.name}>
+                <DropdownMenu key={item.name} dir={isArabic ? "rtl" : "ltr"}>
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={`flex items-center gap-2 transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                      className={`flex items-center gap-2 text-foreground/60 transition-colors hover:text-foreground/80 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
                       aria-disabled={navDisabled}
                       tabIndex={navDisabled ? -1 : undefined}
                       disabled={navDisabled}
@@ -143,27 +151,58 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                       <ChevronDown className="h-4 w-4" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56">
+
+                  <DropdownMenuContent
+                    align={isArabic ? "end" : "start"}
+                    className={`w-56 ${isArabic ? "text-right" : "text-left"}`}
+                  >
                     <DropdownMenuSub>
-                      <DropdownMenuSubTrigger className="flex w-full items-center justify-between">
-                        {serviceMenuLabels.evaluationSource}
+                      <DropdownMenuSubTrigger
+                        className={`flex w-full items-center justify-between ${
+                          isArabic
+                            ? "[&_svg]:ml-0 [&_svg]:mr-auto [&_svg]:rotate-180"
+                            : "[&_svg]:ml-auto [&_svg]:mr-0"
+                        }`}
+                      >
+                        {serviceMenuLabels.valueTech}
                       </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-52">
-                        <DropdownMenuItem asChild>
-                          <Link href="/evaluation-source/cars" className="flex w-full items-center justify-between">
-                            {serviceMenuLabels.cars}
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/evaluation-source/real-estate" className="flex w-full items-center justify-between">
-                            {serviceMenuLabels.realEstate}
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/evaluation-source/other" className="flex w-full items-center justify-between">
-                            {serviceMenuLabels.other}
-                          </Link>
-                        </DropdownMenuItem>
+                      <DropdownMenuSubContent className={`w-56 ${isArabic ? "text-right" : "text-left"}`}>
+                        {showValueTechAppLink ? (
+                          <DropdownMenuItem asChild>
+                            <Link href="/value-tech-app" className="flex w-full items-center justify-between">
+                              {serviceMenuLabels.valueTechApp}
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : null}
+
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger
+                            className={`flex w-full items-center justify-between ${
+                              isArabic
+                                ? "[&_svg]:ml-0 [&_svg]:mr-auto [&_svg]:rotate-180"
+                                : "[&_svg]:ml-auto [&_svg]:mr-0"
+                            }`}
+                          >
+                            {serviceMenuLabels.evaluationSource}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className={`w-52 ${isArabic ? "text-right" : "text-left"}`}>
+                            <DropdownMenuItem asChild>
+                              <Link href="/evaluation-source/cars" className="flex w-full items-center justify-between">
+                                {serviceMenuLabels.cars}
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/evaluation-source/real-estate" className="flex w-full items-center justify-between">
+                                {serviceMenuLabels.realEstate}
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href="/evaluation-source/other" className="flex w-full items-center justify-between">
+                                {serviceMenuLabels.other}
+                              </Link>
+                            </DropdownMenuItem>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   </DropdownMenuContent>
@@ -172,7 +211,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                 <Link
                   key={item.name}
                   href={resolveNavHref(item.href)}
-                  className={`transition-colors hover:text-foreground/80 text-foreground/60 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                  className={`text-foreground/60 transition-colors hover:text-foreground/80 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
                   aria-disabled={navDisabled}
                   tabIndex={navDisabled ? -1 : undefined}
                   onClick={navDisabled ? (e) => e.preventDefault() : undefined}
@@ -184,7 +223,6 @@ export default function Header({ navDisabled = false }: HeaderProps) {
           </nav>
         </div>
 
-        {/* Mobile Menu */}
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
           <SheetTrigger asChild>
             <Button
@@ -195,6 +233,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
               <span className="sr-only">Toggle Menu</span>
             </Button>
           </SheetTrigger>
+
           <SheetContent side="left" className="pr-0">
             <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
             <Link
@@ -205,24 +244,27 @@ export default function Header({ navDisabled = false }: HeaderProps) {
               tabIndex={navDisabled ? -1 : undefined}
               onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
             >
-              <div className="mr-2 w-9 h-9 overflow-hidden rounded-md">
+              <div className="mr-2 h-9 w-9 overflow-hidden rounded-md">
                 <Image
                   src={SparkLogo}
                   alt="Spark Vision"
                   width={36}
                   height={36}
-                  className="object-cover object-center w-full h-full"
+                  className="h-full w-full object-cover object-center"
                 />
               </div>
               <span className="font-bold">Spark Vision</span>
             </Link>
+
             <div className="my-4 h-[calc(100vh-8rem)] pb-10 pl-6">
               <div className="flex flex-col space-y-3">
                 {c.nav.map((item) =>
                   item.href === "#services" ? (
                     <details key={item.href} className="group">
                       <summary
-                        className={`flex cursor-pointer list-none items-center justify-between text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                        className={`flex cursor-pointer list-none items-center justify-between text-foreground ${
+                          isArabic ? "flex-row-reverse" : ""
+                        } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
                         aria-disabled={navDisabled}
                         tabIndex={navDisabled ? -1 : undefined}
                         onClick={navDisabled ? (e) => e.preventDefault() : undefined}
@@ -230,48 +272,81 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                         <span>{item.name}</span>
                         <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
                       </summary>
+
                       <div className="mt-2 flex flex-col gap-2 pl-4">
                         <details className="group">
                           <summary
-                            className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                            className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${
+                              isArabic ? "flex-row-reverse" : ""
+                            } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
                             aria-disabled={navDisabled}
                             tabIndex={navDisabled ? -1 : undefined}
                             onClick={navDisabled ? (e) => e.preventDefault() : undefined}
                           >
-                            <span>{serviceMenuLabels.evaluationSource}</span>
+                            <span>{serviceMenuLabels.valueTech}</span>
                             <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
                           </summary>
+
                           <div className="mt-2 flex flex-col gap-2 pl-4">
-                            <Link
-                              href="/evaluation-source/cars"
-                              onClick={() => setIsOpen(false)}
-                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                              aria-disabled={navDisabled}
-                              tabIndex={navDisabled ? -1 : undefined}
-                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                            >
-                              {serviceMenuLabels.cars}
-                            </Link>
-                            <Link
-                              href="/evaluation-source/real-estate"
-                              onClick={() => setIsOpen(false)}
-                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                              aria-disabled={navDisabled}
-                              tabIndex={navDisabled ? -1 : undefined}
-                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                            >
-                              {serviceMenuLabels.realEstate}
-                            </Link>
-                            <Link
-                              href="/evaluation-source/other"
-                              onClick={() => setIsOpen(false)}
-                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                              aria-disabled={navDisabled}
-                              tabIndex={navDisabled ? -1 : undefined}
-                              onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
-                            >
-                              {serviceMenuLabels.other}
-                            </Link>
+                            {showValueTechAppLink ? (
+                              <Link
+                                href="/value-tech-app"
+                                onClick={() => setIsOpen(false)}
+                                className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                                aria-disabled={navDisabled}
+                                tabIndex={navDisabled ? -1 : undefined}
+                                onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                              >
+                                {serviceMenuLabels.valueTechApp}
+                              </Link>
+                            ) : null}
+
+                            <details className="group">
+                              <summary
+                                className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${
+                                  isArabic ? "flex-row-reverse" : ""
+                                } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                                aria-disabled={navDisabled}
+                                tabIndex={navDisabled ? -1 : undefined}
+                                onClick={navDisabled ? (e) => e.preventDefault() : undefined}
+                              >
+                                <span>{serviceMenuLabels.evaluationSource}</span>
+                                <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                              </summary>
+
+                              <div className="mt-2 flex flex-col gap-2 pl-4">
+                                <Link
+                                  href="/evaluation-source/cars"
+                                  onClick={() => setIsOpen(false)}
+                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                                  aria-disabled={navDisabled}
+                                  tabIndex={navDisabled ? -1 : undefined}
+                                  onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                                >
+                                  {serviceMenuLabels.cars}
+                                </Link>
+                                <Link
+                                  href="/evaluation-source/real-estate"
+                                  onClick={() => setIsOpen(false)}
+                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                                  aria-disabled={navDisabled}
+                                  tabIndex={navDisabled ? -1 : undefined}
+                                  onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                                >
+                                  {serviceMenuLabels.realEstate}
+                                </Link>
+                                <Link
+                                  href="/evaluation-source/other"
+                                  onClick={() => setIsOpen(false)}
+                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                                  aria-disabled={navDisabled}
+                                  tabIndex={navDisabled ? -1 : undefined}
+                                  onClickCapture={navDisabled ? (e) => e.preventDefault() : undefined}
+                                >
+                                  {serviceMenuLabels.other}
+                                </Link>
+                              </div>
+                            </details>
                           </div>
                         </details>
                       </div>
@@ -294,7 +369,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
             </div>
           </SheetContent>
         </Sheet>
-        
+
         <Link
           href="/"
           className={`flex items-center space-x-2 rtl:space-x-reverse md:hidden ${navDisabled ? "pointer-events-none opacity-80" : ""}`}
@@ -302,13 +377,13 @@ export default function Header({ navDisabled = false }: HeaderProps) {
           tabIndex={navDisabled ? -1 : undefined}
           onClick={navDisabled ? (e) => e.preventDefault() : undefined}
         >
-          <div className="w-9 h-9 overflow-hidden rounded-md">
+          <div className="h-9 w-9 overflow-hidden rounded-md">
             <Image
               src={SparkLogo}
               alt="Spark Vision"
               width={36}
               height={36}
-              className="object-cover object-center w-full h-full"
+              className="h-full w-full object-cover object-center"
             />
           </div>
           <span className="font-bold">Spark Vision</span>

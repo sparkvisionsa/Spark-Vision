@@ -543,6 +543,13 @@ export const content = {
             "Strategic guidance to help you navigate the complex world of technology.",
           icon: Briefcase,
         },
+        {
+          title: "Value Tech Platform",
+          description:
+            "A dedicated platform for report uploads and evaluation workflows.",
+          icon: Zap,
+          href: "/value-tech",
+        },
       ],
     },
     whyChooseUs: {
@@ -765,6 +772,13 @@ export const content = {
           description:
             "إرشادات استراتيجية لمساعدتك في التنقل في عالم التكنولوجيا المعقد.",
           icon: Briefcase,
+        },
+        {
+          title: "منصة Value Tech",
+          description:
+            "منصة مخصصة لرفع التقارير وإدارة مسارات التقييم بسرعة وأمان.",
+          icon: Zap,
+          href: "/value-tech",
         },
       ],
     },

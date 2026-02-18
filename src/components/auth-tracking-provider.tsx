@@ -557,7 +557,8 @@ export default function AuthTrackingProvider({
       const isHighVolumeListEndpoint =
         lowerUrl.includes("/api/cars-sources") ||
         lowerUrl.includes("/api/haraj-scrape") ||
-        lowerUrl.includes("/api/yallamotor-scrape");
+        lowerUrl.includes("/api/yallamotor-scrape") ||
+        lowerUrl.includes("/api/syarah-scrape");
       const method = init?.method ?? "GET";
       const start = performance.now();
       const response = await originalFetch(input, init);

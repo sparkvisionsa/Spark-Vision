@@ -22,13 +22,8 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
-        source: '/value-tech',
-        destination: '/',
-        permanent: false,
-      },
-      {
-        source: '/value-tech/:path*',
-        destination: '/',
+        source: "/value-tech-app",
+        destination: "/value-tech",
         permanent: false,
       },
     ];

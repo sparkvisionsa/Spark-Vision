@@ -31,6 +31,9 @@ import {
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
   Check,
   Eye,
   Image as ImageIcon,
@@ -73,7 +76,7 @@ type EvaluationSourceItem = {
   mileage: number | null;
   phone: string;
   url: string;
-  source: "haraj" | "yallamotor";
+  source: "haraj" | "yallamotor" | "syarah";
   priceCompare?: {
     min?: string | number | null;
     max?: string | number | null;
@@ -96,7 +99,7 @@ type EvaluationSourcePageProps = {
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
   enableMileageFilter?: boolean;
-  dataSources?: Array<"haraj" | "yallamotor">;
+  dataSources?: Array<"haraj" | "yallamotor" | "syarah">;
   requireSearchClickToApplyFilters?: boolean;
 };
 
@@ -184,6 +187,7 @@ const copy = {
         all: "All sources",
         haraj: "Haraj",
         yallamotor: "Yalla Motor",
+        syarah: "Syarah",
       },
       hasImages: "Has images",
       hasPrice: "Has price",
@@ -300,6 +304,7 @@ const copy = {
         all: "كل المصادر",
         haraj: "حراج",
         yallamotor: "يلا موتور",
+        syarah: "\u0633\u064A\u0627\u0631\u0629",
       },
       hasImages: "مع صور",
       hasPrice: "مع سعر",
@@ -458,6 +463,7 @@ function resolveSourceUrl(item: Pick<EvaluationSourceItem, "source" | "url">) {
   if (/^\/\//.test(rawUrl)) return `https:${rawUrl}`;
   if (/^(www\.)?haraj\.com\.sa\//i.test(rawUrl)) return `https://${rawUrl}`;
   if (/^(www\.)?yallamotor\.com\//i.test(rawUrl)) return `https://${rawUrl}`;
+  if (/^(www\.)?syarah\.com\//i.test(rawUrl)) return `https://${rawUrl}`;
 
   const normalizedPath = rawUrl.replace(/^\/+/, "");
   if (item.source === "haraj") {
@@ -465,6 +471,9 @@ function resolveSourceUrl(item: Pick<EvaluationSourceItem, "source" | "url">) {
   }
   if (item.source === "yallamotor") {
     return `https://www.yallamotor.com/${normalizedPath}`;
+  }
+  if (item.source === "syarah") {
+    return `https://syarah.com/${normalizedPath}`;
   }
   return rawUrl;
 }
@@ -733,6 +742,27 @@ function buildContinuousYearOptions(values: string[]) {
 
 const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
 
+function filterVehicleOptionsByInput(options: string[], input: string) {
+  const query = input.trim();
+  if (!query) return options;
+
+  const canonicalQuery = toVehicleCanonicalKey(query);
+  const loweredQuery = query.toLowerCase();
+
+  return options.filter((option) => {
+    if (isVehicleTextMatch(option, query)) {
+      return true;
+    }
+
+    const optionCanonical = toVehicleCanonicalKey(option);
+    if (canonicalQuery && optionCanonical.includes(canonicalQuery)) {
+      return true;
+    }
+
+    return option.toLowerCase().includes(loweredQuery);
+  });
+}
+
 function filterVisibleComments(comments: Array<Record<string, any>>) {
   return comments.filter((comment) => {
     const body = typeof comment?.body === "string" ? comment.body.replace(/\s+/g, " ").trim() : "";
@@ -758,8 +788,32 @@ export default function EvaluationSourcePage({
   const mileageLabel = isArabic ? "\u0639\u062f\u0627\u062f \u0627\u0644\u0643\u064a\u0644\u0648\u0645\u062a\u0631\u0627\u062a" : "Mileage";
   const matchLabel = isArabic ? "\u062A\u0637\u0627\u0628\u0642" : "Match";
   const sourceLinkLabel = isArabic ? "\u0631\u0627\u0628\u0637 \u0627\u0644\u0645\u0635\u062f\u0631" : "Source link";
-  const getSourceDisplayName = (source: EvaluationSourceItem["source"]) =>
-    source === "yallamotor" ? t.filters.sourceOptions.yallamotor : t.filters.sourceOptions.haraj;
+  const clearBrandLabel = isArabic ? "\u0643\u0644 \u0627\u0644\u0645\u0627\u0631\u0643\u0627\u062A" : "All brands";
+  const clearModelLabel = isArabic ? "\u0643\u0644 \u0627\u0644\u0637\u0631\u0627\u0632\u0627\u062A" : "All models";
+  const clearModelYearLabel = isArabic ? "\u0643\u0644 \u0627\u0644\u0633\u0646\u0648\u0627\u062A" : "All years";
+  const noOptionsLabel = isArabic ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u062E\u064A\u0627\u0631\u0627\u062A" : "No options found";
+  const loadingOptionsLabel = isArabic ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A..." : "Loading options...";
+  const openBrandOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0645\u0627\u0631\u0643\u0629" : "Show brand options";
+  const openModelOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0637\u0631\u0627\u0632" : "Show model options";
+  const openModelYearOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0633\u0646\u0629 \u0627\u0644\u0635\u0646\u0639" : "Show manufacture year options";
+  const filterLabelClass = isArabic
+    ? "shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800"
+    : "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] text-slate-800";
+  const mileageFilterLabelClass = isArabic
+    ? "shrink-0 whitespace-nowrap text-sm font-extrabold uppercase tracking-[0.1em] text-slate-800"
+    : "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] text-slate-800";
+  const searchableFilterInputClass =
+    "h-9 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
+  const searchableFilterInputWithLeadingIconClass =
+    "h-9 w-full min-w-0 pl-8 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
+  const searchableDropdownClass =
+    "absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-md border border-slate-200 bg-white py-1 shadow-lg";
+  const searchableDropdownOptionClass = "block w-full px-3 py-2 text-center text-sm transition hover:bg-slate-100";
+  const getSourceDisplayName = (source: EvaluationSourceItem["source"]) => {
+    if (source === "yallamotor") return t.filters.sourceOptions.yallamotor;
+    if (source === "syarah") return t.filters.sourceOptions.syarah;
+    return t.filters.sourceOptions.haraj;
+  };
   const mileageMinPlaceholder = "Min";
   const mileageMaxPlaceholder = "Max";
   const resolvedSources = useMemo(
@@ -789,9 +843,17 @@ export default function EvaluationSourcePage({
   const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
   const [allModelYearOptions, setAllModelYearOptions] = useState<string[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
-  const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
+  const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(
+    enableBrandFilter || enableModelFilter
+  );
   const [optionPoolLoaded, setOptionPoolLoaded] = useState(false);
   const [optionPoolLoading, setOptionPoolLoading] = useState(false);
+  const [brandDropdownOpen, setBrandDropdownOpen] = useState(false);
+  const [brandDropdownShowAll, setBrandDropdownShowAll] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [modelDropdownShowAll, setModelDropdownShowAll] = useState(false);
+  const [modelYearDropdownOpen, setModelYearDropdownOpen] = useState(false);
+  const [modelYearDropdownShowAll, setModelYearDropdownShowAll] = useState(false);
   const [commentsMode, setCommentsMode] = useState<"comments" | "priceCompare">("comments");
   const [modalPriceCompare, setModalPriceCompare] =
     useState<EvaluationSourceItem["priceCompare"] | null>(null);
@@ -801,9 +863,32 @@ export default function EvaluationSourcePage({
   const [registrationRequiredMessage, setRegistrationRequiredMessage] =
     useState<string | null>(null);
   const listResponseCacheRef = useRef<Map<string, ListResponse>>(new Map());
-
+  const brandDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
+  const modelYearDropdownRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (brandDropdownRef.current && !brandDropdownRef.current.contains(target)) {
+        setBrandDropdownOpen(false);
+      }
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(target)) {
+        setModelDropdownOpen(false);
+      }
+      if (modelYearDropdownRef.current && !modelYearDropdownRef.current.contains(target)) {
+        setModelYearDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
   }, []);
 
   const triggerRegistrationRequired = useCallback(
@@ -832,8 +917,23 @@ export default function EvaluationSourcePage({
   );
 
   const updateFilters = (updates: Partial<typeof defaultFilters>) => {
-    setFilters((prev) => ({ ...prev, ...updates }));
+    setFilters((prev) => {
+      const next = { ...prev, ...updates };
+      if ("brand" in updates && updates.brand !== prev.brand) {
+        next.model = "";
+      }
+      return next;
+    });
   };
+
+  const toggleDateSort = useCallback(() => {
+    const currentDateSort = appliedFilters.sort === "oldest" ? "oldest" : "newest";
+    const nextDateSort = currentDateSort === "newest" ? "oldest" : "newest";
+
+    setFilters((prev) => ({ ...prev, sort: nextDateSort }));
+    setAppliedFilters((prev) => ({ ...prev, sort: nextDateSort }));
+    setPage(1);
+  }, [appliedFilters.sort]);
 
   const saveSearchToHistory = (searchValue: string) => {
     const normalizedValue = searchValue.trim();
@@ -887,6 +987,12 @@ export default function EvaluationSourcePage({
     const resetState = { ...defaultFilters };
     setFilters(resetState);
     setAppliedFilters(resetState);
+    setBrandDropdownOpen(false);
+    setBrandDropdownShowAll(false);
+    setModelDropdownOpen(false);
+    setModelDropdownShowAll(false);
+    setModelYearDropdownOpen(false);
+    setModelYearDropdownShowAll(false);
     setPage(1);
   };
 
@@ -919,7 +1025,7 @@ export default function EvaluationSourcePage({
       const sourcesParam =
         !selectedSource || selectedSource === "all"
           ? availableSources
-          : availableSources.includes(selectedSource as "haraj" | "yallamotor")
+          : availableSources.includes(selectedSource as "haraj" | "yallamotor" | "syarah")
             ? [selectedSource]
             : availableSources;
       params.set("sources", sourcesParam.join(","));
@@ -966,6 +1072,7 @@ export default function EvaluationSourcePage({
     const params = new URLSearchParams();
     if (tag0) params.set("tag0", tag0);
     params.set("fields", "options");
+    params.set("countMode", "none");
     if (useCombinedSources) {
       params.set("sources", resolvedSources.join(","));
     }
@@ -980,6 +1087,7 @@ export default function EvaluationSourcePage({
     const params = new URLSearchParams();
     if (tag0) params.set("tag0", tag0);
     params.set("fields", "modelYears");
+    params.set("countMode", "none");
     if (useCombinedSources) {
       params.set("sources", resolvedSources.join(","));
     }
@@ -1169,13 +1277,12 @@ export default function EvaluationSourcePage({
         const maxPages = 12;
         const maxItems = 2400;
         let currentPage = 1;
-        let totalItems = Infinity;
+        let totalItems: number | null = null;
         const collected: EvaluationSourceItem[] = [];
 
         while (
           active &&
           currentPage <= maxPages &&
-          collected.length < totalItems &&
           collected.length < maxItems
         ) {
           const query = new URLSearchParams(optionsBaseQueryString);
@@ -1204,8 +1311,12 @@ export default function EvaluationSourcePage({
           const result = (await response.json()) as ListResponse;
           const fetchedItems = result.items ?? [];
           collected.push(...fetchedItems);
-          totalItems = Math.min(result.total ?? collected.length, maxItems);
+          if (typeof result.total === "number" && result.total >= 0) {
+            totalItems = Math.min(result.total, maxItems);
+          }
           if (fetchedItems.length === 0) break;
+          if (totalItems !== null && collected.length >= totalItems) break;
+          if (result.hasNext === false) break;
           currentPage += 1;
         }
 
@@ -1243,6 +1354,7 @@ export default function EvaluationSourcePage({
 
   const items = data?.items ?? [];
   const optionItems = optionPoolLoaded && optionPool.length > 0 ? optionPool : items;
+  const activeDateSort = appliedFilters.sort === "oldest" ? "oldest" : "newest";
   const hasKnownTotal = typeof data?.total === "number" && data.total >= 0;
   const totalPages = hasKnownTotal ? Math.max(Math.ceil((data?.total ?? 0) / limit), 1) : null;
   const hasNextPage = hasKnownTotal ? page < (totalPages ?? 1) : Boolean(data?.hasNext);
@@ -1286,6 +1398,22 @@ export default function EvaluationSourcePage({
     return Array.from(optionsMap.values()).sort((a, b) => a.localeCompare(b));
   }, [optionItems, filters.brand]);
 
+  const visibleBrandOptions = useMemo(
+    () =>
+      brandDropdownShowAll
+        ? brandOptions
+        : filterVehicleOptionsByInput(brandOptions, filters.brand),
+    [brandDropdownShowAll, brandOptions, filters.brand]
+  );
+
+  const visibleModelOptions = useMemo(
+    () =>
+      modelDropdownShowAll
+        ? modelOptions
+        : filterVehicleOptionsByInput(modelOptions, filters.model),
+    [modelDropdownShowAll, modelOptions, filters.model]
+  );
+
   const modelYearOptions = useMemo(() => {
     if (allModelYearOptions.length > 0) {
       return allModelYearOptions;
@@ -1298,23 +1426,27 @@ export default function EvaluationSourcePage({
     return buildContinuousYearOptions(years);
   }, [allModelYearOptions, optionItems]);
 
-  useEffect(() => {
-    if (!enableModelFilter) return;
-    if (!optionPoolLoaded) return;
-    if (!filters.model) return;
-    if (!filters.brand) return;
-    const hasValidModel = modelOptions.some((model) =>
-      isVehicleTextMatch(model, filters.model)
-    );
-    if (!hasValidModel) {
-      setFilters((prev) => ({ ...prev, model: "" }));
+  const visibleModelYearOptions = useMemo(() => {
+    if (modelYearDropdownShowAll) {
+      return modelYearOptions;
     }
-  }, [filters.brand, filters.model, enableModelFilter, modelOptions, optionPoolLoaded]);
+
+    const query = filters.modelYear.trim();
+    if (!query) {
+      return modelYearOptions;
+    }
+
+    return modelYearOptions.filter((year) => year.includes(query));
+  }, [modelYearDropdownShowAll, modelYearOptions, filters.modelYear]);
 
   const fetchDetail = async (item: EvaluationSourceItem) => {
     const source = item.source ?? "haraj";
     const endpoint = toApiUrl(
-      source === "yallamotor" ? "/api/yallamotor-scrape" : "/api/haraj-scrape"
+      source === "yallamotor"
+        ? "/api/yallamotor-scrape"
+        : source === "syarah"
+          ? "/api/syarah-scrape"
+          : "/api/haraj-scrape"
     );
     const response = await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
       cache: "no-store",
@@ -1363,7 +1495,9 @@ export default function EvaluationSourcePage({
       const images =
         item.source === "yallamotor"
           ? ((doc?.detail?.images ?? doc?.images ?? []) as string[])
-          : ((doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[]);
+          : item.source === "syarah"
+            ? ((doc?.images ?? (doc?.featured_image ? [doc.featured_image] : [])) as string[])
+            : ((doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[]);
       setModalImages(images);
       setModalStatus("idle");
     } catch (err) {
@@ -1408,29 +1542,58 @@ export default function EvaluationSourcePage({
 
   const detailSource = (detail as any)?.__source ?? (detail as any)?.source ?? "haraj";
   const isYallaDetail = detailSource === "yallamotor";
+  const isSyarahDetail = detailSource === "syarah";
   const detailImages = (isYallaDetail
     ? detail?.detail?.images ?? detail?.images ?? []
-    : detail?.item?.imagesList ?? detail?.imagesList ?? []) as string[];
+    : isSyarahDetail
+      ? detail?.images ?? (detail?.featured_image ? [detail.featured_image] : [])
+      : detail?.item?.imagesList ?? detail?.imagesList ?? []) as string[];
   const detailTags = (isYallaDetail
     ? detail?.detail?.breadcrumb ?? detail?.breadcrumb ?? []
+    : isSyarahDetail
+      ? ["syarah", detail?.brand ?? "", detail?.model ?? "", detail?.trim ?? ""]
     : detail?.tags ?? detail?.item?.tags ?? []) as string[];
   const detailComments = filterVisibleComments(
-    (isYallaDetail
+    (isYallaDetail || isSyarahDetail
       ? []
       : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>
   );
+  const syarahCarInfo = isSyarahDetail
+    ? ({
+        origin: detail?.origin,
+        fuel_type: detail?.fuel_type,
+        transmission: detail?.transmission,
+        engine_size: detail?.engine_size,
+        cylinders: detail?.cylinders,
+        horse_power: detail?.horse_power,
+        drivetrain: detail?.drivetrain,
+        engine_type: detail?.engine_type,
+        fuel_tank_liters: detail?.fuel_tank_liters,
+        fuel_economy_kml: detail?.fuel_economy_kml,
+        seats: detail?.seats,
+        chassis_number: detail?.chassis_number,
+        plate_number: detail?.plate_number,
+        body_is_clear: detail?.body_is_clear,
+      } as Record<string, any>)
+    : null;
   const carInfo = (isYallaDetail
     ? detail?.detail?.importantSpecs
+    : isSyarahDetail
+      ? syarahCarInfo
     : detail?.item?.carInfo ??
       detail?.carInfo ??
       detail?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo ??
       null) as Record<string, any> | null;
-  const carMileage = !isYallaDetail ? (carInfo as any)?.mileage ?? null : null;
+  const carMileage = isSyarahDetail
+    ? detail?.mileage_km ?? null
+    : !isYallaDetail
+      ? (carInfo as any)?.mileage ?? null
+      : null;
   const carInfoEntries =
     carInfo && typeof carInfo === "object" && !Array.isArray(carInfo)
       ? Object.entries(carInfo).filter(
           ([key, value]) =>
-            (isYallaDetail ? true : key !== "mileage") &&
+            (isYallaDetail || isSyarahDetail ? true : key !== "mileage") &&
             value !== null &&
             value !== undefined &&
             value !== ""
@@ -1439,15 +1602,21 @@ export default function EvaluationSourcePage({
   const detailFeatures = (isYallaDetail ? detail?.detail?.features ?? [] : []) as string[];
   const detailPriceCompare = isYallaDetail ? detail?.detail?.priceCompare ?? detail?.priceCompare ?? null : null;
   const detailSourceUrl = resolveSourceUrl({
-    source: isYallaDetail ? "yallamotor" : "haraj",
+    source: isYallaDetail ? "yallamotor" : isSyarahDetail ? "syarah" : "haraj",
     url: String(
-      (isYallaDetail ? detail?.url ?? detail?.detail?.url : detail?.url ?? detail?.item?.URL) ?? ""
+      (isYallaDetail
+        ? detail?.url ?? detail?.detail?.url
+        : isSyarahDetail
+          ? detail?.share_link ?? detail?.url
+          : detail?.url ?? detail?.item?.URL) ?? ""
     ),
   });
   const detailNotes = isYallaDetail
     ? formatYallaDescription(detail?.detail?.description ?? "") || t.modals.noDescription
-    : sanitizeDescriptionText(detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? "") ||
-      t.modals.noDescription;
+    : isSyarahDetail
+      ? sanitizeDescriptionText(detail?.title ?? "") || t.modals.noDescription
+      : sanitizeDescriptionText(detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? "") ||
+        t.modals.noDescription;
   const normalizedDetailTags = detailTags
     .filter((tag): tag is string => Boolean(tag))
     .slice(isYallaDetail ? 3 : 1);
@@ -1511,6 +1680,30 @@ export default function EvaluationSourcePage({
               href: detailSourceUrl || undefined,
             },
           ]
+        : isSyarahDetail
+          ? [
+              {
+                label: t.modals.titleLabel,
+                value: detail?.title ?? "-",
+              },
+              {
+                label: t.modals.cityLabel,
+                value: detail?.city ?? "-",
+              },
+              {
+                label: t.modals.priceLabel,
+                value: formatPrice(detail?.price_cash ?? detail?.priceNumeric ?? null, null),
+              },
+              {
+                label: t.modals.dateLabel,
+                value: formatEpoch(detail?.fetchedAt ?? null),
+              },
+              {
+                label: t.modals.sourceLabel,
+                value: detailSourceUrl ? t.modals.openListing : "-",
+                href: detailSourceUrl || undefined,
+              },
+            ]
         : [
             {
               label: t.modals.titleLabel,
@@ -1617,7 +1810,7 @@ export default function EvaluationSourcePage({
     <div className={`min-h-screen bg-[#f7f4ee] text-slate-900 ${plex.className}`}>
       <style>{animationStyles}</style>
       <Header />
-      <main className="relative overflow-hidden">
+      <main className="relative overflow-x-hidden overflow-y-visible">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -top-16 right-10 h-48 w-48 rounded-full bg-amber-200/40 blur-3xl float-slow" />
           <div
@@ -1645,7 +1838,7 @@ export default function EvaluationSourcePage({
 
         <section className="relative pb-16">
           <div className="w-full px-6">
-            <div className="relative overflow-hidden rounded-3xl border border-emerald-200/70 bg-white/85 p-4 shadow-[0_35px_120px_-50px_rgba(16,185,129,0.55)] backdrop-blur">
+            <div className="relative overflow-visible rounded-3xl border border-emerald-200/70 bg-white/85 p-4 shadow-[0_35px_120px_-50px_rgba(16,185,129,0.55)] backdrop-blur">
               <div className="pointer-events-none absolute inset-0">
                 <div className="absolute -top-16 right-8 h-40 w-40 rounded-full bg-emerald-200/40 blur-3xl" />
                 <div className="absolute -bottom-12 left-6 h-36 w-36 rounded-full bg-cyan-200/40 blur-3xl" />
@@ -1666,8 +1859,10 @@ export default function EvaluationSourcePage({
                 </div>
               </div>
 
-              <div className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]">
-                <div className="overflow-hidden rounded-[15px] bg-slate-200/70">
+              <div
+                className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]"
+              >
+                <div className="rounded-[15px] bg-slate-200/70">
                   <div
                     className={`grid gap-[1px] bg-slate-200/70 md:grid-cols-2 ${
                       showSourceFilter ? "lg:grid-cols-6" : "lg:grid-cols-5"
@@ -1675,7 +1870,7 @@ export default function EvaluationSourcePage({
                   >
                     <div className="flex flex-col gap-2 bg-white/95 px-3 py-2 sm:flex-row sm:items-center lg:col-span-2">
                       <div className="flex shrink-0 items-center gap-3">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        <Label className={filterLabelClass}>
                           {t.filters.search}
                         </Label>
                       </div>
@@ -1717,75 +1912,248 @@ export default function EvaluationSourcePage({
                     </div>
                     {enableBrandFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        <Label className={filterLabelClass}>
                           {t.filters.brand}
                         </Label>
-                        <div className="relative flex-1">
-                          <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <div className="relative min-w-0 flex-1" ref={brandDropdownRef}>
                           <Input
-                            list="brand-options"
                             value={filters.brand}
-                            onChange={(event) => updateFilters({ brand: event.target.value })}
-                            onFocus={ensureOptionPoolLoaded}
+                            onChange={(event) => {
+                              ensureOptionPoolLoaded();
+                              setBrandDropdownShowAll(false);
+                              setBrandDropdownOpen(true);
+                              updateFilters({ brand: event.target.value });
+                            }}
+                            onFocus={() => {
+                              ensureOptionPoolLoaded();
+                              setBrandDropdownShowAll(false);
+                              setBrandDropdownOpen(true);
+                            }}
                             placeholder={t.filters.brandPlaceholder}
-                            className="h-9 pl-8 text-sm"
+                            className={searchableFilterInputClass}
                           />
-                          <datalist id="brand-options">
-                            {brandOptions.map((brand) => (
-                              <option key={brand} value={brand} />
-                            ))}
-                          </datalist>
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              ensureOptionPoolLoaded();
+                              setBrandDropdownShowAll(true);
+                              setBrandDropdownOpen(true);
+                            }}
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={openBrandOptionsLabel}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                          {brandDropdownOpen ? (
+                            <div className={searchableDropdownClass}>
+                              {optionPoolLoading && !optionPoolLoaded ? (
+                                <div className="px-3 py-2 text-center text-sm text-slate-400">{loadingOptionsLabel}</div>
+                              ) : null}
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  updateFilters({ brand: "" });
+                                  setBrandDropdownOpen(false);
+                                  setBrandDropdownShowAll(false);
+                                }}
+                                className={`${searchableDropdownOptionClass} ${
+                                  filters.brand ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
+                                }`}
+                              >
+                                {clearBrandLabel}
+                              </button>
+                              {visibleBrandOptions.map((brand) => (
+                                <button
+                                  key={brand}
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    updateFilters({ brand });
+                                    setBrandDropdownOpen(false);
+                                    setBrandDropdownShowAll(false);
+                                  }}
+                                  className={`${searchableDropdownOptionClass} ${
+                                    isVehicleTextMatch(brand, filters.brand)
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "text-slate-700"
+                                  }`}
+                                >
+                                  {brand}
+                                </button>
+                              ))}
+                              {visibleBrandOptions.length === 0 ? (
+                                <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
                     {enableModelFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        <Label className={filterLabelClass}>
                           {t.filters.model}
                         </Label>
-                        <div className="relative flex-1">
-                          <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <div className="relative min-w-0 flex-1" ref={modelDropdownRef}>
                           <Input
-                            list="model-options"
                             value={filters.model}
-                            onChange={(event) => updateFilters({ model: event.target.value })}
-                            onFocus={ensureOptionPoolLoaded}
+                            onChange={(event) => {
+                              ensureOptionPoolLoaded();
+                              setModelDropdownShowAll(false);
+                              setModelDropdownOpen(true);
+                              updateFilters({ model: event.target.value });
+                            }}
+                            onFocus={() => {
+                              ensureOptionPoolLoaded();
+                              setModelDropdownShowAll(false);
+                              setModelDropdownOpen(true);
+                            }}
                             placeholder={t.filters.modelPlaceholder}
-                            className="h-9 pl-8 text-sm"
+                            className={searchableFilterInputClass}
                           />
-                          <datalist id="model-options">
-                            {modelOptions.map((model) => (
-                              <option key={model} value={model} />
-                            ))}
-                          </datalist>
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              ensureOptionPoolLoaded();
+                              setModelDropdownShowAll(true);
+                              setModelDropdownOpen(true);
+                            }}
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={openModelOptionsLabel}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                          {modelDropdownOpen ? (
+                            <div className={searchableDropdownClass}>
+                              {optionPoolLoading && !optionPoolLoaded ? (
+                                <div className="px-3 py-2 text-center text-sm text-slate-400">{loadingOptionsLabel}</div>
+                              ) : null}
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  updateFilters({ model: "" });
+                                  setModelDropdownOpen(false);
+                                  setModelDropdownShowAll(false);
+                                }}
+                                className={`${searchableDropdownOptionClass} ${
+                                  filters.model ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
+                                }`}
+                              >
+                                {clearModelLabel}
+                              </button>
+                              {visibleModelOptions.map((model) => (
+                                <button
+                                  key={model}
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    updateFilters({ model });
+                                    setModelDropdownOpen(false);
+                                    setModelDropdownShowAll(false);
+                                  }}
+                                  className={`${searchableDropdownOptionClass} ${
+                                    isVehicleTextMatch(model, filters.model)
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "text-slate-700"
+                                  }`}
+                                >
+                                  {model}
+                                </button>
+                              ))}
+                              {visibleModelOptions.length === 0 ? (
+                                <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
                     {enableModelYearFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                      <div className={`flex gap-2 bg-white/95 px-3 py-2 ${isArabic ? "items-center" : "flex-col"}`}>
+                        <Label className={filterLabelClass}>
                           {t.filters.manufactureYear}
                         </Label>
-                        <div className="relative flex-1">
+                        <div
+                          className={`relative min-w-0 ${isArabic ? "flex-1" : "w-full"}`}
+                          ref={modelYearDropdownRef}
+                        >
                           <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <Input
-                            list="model-year-options"
                             value={filters.modelYear}
-                            onChange={(event) => updateFilters({ modelYear: event.target.value })}
+                            onChange={(event) => {
+                              setModelYearDropdownShowAll(false);
+                              setModelYearDropdownOpen(true);
+                              updateFilters({ modelYear: event.target.value });
+                            }}
+                            onFocus={() => {
+                              setModelYearDropdownShowAll(false);
+                              setModelYearDropdownOpen(true);
+                            }}
                             placeholder={t.filters.manufactureYearPlaceholder}
-                            className="h-9 pl-8 text-sm"
+                            className={searchableFilterInputWithLeadingIconClass}
                           />
-                          <datalist id="model-year-options">
-                            {modelYearOptions.map((year) => (
-                              <option key={year} value={year} />
-                            ))}
-                          </datalist>
+                          <button
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setModelYearDropdownShowAll(true);
+                              setModelYearDropdownOpen(true);
+                            }}
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={openModelYearOptionsLabel}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                          {modelYearDropdownOpen ? (
+                            <div className={searchableDropdownClass}>
+                              <button
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  updateFilters({ modelYear: "" });
+                                  setModelYearDropdownOpen(false);
+                                  setModelYearDropdownShowAll(false);
+                                }}
+                                className={`${searchableDropdownOptionClass} ${
+                                  filters.modelYear ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
+                                }`}
+                              >
+                                {clearModelYearLabel}
+                              </button>
+                              {visibleModelYearOptions.map((year) => (
+                                <button
+                                  key={year}
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    updateFilters({ modelYear: year });
+                                    setModelYearDropdownOpen(false);
+                                    setModelYearDropdownShowAll(false);
+                                  }}
+                                  className={`${searchableDropdownOptionClass} ${
+                                    year === filters.modelYear
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "text-slate-700"
+                                  }`}
+                                >
+                                  {year}
+                                </button>
+                              ))}
+                              {visibleModelYearOptions.length === 0 ? (
+                                <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
                     {showSourceFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
-                        <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        <Label className={filterLabelClass}>
                           {t.filters.source}
                         </Label>
                         <div className="flex-1">
@@ -1803,6 +2171,9 @@ export default function EvaluationSourcePage({
                               ) : null}
                               {resolvedSources.includes("yallamotor") ? (
                                 <SelectItem value="yallamotor">{t.filters.sourceOptions.yallamotor}</SelectItem>
+                              ) : null}
+                              {resolvedSources.includes("syarah") ? (
+                                <SelectItem value="syarah">{t.filters.sourceOptions.syarah}</SelectItem>
                               ) : null}
                             </SelectContent>
                           </Select>
@@ -1919,7 +2290,7 @@ export default function EvaluationSourcePage({
                     </div>
                     {enableMileageFilter ? (
                       <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-4">
-                        <Label className="shrink-0 whitespace-nowrap text-sm font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                        <Label className={mileageFilterLabelClass}>
                           {mileageLabel}
                         </Label>
                         <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
@@ -1947,7 +2318,7 @@ export default function EvaluationSourcePage({
                         enableMileageFilter ? "lg:col-span-2" : ""
                       }`}
                     >
-                      <Label className="shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800">
+                      <Label className={filterLabelClass}>
                         {t.filters.sortBy}
                       </Label>
                       <div className="flex-1">
@@ -2088,7 +2459,30 @@ export default function EvaluationSourcePage({
                             {t.table.price}
                           </TableHead>
                           <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
-                            {t.table.date}
+                            <button
+                              type="button"
+                              onClick={toggleDateSort}
+                              className={`inline-flex items-center gap-1 transition-colors hover:text-emerald-700 ${
+                                isArabic ? "w-full justify-end" : ""
+                              }`}
+                              aria-label={
+                                activeDateSort === "newest"
+                                  ? `${t.table.date}: ${t.filters.sortOptions.newest}`
+                                  : `${t.table.date}: ${t.filters.sortOptions.oldest}`
+                              }
+                              title={
+                                activeDateSort === "newest"
+                                  ? t.filters.sortOptions.newest
+                                  : t.filters.sortOptions.oldest
+                              }
+                            >
+                              <span>{t.table.date}</span>
+                              {activeDateSort === "newest" ? (
+                                <ArrowDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ArrowUp className="h-3.5 w-3.5" />
+                              )}
+                            </button>
                           </TableHead>
                           <TableHead className={`text-[12px] font-extrabold uppercase tracking-[0.2em] ${isArabic ? "!text-right" : ""}`}>
                             {t.table.images}
