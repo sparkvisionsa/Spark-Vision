@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import Header from "@/components/header";
 import Footer from "@/components/footer";
 import AuthModal from "@/components/auth-modal";
@@ -92,6 +92,10 @@ type ListResponse = {
   hasNext?: boolean;
 };
 
+type SearchSuggestionsResponse = {
+  items: string[];
+};
+
 type EvaluationSourcePageProps = {
   tag0?: string;
   excludeTag1Values?: string[];
@@ -139,9 +143,23 @@ const defaultFilters = {
   sort: "newest",
 };
 
+type FilterState = typeof defaultFilters;
+
+function buildNextFiltersState(current: FilterState, updates: Partial<FilterState>): FilterState {
+  const next = { ...current, ...updates };
+  if ("brand" in updates && updates.brand !== current.brand) {
+    next.model = "";
+  }
+  return next;
+}
+
 const SEARCH_HISTORY_STORAGE_KEY = "evaluation-source-search-history";
 const SEARCH_HISTORY_MAX_ITEMS = 10;
 const LIST_RESPONSE_CACHE_MAX_ITEMS = 120;
+const SEARCH_SUGGESTIONS_MAX_ITEMS = 10;
+const SEARCH_SUGGESTIONS_MIN_CHARS = 2;
+const SEARCH_SUGGESTIONS_DEBOUNCE_MS = 120;
+const SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS = 120;
 
 function setCachedListResponse(
   cache: Map<string, ListResponse>,
@@ -150,6 +168,19 @@ function setCachedListResponse(
 ) {
   cache.set(cacheKey, value);
   while (cache.size > LIST_RESPONSE_CACHE_MAX_ITEMS) {
+    const oldestKey = cache.keys().next().value;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
+
+function setCachedSearchSuggestions(
+  cache: Map<string, string[]>,
+  cacheKey: string,
+  value: string[]
+) {
+  cache.set(cacheKey, value);
+  while (cache.size > SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS) {
     const oldestKey = cache.keys().next().value;
     if (!oldestKey) break;
     cache.delete(oldestKey);
@@ -796,19 +827,27 @@ export default function EvaluationSourcePage({
   const openBrandOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0645\u0627\u0631\u0643\u0629" : "Show brand options";
   const openModelOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0637\u0631\u0627\u0632" : "Show model options";
   const openModelYearOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0633\u0646\u0629 \u0627\u0644\u0635\u0646\u0639" : "Show manufacture year options";
+  const activeFiltersLabel = isArabic ? "\u0627\u0644\u0641\u0644\u0627\u062A\u0631 \u0627\u0644\u0646\u0634\u0637\u0629" : "Active filters";
+  const pendingApplyLabel = isArabic ? "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u062A\u0637\u0628\u064A\u0642" : "Pending apply";
+  const readyLabel = isArabic ? "\u062C\u0627\u0647\u0632" : "Ready";
   const filterLabelClass = isArabic
-    ? "shrink-0 whitespace-nowrap text-base font-extrabold uppercase tracking-[0.1em] text-slate-800"
-    : "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] text-slate-800";
+    ? "shrink-0 whitespace-nowrap text-[13px] font-extrabold tracking-[0.05em] text-slate-800"
+    : "shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700";
   const mileageFilterLabelClass = isArabic
-    ? "shrink-0 whitespace-nowrap text-sm font-extrabold uppercase tracking-[0.1em] text-slate-800"
-    : "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.06em] text-slate-800";
+    ? "shrink-0 whitespace-nowrap text-[13px] font-extrabold tracking-[0.05em] text-slate-800"
+    : "shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700";
+  const filterFieldContainerClass =
+    "group flex flex-col gap-2 rounded-2xl border border-emerald-100/70 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] transition duration-200 hover:-translate-y-[1px] hover:border-emerald-200 hover:shadow-[0_20px_45px_-28px_rgba(16,185,129,0.65)] sm:flex-row sm:items-center";
   const searchableFilterInputClass =
-    "h-9 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
+    "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
   const searchableFilterInputWithLeadingIconClass =
-    "h-9 w-full min-w-0 pl-8 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
+    "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 pl-8 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
+  const filterSelectTriggerClass = "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 text-sm";
   const searchableDropdownClass =
-    "absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-md border border-slate-200 bg-white py-1 shadow-lg";
-  const searchableDropdownOptionClass = "block w-full px-3 py-2 text-center text-sm transition hover:bg-slate-100";
+    "absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-emerald-100 bg-white p-1.5 shadow-2xl";
+  const searchableDropdownOptionClass = `block w-full rounded-md px-3 py-2 text-sm transition hover:bg-slate-100 ${
+    isArabic ? "text-right" : "text-left"
+  }`;
   const getSourceDisplayName = (source: EvaluationSourceItem["source"]) => {
     if (source === "yallamotor") return t.filters.sourceOptions.yallamotor;
     if (source === "syarah") return t.filters.sourceOptions.syarah;
@@ -825,10 +864,11 @@ export default function EvaluationSourcePage({
   const listEndpoint = toApiUrl(
     useCombinedSources ? "/api/cars-sources" : "/api/haraj-scrape"
   );
+  const suggestionsEndpoint = toApiUrl("/api/cars-sources/suggestions");
   const [filters, setFilters] = useState(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(15);
   const [data, setData] = useState<ListResponse | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("loading");
   const [, setError] = useState<string | null>(null);
@@ -843,9 +883,12 @@ export default function EvaluationSourcePage({
   const [optionPool, setOptionPool] = useState<EvaluationSourceItem[]>([]);
   const [allModelYearOptions, setAllModelYearOptions] = useState<string[]>([]);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
-  const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(
-    enableBrandFilter || enableModelFilter
-  );
+  const [liveSearchSuggestions, setLiveSearchSuggestions] = useState<string[]>([]);
+  const [liveSearchSuggestionsLoading, setLiveSearchSuggestionsLoading] = useState(false);
+  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
+  const [searchSuggestionActiveIndex, setSearchSuggestionActiveIndex] = useState(-1);
+  const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
+  const [shouldLoadModelYears, setShouldLoadModelYears] = useState(false);
   const [optionPoolLoaded, setOptionPoolLoaded] = useState(false);
   const [optionPoolLoading, setOptionPoolLoading] = useState(false);
   const [brandDropdownOpen, setBrandDropdownOpen] = useState(false);
@@ -863,9 +906,69 @@ export default function EvaluationSourcePage({
   const [registrationRequiredMessage, setRegistrationRequiredMessage] =
     useState<string | null>(null);
   const listResponseCacheRef = useRef<Map<string, ListResponse>>(new Map());
+  const searchSuggestionsCacheRef = useRef<Map<string, string[]>>(new Map());
+  const searchDropdownRef = useRef<HTMLDivElement | null>(null);
   const brandDropdownRef = useRef<HTMLDivElement | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
   const modelYearDropdownRef = useRef<HTMLDivElement | null>(null);
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.search.trim()) count += 1;
+    if (filters.match) count += 1;
+    if (filters.brand.trim()) count += 1;
+    if (filters.model.trim()) count += 1;
+    if (filters.modelYear.trim()) count += 1;
+    if (showSourceFilter && filters.source !== "all") count += 1;
+    if (filters.hasImage !== "any") count += 1;
+    if (filters.hasPrice !== "any") count += 1;
+    if (filters.hasComments !== "any") count += 1;
+    if (enableMileageFilter && filters.hasMileage !== "any") count += 1;
+    if (enableMileageFilter && filters.mileageMin.trim()) count += 1;
+    if (enableMileageFilter && filters.mileageMax.trim()) count += 1;
+    if (filters.sort !== defaultFilters.sort) count += 1;
+    return count;
+  }, [filters, enableMileageFilter, showSourceFilter]);
+  const hasPendingFilterChanges = useMemo(() => {
+    if (!requireSearchClickToApplyFilters) return false;
+    return (Object.keys(defaultFilters) as Array<keyof FilterState>).some(
+      (key) => filters[key] !== appliedFilters[key]
+    );
+  }, [filters, appliedFilters, requireSearchClickToApplyFilters]);
+  const filteredSearchHistorySuggestions = useMemo(() => {
+    const searchValue = filters.search.trim().toLowerCase();
+    if (!searchValue) return searchHistory;
+    return searchHistory.filter((item) => item.toLowerCase().includes(searchValue));
+  }, [filters.search, searchHistory]);
+  const mergedSearchSuggestions = useMemo(() => {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    const pushSuggestion = (value: string) => {
+      const normalized = value.trim();
+      if (!normalized) return;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push(normalized);
+    };
+
+    for (const suggestion of liveSearchSuggestions) {
+      pushSuggestion(suggestion);
+    }
+    for (const suggestion of filteredSearchHistorySuggestions) {
+      pushSuggestion(suggestion);
+    }
+
+    return merged.slice(0, SEARCH_SUGGESTIONS_MAX_ITEMS);
+  }, [filteredSearchHistorySuggestions, liveSearchSuggestions]);
+  const liveSearchSuggestionLookup = useMemo(
+    () => new Set(liveSearchSuggestions.map((item) => item.trim().toLowerCase())),
+    [liveSearchSuggestions]
+  );
+  useEffect(() => {
+    if (searchSuggestionActiveIndex >= mergedSearchSuggestions.length) {
+      setSearchSuggestionActiveIndex(-1);
+    }
+  }, [searchSuggestionActiveIndex, mergedSearchSuggestions.length]);
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -874,6 +977,10 @@ export default function EvaluationSourcePage({
     const handlePointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(target)) {
+        setSearchDropdownOpen(false);
+        setSearchSuggestionActiveIndex(-1);
+      }
       if (brandDropdownRef.current && !brandDropdownRef.current.contains(target)) {
         setBrandDropdownOpen(false);
       }
@@ -916,14 +1023,8 @@ export default function EvaluationSourcePage({
     [trackAction]
   );
 
-  const updateFilters = (updates: Partial<typeof defaultFilters>) => {
-    setFilters((prev) => {
-      const next = { ...prev, ...updates };
-      if ("brand" in updates && updates.brand !== prev.brand) {
-        next.model = "";
-      }
-      return next;
-    });
+  const updateFilters = (updates: Partial<FilterState>) => {
+    setFilters((prev) => buildNextFiltersState(prev, updates));
   };
 
   const toggleDateSort = useCallback(() => {
@@ -962,22 +1063,100 @@ export default function EvaluationSourcePage({
     }
   };
 
-  const applyFilters = () => {
+  const applyFiltersSnapshot = (nextFilters: FilterState) => {
     trackAction({
       actionType: "search",
       actionDetails: {
-        query: filters.search,
-        match: filters.match,
-        city: filters.city,
-        brand: filters.brand,
-        model: filters.model,
-        year: filters.modelYear,
-        source: filters.source,
+        query: nextFilters.search,
+        match: nextFilters.match,
+        city: nextFilters.city,
+        brand: nextFilters.brand,
+        model: nextFilters.model,
+        year: nextFilters.modelYear,
+        source: nextFilters.source,
       },
     });
-    saveSearchToHistory(filters.search);
-    setAppliedFilters({ ...filters });
+    saveSearchToHistory(nextFilters.search);
+    setAppliedFilters({ ...nextFilters });
     setPage(1);
+  };
+
+  const applyFilters = () => {
+    setSearchDropdownOpen(false);
+    setSearchSuggestionActiveIndex(-1);
+    applyFiltersSnapshot(filters);
+  };
+
+  const applyFilterSelection = (updates: Partial<FilterState>) => {
+    const next = buildNextFiltersState(filters, updates);
+    setFilters(next);
+  };
+
+  const applySearchSuggestion = (suggestion: string, autoApply = false) => {
+    const normalizedSuggestion = suggestion.trim();
+    if (!normalizedSuggestion) return;
+    const next = buildNextFiltersState(filters, { search: normalizedSuggestion });
+    setFilters(next);
+    setSearchDropdownOpen(false);
+    setSearchSuggestionActiveIndex(-1);
+    if (autoApply && requireSearchClickToApplyFilters) {
+      applyFiltersSnapshot(next);
+    }
+  };
+
+  const handleEnterSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      if (mergedSearchSuggestions.length === 0) return;
+      event.preventDefault();
+      setSearchDropdownOpen(true);
+      setSearchSuggestionActiveIndex((previous) =>
+        previous < mergedSearchSuggestions.length - 1 ? previous + 1 : 0
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      if (mergedSearchSuggestions.length === 0) return;
+      event.preventDefault();
+      setSearchDropdownOpen(true);
+      setSearchSuggestionActiveIndex((previous) =>
+        previous > 0 ? previous - 1 : mergedSearchSuggestions.length - 1
+      );
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setSearchDropdownOpen(false);
+      setSearchSuggestionActiveIndex(-1);
+      return;
+    }
+
+    if (event.key !== "Enter") return;
+    if (searchDropdownOpen && mergedSearchSuggestions.length > 0) {
+      event.preventDefault();
+      const selectedIndex = searchSuggestionActiveIndex >= 0 ? searchSuggestionActiveIndex : 0;
+      const selectedSuggestion = mergedSearchSuggestions[selectedIndex];
+      if (selectedSuggestion) {
+        applySearchSuggestion(selectedSuggestion, true);
+        return;
+      }
+    }
+
+    if (!requireSearchClickToApplyFilters) return;
+    event.preventDefault();
+    applyFilters();
+  };
+
+  const handleSearchInputChange = (value: string) => {
+    setFilters((prev) => buildNextFiltersState(prev, { search: value }));
+    setSearchSuggestionActiveIndex(-1);
+    setSearchDropdownOpen(Boolean(value.trim()));
+  };
+
+  const handleSearchInputFocus = () => {
+    if (filters.search.trim() || filteredSearchHistorySuggestions.length > 0) {
+      setSearchDropdownOpen(true);
+    }
   };
 
   const resetFilters = () => {
@@ -987,6 +1166,9 @@ export default function EvaluationSourcePage({
     const resetState = { ...defaultFilters };
     setFilters(resetState);
     setAppliedFilters(resetState);
+    setLiveSearchSuggestions([]);
+    setSearchDropdownOpen(false);
+    setSearchSuggestionActiveIndex(-1);
     setBrandDropdownOpen(false);
     setBrandDropdownShowAll(false);
     setModelDropdownOpen(false);
@@ -1002,6 +1184,14 @@ export default function EvaluationSourcePage({
     }
     if (optionPoolLoaded || optionPoolLoading) return;
     setShouldLoadOptionPool(true);
+  };
+
+  const ensureModelYearOptionsLoaded = () => {
+    if (!enableModelYearFilter) {
+      return;
+    }
+    if (allModelYearOptions.length > 0) return;
+    setShouldLoadModelYears(true);
   };
 
   const queryString = useMemo(() => {
@@ -1067,6 +1257,58 @@ export default function EvaluationSourcePage({
     resolvedSources,
   ]);
   const listRequestUrl = useMemo(() => `${listEndpoint}?${queryString}`, [listEndpoint, queryString]);
+  const searchSuggestionsQueryString = useMemo(() => {
+    const searchText = filters.search.trim();
+    if (searchText.length < SEARCH_SUGGESTIONS_MIN_CHARS) {
+      return "";
+    }
+
+    const params = new URLSearchParams();
+    params.set("q", searchText);
+    params.set("limit", String(SEARCH_SUGGESTIONS_MAX_ITEMS));
+    if (tag0) params.set("tag0", tag0);
+
+    const selectedSource = filters.source?.trim();
+    const availableSources = resolvedSources;
+    const sourcesParam =
+      !selectedSource || selectedSource === "all"
+        ? availableSources
+        : availableSources.includes(selectedSource as "haraj" | "yallamotor" | "syarah")
+          ? [selectedSource]
+          : availableSources;
+    params.set("sources", sourcesParam.join(","));
+
+    if (enableBrandFilter && filters.brand) params.set("tag1", filters.brand);
+    if (enableModelFilter && filters.model) params.set("tag2", filters.model);
+    if (enableModelYearFilter && filters.modelYear) {
+      params.set("carModelYear", filters.modelYear);
+    }
+    if (excludeTag1Values && excludeTag1Values.length > 0) {
+      const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
+      if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
+    }
+
+    return params.toString();
+  }, [
+    filters.search,
+    filters.source,
+    filters.brand,
+    filters.model,
+    filters.modelYear,
+    resolvedSources,
+    tag0,
+    excludeTag1Values,
+    enableBrandFilter,
+    enableModelFilter,
+    enableModelYearFilter,
+  ]);
+  const searchSuggestionsRequestUrl = useMemo(
+    () =>
+      searchSuggestionsQueryString
+        ? `${suggestionsEndpoint}?${searchSuggestionsQueryString}`
+        : "",
+    [searchSuggestionsQueryString, suggestionsEndpoint]
+  );
 
   const optionsBaseQueryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -1125,6 +1367,81 @@ export default function EvaluationSourcePage({
       setSearchHistory([]);
     }
   }, []);
+
+  useEffect(() => {
+    if (!searchSuggestionsRequestUrl) {
+      setLiveSearchSuggestions([]);
+      setLiveSearchSuggestionsLoading(false);
+      setSearchSuggestionActiveIndex(-1);
+      return;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+    const cached = searchSuggestionsCacheRef.current.get(searchSuggestionsRequestUrl);
+    if (cached) {
+      setLiveSearchSuggestions(cached);
+      setLiveSearchSuggestionsLoading(false);
+    } else {
+      setLiveSearchSuggestionsLoading(true);
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(searchSuggestionsRequestUrl, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          if (response.status === 403) {
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+              message?: string;
+            };
+            if (payload.error === "registration_required") {
+              if (active) {
+                triggerRegistrationRequired(payload.message);
+              }
+              return;
+            }
+          }
+          throw new Error("Failed to fetch search suggestions.");
+        }
+
+        const payload = (await response.json()) as SearchSuggestionsResponse;
+        const nextSuggestions = Array.isArray(payload.items)
+          ? payload.items
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
+              .slice(0, SEARCH_SUGGESTIONS_MAX_ITEMS)
+          : [];
+
+        if (!active) return;
+        setCachedSearchSuggestions(
+          searchSuggestionsCacheRef.current,
+          searchSuggestionsRequestUrl,
+          nextSuggestions
+        );
+        setLiveSearchSuggestions(nextSuggestions);
+        setLiveSearchSuggestionsLoading(false);
+      } catch {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (active) {
+          setLiveSearchSuggestions(cached ?? []);
+          setLiveSearchSuggestionsLoading(false);
+        }
+      }
+    }, SEARCH_SUGGESTIONS_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [searchSuggestionsRequestUrl, triggerRegistrationRequired]);
 
   useEffect(() => {
     let active = true;
@@ -1205,7 +1522,7 @@ export default function EvaluationSourcePage({
   }, [listRequestUrl, queryString, listEndpoint, page, triggerRegistrationRequired]);
 
   useEffect(() => {
-    if (!enableModelYearFilter) return;
+    if (!enableModelYearFilter || !shouldLoadModelYears) return;
     let active = true;
     const controller = new AbortController();
 
@@ -1239,6 +1556,7 @@ export default function EvaluationSourcePage({
         const uniqueSortedYears = buildContinuousYearOptions(years);
         if (active) {
           setAllModelYearOptions(uniqueSortedYears);
+          setShouldLoadModelYears(false);
         }
       } catch {
         if (controller.signal.aborted) {
@@ -1246,6 +1564,7 @@ export default function EvaluationSourcePage({
         }
         if (active) {
           setAllModelYearOptions([]);
+          setShouldLoadModelYears(false);
         }
       }
     };
@@ -1257,6 +1576,7 @@ export default function EvaluationSourcePage({
     };
   }, [
     enableModelYearFilter,
+    shouldLoadModelYears,
     listEndpoint,
     modelYearOptionsQueryString,
     triggerRegistrationRequired,
@@ -1838,59 +2158,118 @@ export default function EvaluationSourcePage({
 
         <section className="relative pb-16">
           <div className="w-full px-6">
-            <div className="relative overflow-visible rounded-3xl border border-emerald-200/70 bg-white/85 p-4 shadow-[0_35px_120px_-50px_rgba(16,185,129,0.55)] backdrop-blur">
+            <div className="relative overflow-visible rounded-[32px] border border-emerald-200/70 bg-gradient-to-br from-white/95 via-emerald-50/70 to-cyan-50/60 p-4 shadow-[0_45px_130px_-60px_rgba(16,185,129,0.7)] backdrop-blur xl:p-5">
               <div className="pointer-events-none absolute inset-0">
-                <div className="absolute -top-16 right-8 h-40 w-40 rounded-full bg-emerald-200/40 blur-3xl" />
-                <div className="absolute -bottom-12 left-6 h-36 w-36 rounded-full bg-cyan-200/40 blur-3xl" />
-                <div className="absolute inset-x-0 top-0 h-12 bg-gradient-to-r from-transparent via-emerald-200/40 to-transparent opacity-60" />
+                <div className="absolute -top-16 right-8 h-44 w-44 rounded-full bg-emerald-200/45 blur-3xl" />
+                <div className="absolute -bottom-14 left-6 h-40 w-40 rounded-full bg-cyan-200/45 blur-3xl" />
+                <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-r from-transparent via-emerald-200/45 to-transparent opacity-70" />
               </div>
 
-              <div className="relative flex flex-wrap items-center justify-between gap-3">
+              <div className="relative flex flex-wrap items-start justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* <span className="inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white">
+                  <span className="inline-flex items-center rounded-full border border-emerald-300/70 bg-emerald-100/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
                     {t.filters.badge}
-                  </span> */}
-                  <h2 className={`text-lg font-semibold text-slate-900 ${sora.className}`}>{t.filters.title}</h2>
-                  <p className="text-xs text-slate-500">
+                  </span>
+                  <h2 className={`text-xl font-semibold text-slate-900 ${sora.className}`}>{t.filters.title}</h2>
+                  <p className="text-xs text-slate-600">
                     {requireSearchClickToApplyFilters
                       ? t.filters.searchModeSubtitle
                       : t.filters.subtitle}
                   </p>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-[11px] font-medium text-slate-700">
+                    {activeFiltersLabel}: {activeFilterCount}
+                  </span>
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${
+                      hasPendingFilterChanges
+                        ? "border border-amber-200 bg-amber-100/85 text-amber-700"
+                        : "border border-emerald-200 bg-emerald-100/85 text-emerald-700"
+                    }`}
+                  >
+                    {hasPendingFilterChanges ? pendingApplyLabel : readyLabel}
+                  </span>
+                </div>
               </div>
 
               <div
-                className="relative mt-3 rounded-2xl border border-slate-200/70 bg-slate-200/70 p-[1px]"
+                className="relative mt-4 rounded-3xl border border-emerald-200/70 bg-white/70 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
               >
-                <div className="rounded-[15px] bg-slate-200/70">
+                <div className="rounded-2xl bg-gradient-to-b from-white/70 to-emerald-50/35 p-1.5">
                   <div
-                    className={`grid gap-[1px] bg-slate-200/70 md:grid-cols-2 ${
-                      showSourceFilter ? "lg:grid-cols-6" : "lg:grid-cols-5"
+                    className={`grid gap-2 sm:grid-cols-2 ${
+                      showSourceFilter ? "xl:grid-cols-6" : "xl:grid-cols-5"
                     }`}
                   >
-                    <div className="flex flex-col gap-2 bg-white/95 px-3 py-2 sm:flex-row sm:items-center lg:col-span-2">
-                      <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex flex-col gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] sm:col-span-2 xl:col-span-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         <Label className={filterLabelClass}>
                           {t.filters.search}
                         </Label>
+                        {searchHistory.length > 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                            {searchHistory.length}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="flex w-full min-w-0 flex-1 flex-nowrap items-center gap-2">
-                        <div className="relative w-full min-w-0 flex-1">
-                          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <div className="flex w-full min-w-0 flex-1 flex-wrap items-center gap-2 lg:flex-nowrap">
+                        <div
+                          className="relative min-w-0 basis-full lg:basis-auto lg:flex-1"
+                          ref={searchDropdownRef}
+                        >
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
+                          {liveSearchSuggestionsLoading ? (
+                            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-500" />
+                          ) : null}
                           <Input
-                            list="search-history-options"
                             value={filters.search}
-                            onChange={(event) => updateFilters({ search: event.target.value })}
+                            onChange={(event) => handleSearchInputChange(event.target.value)}
+                            onKeyDown={handleEnterSearchKeyDown}
+                            onFocus={handleSearchInputFocus}
                             placeholder={t.filters.searchPlaceholder}
-                            className="h-9 w-full min-w-[220px] pl-8 text-sm"
+                            autoComplete="off"
+                            className="h-10 w-full min-w-0 rounded-xl border-emerald-100 bg-emerald-50/35 pl-9 pr-9 text-sm focus-visible:border-emerald-400 focus-visible:ring-emerald-400"
                           />
-                          <datalist id="search-history-options">
-                            {searchHistory.map((value) => (
-                              <option key={value} value={value} />
-                            ))}
-                          </datalist>
+                          {searchDropdownOpen ? (
+                            <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-2xl">
+                              {mergedSearchSuggestions.length > 0 ? (
+                                <div className="max-h-64 overflow-y-auto p-1.5">
+                                  {mergedSearchSuggestions.map((value, index) => {
+                                    const isActive = index === searchSuggestionActiveIndex;
+                                    const isLiveSuggestion = liveSearchSuggestionLookup.has(
+                                      value.trim().toLowerCase()
+                                    );
+                                    return (
+                                      <button
+                                        key={`${value}-${index}`}
+                                        type="button"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => applySearchSuggestion(value, true)}
+                                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                          isActive
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : "text-slate-700 hover:bg-slate-100"
+                                        }`}
+                                      >
+                                        <span className="truncate">{value}</span>
+                                        <span className="ml-3 shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-600">
+                                          {isLiveSuggestion ? "Live" : "History"}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : filters.search.trim().length >= SEARCH_SUGGESTIONS_MIN_CHARS &&
+                                  !liveSearchSuggestionsLoading ? (
+                                <p className="px-3 py-2 text-xs text-slate-500">
+                                  No suggestions found
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                        <label className="inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-slate-600">
+                        <label className="inline-flex h-10 shrink-0 select-none items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 whitespace-nowrap text-xs font-semibold text-slate-600">
                           <input
                             type="checkbox"
                             checked={filters.match}
@@ -1902,7 +2281,7 @@ export default function EvaluationSourcePage({
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-9 w-fit shrink-0 whitespace-nowrap border-slate-300 px-2 text-[11px] uppercase tracking-[0.12em]"
+                          className="h-10 w-fit shrink-0 whitespace-nowrap rounded-xl border-slate-200 bg-white px-3 text-[10px] uppercase tracking-[0.12em] text-slate-600 hover:bg-slate-100 sm:text-[11px]"
                           onClick={clearSearchHistory}
                           disabled={searchHistory.length === 0}
                         >
@@ -1911,11 +2290,11 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     {enableBrandFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                      <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.brand}
                         </Label>
-                        <div className="relative min-w-0 flex-1" ref={brandDropdownRef}>
+                        <div className="relative min-w-0 w-full sm:flex-1" ref={brandDropdownRef}>
                           <Input
                             value={filters.brand}
                             onChange={(event) => {
@@ -1924,6 +2303,7 @@ export default function EvaluationSourcePage({
                               setBrandDropdownOpen(true);
                               updateFilters({ brand: event.target.value });
                             }}
+                            onKeyDown={handleEnterSearchKeyDown}
                             onFocus={() => {
                               ensureOptionPoolLoaded();
                               setBrandDropdownShowAll(false);
@@ -1954,7 +2334,7 @@ export default function EvaluationSourcePage({
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  updateFilters({ brand: "" });
+                                  applyFilterSelection({ brand: "" });
                                   setBrandDropdownOpen(false);
                                   setBrandDropdownShowAll(false);
                                 }}
@@ -1970,7 +2350,7 @@ export default function EvaluationSourcePage({
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    updateFilters({ brand });
+                                    applyFilterSelection({ brand });
                                     setBrandDropdownOpen(false);
                                     setBrandDropdownShowAll(false);
                                   }}
@@ -1992,11 +2372,11 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                     {enableModelFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                      <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.model}
                         </Label>
-                        <div className="relative min-w-0 flex-1" ref={modelDropdownRef}>
+                        <div className="relative min-w-0 w-full sm:flex-1" ref={modelDropdownRef}>
                           <Input
                             value={filters.model}
                             onChange={(event) => {
@@ -2005,6 +2385,7 @@ export default function EvaluationSourcePage({
                               setModelDropdownOpen(true);
                               updateFilters({ model: event.target.value });
                             }}
+                            onKeyDown={handleEnterSearchKeyDown}
                             onFocus={() => {
                               ensureOptionPoolLoaded();
                               setModelDropdownShowAll(false);
@@ -2035,7 +2416,7 @@ export default function EvaluationSourcePage({
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  updateFilters({ model: "" });
+                                  applyFilterSelection({ model: "" });
                                   setModelDropdownOpen(false);
                                   setModelDropdownShowAll(false);
                                 }}
@@ -2051,7 +2432,7 @@ export default function EvaluationSourcePage({
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    updateFilters({ model });
+                                    applyFilterSelection({ model });
                                     setModelDropdownOpen(false);
                                     setModelDropdownShowAll(false);
                                   }}
@@ -2073,23 +2454,23 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                     {enableModelYearFilter ? (
-                      <div className={`flex gap-2 bg-white/95 px-3 py-2 ${isArabic ? "items-center" : "flex-col"}`}>
+                      <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.manufactureYear}
                         </Label>
-                        <div
-                          className={`relative min-w-0 ${isArabic ? "flex-1" : "w-full"}`}
-                          ref={modelYearDropdownRef}
-                        >
+                        <div className="relative min-w-0 w-full sm:flex-1" ref={modelYearDropdownRef}>
                           <Tag className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <Input
                             value={filters.modelYear}
                             onChange={(event) => {
+                              ensureModelYearOptionsLoaded();
                               setModelYearDropdownShowAll(false);
                               setModelYearDropdownOpen(true);
                               updateFilters({ modelYear: event.target.value });
                             }}
+                            onKeyDown={handleEnterSearchKeyDown}
                             onFocus={() => {
+                              ensureModelYearOptionsLoaded();
                               setModelYearDropdownShowAll(false);
                               setModelYearDropdownOpen(true);
                             }}
@@ -2100,6 +2481,7 @@ export default function EvaluationSourcePage({
                             type="button"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => {
+                              ensureModelYearOptionsLoaded();
                               setModelYearDropdownShowAll(true);
                               setModelYearDropdownOpen(true);
                             }}
@@ -2114,7 +2496,7 @@ export default function EvaluationSourcePage({
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  updateFilters({ modelYear: "" });
+                                  applyFilterSelection({ modelYear: "" });
                                   setModelYearDropdownOpen(false);
                                   setModelYearDropdownShowAll(false);
                                 }}
@@ -2130,7 +2512,7 @@ export default function EvaluationSourcePage({
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    updateFilters({ modelYear: year });
+                                    applyFilterSelection({ modelYear: year });
                                     setModelYearDropdownOpen(false);
                                     setModelYearDropdownShowAll(false);
                                   }}
@@ -2152,16 +2534,16 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                     {showSourceFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2">
+                      <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.source}
                         </Label>
-                        <div className="flex-1">
+                        <div className="w-full min-w-0 sm:flex-1">
                           <Select
                             value={filters.source}
                             onValueChange={(value) => updateFilters({ source: value })}
                           >
-                            <SelectTrigger className="h-9 text-sm">
+                            <SelectTrigger className={filterSelectTriggerClass}>
                               <SelectValue placeholder={t.filters.sourcePlaceholder} />
                             </SelectTrigger>
                             <SelectContent>
@@ -2182,13 +2564,13 @@ export default function EvaluationSourcePage({
                     ) : null}
                   </div>
                   <div
-                    className={`mt-[1px] grid gap-[1px] bg-slate-200/70 md:grid-cols-2 ${
+                    className={`mt-2 grid gap-2 md:grid-cols-2 ${
                       enableMileageFilter ? "lg:grid-cols-10" : "lg:grid-cols-5"
                     }`}
                   >
-                    <div className="bg-white/95 px-2 py-2 lg:col-span-4">
+                    <div className="rounded-2xl border border-emerald-100/80 bg-white/95 p-2 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] lg:col-span-4">
                       <div
-                        className={`grid gap-[1px] rounded-xl bg-slate-200/70 p-[1px] sm:grid-cols-2 ${
+                        className={`grid gap-2 sm:grid-cols-2 ${
                           enableMileageFilter ? "lg:grid-cols-4" : "lg:grid-cols-3"
                         }`}
                       >
@@ -2198,17 +2580,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
                             filters.hasImage === "true"
-                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
-                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasImage === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-600 bg-white"
+                                : "border-emerald-500 bg-white"
                             }`}
                           >
                             {filters.hasImage === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2221,17 +2603,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
                             filters.hasPrice === "true"
-                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
-                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasPrice === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-600 bg-white"
+                                : "border-emerald-500 bg-white"
                             }`}
                           >
                             {filters.hasPrice === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2244,17 +2626,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
                             filters.hasComments === "true"
-                              ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
-                              : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasComments === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-600 bg-white"
+                                : "border-emerald-500 bg-white"
                             }`}
                           >
                             {filters.hasComments === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2268,17 +2650,17 @@ export default function EvaluationSourcePage({
                             onClick={() =>
                               updateFilters({ hasMileage: filters.hasMileage === "true" ? "any" : "true" })
                             }
-                            className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-[11px] border px-3 text-xs uppercase tracking-[0.24em] transition ${
+                            className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
                               filters.hasMileage === "true"
-                                ? "border-emerald-700 bg-emerald-600 text-white shadow-sm"
-                                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
                             }`}
                           >
                             <span
                               className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                                 filters.hasMileage === "true"
                                   ? "border-white bg-white/20"
-                                  : "border-emerald-600 bg-white"
+                                  : "border-emerald-500 bg-white"
                               }`}
                             >
                               {filters.hasMileage === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2289,7 +2671,7 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     {enableMileageFilter ? (
-                      <div className="flex items-center gap-2 bg-white/95 px-3 py-2 lg:col-span-4">
+                      <div className="flex flex-col gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] sm:flex-row sm:items-center lg:col-span-4">
                         <Label className={mileageFilterLabelClass}>
                           {mileageLabel}
                         </Label>
@@ -2299,6 +2681,7 @@ export default function EvaluationSourcePage({
                             inputMode="numeric"
                             value={filters.mileageMin}
                             onChange={(event) => updateFilters({ mileageMin: event.target.value })}
+                            onKeyDown={handleEnterSearchKeyDown}
                             placeholder={mileageMinPlaceholder}
                             className="h-9 w-full text-sm"
                           />
@@ -2307,6 +2690,7 @@ export default function EvaluationSourcePage({
                             inputMode="numeric"
                             value={filters.mileageMax}
                             onChange={(event) => updateFilters({ mileageMax: event.target.value })}
+                            onKeyDown={handleEnterSearchKeyDown}
                             placeholder={mileageMaxPlaceholder}
                             className="h-9 w-full text-sm"
                           />
@@ -2314,19 +2698,19 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                     <div
-                      className={`flex items-center gap-2 bg-white/95 px-3 py-2 ${
+                      className={`${filterFieldContainerClass} ${
                         enableMileageFilter ? "lg:col-span-2" : ""
                       }`}
                     >
                       <Label className={filterLabelClass}>
                         {t.filters.sortBy}
                       </Label>
-                      <div className="flex-1">
+                      <div className="w-full min-w-0 sm:flex-1">
                         <Select
                           value={filters.sort}
                           onValueChange={(value) => updateFilters({ sort: value })}
                         >
-                          <SelectTrigger className="h-9 text-sm">
+                          <SelectTrigger className={filterSelectTriggerClass}>
                             <SelectValue placeholder={t.filters.sortOptions.newest} />
                           </SelectTrigger>
                           <SelectContent>
@@ -2341,22 +2725,27 @@ export default function EvaluationSourcePage({
                     </div>
                   </div>
                   {requireSearchClickToApplyFilters ? (
-                    <div className="mt-3 flex flex-wrap justify-end gap-2 bg-white/95 px-3 py-3">
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)]">
+                      <p className="text-xs text-slate-500">
+                        {hasPendingFilterChanges ? pendingApplyLabel : readyLabel}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-9 border-slate-300 px-5 text-xs uppercase tracking-[0.18em]"
+                        className="h-10 rounded-xl border-slate-200 bg-white px-5 text-xs uppercase tracking-[0.16em] text-slate-700 hover:bg-slate-100"
                         onClick={resetFilters}
                       >
                         Reset
                       </Button>
                       <Button
                         type="button"
-                        className="h-9 bg-emerald-600 px-5 text-xs uppercase tracking-[0.18em] text-white hover:bg-emerald-700"
+                        className="h-10 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-6 text-xs uppercase tracking-[0.16em] text-white shadow-md hover:from-emerald-700 hover:to-cyan-700"
                         onClick={applyFilters}
                       >
                         {t.filters.search}
                       </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -2431,12 +2820,6 @@ export default function EvaluationSourcePage({
                   )
                 ) : (
                   <>
-                    {status === "loading" ? (
-                      <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        {t.status.loading}
-                      </div>
-                    ) : null}
                     <Table>
                       <TableHeader>
                         <TableRow>

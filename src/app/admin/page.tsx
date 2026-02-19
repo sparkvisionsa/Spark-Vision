@@ -25,6 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Activity, Clock3, Database, Layers3, TrendingUp } from "lucide-react";
 
 type AnalyticsPayload = {
   overview: {
@@ -64,18 +71,49 @@ type AnalyticsPayload = {
 };
 
 type UserRow = {
+  entityId: string;
   identityId: string;
+  identityIds: string[];
+  identityCount: number;
+  guestGroupKey: string | null;
+  localBackupId: string | null;
+  lastSessionId: string | null;
+  primaryIpAddress: string | null;
+  deviceTypes: string[];
   userId: string | null;
   username: string;
   role: string;
   registrationStatus: "registered" | "guest";
   registrationDate: string | null;
   lastActiveAt: string | null;
+  firstSeenAt: string | null;
   totalSessions: number;
+  activeSessions: number;
   totalDurationMs: number;
   attemptsUsed: number;
   attemptsRemaining: number;
   isBlocked: boolean;
+};
+
+type UserSummaryPayload = {
+  total: number;
+  registered: number;
+  guests: number;
+  blocked: number;
+  activeInLast24Hours: number;
+  activeGuestInLast24Hours: number;
+  guestWithMultipleIdentities: number;
+  maxGuestIdentityCount: number;
+};
+
+type UsersPayload = {
+  users: UserRow[];
+  total: number;
+  page: number;
+  limit: number;
+  hasNext: boolean;
+  summary: UserSummaryPayload;
+  config: ConfigPayload;
 };
 
 type ConfigPayload = {
@@ -105,6 +143,82 @@ type ActivitiesPayload = {
   limit: number;
 };
 
+type SourceRecordStatsPayload = {
+  overview: {
+    totalSources: number;
+    totalCollections: number;
+    totalRecords: number;
+    oldestRecordAt: string | null;
+    newestRecordAt: string | null;
+    recordsInLast24Hours: number;
+    recordsInLast7Days: number;
+    recordsWithPrice: number;
+    recordsWithImages: number;
+    recordsWithPhone: number;
+    priceCoverage: number;
+    imageCoverage: number;
+    phoneCoverage: number;
+  };
+  sources: Array<{
+    sourceId: string;
+    sourceLabel: string;
+    collectionCount: number;
+    totalRecords: number;
+    oldestRecordAt: string | null;
+    newestRecordAt: string | null;
+    recordsInLast24Hours: number;
+    recordsInLast7Days: number;
+    recordsWithPrice: number;
+    recordsWithImages: number;
+    recordsWithPhone: number;
+    priceCoverage: number;
+    imageCoverage: number;
+    phoneCoverage: number;
+    largestCollection: {
+      collectionId: string;
+      collectionName: string;
+      totalRecords: number;
+    } | null;
+    freshestCollection: {
+      collectionId: string;
+      collectionName: string;
+      newestRecordAt: string;
+    } | null;
+    collections: Array<{
+      collectionId: string;
+      collectionName: string;
+      totalRecords: number;
+      oldestRecordAt: string | null;
+      newestRecordAt: string | null;
+      recordsInLast24Hours: number;
+      recordsInLast7Days: number;
+      recordsWithPrice: number;
+      recordsWithImages: number;
+      recordsWithPhone: number;
+      priceCoverage: number;
+      imageCoverage: number;
+      phoneCoverage: number;
+    }>;
+  }>;
+  pages: Array<{
+    pageId: string;
+    pageLabel: string;
+    totalRecords: number;
+    oldestRecordAt: string | null;
+    newestRecordAt: string | null;
+    recordsInLast24Hours: number;
+    recordsInLast7Days: number;
+    sources: Array<{
+      sourceId: string;
+      sourceLabel: string;
+      totalRecords: number;
+      recordsInLast24Hours: number;
+      recordsInLast7Days: number;
+    }>;
+  }>;
+  generatedAt: string;
+};
+
 type ActivityFilterState = {
   actionType: string;
   userQuery: string;
@@ -117,6 +231,17 @@ const DEFAULT_ACTIVITY_FILTERS: ActivityFilterState = {
   userQuery: "",
   dateFrom: "",
   dateTo: "",
+};
+
+const EMPTY_USER_SUMMARY: UserSummaryPayload = {
+  total: 0,
+  registered: 0,
+  guests: 0,
+  blocked: 0,
+  activeInLast24Hours: 0,
+  activeGuestInLast24Hours: 0,
+  guestWithMultipleIdentities: 0,
+  maxGuestIdentityCount: 0,
 };
 
 async function apiRequest<T>(
@@ -159,6 +284,12 @@ function dateTimeLabel(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString();
+}
+
+function percentLabel(value: number) {
+  if (!Number.isFinite(value)) return "0%";
+  const rounded = Math.round(value * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
 }
 
 function shortId(value: string, left = 10, right = 6) {
@@ -207,13 +338,6 @@ function detailsSummary(details: Record<string, unknown>) {
   return segments.join(" | ");
 }
 
-function isWithinHours(value: string | null, hours: number) {
-  if (!value) return false;
-  const timestamp = new Date(value).getTime();
-  if (Number.isNaN(timestamp)) return false;
-  return Date.now() - timestamp <= hours * 60 * 60 * 1000;
-}
-
 function toErrorMessage(value: unknown, fallback: string) {
   return value instanceof Error ? value.message : fallback;
 }
@@ -247,11 +371,20 @@ export default function AdminDashboardPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [config, setConfig] = useState<ConfigPayload | null>(null);
   const [activities, setActivities] = useState<ActivitiesPayload | null>(null);
+  const [sourceRecordStats, setSourceRecordStats] = useState<SourceRecordStatsPayload | null>(null);
   const [userSearch, setUserSearch] = useState("");
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState("");
   const [userRegistrationFilter, setUserRegistrationFilter] = useState<"all" | "registered" | "guest">(
     "all"
   );
   const [userBlockedFilter, setUserBlockedFilter] = useState<"all" | "blocked" | "active">("all");
+  const [userPage, setUserPage] = useState(1);
+  const [userLimit, setUserLimit] = useState(20);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userHasNext, setUserHasNext] = useState(false);
+  const [userSummary, setUserSummary] = useState<UserSummaryPayload>({
+    ...EMPTY_USER_SUMMARY,
+  });
   const [activityDraftFilters, setActivityDraftFilters] = useState<ActivityFilterState>({
     ...DEFAULT_ACTIVITY_FILTERS,
   });
@@ -299,13 +432,36 @@ export default function AdminDashboardPage() {
   }, [csrfToken]);
 
   const loadUsers = useCallback(async () => {
-    const result = await apiRequest<{ users: UserRow[]; config: ConfigPayload }>(
-      "/api/admin/users",
+    const params = new URLSearchParams();
+    params.set("page", String(userPage));
+    params.set("limit", String(userLimit));
+    if (debouncedUserSearch.trim()) {
+      params.set("search", debouncedUserSearch.trim());
+    }
+    if (userRegistrationFilter !== "all") {
+      params.set("registrationStatus", userRegistrationFilter);
+    }
+    if (userBlockedFilter !== "all") {
+      params.set("accessState", userBlockedFilter);
+    }
+
+    const result = await apiRequest<UsersPayload>(
+      `/api/admin/users?${params.toString()}`,
       csrfToken
     );
     setUsers(result.users ?? []);
+    setUserTotal(result.total ?? 0);
+    setUserHasNext(Boolean(result.hasNext));
+    setUserSummary(result.summary ?? { ...EMPTY_USER_SUMMARY });
     setConfig(result.config);
-  }, [csrfToken]);
+  }, [
+    csrfToken,
+    debouncedUserSearch,
+    userBlockedFilter,
+    userLimit,
+    userPage,
+    userRegistrationFilter,
+  ]);
 
   const loadActivities = useCallback(async () => {
     const params = buildActivitySearchParams();
@@ -316,22 +472,41 @@ export default function AdminDashboardPage() {
     setActivities(result);
   }, [buildActivitySearchParams, csrfToken]);
 
+  const loadSourceRecordStats = useCallback(async () => {
+    const result = await apiRequest<SourceRecordStatsPayload>(
+      "/api/admin/source-record-stats",
+      csrfToken
+    );
+    setSourceRecordStats(result);
+  }, [csrfToken]);
+
   const loadAll = useCallback(async () => {
     if (!canAccess) return;
     setLoading(true);
     setError(null);
     try {
-      await Promise.all([loadAnalytics(), loadUsers(), loadActivities()]);
+      await Promise.all([loadAnalytics(), loadActivities(), loadSourceRecordStats()]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load admin data.");
     } finally {
       setLoading(false);
     }
-  }, [canAccess, loadActivities, loadAnalytics, loadUsers]);
+  }, [canAccess, loadActivities, loadAnalytics, loadSourceRecordStats]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedUserSearch(userSearch);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [userSearch]);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [debouncedUserSearch, userBlockedFilter, userLimit, userRegistrationFilter]);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -342,6 +517,23 @@ export default function AdminDashboardPage() {
     }, 5000);
     return () => window.clearInterval(timer);
   }, [canAccess, loadAnalytics]);
+
+  useEffect(() => {
+    if (!canAccess) return;
+    const timer = window.setInterval(() => {
+      void loadSourceRecordStats().catch((loadError) => {
+        setError(toErrorMessage(loadError, "Failed to refresh source stats."));
+      });
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [canAccess, loadSourceRecordStats]);
+
+  useEffect(() => {
+    if (!canAccess) return;
+    void loadUsers().catch((loadError) => {
+      setError(toErrorMessage(loadError, "Failed to load users."));
+    });
+  }, [canAccess, loadUsers]);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -380,15 +572,17 @@ export default function AdminDashboardPage() {
     });
   }, []);
 
-  const focusActivityForUser = useCallback((identityId: string) => {
+  const focusActivityForQuery = useCallback((queryValue: string) => {
+    const normalized = queryValue.trim();
+    if (!normalized) return;
     setActivityPage(1);
     setActivityDraftFilters((prev) => ({
       ...prev,
-      userQuery: identityId,
+      userQuery: normalized,
     }));
     setActivityAppliedFilters((prev) => ({
       ...prev,
-      userQuery: identityId,
+      userQuery: normalized,
     }));
     document.getElementById("activity-logs-section")?.scrollIntoView({
       behavior: "smooth",
@@ -414,55 +608,6 @@ export default function AdminDashboardPage() {
     activities?.items.forEach((item) => types.add(item.actionType));
     return Array.from(types).sort((left, right) => left.localeCompare(right));
   }, [analytics, activities]);
-
-  const userSummary = useMemo(() => {
-    const summary = {
-      total: users.length,
-      registered: 0,
-      guests: 0,
-      blocked: 0,
-      activeInLast24Hours: 0,
-    };
-    users.forEach((entry) => {
-      if (entry.registrationStatus === "registered") {
-        summary.registered += 1;
-      } else {
-        summary.guests += 1;
-      }
-      if (entry.isBlocked) {
-        summary.blocked += 1;
-      }
-      if (isWithinHours(entry.lastActiveAt, 24)) {
-        summary.activeInLast24Hours += 1;
-      }
-    });
-    return summary;
-  }, [users]);
-
-  const filteredUsers = useMemo(() => {
-    const query = userSearch.trim().toLowerCase();
-    return users.filter((entry) => {
-      if (
-        userRegistrationFilter !== "all" &&
-        entry.registrationStatus !== userRegistrationFilter
-      ) {
-        return false;
-      }
-      if (userBlockedFilter === "blocked" && !entry.isBlocked) return false;
-      if (userBlockedFilter === "active" && entry.isBlocked) return false;
-      if (!query) return true;
-      const searchable = [
-        entry.username,
-        entry.identityId,
-        entry.userId ?? "",
-        entry.registrationStatus,
-        entry.role,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(query);
-    });
-  }, [userBlockedFilter, userRegistrationFilter, userSearch, users]);
 
   const activitySummary = useMemo(() => {
     const items = activities?.items ?? [];
@@ -527,7 +672,9 @@ export default function AdminDashboardPage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  void loadAll();
+                  void Promise.all([loadAll(), loadUsers()]).catch((loadError) => {
+                    setError(toErrorMessage(loadError, "Failed to refresh admin data."));
+                  });
                 }}
               >
                 Refresh
@@ -580,6 +727,295 @@ export default function AdminDashboardPage() {
                 </CardHeader>
               </Card>
             </div>
+          ) : null}
+
+          {loading && !sourceRecordStats ? (
+            <Card>
+              <CardContent className="py-6 text-sm text-slate-600">
+                Loading source record statistics...
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {sourceRecordStats ? (
+            <Card className="relative overflow-hidden border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-cyan-50 to-amber-50 shadow-md">
+              <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-cyan-300/20 blur-3xl" />
+              <div className="pointer-events-none absolute -left-10 bottom-0 h-52 w-52 rounded-full bg-emerald-300/20 blur-3xl" />
+              <CardHeader className="relative space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Database className="h-6 w-6 text-emerald-700" />
+                      Data Sources Pulse
+                    </CardTitle>
+                    <CardDescription className="mt-1 text-slate-700">
+                      Live record volume, freshness, and data coverage across every source.
+                    </CardDescription>
+                  </div>
+                  <Badge className="border border-emerald-200 bg-white/80 text-emerald-900 hover:bg-white">
+                    Updated {dateTimeLabel(sourceRecordStats.generatedAt)}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-3 shadow-sm">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Total Records</p>
+                    <p className="mt-1 flex items-center gap-2 text-2xl font-semibold text-slate-900">
+                      <Database className="h-4 w-4 text-emerald-700" />
+                      {sourceRecordStats.overview.totalRecords.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-3 shadow-sm">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Sources / Collections</p>
+                    <p className="mt-1 flex items-center gap-2 text-2xl font-semibold text-slate-900">
+                      <Layers3 className="h-4 w-4 text-cyan-700" />
+                      {sourceRecordStats.overview.totalSources} /{" "}
+                      {sourceRecordStats.overview.totalCollections}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-3 shadow-sm">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">New in 24h</p>
+                    <p className="mt-1 flex items-center gap-2 text-2xl font-semibold text-slate-900">
+                      <TrendingUp className="h-4 w-4 text-emerald-700" />
+                      {sourceRecordStats.overview.recordsInLast24Hours.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200 bg-white/80 p-3 shadow-sm">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Coverage</p>
+                    <div className="mt-1 space-y-1 text-sm text-slate-700">
+                      <p className="flex items-center justify-between">
+                        <span>Price</span>
+                        <span className="font-semibold">{percentLabel(sourceRecordStats.overview.priceCoverage)}</span>
+                      </p>
+                      <p className="flex items-center justify-between">
+                        <span>Images</span>
+                        <span className="font-semibold">{percentLabel(sourceRecordStats.overview.imageCoverage)}</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {sourceRecordStats.pages.length ? (
+                  <div className="space-y-2 rounded-xl border border-emerald-200/80 bg-white/65 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
+                      Live Records by Evaluation Page
+                    </p>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {sourceRecordStats.pages.map((pageStats) => (
+                        <div
+                          key={pageStats.pageId}
+                          className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">
+                                {pageStats.pageLabel} Page
+                              </p>
+                              <p className="text-xs text-slate-600">
+                                Oldest {dateTimeLabel(pageStats.oldestRecordAt)} | Newest{" "}
+                                {dateTimeLabel(pageStats.newestRecordAt)}
+                              </p>
+                            </div>
+                            <Badge className="border border-cyan-200 bg-cyan-50 text-cyan-900 hover:bg-cyan-100">
+                              {pageStats.totalRecords.toLocaleString()} records
+                            </Badge>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-slate-500">New in 24h</p>
+                              <p className="font-semibold text-slate-900">
+                                {pageStats.recordsInLast24Hours.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-slate-500">New in 7d</p>
+                              <p className="font-semibold text-slate-900">
+                                {pageStats.recordsInLast7Days.toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {pageStats.sources.map((source) => (
+                              <Badge key={`${pageStats.pageId}-${source.sourceId}`} variant="outline" className="bg-white">
+                                {source.sourceLabel}: {source.totalRecords.toLocaleString()}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </CardHeader>
+
+              <CardContent className="relative space-y-3">
+                {sourceRecordStats.sources.length ? (
+                  <Accordion
+                    type="single"
+                    collapsible
+                    defaultValue={sourceRecordStats.sources[0]?.sourceId}
+                    className="space-y-3"
+                  >
+                    {sourceRecordStats.sources.map((source) => (
+                      <AccordionItem
+                        key={source.sourceId}
+                        value={source.sourceId}
+                        className="overflow-hidden rounded-xl border border-slate-200/80 border-b-0 bg-white/90 shadow-sm backdrop-blur"
+                      >
+                        <AccordionTrigger className="items-start px-4 py-4 hover:no-underline">
+                          <div className="flex w-full flex-col gap-3 text-left lg:flex-row lg:items-center lg:justify-between">
+                            <div className="space-y-1">
+                              <p className="text-lg font-semibold text-slate-900">{source.sourceLabel}</p>
+                              <p className="text-xs text-slate-600">
+                                {source.collectionCount} collections | Oldest{" "}
+                                {dateTimeLabel(source.oldestRecordAt)} | Newest{" "}
+                                {dateTimeLabel(source.newestRecordAt)}
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs lg:min-w-[360px]">
+                              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-slate-500">Records</p>
+                                <p className="font-semibold text-slate-900">
+                                  {source.totalRecords.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-slate-500">Last 24h</p>
+                                <p className="font-semibold text-slate-900">
+                                  {source.recordsInLast24Hours.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-slate-500">Price Coverage</p>
+                                <p className="font-semibold text-slate-900">
+                                  {percentLabel(source.priceCoverage)}
+                                </p>
+                              </div>
+                              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                                <p className="text-slate-500">Image Coverage</p>
+                                <p className="font-semibold text-slate-900">
+                                  {percentLabel(source.imageCoverage)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent className="border-t border-slate-200/80 px-4 py-4">
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Newest 7 Days</p>
+                              <p className="mt-1 text-base font-semibold text-slate-900">
+                                {source.recordsInLast7Days.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Price Coverage</p>
+                              <p className="mt-1 text-base font-semibold text-slate-900">
+                                {percentLabel(source.priceCoverage)}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Image Coverage</p>
+                              <p className="mt-1 text-base font-semibold text-slate-900">
+                                {percentLabel(source.imageCoverage)}
+                              </p>
+                            </div>
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-slate-500">Phone Coverage</p>
+                              <p className="mt-1 text-base font-semibold text-slate-900">
+                                {percentLabel(source.phoneCoverage)}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                            {source.largestCollection ? (
+                              <Badge variant="outline" className="bg-white">
+                                Largest: {source.largestCollection.collectionName} (
+                                {source.largestCollection.totalRecords.toLocaleString()})
+                              </Badge>
+                            ) : null}
+                            {source.freshestCollection ? (
+                              <Badge variant="outline" className="bg-white">
+                                Freshest: {source.freshestCollection.collectionName} (
+                                {dateTimeLabel(source.freshestCollection.newestRecordAt)})
+                              </Badge>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                            <table className="w-full min-w-[980px] text-sm">
+                              <thead className="bg-slate-50">
+                                <tr className="border-b border-slate-200 text-left">
+                                  <th className="px-3 py-3">Collection</th>
+                                  <th className="px-3 py-3">Records</th>
+                                  <th className="px-3 py-3">Oldest</th>
+                                  <th className="px-3 py-3">Newest</th>
+                                  <th className="px-3 py-3">New 24h</th>
+                                  <th className="px-3 py-3">New 7d</th>
+                                  <th className="px-3 py-3">Coverage</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {source.collections.map((collection) => (
+                                  <tr
+                                    key={collection.collectionId}
+                                    className="border-b border-slate-100 align-top"
+                                  >
+                                    <td className="px-3 py-3">
+                                      <p className="font-medium text-slate-900">
+                                        {collection.collectionName}
+                                      </p>
+                                      <p className="text-xs text-slate-500">
+                                        {collection.collectionId}
+                                      </p>
+                                    </td>
+                                    <td className="px-3 py-3 font-semibold text-slate-900">
+                                      {collection.totalRecords.toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-3 text-xs text-slate-700">
+                                      {dateTimeLabel(collection.oldestRecordAt)}
+                                    </td>
+                                    <td className="px-3 py-3 text-xs text-slate-700">
+                                      {dateTimeLabel(collection.newestRecordAt)}
+                                    </td>
+                                    <td className="px-3 py-3 font-medium text-slate-800">
+                                      {collection.recordsInLast24Hours.toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-3 font-medium text-slate-800">
+                                      {collection.recordsInLast7Days.toLocaleString()}
+                                    </td>
+                                    <td className="px-3 py-3 text-xs text-slate-700">
+                                      <p>Price: {percentLabel(collection.priceCoverage)}</p>
+                                      <p>Images: {percentLabel(collection.imageCoverage)}</p>
+                                      <p>Phone: {percentLabel(collection.phoneCoverage)}</p>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                ) : (
+                  <p className="rounded border border-slate-200 bg-white px-3 py-4 text-sm text-slate-600">
+                    No source collections were found in the configured database.
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-4 rounded-lg border border-white/70 bg-white/70 px-3 py-2 text-xs text-slate-600">
+                  <p className="flex items-center gap-1">
+                    <Clock3 className="h-3.5 w-3.5 text-cyan-700" />
+                    Oldest: {dateTimeLabel(sourceRecordStats.overview.oldestRecordAt)}
+                  </p>
+                  <p className="flex items-center gap-1">
+                    <Activity className="h-3.5 w-3.5 text-emerald-700" />
+                    Newest: {dateTimeLabel(sourceRecordStats.overview.newestRecordAt)}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           ) : null}
 
           {analytics ? <AdminAnalyticsCharts analytics={analytics} /> : null}
@@ -706,49 +1142,64 @@ export default function AdminDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="space-y-4">
+          <Card className="relative overflow-hidden border-cyan-200/80 bg-gradient-to-br from-cyan-50 via-white to-emerald-50 shadow-md">
+            <div className="pointer-events-none absolute -left-24 -top-20 h-64 w-64 rounded-full bg-cyan-300/20 blur-3xl" />
+            <div className="pointer-events-none absolute -right-24 bottom-0 h-64 w-64 rounded-full bg-emerald-300/20 blur-3xl" />
+            <CardHeader className="relative space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle>User Management</CardTitle>
                   <CardDescription>
-                    Quickly find any registered user or guest, then apply account actions.
+                    Person-level tracking for registered users and guest visitors. Guests are grouped by
+                    persistent browser identity (`localBackupId`) with identity fallback.
                   </CardDescription>
                 </div>
-                <Badge variant="outline">{filteredUsers.length} shown</Badge>
+                <Badge variant="outline" className="bg-white/80">
+                  {users.length} shown of {userTotal}
+                </Badge>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Total Identities</p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Tracked People</p>
                   <p className="text-lg font-semibold text-slate-900">{userSummary.total}</p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
                   <p className="text-xs uppercase tracking-wide text-slate-500">Registered</p>
                   <p className="text-lg font-semibold text-slate-900">{userSummary.registered}</p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Guests</p>
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Guest People</p>
                   <p className="text-lg font-semibold text-slate-900">{userSummary.guests}</p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Blocked</p>
-                  <p className="text-lg font-semibold text-slate-900">{userSummary.blocked}</p>
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Guests Active (24h)</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {userSummary.activeGuestInLast24Hours}
+                  </p>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">Active in 24h</p>
-                  <p className="text-lg font-semibold text-slate-900">{userSummary.activeInLast24Hours}</p>
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Merged Guest Profiles</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {userSummary.guestWithMultipleIdentities}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white/90 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Max IDs in One Guest</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {userSummary.maxGuestIdentityCount}
+                  </p>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="relative space-y-4">
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="grid gap-2 md:col-span-2">
-                  <Label htmlFor="user-search">Search User or Guest</Label>
+                  <Label htmlFor="user-search">Search User or Guest Profile</Label>
                   <Input
                     id="user-search"
                     value={userSearch}
                     onChange={(event) => setUserSearch(event.target.value)}
-                    placeholder="Username, identity ID, user ID, role"
+                    placeholder="Username, local backup ID, identity ID, user ID, session ID, IP"
                   />
                 </div>
                 <div className="grid gap-2">
@@ -790,84 +1241,116 @@ export default function AdminDashboardPage() {
               </div>
 
               <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full min-w-[1120px] text-sm">
+                <table className="w-full min-w-[1280px] text-sm">
                   <thead className="bg-slate-50">
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="px-3 py-3">User</th>
-                      <th className="px-3 py-3">Identifiers</th>
-                      <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3">Last Activity</th>
-                      <th className="px-3 py-3">Usage</th>
-                      <th className="px-3 py-3">Attempt Budget</th>
+                      <th className="px-3 py-3">Person</th>
+                      <th className="px-3 py-3">Identity Tracking</th>
+                      <th className="px-3 py-3">Activity</th>
+                      <th className="px-3 py-3">Guest Budget</th>
                       <th className="px-3 py-3">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredUsers.length ? (
-                      filteredUsers.map((entry) => {
+                    {users.length ? (
+                      users.map((entry) => {
                         const attemptLimit = entry.attemptsUsed + entry.attemptsRemaining;
                         const attemptPercent =
                           attemptLimit > 0 ? Math.round((entry.attemptsUsed / attemptLimit) * 100) : 0;
+                        const logQuery =
+                          entry.userId ?? entry.lastSessionId ?? entry.identityId;
+                        const targetType: "user" | "identity" = entry.userId ? "user" : "identity";
+                        const targetId = entry.userId ?? entry.identityId;
 
                         return (
-                          <tr key={entry.identityId} className="border-b border-slate-100 align-top">
+                          <tr key={entry.entityId} className="border-b border-slate-100 align-top">
                             <td className="px-3 py-3">
-                              <p className="font-medium text-slate-900">{entry.username}</p>
-                              <p className="text-xs text-slate-500">{prettyToken(entry.role)}</p>
-                            </td>
-                            <td className="px-3 py-3">
-                              <p className="font-mono text-xs text-slate-700" title={entry.identityId}>
-                                Identity: {shortId(entry.identityId, 12, 8)}
-                              </p>
-                              <p className="font-mono text-xs text-slate-500" title={entry.userId ?? undefined}>
-                                User: {entry.userId ? shortId(entry.userId, 10, 8) : "Guest only"}
-                              </p>
-                            </td>
-                            <td className="px-3 py-3">
-                              <div className="flex flex-wrap gap-2">
-                                <Badge
-                                  variant={
-                                    entry.registrationStatus === "registered" ? "secondary" : "outline"
-                                  }
-                                >
-                                  {prettyToken(entry.registrationStatus)}
-                                </Badge>
-                                <Badge variant={entry.isBlocked ? "destructive" : "secondary"}>
-                                  {entry.isBlocked ? "Blocked" : "Allowed"}
-                                </Badge>
+                              <div className="space-y-2">
+                                <p className="font-medium text-slate-900">{entry.username}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge
+                                    variant={
+                                      entry.registrationStatus === "registered" ? "secondary" : "outline"
+                                    }
+                                  >
+                                    {entry.registrationStatus === "registered"
+                                      ? "Registered User"
+                                      : "Guest Profile"}
+                                  </Badge>
+                                  <Badge variant={entry.isBlocked ? "destructive" : "secondary"}>
+                                    {entry.isBlocked ? "Blocked" : "Allowed"}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-slate-500">
+                                  Role: {prettyToken(entry.role)} | First Seen:{" "}
+                                  {dateTimeLabel(entry.firstSeenAt)}
+                                </p>
                               </div>
                             </td>
                             <td className="px-3 py-3 text-xs">
-                              <p className="font-medium text-slate-700">{dateTimeLabel(entry.lastActiveAt)}</p>
+                              <p className="font-mono text-slate-700" title={entry.identityId}>
+                                Primary Identity: {shortId(entry.identityId, 12, 8)}
+                              </p>
+                              <p className="font-mono text-slate-500" title={entry.userId ?? undefined}>
+                                User ID: {entry.userId ? shortId(entry.userId, 10, 8) : "Guest only"}
+                              </p>
+                              <p className="font-mono text-slate-500" title={entry.localBackupId ?? undefined}>
+                                Local Backup:{" "}
+                                {entry.localBackupId
+                                  ? shortId(entry.localBackupId, 12, 8)
+                                  : "Not captured"}
+                              </p>
                               <p className="text-slate-500">
-                                Registered:{" "}
-                                {entry.registrationStatus === "registered"
-                                  ? dateTimeLabel(entry.registrationDate)
-                                  : "No"}
+                                Linked identities: {entry.identityCount}
+                                {entry.identityIds.length > 1
+                                  ? ` (${entry.identityIds
+                                      .slice(0, 2)
+                                      .map((value) => shortId(value, 8, 6))
+                                      .join(", ")}${entry.identityIds.length > 2 ? ", ..." : ""})`
+                                  : ""}
+                              </p>
+                              <p className="text-slate-500">
+                                Latest session:{" "}
+                                {entry.lastSessionId ? shortId(entry.lastSessionId, 10, 8) : "No session"}
                               </p>
                             </td>
                             <td className="px-3 py-3 text-xs">
                               <p className="font-medium text-slate-700">
-                                {entry.totalSessions.toLocaleString()} sessions
+                                Last Active: {dateTimeLabel(entry.lastActiveAt)}
                               </p>
-                              <p className="text-slate-500">{durationLabel(entry.totalDurationMs)} total time</p>
+                              <p className="text-slate-500">
+                                {entry.totalSessions.toLocaleString()} sessions | {entry.activeSessions} active now
+                              </p>
+                              <p className="text-slate-500">
+                                {durationLabel(entry.totalDurationMs)} tracked time
+                              </p>
+                              <p className="text-slate-500">
+                                IP: {entry.primaryIpAddress ?? "Unavailable"}
+                              </p>
+                              <p className="text-slate-500">
+                                Devices: {entry.deviceTypes.length ? entry.deviceTypes.join(", ") : "Unknown"}
+                              </p>
                             </td>
                             <td className="px-3 py-3 text-xs">
                               {entry.registrationStatus === "guest" ? (
                                 <div className="space-y-2">
                                   <p className="font-medium text-slate-700">
-                                    {entry.attemptsUsed}/{attemptLimit}
+                                    Attempts: {entry.attemptsUsed}/{attemptLimit}
                                   </p>
-                                  <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                                  <div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
                                     <div
                                       className="h-full rounded-full bg-amber-500"
                                       style={{ width: `${Math.min(100, attemptPercent)}%` }}
                                     />
                                   </div>
-                                  <p className="text-slate-500">{entry.attemptsRemaining} remaining</p>
+                                  <p className="text-slate-500">
+                                    {entry.attemptsRemaining} remaining
+                                  </p>
                                 </div>
                               ) : (
-                                <p className="text-slate-500">Not limited for registered users</p>
+                                <p className="text-slate-500">
+                                  Registered users are not guest-limit constrained.
+                                </p>
                               )}
                             </td>
                             <td className="px-3 py-3">
@@ -876,7 +1359,7 @@ export default function AdminDashboardPage() {
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => {
-                                    focusActivityForUser(entry.identityId);
+                                    focusActivityForQuery(logQuery);
                                   }}
                                 >
                                   View Logs
@@ -890,8 +1373,11 @@ export default function AdminDashboardPage() {
                                         method: "PATCH",
                                         body: JSON.stringify({
                                           action: entry.isBlocked ? "unblock" : "block",
-                                          targetType: entry.userId ? "user" : "identity",
-                                          targetId: entry.userId ?? entry.identityId,
+                                          targetType,
+                                          targetId,
+                                          ...(targetType === "identity"
+                                            ? { identityIds: entry.identityIds }
+                                            : {}),
                                         }),
                                       });
                                       setStatus("User state updated.");
@@ -916,8 +1402,11 @@ export default function AdminDashboardPage() {
                                         method: "PATCH",
                                         body: JSON.stringify({
                                           action: "force_logout",
-                                          targetType: entry.userId ? "user" : "identity",
-                                          targetId: entry.userId ?? entry.identityId,
+                                          targetType,
+                                          targetId,
+                                          ...(targetType === "identity"
+                                            ? { identityIds: entry.identityIds }
+                                            : {}),
                                         }),
                                       });
                                       setStatus("Force logout completed.");
@@ -939,13 +1428,51 @@ export default function AdminDashboardPage() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={7} className="px-3 py-10 text-center text-sm text-slate-500">
+                        <td colSpan={5} className="px-3 py-10 text-center text-sm text-slate-500">
                           No users found for the current filters.
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-slate-500">
+                  Showing {users.length} of {userTotal} records
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={String(userLimit)}
+                    onValueChange={(value) => {
+                      setUserLimit(Number(value));
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10 / page</SelectItem>
+                      <SelectItem value="20">20 / page</SelectItem>
+                      <SelectItem value="50">50 / page</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={userPage <= 1}
+                    onClick={() => setUserPage((prev) => Math.max(1, prev - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!userHasNext}
+                    onClick={() => setUserPage((prev) => prev + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1112,7 +1639,7 @@ export default function AdminDashboardPage() {
                               type="button"
                               className="font-mono text-sky-700 hover:underline"
                               onClick={() => {
-                                focusActivityForUser(entry.userIdentifier);
+                                focusActivityForQuery(entry.userIdentifier);
                               }}
                               title={entry.userIdentifier}
                             >
