@@ -313,6 +313,9 @@ export default function ValueTechPage() {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const openDownload = () => {
+    window.open(DOWNLOAD_URL, "_blank", "noopener,noreferrer");
+  };
 
   const year = useMemo(() => new Date().getFullYear(), []);
 
@@ -344,11 +347,13 @@ export default function ValueTechPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <Button asChild className="rounded-full bg-slate-900 px-6 text-white hover:bg-slate-800">
-                    <a href={DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
-                      {t.heroPrimaryCta}
-                      <Download className="ms-2 h-4 w-4" />
-                    </a>
+                  <Button
+                    type="button"
+                    onClick={openDownload}
+                    className="rounded-full bg-slate-900 px-6 text-white hover:bg-slate-800"
+                  >
+                    {t.heroPrimaryCta}
+                    <Download className="ms-2 h-4 w-4" />
                   </Button>
                 </div>
 
@@ -518,11 +523,13 @@ export default function ValueTechPage() {
                 ))}
               </div>
 
-              <Button asChild className="mt-7 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800">
-                <a href={DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
-                  {t.ctaPrimary}
-                  <Download className="ms-2 h-4 w-4" />
-                </a>
+              <Button
+                type="button"
+                onClick={openDownload}
+                className="mt-7 w-full rounded-xl bg-slate-900 text-white hover:bg-slate-800"
+              >
+                {t.ctaPrimary}
+                <Download className="ms-2 h-4 w-4" />
               </Button>
             </article>
           </div>
@@ -573,11 +580,13 @@ export default function ValueTechPage() {
             <p className="mt-3 max-w-2xl text-sm leading-8 text-slate-200">{t.ctaDescription}</p>
 
             <div className="mt-7 flex flex-wrap items-center gap-3">
-              <Button asChild className="rounded-full bg-white px-6 text-slate-950 hover:bg-slate-200">
-                <a href={DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
-                  {t.ctaPrimary}
-                  <Download className="ms-2 h-4 w-4" />
-                </a>
+              <Button
+                type="button"
+                onClick={openDownload}
+                className="rounded-full bg-white px-6 text-slate-950 hover:bg-slate-200"
+              >
+                {t.ctaPrimary}
+                <Download className="ms-2 h-4 w-4" />
               </Button>
             </div>
 
