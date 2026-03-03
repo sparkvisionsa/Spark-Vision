@@ -59,7 +59,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
           realEstate: "Real Estate",
           other: "Other",
         };
-  const showValueTechAppLink = false;
+  const showValueTechAppLink = true;
 
   const resolveNavHref = (href: string) => {
     if (href.startsWith("#")) {

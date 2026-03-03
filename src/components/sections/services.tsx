@@ -19,7 +19,6 @@ export default function ServicesSection() {
   if (!langContext) return null;
   const { language } = langContext;
   const c = content[language];
-  const hiddenServiceLinks = new Set(["/value-tech", "/value-tech-app"]);
 
   return (
     <section id="services" className="py-16 md:py-24 bg-secondary/30">
@@ -37,9 +36,7 @@ export default function ServicesSection() {
           {c.services.items.map((service, index) => {
             const serviceHref =
               "href" in service && typeof service.href === "string"
-                ? hiddenServiceLinks.has(service.href)
-                  ? undefined
-                  : service.href
+                ? service.href
                 : undefined;
 
             const card = (

@@ -1,9 +1,19 @@
-
+﻿
 "use client";
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import Header from "@/components/header";
-import Footer from "@/components/footer";
+import {
+  useCallback,
+  useContext,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
+import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
+import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 import AuthModal from "@/components/auth-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,27 +114,9 @@ type EvaluationSourcePageProps = {
   enableModelYearFilter?: boolean;
   enableMileageFilter?: boolean;
   dataSources?: Array<"haraj" | "yallamotor" | "syarah">;
+  progressiveAdvancedFilters?: boolean;
   requireSearchClickToApplyFilters?: boolean;
 };
-
-const animationStyles = `
-@keyframes float-slow {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-18px); }
-}
-@keyframes shimmer {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-.float-slow {
-  animation: float-slow 10s ease-in-out infinite;
-}
-.shimmer-bg {
-  background-size: 200% 200%;
-  animation: shimmer 12s ease-in-out infinite;
-}
-`;
 
 const defaultFilters = {
   search: "",
@@ -153,13 +145,168 @@ function buildNextFiltersState(current: FilterState, updates: Partial<FilterStat
   return next;
 }
 
+function hasFilterStateChanged(current: FilterState, next: FilterState) {
+  return (Object.keys(defaultFilters) as Array<keyof FilterState>).some(
+    (key) => current[key] !== next[key]
+  );
+}
+
 const SEARCH_HISTORY_STORAGE_KEY = "evaluation-source-search-history";
 const SEARCH_HISTORY_MAX_ITEMS = 10;
 const LIST_RESPONSE_CACHE_MAX_ITEMS = 120;
-const SEARCH_SUGGESTIONS_MAX_ITEMS = 10;
-const SEARCH_SUGGESTIONS_MIN_CHARS = 2;
-const SEARCH_SUGGESTIONS_DEBOUNCE_MS = 120;
+const SEARCH_SUGGESTIONS_MAX_ITEMS = 12;
+const SEARCH_SUGGESTIONS_MIN_CHARS = 1;
+const SEARCH_SUGGESTIONS_REMOTE_MIN_CHARS = 2;
+const SEARCH_SUGGESTIONS_DEBOUNCE_MS = 90;
 const SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS = 120;
+const OPTION_POOL_PAGE_SIZE = 200;
+const OPTION_POOL_MAX_PAGES = 12;
+const OPTION_POOL_MAX_ITEMS = 2400;
+const OPTION_POOL_STORAGE_KEY_PREFIX = "evaluation-source-option-pool";
+const OPTION_POOL_STORAGE_VERSION = 1;
+const OPTION_POOL_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
+
+type OptionPoolCacheItem = Pick<
+  EvaluationSourceItem,
+  "id" | "source" | "tags" | "carModelYear" | "mileage"
+>;
+
+type OptionPoolCachePayload = {
+  version: number;
+  updatedAt: number;
+  items: OptionPoolCacheItem[];
+  modelYears?: string[];
+};
+
+function toOptionPoolCacheItem(item: EvaluationSourceItem): OptionPoolCacheItem {
+  const normalizedId =
+    typeof item.id === "string" ? item.id.trim() : String(item.id ?? "").trim();
+  const normalizedTags = Array.isArray(item.tags)
+    ? item.tags
+        .map((tag) => (typeof tag === "string" ? tag.trim() : String(tag ?? "").trim()))
+        .filter(Boolean)
+    : [];
+
+  return {
+    id: normalizedId || getEvaluationItemIdentity(item),
+    source: item.source ?? "haraj",
+    tags: normalizedTags,
+    carModelYear:
+      typeof item.carModelYear === "number" && Number.isFinite(item.carModelYear)
+        ? item.carModelYear
+        : null,
+    mileage:
+      typeof item.mileage === "number" && Number.isFinite(item.mileage)
+        ? item.mileage
+        : null,
+  };
+}
+
+function toOptionPoolStateItem(item: OptionPoolCacheItem): EvaluationSourceItem {
+  return {
+    id: item.id,
+    title: "Untitled",
+    city: "",
+    postDate: null,
+    priceNumeric: null,
+    priceFormatted: null,
+    hasImage: false,
+    imagesCount: 0,
+    commentsCount: 0,
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    carModelYear:
+      typeof item.carModelYear === "number" && Number.isFinite(item.carModelYear)
+        ? item.carModelYear
+        : null,
+    mileage:
+      typeof item.mileage === "number" && Number.isFinite(item.mileage)
+        ? item.mileage
+        : null,
+    phone: "",
+    url: "",
+    source: item.source ?? "haraj",
+    priceCompare: null,
+  };
+}
+
+function buildOptionPoolStorageKey({
+  tag0,
+  sources,
+  excludeTag1Values,
+}: {
+  tag0?: string;
+  sources: Array<"haraj" | "yallamotor" | "syarah">;
+  excludeTag1Values?: string[];
+}) {
+  const normalizedTag0 = (tag0 ?? "").trim().toLowerCase();
+  const normalizedSources = [...sources]
+    .map((source) => source.trim().toLowerCase())
+    .sort()
+    .join(",");
+  const normalizedExcluded = (excludeTag1Values ?? [])
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(",");
+
+  return `${OPTION_POOL_STORAGE_KEY_PREFIX}:${normalizedTag0}:${normalizedSources}:${normalizedExcluded}`;
+}
+
+function parseOptionPoolCachePayload(raw: string): OptionPoolCachePayload | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<OptionPoolCachePayload>;
+    if (
+      !parsed ||
+      parsed.version !== OPTION_POOL_STORAGE_VERSION ||
+      typeof parsed.updatedAt !== "number" ||
+      !Array.isArray(parsed.items)
+    ) {
+      return null;
+    }
+
+    const items: OptionPoolCacheItem[] = parsed.items
+      .filter(
+        (item): item is OptionPoolCacheItem =>
+          Boolean(item) &&
+          typeof item.id === "string" &&
+          (item.source === "haraj" || item.source === "yallamotor" || item.source === "syarah")
+      )
+      .slice(0, OPTION_POOL_MAX_ITEMS)
+      .map((item) => ({
+        id: item.id.trim(),
+        source: item.source,
+        tags: Array.isArray(item.tags)
+          ? item.tags
+              .map((tag) => (typeof tag === "string" ? tag.trim() : String(tag ?? "").trim()))
+              .filter(Boolean)
+          : [],
+        carModelYear:
+          typeof item.carModelYear === "number" && Number.isFinite(item.carModelYear)
+            ? item.carModelYear
+            : null,
+        mileage:
+          typeof item.mileage === "number" && Number.isFinite(item.mileage)
+            ? item.mileage
+            : null,
+      }));
+
+    const modelYears = Array.isArray(parsed.modelYears)
+      ? parsed.modelYears
+          .filter((year): year is string => typeof year === "string")
+          .map((year) => year.trim())
+          .filter(Boolean)
+      : undefined;
+
+    return {
+      version: OPTION_POOL_STORAGE_VERSION,
+      updatedAt: parsed.updatedAt,
+      items,
+      modelYears,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function setCachedListResponse(
   cache: Map<string, ListResponse>,
@@ -187,6 +334,48 @@ function setCachedSearchSuggestions(
   }
 }
 
+function getEvaluationItemIdentity(item: EvaluationSourceItem, fallbackIndex = 0) {
+  const source = item.source ?? "haraj";
+  const normalizedId =
+    typeof item.id === "string" ? item.id.trim() : String(item.id ?? "").trim();
+  if (normalizedId) {
+    return `${source}-${normalizedId}`;
+  }
+
+  const normalizedUrl =
+    typeof item.url === "string" ? item.url.trim() : String(item.url ?? "").trim();
+  if (normalizedUrl) {
+    return `${source}-url:${normalizedUrl}`;
+  }
+
+  const normalizedTitle =
+    typeof item.title === "string" ? item.title.trim() : String(item.title ?? "").trim();
+  return `${source}-fallback:${normalizedTitle}|${item.postDate ?? ""}|${fallbackIndex}`;
+}
+
+function dedupeEvaluationItems(items: EvaluationSourceItem[]) {
+  if (items.length === 0) return items;
+
+  const seen = new Set<string>();
+  const deduped: EvaluationSourceItem[] = [];
+
+  items.forEach((item, index) => {
+    const identity = getEvaluationItemIdentity(item, index);
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    deduped.push(item);
+  });
+
+  return deduped;
+}
+
+function normalizeListResponse(response: ListResponse): ListResponse {
+  return {
+    ...response,
+    items: dedupeEvaluationItems(response.items ?? []),
+  };
+}
+
 const copy = {
   en: {
     filters: {
@@ -196,7 +385,9 @@ const copy = {
       searchModeSubtitle: "Results update after you click Search.",
       search: "Search",
       match: "Match",
-      searchPlaceholder: "Title, Description",
+      searchPlaceholder: "Search everything: title, brand, model, city, year, mileage, price...",
+      advancedSearch: "Advanced search",
+      hideAdvancedSearch: "Hide advanced search",
       clearHistory: "Clear",
       city: "City",
       cityPlaceholder: "Search city",
@@ -204,7 +395,7 @@ const copy = {
       brandPlaceholder: "Type or select brand",
       model: "Model",
       modelPlaceholder: "Type or select model",
-      manufactureYear: "Manufacture Year",
+      manufactureYear: " Year",
       manufactureYearPlaceholder: "Type or select year",
       mileage: "Mileage",
       mileagePlaceholder: "Select mileage",
@@ -319,7 +510,9 @@ const copy = {
       subtitle: "نتائج فورية أثناء الكتابة.",
       searchModeSubtitle: "يتم تحديث النتائج بعد الضغط على زر البحث.",
       search: "بحث",
-      searchPlaceholder: "العنوان، الوصف",
+      searchPlaceholder: "ابحث في كل شيء: العنوان، الماركة، الطراز، المدينة، السنة، العداد، السعر...",
+      advancedSearch: "بحث متقدم",
+      hideAdvancedSearch: "إخفاء البحث المتقدم",
       clearHistory: "مسح السجل",
       city: "المدينة",
       cityPlaceholder: "ابحث عن مدينة",
@@ -476,15 +669,31 @@ function formatEpoch(value: number | string | Date | null) {
 }
 
 function formatPrice(value: number | null, formatted?: string | null) {
-  if (formatted) return formatted;
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("en-US").format(value);
+  const numericValue = getPriceNumber(value, formatted);
+  if (numericValue === null) return "-";
+  return String(numericValue);
 }
 
 function formatMileage(value: number | null, withUnit = false) {
   if (value === null || value === undefined) return "-";
   const base = new Intl.NumberFormat("en-US").format(value);
   return withUnit ? `${base} km` : base;
+}
+
+function getPriceNumber(value: number | null, formatted?: string | null) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (!formatted) return null;
+
+  const normalized = formatted.replace(/[\u0660-\u0669]/g, (digit) =>
+    String(digit.charCodeAt(0) - 0x0660)
+  );
+  const match = normalized.match(/[0-9][0-9,.]*/);
+  if (!match) return null;
+
+  const parsed = Number(match[0].replace(/,/g, ""));
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function resolveSourceUrl(item: Pick<EvaluationSourceItem, "source" | "url">) {
@@ -687,12 +896,12 @@ function formatYallaDescription(value: string) {
   text = text.replace(/\*\*/g, "\n");
 
   text = text
-    .replace(/([\u0600-\u06FF])و(?=ال)/g, "$1 و")
-    .replace(/([\u0600-\u06FF])ف(?=ال)/g, "$1 ف")
-    .replace(/([\u0600-\u06FF])ب(?=ال)/g, "$1 ب")
-    .replace(/([\u0600-\u06FF])ل(?=ال)/g, "$1 ل")
-    .replace(/([\u0600-\u06FF])(ال)/g, "$1 $2")
-    .replace(/ة(?=[\u0600-\u06FF])/g, "ة ");
+    .replace(/([\u0600-\u06FF])\u0648(?=\u0627\u0644)/g, "$1 \u0648")
+    .replace(/([\u0600-\u06FF])\u0641(?=\u0627\u0644)/g, "$1 \u0641")
+    .replace(/([\u0600-\u06FF])\u0628(?=\u0627\u0644)/g, "$1 \u0628")
+    .replace(/([\u0600-\u06FF])\u0644(?=\u0627\u0644)/g, "$1 \u0644")
+    .replace(/([\u0600-\u06FF])(\u0627\u0644)/g, "$1 $2")
+    .replace(/\u0629(?=[\u0600-\u06FF])/g, "\u0629 ");
 
   for (const token of arabicTokens.sort((a, b) => b.length - a.length)) {
     const escaped = escapeRegex(token);
@@ -737,24 +946,40 @@ function sortYearOptionsDescending(values: string[]) {
 }
 
 const MAX_MODEL_YEAR_SPAN = 300;
+const DROPDOWN_INITIAL_VISIBLE_OPTIONS = 80;
+const DROPDOWN_LOAD_MORE_STEP = 120;
+const DROPDOWN_EMPTY_QUERY_VISIBLE_OPTIONS = 120;
+
+type IndexedVehicleOption = {
+  label: string;
+  lowered: string;
+  canonical: string;
+};
+const EMPTY_STRING_OPTIONS: string[] = [];
+const EMPTY_INDEXED_VEHICLE_OPTIONS: IndexedVehicleOption[] = [];
 
 function buildContinuousYearOptions(values: string[]) {
+  const currentYear = new Date().getFullYear();
   const uniqueSortedYears = sortYearOptionsDescending(
     Array.from(
       new Set(
         values
           .map((value) => Number.parseInt(value, 10))
           .filter((year) => Number.isFinite(year))
+          .filter((year) => year <= currentYear)
           .map((year) => String(year))
       )
     )
   );
-
-  if (uniqueSortedYears.length === 0) {
-    return [];
+  if (!uniqueSortedYears.includes(String(currentYear))) {
+    uniqueSortedYears.unshift(String(currentYear));
   }
 
-  const newestYear = Number.parseInt(uniqueSortedYears[0], 10);
+  if (uniqueSortedYears.length === 0) {
+    return [String(currentYear)];
+  }
+
+  const newestYear = currentYear;
   const oldestYear = Number.parseInt(uniqueSortedYears[uniqueSortedYears.length - 1], 10);
   if (
     Number.isNaN(newestYear) ||
@@ -773,25 +998,40 @@ function buildContinuousYearOptions(values: string[]) {
 
 const PRIVATE_COMMENT_MARKER = "رد خاص. يظهر للعارض فقط";
 
-function filterVehicleOptionsByInput(options: string[], input: string) {
+function buildIndexedVehicleOptions(options: string[]): IndexedVehicleOption[] {
+  return options.map((option) => {
+    const label = option.trim();
+    return {
+      label,
+      lowered: label.toLowerCase(),
+      canonical: toVehicleCanonicalKey(label),
+    };
+  });
+}
+
+function filterVehicleOptionsByInput(options: IndexedVehicleOption[], input: string) {
   const query = input.trim();
-  if (!query) return options;
+  if (!query) return options.map((option) => option.label);
 
   const canonicalQuery = toVehicleCanonicalKey(query);
   const loweredQuery = query.toLowerCase();
+  const shouldUseFuzzyMatch = query.length >= 3;
 
   return options.filter((option) => {
-    if (isVehicleTextMatch(option, query)) {
+    if (option.lowered.includes(loweredQuery)) {
       return true;
     }
 
-    const optionCanonical = toVehicleCanonicalKey(option);
-    if (canonicalQuery && optionCanonical.includes(canonicalQuery)) {
+    if (canonicalQuery && option.canonical.includes(canonicalQuery)) {
       return true;
     }
 
-    return option.toLowerCase().includes(loweredQuery);
-  });
+    if (!shouldUseFuzzyMatch) {
+      return false;
+    }
+
+    return isVehicleTextMatch(option.label, query);
+  }).map((option) => option.label);
 }
 
 function filterVisibleComments(comments: Array<Record<string, any>>) {
@@ -809,11 +1049,12 @@ export default function EvaluationSourcePage({
   enableModelYearFilter = false,
   enableMileageFilter = false,
   dataSources,
+  progressiveAdvancedFilters = false,
   requireSearchClickToApplyFilters = false,
 }: EvaluationSourcePageProps) {
   const langContext = useContext(LanguageContext);
   const { trackAction } = useAuthTracking();
-  const language = langContext?.language ?? "en";
+  const language = langContext?.language ?? "ar";
   const t = language === "ar" ? copy.ar : copy.en;
   const isArabic = language === "ar";
   const mileageLabel = isArabic ? "\u0639\u062f\u0627\u062f \u0627\u0644\u0643\u064a\u0644\u0648\u0645\u062a\u0631\u0627\u062a" : "Mileage";
@@ -824,49 +1065,74 @@ export default function EvaluationSourcePage({
   const clearModelYearLabel = isArabic ? "\u0643\u0644 \u0627\u0644\u0633\u0646\u0648\u0627\u062A" : "All years";
   const noOptionsLabel = isArabic ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u062E\u064A\u0627\u0631\u0627\u062A" : "No options found";
   const loadingOptionsLabel = isArabic ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u062E\u064A\u0627\u0631\u0627\u062A..." : "Loading options...";
+  const showMoreOptionsLabel = isArabic ? "\u0625\u0638\u0647\u0627\u0631 \u0627\u0644\u0645\u0632\u064A\u062F" : "Show more";
+  const loadingSuggestionsLabel = isArabic ? "\u062C\u0627\u0631\u064A \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0627\u0642\u062A\u0631\u0627\u062D\u0627\u062A..." : "Loading suggestions...";
+  const noSuggestionsLabel = isArabic ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0627\u0642\u062A\u0631\u0627\u062D\u0627\u062A" : "No suggestions found";
+  const localSuggestionLabel = isArabic ? "\u0645\u062D\u0644\u064A" : "Local";
+  const liveSuggestionLabel = isArabic ? "\u0645\u0628\u0627\u0634\u0631" : "Live";
+  const historySuggestionLabel = isArabic ? "\u0627\u0644\u0633\u062C\u0644" : "History";
   const openBrandOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0645\u0627\u0631\u0643\u0629" : "Show brand options";
   const openModelOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0627\u0644\u0637\u0631\u0627\u0632" : "Show model options";
   const openModelYearOptionsLabel = isArabic ? "\u0639\u0631\u0636 \u062E\u064A\u0627\u0631\u0627\u062A \u0633\u0646\u0629 \u0627\u0644\u0635\u0646\u0639" : "Show manufacture year options";
   const activeFiltersLabel = isArabic ? "\u0627\u0644\u0641\u0644\u0627\u062A\u0631 \u0627\u0644\u0646\u0634\u0637\u0629" : "Active filters";
   const pendingApplyLabel = isArabic ? "\u0628\u0627\u0646\u062A\u0638\u0627\u0631 \u062A\u0637\u0628\u064A\u0642" : "Pending apply";
   const readyLabel = isArabic ? "\u062C\u0627\u0647\u0632" : "Ready";
-  const filterLabelClass = isArabic
-    ? "shrink-0 whitespace-nowrap text-[13px] font-extrabold tracking-[0.05em] text-slate-800"
-    : "shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700";
-  const mileageFilterLabelClass = isArabic
-    ? "shrink-0 whitespace-nowrap text-[13px] font-extrabold tracking-[0.05em] text-slate-800"
-    : "shrink-0 whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-700";
-  const filterFieldContainerClass =
-    "group flex flex-col gap-2 rounded-2xl border border-emerald-100/70 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] transition duration-200 hover:-translate-y-[1px] hover:border-emerald-200 hover:shadow-[0_20px_45px_-28px_rgba(16,185,129,0.65)] sm:flex-row sm:items-center";
-  const searchableFilterInputClass =
-    "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
-  const searchableFilterInputWithLeadingIconClass =
-    "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 pl-8 pr-9 text-sm transition-colors focus-visible:border-emerald-400 focus-visible:ring-emerald-400";
-  const filterSelectTriggerClass = "h-10 w-full min-w-0 rounded-xl border-slate-200 bg-white/95 text-sm";
+  const resetFiltersLabel = isArabic ? "\u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u0636\u0628\u0637" : "Reset";
+  const advancedSearchLabel = t.filters.advancedSearch;
+  const filterLabelClass =
+    "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.16em] text-slate-500";
+  const mileageFilterLabelClass =
+    "shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-[0.16em] text-slate-500";
+  const filterFieldContainerClass = progressiveAdvancedFilters
+    ? "flex items-center gap-1.5 px-0 py-0"
+    : "flex h-full flex-col gap-1.5 rounded-xl border border-slate-200/80 bg-white px-2.5 py-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-colors hover:border-emerald-200";
+  const searchableFilterInputClass = progressiveAdvancedFilters
+    ? "h-8 w-full min-w-0 rounded-md border-slate-200 bg-white pr-8 text-xs transition-colors focus-visible:border-emerald-300 focus-visible:ring-emerald-400/30"
+    : "h-9 w-full min-w-0 rounded-lg border-slate-200 bg-slate-50/70 pr-9 text-sm transition-colors focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-emerald-400/30";
+  const searchableFilterInputWithLeadingIconClass = progressiveAdvancedFilters
+    ? "h-8 w-full min-w-0 rounded-md border-slate-200 bg-white pl-7 pr-8 text-xs transition-colors focus-visible:border-emerald-300 focus-visible:ring-emerald-400/30"
+    : "h-9 w-full min-w-0 rounded-lg border-slate-200 bg-slate-50/70 pl-8 pr-9 text-sm transition-colors focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-emerald-400/30";
+  const filterSelectTriggerClass = progressiveAdvancedFilters
+    ? "h-8 w-full min-w-0 rounded-md border-slate-200 bg-white text-xs transition-colors focus:ring-emerald-400/30"
+    : "h-9 w-full min-w-0 rounded-lg border-slate-200 bg-slate-50/70 text-sm transition-colors focus:ring-emerald-400/30";
   const searchableDropdownClass =
-    "absolute left-0 right-0 z-50 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-emerald-100 bg-white p-1.5 shadow-2xl";
+    "absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/90 bg-white/95 p-1.5 shadow-[0_16px_34px_rgba(15,23,42,0.14)] backdrop-blur";
   const searchableDropdownOptionClass = `block w-full rounded-md px-3 py-2 text-sm transition hover:bg-slate-100 ${
     isArabic ? "text-right" : "text-left"
   }`;
-  const getSourceDisplayName = (source: EvaluationSourceItem["source"]) => {
+  const getSourceDisplayName = useCallback((source: EvaluationSourceItem["source"]) => {
     if (source === "yallamotor") return t.filters.sourceOptions.yallamotor;
     if (source === "syarah") return t.filters.sourceOptions.syarah;
     return t.filters.sourceOptions.haraj;
-  };
+  }, [t.filters.sourceOptions.haraj, t.filters.sourceOptions.syarah, t.filters.sourceOptions.yallamotor]);
   const mileageMinPlaceholder = "Min";
   const mileageMaxPlaceholder = "Max";
-  const resolvedSources = useMemo(
+  const resolvedSources = useMemo<Array<"haraj" | "yallamotor" | "syarah">>(
     () => (dataSources?.length ? dataSources : ["haraj"]),
     [dataSources]
   );
+  const optionPoolStorageKey = useMemo(
+    () =>
+      buildOptionPoolStorageKey({
+        tag0,
+        sources: resolvedSources,
+        excludeTag1Values,
+      }),
+    [tag0, resolvedSources, excludeTag1Values]
+  );
   const showSourceFilter = resolvedSources.length > 1;
   const useCombinedSources = resolvedSources.length > 1 || resolvedSources[0] !== "haraj";
+  const hasAdvancedFilterControls =
+    enableBrandFilter || enableModelFilter || enableModelYearFilter || enableMileageFilter || showSourceFilter;
   const listEndpoint = toApiUrl(
     useCombinedSources ? "/api/cars-sources" : "/api/haraj-scrape"
   );
   const suggestionsEndpoint = toApiUrl("/api/cars-sources/suggestions");
   const [filters, setFilters] = useState(defaultFilters);
   const [appliedFilters, setAppliedFilters] = useState(defaultFilters);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(!progressiveAdvancedFilters);
+  const showAdvancedFilters = !progressiveAdvancedFilters || advancedFiltersOpen;
+  const showSearchAuxControls = !progressiveAdvancedFilters || advancedFiltersOpen;
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(15);
   const [data, setData] = useState<ListResponse | null>(null);
@@ -893,18 +1159,27 @@ export default function EvaluationSourcePage({
   const [optionPoolLoading, setOptionPoolLoading] = useState(false);
   const [brandDropdownOpen, setBrandDropdownOpen] = useState(false);
   const [brandDropdownShowAll, setBrandDropdownShowAll] = useState(false);
+  const [brandOptionsRenderLimit, setBrandOptionsRenderLimit] = useState(
+    DROPDOWN_INITIAL_VISIBLE_OPTIONS
+  );
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modelDropdownShowAll, setModelDropdownShowAll] = useState(false);
+  const [modelOptionsRenderLimit, setModelOptionsRenderLimit] = useState(
+    DROPDOWN_INITIAL_VISIBLE_OPTIONS
+  );
   const [modelYearDropdownOpen, setModelYearDropdownOpen] = useState(false);
   const [modelYearDropdownShowAll, setModelYearDropdownShowAll] = useState(false);
+  const [modelYearOptionsRenderLimit, setModelYearOptionsRenderLimit] = useState(
+    DROPDOWN_INITIAL_VISIBLE_OPTIONS
+  );
   const [commentsMode, setCommentsMode] = useState<"comments" | "priceCompare">("comments");
   const [modalPriceCompare, setModalPriceCompare] =
     useState<EvaluationSourceItem["priceCompare"] | null>(null);
-  const [mounted, setMounted] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<"login" | "register">("register");
   const [registrationRequiredMessage, setRegistrationRequiredMessage] =
     useState<string | null>(null);
+  const [, startFilterSelectionTransition] = useTransition();
   const listResponseCacheRef = useRef<Map<string, ListResponse>>(new Map());
   const searchSuggestionsCacheRef = useRef<Map<string, string[]>>(new Map());
   const searchDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -934,11 +1209,87 @@ export default function EvaluationSourcePage({
       (key) => filters[key] !== appliedFilters[key]
     );
   }, [filters, appliedFilters, requireSearchClickToApplyFilters]);
+  const hasAdvancedFilterSelections = useMemo(() => {
+    const hasSelections = (state: FilterState) => {
+      if (state.match) return true;
+      if (state.brand.trim()) return true;
+      if (state.model.trim()) return true;
+      if (state.modelYear.trim()) return true;
+      if (showSourceFilter && state.source !== "all") return true;
+      if (state.hasImage !== "any") return true;
+      if (state.hasPrice !== "any") return true;
+      if (state.hasComments !== "any") return true;
+      if (enableMileageFilter && state.hasMileage !== "any") return true;
+      if (enableMileageFilter && state.mileageMin.trim()) return true;
+      if (enableMileageFilter && state.mileageMax.trim()) return true;
+      if (state.sort !== defaultFilters.sort) return true;
+      return false;
+    };
+
+    return hasSelections(filters) || hasSelections(appliedFilters);
+  }, [filters, appliedFilters, enableMileageFilter, showSourceFilter]);
+  const deferredSearchValue = useDeferredValue(filters.search);
+  const deferredBrandValue = useDeferredValue(filters.brand);
+  const deferredModelValue = useDeferredValue(filters.model);
+  const deferredModelYearValue = useDeferredValue(filters.modelYear);
+  const deferredSourceValue = useDeferredValue(filters.source);
   const filteredSearchHistorySuggestions = useMemo(() => {
-    const searchValue = filters.search.trim().toLowerCase();
+    const searchValue = deferredSearchValue.trim().toLowerCase();
     if (!searchValue) return searchHistory;
     return searchHistory.filter((item) => item.toLowerCase().includes(searchValue));
-  }, [filters.search, searchHistory]);
+  }, [deferredSearchValue, searchHistory]);
+  const localSearchSuggestions = useMemo(() => {
+    const searchValue = deferredSearchValue.trim().toLowerCase();
+    if (searchValue.length < SEARCH_SUGGESTIONS_MIN_CHARS) return [];
+
+    const sourceItems = data?.items ?? [];
+    if (sourceItems.length === 0) return [];
+
+    const suggestions: string[] = [];
+    const seen = new Set<string>();
+
+    for (const item of sourceItems) {
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      const brand = typeof item.tags?.[1] === "string" ? item.tags[1].trim() : "";
+      const model = typeof item.tags?.[2] === "string" ? item.tags[2].trim() : "";
+      const city = typeof item.city === "string" ? item.city.trim() : "";
+      const modelYear =
+        typeof item.carModelYear === "number" && Number.isFinite(item.carModelYear)
+          ? String(Math.trunc(item.carModelYear))
+          : "";
+      const mileage =
+        typeof item.mileage === "number" && Number.isFinite(item.mileage)
+          ? `${Math.trunc(item.mileage)} km`
+          : "";
+      const priceText = typeof item.priceFormatted === "string" ? item.priceFormatted.trim() : "";
+      const candidates = [
+        title && title.toLowerCase() !== "untitled" ? title : "",
+        brand,
+        model,
+        city,
+        modelYear,
+        mileage,
+        priceText,
+        brand && model ? `${brand} ${model}` : "",
+        brand && model && modelYear ? `${brand} ${model} ${modelYear}` : "",
+        brand && modelYear ? `${brand} ${modelYear}` : "",
+        model && modelYear ? `${model} ${modelYear}` : "",
+      ];
+
+      for (const candidate of candidates) {
+        const normalizedCandidate = candidate.toLowerCase();
+        if (!candidate || !normalizedCandidate.includes(searchValue)) continue;
+        if (seen.has(normalizedCandidate)) continue;
+        seen.add(normalizedCandidate);
+        suggestions.push(candidate);
+        if (suggestions.length >= SEARCH_SUGGESTIONS_MAX_ITEMS) {
+          return suggestions;
+        }
+      }
+    }
+
+    return suggestions;
+  }, [deferredSearchValue, data]);
   const mergedSearchSuggestions = useMemo(() => {
     const merged: string[] = [];
     const seen = new Set<string>();
@@ -954,24 +1305,48 @@ export default function EvaluationSourcePage({
     for (const suggestion of liveSearchSuggestions) {
       pushSuggestion(suggestion);
     }
+    for (const suggestion of localSearchSuggestions) {
+      pushSuggestion(suggestion);
+    }
     for (const suggestion of filteredSearchHistorySuggestions) {
       pushSuggestion(suggestion);
     }
 
     return merged.slice(0, SEARCH_SUGGESTIONS_MAX_ITEMS);
-  }, [filteredSearchHistorySuggestions, liveSearchSuggestions]);
+  }, [filteredSearchHistorySuggestions, liveSearchSuggestions, localSearchSuggestions]);
+  const localSearchSuggestionLookup = useMemo(
+    () => new Set(localSearchSuggestions.map((item) => item.trim().toLowerCase())),
+    [localSearchSuggestions]
+  );
   const liveSearchSuggestionLookup = useMemo(
     () => new Set(liveSearchSuggestions.map((item) => item.trim().toLowerCase())),
     [liveSearchSuggestions]
   );
+  const shouldShowSearchLoadingIndicator =
+    liveSearchSuggestionsLoading && mergedSearchSuggestions.length === 0;
+  useEffect(() => {
+    if (!progressiveAdvancedFilters) return;
+    if (!hasAdvancedFilterSelections) return;
+    setAdvancedFiltersOpen(true);
+  }, [progressiveAdvancedFilters, hasAdvancedFilterSelections]);
+
   useEffect(() => {
     if (searchSuggestionActiveIndex >= mergedSearchSuggestions.length) {
       setSearchSuggestionActiveIndex(-1);
     }
   }, [searchSuggestionActiveIndex, mergedSearchSuggestions.length]);
+
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    setBrandOptionsRenderLimit(DROPDOWN_INITIAL_VISIBLE_OPTIONS);
+  }, [filters.brand, brandDropdownShowAll, brandDropdownOpen]);
+
+  useEffect(() => {
+    setModelOptionsRenderLimit(DROPDOWN_INITIAL_VISIBLE_OPTIONS);
+  }, [filters.model, modelDropdownShowAll, modelDropdownOpen]);
+
+  useEffect(() => {
+    setModelYearOptionsRenderLimit(DROPDOWN_INITIAL_VISIBLE_OPTIONS);
+  }, [filters.modelYear, modelYearDropdownShowAll, modelYearDropdownOpen]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -1023,9 +1398,12 @@ export default function EvaluationSourcePage({
     [trackAction]
   );
 
-  const updateFilters = (updates: Partial<FilterState>) => {
-    setFilters((prev) => buildNextFiltersState(prev, updates));
-  };
+  const updateFilters = useCallback((updates: Partial<FilterState>) => {
+    setFilters((prev) => {
+      const next = buildNextFiltersState(prev, updates);
+      return hasFilterStateChanged(prev, next) ? next : prev;
+    });
+  }, []);
 
   const toggleDateSort = useCallback(() => {
     const currentDateSort = appliedFilters.sort === "oldest" ? "oldest" : "newest";
@@ -1087,10 +1465,14 @@ export default function EvaluationSourcePage({
     applyFiltersSnapshot(filters);
   };
 
-  const applyFilterSelection = (updates: Partial<FilterState>) => {
-    const next = buildNextFiltersState(filters, updates);
-    setFilters(next);
-  };
+  const applyFilterSelection = useCallback((updates: Partial<FilterState>) => {
+    startFilterSelectionTransition(() => {
+      setFilters((prev) => {
+        const next = buildNextFiltersState(prev, updates);
+        return hasFilterStateChanged(prev, next) ? next : prev;
+      });
+    });
+  }, [startFilterSelectionTransition]);
 
   const applySearchSuggestion = (suggestion: string, autoApply = false) => {
     const normalizedSuggestion = suggestion.trim();
@@ -1175,6 +1557,9 @@ export default function EvaluationSourcePage({
     setModelDropdownShowAll(false);
     setModelYearDropdownOpen(false);
     setModelYearDropdownShowAll(false);
+    if (progressiveAdvancedFilters) {
+      setAdvancedFiltersOpen(false);
+    }
     setPage(1);
   };
 
@@ -1258,8 +1643,12 @@ export default function EvaluationSourcePage({
   ]);
   const listRequestUrl = useMemo(() => `${listEndpoint}?${queryString}`, [listEndpoint, queryString]);
   const searchSuggestionsQueryString = useMemo(() => {
-    const searchText = filters.search.trim();
-    if (searchText.length < SEARCH_SUGGESTIONS_MIN_CHARS) {
+    if (!searchDropdownOpen) {
+      return "";
+    }
+
+    const searchText = deferredSearchValue.trim();
+    if (searchText.length < SEARCH_SUGGESTIONS_REMOTE_MIN_CHARS) {
       return "";
     }
 
@@ -1268,7 +1657,7 @@ export default function EvaluationSourcePage({
     params.set("limit", String(SEARCH_SUGGESTIONS_MAX_ITEMS));
     if (tag0) params.set("tag0", tag0);
 
-    const selectedSource = filters.source?.trim();
+    const selectedSource = deferredSourceValue?.trim();
     const availableSources = resolvedSources;
     const sourcesParam =
       !selectedSource || selectedSource === "all"
@@ -1278,10 +1667,10 @@ export default function EvaluationSourcePage({
           : availableSources;
     params.set("sources", sourcesParam.join(","));
 
-    if (enableBrandFilter && filters.brand) params.set("tag1", filters.brand);
-    if (enableModelFilter && filters.model) params.set("tag2", filters.model);
-    if (enableModelYearFilter && filters.modelYear) {
-      params.set("carModelYear", filters.modelYear);
+    if (enableBrandFilter && deferredBrandValue) params.set("tag1", deferredBrandValue);
+    if (enableModelFilter && deferredModelValue) params.set("tag2", deferredModelValue);
+    if (enableModelYearFilter && deferredModelYearValue) {
+      params.set("carModelYear", deferredModelYearValue);
     }
     if (excludeTag1Values && excludeTag1Values.length > 0) {
       const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
@@ -1290,11 +1679,12 @@ export default function EvaluationSourcePage({
 
     return params.toString();
   }, [
-    filters.search,
-    filters.source,
-    filters.brand,
-    filters.model,
-    filters.modelYear,
+    searchDropdownOpen,
+    deferredSearchValue,
+    deferredSourceValue,
+    deferredBrandValue,
+    deferredModelValue,
+    deferredModelYearValue,
     resolvedSources,
     tag0,
     excludeTag1Values,
@@ -1369,6 +1759,81 @@ export default function EvaluationSourcePage({
   }, []);
 
   useEffect(() => {
+    if (!optionPoolStorageKey) return;
+
+    try {
+      const raw = window.localStorage.getItem(optionPoolStorageKey);
+      if (!raw) return;
+
+      const parsed = parseOptionPoolCachePayload(raw);
+      if (!parsed) return;
+      if (Date.now() - parsed.updatedAt > OPTION_POOL_STORAGE_TTL_MS) {
+        window.localStorage.removeItem(optionPoolStorageKey);
+        return;
+      }
+
+      if (parsed.items.length > 0) {
+        const hydratedItems = dedupeEvaluationItems(
+          parsed.items.map((item) => toOptionPoolStateItem(item))
+        );
+        if (hydratedItems.length > 0) {
+          setOptionPool((previous) => (previous.length > 0 ? previous : hydratedItems));
+          setOptionPoolLoaded(true);
+        }
+      }
+
+      if (enableModelYearFilter && Array.isArray(parsed.modelYears) && parsed.modelYears.length > 0) {
+        setAllModelYearOptions((previous) =>
+          previous.length > 0 ? previous : parsed.modelYears ?? []
+        );
+      }
+    } catch {
+      // Ignore malformed local cache and continue with network fetch.
+    }
+  }, [optionPoolStorageKey, enableModelYearFilter]);
+
+  useEffect(() => {
+    if (
+      (enableBrandFilter || enableModelFilter) &&
+      !optionPoolLoaded &&
+      !optionPoolLoading &&
+      !shouldLoadOptionPool
+    ) {
+      setShouldLoadOptionPool(true);
+    }
+    if (enableModelYearFilter && allModelYearOptions.length === 0 && !shouldLoadModelYears) {
+      setShouldLoadModelYears(true);
+    }
+  }, [
+    enableBrandFilter,
+    enableModelFilter,
+    enableModelYearFilter,
+    optionPoolLoaded,
+    optionPoolLoading,
+    shouldLoadOptionPool,
+    allModelYearOptions.length,
+    shouldLoadModelYears,
+    optionsBaseQueryString,
+    modelYearOptionsQueryString,
+  ]);
+
+  useEffect(() => {
+    if (!optionPoolStorageKey || optionPool.length === 0) return;
+
+    try {
+      const payload: OptionPoolCachePayload = {
+        version: OPTION_POOL_STORAGE_VERSION,
+        updatedAt: Date.now(),
+        items: optionPool.slice(0, OPTION_POOL_MAX_ITEMS).map(toOptionPoolCacheItem),
+        ...(allModelYearOptions.length > 0 ? { modelYears: allModelYearOptions } : {}),
+      };
+      window.localStorage.setItem(optionPoolStorageKey, JSON.stringify(payload));
+    } catch {
+      // localStorage can fail in strict privacy modes.
+    }
+  }, [optionPoolStorageKey, optionPool, allModelYearOptions]);
+
+  useEffect(() => {
     if (!searchSuggestionsRequestUrl) {
       setLiveSearchSuggestions([]);
       setLiveSearchSuggestionsLoading(false);
@@ -1383,6 +1848,7 @@ export default function EvaluationSourcePage({
       setLiveSearchSuggestions(cached);
       setLiveSearchSuggestionsLoading(false);
     } else {
+      setLiveSearchSuggestions([]);
       setLiveSearchSuggestionsLoading(true);
     }
 
@@ -1450,7 +1916,13 @@ export default function EvaluationSourcePage({
       setError(null);
       const cachedResponse = listResponseCacheRef.current.get(listRequestUrl);
       if (cachedResponse) {
-        setData(cachedResponse);
+        const normalizedCachedResponse = normalizeListResponse(cachedResponse);
+        setCachedListResponse(
+          listResponseCacheRef.current,
+          listRequestUrl,
+          normalizedCachedResponse
+        );
+        setData(normalizedCachedResponse);
         setStatus("idle");
       } else {
         setStatus("loading");
@@ -1476,7 +1948,7 @@ export default function EvaluationSourcePage({
           }
           throw new Error("Failed to fetch evaluation source data.");
         }
-        const result = (await response.json()) as ListResponse;
+        const result = normalizeListResponse((await response.json()) as ListResponse);
         if (active) {
           setCachedListResponse(listResponseCacheRef.current, listRequestUrl, result);
           setData(result);
@@ -1496,7 +1968,12 @@ export default function EvaluationSourcePage({
               })
               .then((nextResult) => {
                 if (!nextResult) return;
-                setCachedListResponse(listResponseCacheRef.current, nextPageUrl, nextResult);
+                const normalizedNextResult = normalizeListResponse(nextResult);
+                setCachedListResponse(
+                  listResponseCacheRef.current,
+                  nextPageUrl,
+                  normalizedNextResult
+                );
               })
               .catch(() => {
                 // Next-page prefetch is best effort only.
@@ -1593,12 +2070,13 @@ export default function EvaluationSourcePage({
     const loadOptions = async () => {
       if (active) setOptionPoolLoading(true);
       try {
-        const pageSize = 200;
-        const maxPages = 12;
-        const maxItems = 2400;
+        const pageSize = OPTION_POOL_PAGE_SIZE;
+        const maxPages = OPTION_POOL_MAX_PAGES;
+        const maxItems = OPTION_POOL_MAX_ITEMS;
         let currentPage = 1;
         let totalItems: number | null = null;
         const collected: EvaluationSourceItem[] = [];
+        let hasPublishedFirstChunk = false;
 
         while (
           active &&
@@ -1628,9 +2106,16 @@ export default function EvaluationSourcePage({
             }
             break;
           }
-          const result = (await response.json()) as ListResponse;
+          const result = normalizeListResponse((await response.json()) as ListResponse);
           const fetchedItems = result.items ?? [];
-          collected.push(...fetchedItems);
+          if (fetchedItems.length > 0) {
+            collected.push(...fetchedItems);
+          }
+          if (active && fetchedItems.length > 0 && !hasPublishedFirstChunk) {
+            setOptionPool(dedupeEvaluationItems(fetchedItems));
+            setOptionPoolLoaded(true);
+            hasPublishedFirstChunk = true;
+          }
           if (typeof result.total === "number" && result.total >= 0) {
             totalItems = Math.min(result.total, maxItems);
           }
@@ -1641,8 +2126,11 @@ export default function EvaluationSourcePage({
         }
 
         if (active) {
-          setOptionPool(collected);
-          setOptionPoolLoaded(true);
+          const dedupedCollected = dedupeEvaluationItems(collected);
+          if (dedupedCollected.length > 0) {
+            setOptionPool(dedupedCollected);
+            setOptionPoolLoaded(true);
+          }
           setOptionPoolLoading(false);
           setShouldLoadOptionPool(false);
         }
@@ -1651,7 +2139,6 @@ export default function EvaluationSourcePage({
           return;
         }
         if (active) {
-          setOptionPool([]);
           setOptionPoolLoading(false);
           setShouldLoadOptionPool(false);
         }
@@ -1673,7 +2160,7 @@ export default function EvaluationSourcePage({
   ]);
 
   const items = data?.items ?? [];
-  const optionItems = optionPoolLoaded && optionPool.length > 0 ? optionPool : items;
+  const optionItems = optionPool.length > 0 ? optionPool : items;
   const activeDateSort = appliedFilters.sort === "oldest" ? "oldest" : "newest";
   const hasKnownTotal = typeof data?.total === "number" && data.total >= 0;
   const totalPages = hasKnownTotal ? Math.max(Math.ceil((data?.total ?? 0) / limit), 1) : null;
@@ -1689,50 +2176,154 @@ export default function EvaluationSourcePage({
       ? `الصفحة ${page}`
       : `Page ${page}`;
 
-  const brandOptions = useMemo(() => {
-    const optionsMap = new Map<string, string>();
-    optionItems
-      .map((item) => item.tags?.[1]?.trim())
-      .filter((value): value is string => Boolean(value))
-      .forEach((brand) => {
-        const key = toVehicleCanonicalKey(brand);
-        if (!key) return;
-        optionsMap.set(key, pickPreferredLabel(optionsMap.get(key), brand));
-      });
-    return Array.from(optionsMap.values()).sort((a, b) => a.localeCompare(b));
+  const optionDerived = useMemo(() => {
+    const brandMap = new Map<string, string>();
+    const allModelMap = new Map<string, string>();
+    const modelsByBrandMap = new Map<string, Map<string, string>>();
+
+    for (const item of optionItems) {
+      const brand = item.tags?.[1]?.trim();
+      const model = item.tags?.[2]?.trim();
+
+      let brandKey = "";
+      if (brand) {
+        brandKey = toVehicleCanonicalKey(brand);
+        if (brandKey) {
+          brandMap.set(brandKey, pickPreferredLabel(brandMap.get(brandKey), brand));
+        }
+      }
+
+      if (model) {
+        const modelKey = toVehicleCanonicalKey(model);
+        if (modelKey) {
+          allModelMap.set(modelKey, pickPreferredLabel(allModelMap.get(modelKey), model));
+          if (brandKey) {
+            const scopedModels = modelsByBrandMap.get(brandKey) ?? new Map<string, string>();
+            scopedModels.set(modelKey, pickPreferredLabel(scopedModels.get(modelKey), model));
+            modelsByBrandMap.set(brandKey, scopedModels);
+          }
+        }
+      }
+    }
+
+    const brandEntries = Array.from(brandMap.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    const brandOptions = brandEntries.map((entry) => entry.label);
+    const allModelOptions = Array.from(allModelMap.values()).sort((a, b) => a.localeCompare(b));
+
+    const modelsByBrand = new Map<string, string[]>();
+    for (const [brandKey, modelsMap] of modelsByBrandMap.entries()) {
+      modelsByBrand.set(
+        brandKey,
+        Array.from(modelsMap.values()).sort((a, b) => a.localeCompare(b))
+      );
+    }
+
+    return {
+      brandEntries,
+      brandOptions,
+      allModelOptions,
+      modelsByBrand,
+    };
   }, [optionItems]);
 
+  const brandOptions = optionDerived.brandOptions;
+  const brandOptionIndex = useMemo(
+    () => (brandDropdownOpen ? buildIndexedVehicleOptions(brandOptions) : EMPTY_INDEXED_VEHICLE_OPTIONS),
+    [brandOptions, brandDropdownOpen]
+  );
+
   const modelOptions = useMemo(() => {
-    const filteredByBrand = filters.brand
-      ? optionItems.filter((item) => isVehicleTextMatch(item.tags?.[1], filters.brand))
-      : optionItems;
-    const optionsMap = new Map<string, string>();
-    filteredByBrand
-      .map((item) => item.tags?.[2]?.trim())
-      .filter((value): value is string => Boolean(value))
-      .forEach((model) => {
-        const key = toVehicleCanonicalKey(model);
-        if (!key) return;
-        optionsMap.set(key, pickPreferredLabel(optionsMap.get(key), model));
-      });
-    return Array.from(optionsMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [optionItems, filters.brand]);
+    if (!modelDropdownOpen) {
+      return EMPTY_STRING_OPTIONS;
+    }
 
-  const visibleBrandOptions = useMemo(
-    () =>
-      brandDropdownShowAll
-        ? brandOptions
-        : filterVehicleOptionsByInput(brandOptions, filters.brand),
-    [brandDropdownShowAll, brandOptions, filters.brand]
-  );
+    const brandQuery = deferredBrandValue.trim();
+    if (!brandQuery) {
+      return optionDerived.allModelOptions;
+    }
 
-  const visibleModelOptions = useMemo(
-    () =>
-      modelDropdownShowAll
-        ? modelOptions
-        : filterVehicleOptionsByInput(modelOptions, filters.model),
-    [modelDropdownShowAll, modelOptions, filters.model]
+    const canonicalBrandQuery = toVehicleCanonicalKey(brandQuery);
+    if (canonicalBrandQuery) {
+      const directModels = optionDerived.modelsByBrand.get(canonicalBrandQuery);
+      if (directModels) {
+        return directModels;
+      }
+    }
+
+    const loweredBrandQuery = brandQuery.toLowerCase();
+    const matchedBrandKeys = optionDerived.brandEntries
+      .filter((entry) => {
+        if (entry.label.toLowerCase().includes(loweredBrandQuery)) return true;
+        if (canonicalBrandQuery && entry.key.includes(canonicalBrandQuery)) return true;
+        return isVehicleTextMatch(entry.label, brandQuery);
+      })
+      .map((entry) => entry.key);
+
+    if (matchedBrandKeys.length === 0) {
+      return [];
+    }
+
+    const mergedModelMap = new Map<string, string>();
+    for (const brandKey of matchedBrandKeys) {
+      const models = optionDerived.modelsByBrand.get(brandKey) ?? [];
+      for (const model of models) {
+        const modelKey = toVehicleCanonicalKey(model);
+        if (!modelKey) continue;
+        mergedModelMap.set(modelKey, pickPreferredLabel(mergedModelMap.get(modelKey), model));
+      }
+    }
+
+    return Array.from(mergedModelMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [optionDerived, deferredBrandValue, modelDropdownOpen]);
+  const modelOptionIndex = useMemo(() => {
+    if (!modelDropdownOpen) {
+      return EMPTY_INDEXED_VEHICLE_OPTIONS;
+    }
+    return buildIndexedVehicleOptions(modelOptions);
+  }, [modelOptions, modelDropdownOpen]);
+
+  const filteredBrandOptions = useMemo(() => {
+    if (!brandDropdownOpen) {
+      return EMPTY_STRING_OPTIONS;
+    }
+    return filterVehicleOptionsByInput(brandOptionIndex, deferredBrandValue);
+  }, [brandOptionIndex, deferredBrandValue, brandDropdownOpen]);
+  const filteredModelOptions = useMemo(() => {
+    if (!modelDropdownOpen) {
+      return EMPTY_STRING_OPTIONS;
+    }
+    return filterVehicleOptionsByInput(modelOptionIndex, deferredModelValue);
+  }, [modelOptionIndex, deferredModelValue, modelDropdownOpen]);
+
+  const visibleBrandOptions = useMemo(() => {
+    if (!brandDropdownOpen) return EMPTY_STRING_OPTIONS;
+    if (brandDropdownShowAll) return filteredBrandOptions;
+    if (!deferredBrandValue.trim()) {
+      return filteredBrandOptions.slice(0, DROPDOWN_EMPTY_QUERY_VISIBLE_OPTIONS);
+    }
+    return filteredBrandOptions;
+  }, [brandDropdownOpen, brandDropdownShowAll, filteredBrandOptions, deferredBrandValue]);
+  const renderedBrandOptions = useMemo(
+    () => visibleBrandOptions.slice(0, brandOptionsRenderLimit),
+    [visibleBrandOptions, brandOptionsRenderLimit]
   );
+  const hasMoreBrandOptions = renderedBrandOptions.length < visibleBrandOptions.length;
+
+  const visibleModelOptions = useMemo(() => {
+    if (!modelDropdownOpen) return EMPTY_STRING_OPTIONS;
+    if (modelDropdownShowAll) return filteredModelOptions;
+    if (!deferredModelValue.trim()) {
+      return filteredModelOptions.slice(0, DROPDOWN_EMPTY_QUERY_VISIBLE_OPTIONS);
+    }
+    return filteredModelOptions;
+  }, [modelDropdownOpen, modelDropdownShowAll, filteredModelOptions, deferredModelValue]);
+  const renderedModelOptions = useMemo(
+    () => visibleModelOptions.slice(0, modelOptionsRenderLimit),
+    [visibleModelOptions, modelOptionsRenderLimit]
+  );
+  const hasMoreModelOptions = renderedModelOptions.length < visibleModelOptions.length;
 
   const modelYearOptions = useMemo(() => {
     if (allModelYearOptions.length > 0) {
@@ -1747,19 +2338,32 @@ export default function EvaluationSourcePage({
   }, [allModelYearOptions, optionItems]);
 
   const visibleModelYearOptions = useMemo(() => {
+    if (!modelYearDropdownOpen) return EMPTY_STRING_OPTIONS;
     if (modelYearDropdownShowAll) {
       return modelYearOptions;
     }
 
-    const query = filters.modelYear.trim();
+    const query = deferredModelYearValue.trim();
     if (!query) {
       return modelYearOptions;
     }
 
     return modelYearOptions.filter((year) => year.includes(query));
-  }, [modelYearDropdownShowAll, modelYearOptions, filters.modelYear]);
+  }, [modelYearDropdownOpen, modelYearDropdownShowAll, modelYearOptions, deferredModelYearValue]);
+  const modelYearOptionsForRender = useMemo(() => {
+    if (!deferredModelYearValue.trim() && !modelYearDropdownShowAll) {
+      return visibleModelYearOptions.slice(0, DROPDOWN_EMPTY_QUERY_VISIBLE_OPTIONS);
+    }
+    return visibleModelYearOptions;
+  }, [visibleModelYearOptions, deferredModelYearValue, modelYearDropdownShowAll]);
+  const renderedModelYearOptions = useMemo(
+    () => modelYearOptionsForRender.slice(0, modelYearOptionsRenderLimit),
+    [modelYearOptionsForRender, modelYearOptionsRenderLimit]
+  );
+  const hasMoreModelYearOptions =
+    renderedModelYearOptions.length < modelYearOptionsForRender.length;
 
-  const fetchDetail = async (item: EvaluationSourceItem) => {
+  const fetchDetail = useCallback(async (item: EvaluationSourceItem) => {
     const source = item.source ?? "haraj";
     const endpoint = toApiUrl(
       source === "yallamotor"
@@ -1776,9 +2380,9 @@ export default function EvaluationSourcePage({
     }
     const doc = (await response.json()) as Record<string, any>;
     return { ...doc, __source: source } as Record<string, any>;
-  };
+  }, []);
 
-  const openDetails = async (item: EvaluationSourceItem) => {
+  const openDetails = useCallback(async (item: EvaluationSourceItem) => {
     trackAction({
       actionType: "open_details",
       actionDetails: {
@@ -1796,9 +2400,9 @@ export default function EvaluationSourcePage({
     } catch (err) {
       setDetailStatus("error");
     }
-  };
+  }, [fetchDetail, trackAction]);
 
-  const openImages = async (item: EvaluationSourceItem) => {
+  const openImages = useCallback(async (item: EvaluationSourceItem) => {
     trackAction({
       actionType: "open_images",
       actionDetails: {
@@ -1823,9 +2427,9 @@ export default function EvaluationSourcePage({
     } catch (err) {
       setModalStatus("error");
     }
-  };
+  }, [fetchDetail, trackAction]);
 
-  const openComments = async (item: EvaluationSourceItem) => {
+  const openComments = useCallback(async (item: EvaluationSourceItem) => {
     trackAction({
       actionType: "open_comments",
       actionDetails: {
@@ -1858,7 +2462,7 @@ export default function EvaluationSourcePage({
     } catch (err) {
       setModalStatus("error");
     }
-  };
+  }, [fetchDetail, trackAction]);
 
   const detailSource = (detail as any)?.__source ?? (detail as any)?.source ?? "haraj";
   const isYallaDetail = detailSource === "yallamotor";
@@ -2052,6 +2656,123 @@ export default function EvaluationSourcePage({
           ]
       : [];
 
+  const tableRows = useMemo(
+    () =>
+      items.map((item, index) => {
+        const sourceName = getSourceDisplayName(item.source);
+        const sourceUrl = resolveSourceUrl(item);
+
+        return (
+          <TableRow key={getEvaluationItemIdentity(item, index)}>
+            <TableCell className="text-sm font-medium text-slate-900">
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => openDetails(item)}
+                  className="group inline-flex max-w-[280px] items-start rounded-md px-1 py-0.5 text-left rtl:text-right text-slate-900 transition-all hover:bg-emerald-50/70 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-white group-hover:scale-[1.02]"
+                >
+                  <span className="line-clamp-2 underline decoration-transparent decoration-2 underline-offset-4 transition-colors group-hover:decoration-emerald-300">
+                    {item.title}
+                  </span>
+                </button>
+              </div>
+            </TableCell>
+            <TableCell className="text-sm text-slate-600">{item.tags?.[1] || "-"}</TableCell>
+            <TableCell className="text-sm text-slate-600">{item.tags?.[2] || "-"}</TableCell>
+            <TableCell className="text-sm text-slate-600">{item.carModelYear ?? "-"}</TableCell>
+            <TableCell className="text-sm text-slate-600">{formatMileage(item.mileage, true)}</TableCell>
+            <TableCell
+              className={`text-sm ${
+                getPriceNumber(item.priceNumeric, item.priceFormatted) !== null
+                  ? "font-semibold text-amber-600"
+                  : "text-slate-600"
+              }`}
+            >
+              {formatPrice(item.priceNumeric, item.priceFormatted)}
+            </TableCell>
+            <TableCell className="text-sm text-slate-600">{formatEpoch(item.postDate)}</TableCell>
+            <TableCell className="text-sm text-slate-600">
+              {item.imagesCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openImages(item)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                >
+                  <ImageIcon className="h-3 w-3" />
+                  {t.table.viewImages(item.imagesCount)}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-400">
+                  <ImageIcon className="h-3 w-3" />
+                  {t.table.noImages}
+                </span>
+              )}
+            </TableCell>
+            <TableCell className="text-xs text-slate-600">
+              {item.source === "yallamotor" ? (
+                <button
+                  type="button"
+                  onClick={() => openComments(item)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                >
+                  {t.modals.priceCompareTitle}
+                </button>
+              ) : item.commentsCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openComments(item)}
+                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                >
+                  {t.table.commentsCount(item.commentsCount)}
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-400">
+                  {t.table.noComments}
+                </span>
+              )}
+            </TableCell>
+            <TableCell>
+              <Button
+                size="sm"
+                className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
+                onClick={() => openDetails(item)}
+              >
+                <Eye className="h-4 w-4" />
+                {t.table.seeMore}
+              </Button>
+            </TableCell>
+            <TableCell className="text-[11px] text-slate-600">{sourceName}</TableCell>
+            <TableCell className="text-[11px] text-slate-600">
+              {sourceUrl ? (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() =>
+                    trackAction({
+                      actionType: "open_source_link",
+                      actionDetails: {
+                        itemId: item.id,
+                        source: item.source,
+                        url: sourceUrl,
+                      },
+                    })
+                  }
+                  className="inline-flex items-center gap-1 text-[11px] text-emerald-700 underline decoration-emerald-300 underline-offset-2 transition hover:text-emerald-800 hover:decoration-emerald-500"
+                >
+                  <span aria-hidden="true" className="text-[12px] leading-none">↗</span>
+                  {t.table.openSource}
+                </a>
+              ) : (
+                <span className="text-slate-400">-</span>
+              )}
+            </TableCell>
+          </TableRow>
+        );
+      }),
+    [items, getSourceDisplayName, openDetails, openImages, openComments, t, trackAction]
+  );
+
   const exportCurrentRows = () => {
     if (items.length === 0) return;
     trackAction({
@@ -2089,7 +2810,7 @@ export default function EvaluationSourcePage({
         item.tags?.[2] ?? "-",
         item.carModelYear ?? "-",
         formatMileage(item.mileage),
-        formatPrice(item.priceNumeric, item.priceFormatted),
+        getPriceNumber(item.priceNumeric, item.priceFormatted) ?? "",
         formatEpoch(item.postDate),
         item.imagesCount ?? 0,
         commentsValue,
@@ -2112,37 +2833,10 @@ export default function EvaluationSourcePage({
     URL.revokeObjectURL(url);
   };
 
-  if (!mounted) {
-    return (
-      <div className={`min-h-screen bg-[#f7f4ee] text-slate-900 ${plex.className}`}>
-        <Header />
-        <main className="px-6 py-12">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-            Loading page...
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
   return (
     <div className={`min-h-screen bg-[#f7f4ee] text-slate-900 ${plex.className}`}>
-      <style>{animationStyles}</style>
-      <Header />
-      <main className="relative overflow-x-hidden overflow-y-visible">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-16 right-10 h-48 w-48 rounded-full bg-amber-200/40 blur-3xl float-slow" />
-          <div
-            className="absolute top-1/3 -left-10 h-56 w-56 rounded-full bg-cyan-200/50 blur-3xl float-slow"
-            style={{ animationDelay: "-4s" }}
-          />
-          <div
-            className="absolute bottom-20 right-1/3 h-64 w-64 rounded-full bg-rose-200/40 blur-3xl float-slow"
-            style={{ animationDelay: "-7s" }}
-          />
-        </div>
-
+      <ValueTechServiceNavbar />
+      <main className="overflow-x-hidden">
         {/* <section className="relative">
           <div className="w-full px-6 py-12">
             <div className="space-y-6">
@@ -2158,34 +2852,34 @@ export default function EvaluationSourcePage({
 
         <section className="relative pb-16">
           <div className="w-full px-6">
-            <div className="relative overflow-visible rounded-[32px] border border-emerald-200/70 bg-gradient-to-br from-white/95 via-emerald-50/70 to-cyan-50/60 p-4 shadow-[0_45px_130px_-60px_rgba(16,185,129,0.7)] backdrop-blur xl:p-5">
-              <div className="pointer-events-none absolute inset-0">
-                <div className="absolute -top-16 right-8 h-44 w-44 rounded-full bg-emerald-200/45 blur-3xl" />
-                <div className="absolute -bottom-14 left-6 h-40 w-40 rounded-full bg-cyan-200/45 blur-3xl" />
-                <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-r from-transparent via-emerald-200/45 to-transparent opacity-70" />
-              </div>
-
-              <div className="relative flex flex-wrap items-start justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="inline-flex items-center rounded-full border border-emerald-300/70 bg-emerald-100/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
+            <div
+              className={`relative overflow-visible border border-slate-200/80 ${
+                progressiveAdvancedFilters
+                  ? "rounded-2xl bg-white p-2 shadow-sm xl:p-2.5"
+                  : "rounded-[28px] bg-gradient-to-br from-white via-[#fffdf8] to-[#f4f8ef] p-4 shadow-[0_16px_44px_rgba(15,23,42,0.11)] xl:p-5"
+              }`}
+            >
+              <div className="relative flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-800">
                     {t.filters.badge}
                   </span>
-                  <h2 className={`text-xl font-semibold text-slate-900 ${sora.className}`}>{t.filters.title}</h2>
-                  <p className="text-xs text-slate-600">
+                  <h2 className={`text-lg font-semibold text-slate-900 sm:text-xl ${sora.className}`}>{t.filters.title}</h2>
+                  <p className="text-xs text-slate-600 sm:text-sm">
                     {requireSearchClickToApplyFilters
                       ? t.filters.searchModeSubtitle
                       : t.filters.subtitle}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/85 px-3 py-1 text-[11px] font-medium text-slate-700">
+                  <span className="inline-flex items-center rounded-full border border-slate-300 bg-white/90 px-3 py-1 text-xs font-medium text-slate-700">
                     {activeFiltersLabel}: {activeFilterCount}
                   </span>
                   <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-medium ${
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
                       hasPendingFilterChanges
-                        ? "border border-amber-200 bg-amber-100/85 text-amber-700"
-                        : "border border-emerald-200 bg-emerald-100/85 text-emerald-700"
+                        ? "border border-amber-300 bg-amber-100 text-amber-700 shadow-[0_4px_14px_rgba(245,158,11,0.15)]"
+                        : "border border-emerald-300 bg-emerald-100 text-emerald-800"
                     }`}
                   >
                     {hasPendingFilterChanges ? pendingApplyLabel : readyLabel}
@@ -2193,33 +2887,32 @@ export default function EvaluationSourcePage({
                 </div>
               </div>
 
-              <div
-                className="relative mt-4 rounded-3xl border border-emerald-200/70 bg-white/70 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
-              >
-                <div className="rounded-2xl bg-gradient-to-b from-white/70 to-emerald-50/35 p-1.5">
+              <div className="relative mt-2 p-1">
+                <div className="p-0.5">
                   <div
-                    className={`grid gap-2 sm:grid-cols-2 ${
-                      showSourceFilter ? "xl:grid-cols-6" : "xl:grid-cols-5"
+                    id="advanced-filters-panel"
+                    className={`grid gap-1.5 sm:grid-cols-2 ${
+                      progressiveAdvancedFilters
+                        ? showSourceFilter
+                          ? "xl:grid-cols-4"
+                          : "xl:grid-cols-3"
+                        : showSourceFilter
+                          ? "xl:grid-cols-6"
+                          : "xl:grid-cols-5"
                     }`}
                   >
-                    <div className="flex flex-col gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] sm:col-span-2 xl:col-span-2">
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Label className={filterLabelClass}>
-                          {t.filters.search}
-                        </Label>
-                        {searchHistory.length > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                            {searchHistory.length}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex w-full min-w-0 flex-1 flex-wrap items-center gap-2 lg:flex-nowrap">
+                    <div
+                      className={`flex flex-col gap-1 sm:col-span-2 ${
+                        progressiveAdvancedFilters ? "xl:col-span-full" : "xl:col-span-2"
+                      }`}
+                    >
+                      <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
                         <div
-                          className="relative min-w-0 basis-full lg:basis-auto lg:flex-1"
+                          className="relative min-w-[170px] w-full sm:w-[52%] lg:w-[45%] xl:w-[38%] flex-none"
                           ref={searchDropdownRef}
                         >
                           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
-                          {liveSearchSuggestionsLoading ? (
+                          {shouldShowSearchLoadingIndicator ? (
                             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-500" />
                           ) : null}
                           <Input
@@ -2227,18 +2920,22 @@ export default function EvaluationSourcePage({
                             onChange={(event) => handleSearchInputChange(event.target.value)}
                             onKeyDown={handleEnterSearchKeyDown}
                             onFocus={handleSearchInputFocus}
-                            placeholder={t.filters.searchPlaceholder}
+                            placeholder={progressiveAdvancedFilters ? "" : t.filters.searchPlaceholder}
                             autoComplete="off"
-                            className="h-10 w-full min-w-0 rounded-xl border-emerald-100 bg-emerald-50/35 pl-9 pr-9 text-sm focus-visible:border-emerald-400 focus-visible:ring-emerald-400"
+                            className="h-9 w-full min-w-0 rounded-md border-slate-300 bg-white pl-8 pr-8 text-xs shadow-[inset_0_0_0_1px_rgba(16,185,129,0.16),0_0_0_1px_rgba(15,23,42,0.05)] transition-colors focus-visible:border-slate-300 focus-visible:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.5),0_0_0_3px_rgba(16,185,129,0.14)] focus-visible:ring-0"
                           />
                           {searchDropdownOpen ? (
-                            <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-2xl">
+                            <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.14)]">
                               {mergedSearchSuggestions.length > 0 ? (
                                 <div className="max-h-64 overflow-y-auto p-1.5">
                                   {mergedSearchSuggestions.map((value, index) => {
                                     const isActive = index === searchSuggestionActiveIndex;
+                                    const normalizedSuggestion = value.trim().toLowerCase();
                                     const isLiveSuggestion = liveSearchSuggestionLookup.has(
-                                      value.trim().toLowerCase()
+                                      normalizedSuggestion
+                                    );
+                                    const isLocalSuggestion = localSearchSuggestionLookup.has(
+                                      normalizedSuggestion
                                     );
                                     return (
                                       <button
@@ -2254,42 +2951,85 @@ export default function EvaluationSourcePage({
                                       >
                                         <span className="truncate">{value}</span>
                                         <span className="ml-3 shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-600">
-                                          {isLiveSuggestion ? "Live" : "History"}
+                                          {isLiveSuggestion
+                                            ? liveSuggestionLabel
+                                            : isLocalSuggestion
+                                              ? localSuggestionLabel
+                                              : historySuggestionLabel}
                                         </span>
                                       </button>
                                     );
                                   })}
                                 </div>
-                              ) : filters.search.trim().length >= SEARCH_SUGGESTIONS_MIN_CHARS &&
+                              ) : shouldShowSearchLoadingIndicator ? (
+                                <p className="px-3 py-2 text-xs text-slate-500">
+                                  {loadingSuggestionsLabel}
+                                </p>
+                              ) : deferredSearchValue.trim().length >= SEARCH_SUGGESTIONS_MIN_CHARS &&
                                   !liveSearchSuggestionsLoading ? (
                                 <p className="px-3 py-2 text-xs text-slate-500">
-                                  No suggestions found
+                                  {noSuggestionsLabel}
                                 </p>
                               ) : null}
                             </div>
                           ) : null}
                         </div>
-                        <label className="inline-flex h-10 shrink-0 select-none items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 whitespace-nowrap text-xs font-semibold text-slate-600">
-                          <input
-                            type="checkbox"
-                            checked={filters.match}
-                            onChange={(event) => updateFilters({ match: event.target.checked })}
-                            className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                          />
-                          <span>{matchLabel}</span>
-                        </label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-10 w-fit shrink-0 whitespace-nowrap rounded-xl border-slate-200 bg-white px-3 text-[10px] uppercase tracking-[0.12em] text-slate-600 hover:bg-slate-100 sm:text-[11px]"
-                          onClick={clearSearchHistory}
-                          disabled={searchHistory.length === 0}
-                        >
-                          {t.filters.clearHistory}
-                        </Button>
+                        {progressiveAdvancedFilters && requireSearchClickToApplyFilters ? (
+                          <Button
+                            type="button"
+                            className="h-9 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-600"
+                            onClick={applyFilters}
+                          >
+                            {t.filters.search}
+                          </Button>
+                        ) : null}
+                        {progressiveAdvancedFilters && hasAdvancedFilterControls ? (
+                          <div className="inline-flex items-center gap-1 pl-0.5">
+                            <span className="text-[11px] font-semibold text-slate-700">
+                              {advancedSearchLabel}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setAdvancedFiltersOpen((prev) => !prev)}
+                              aria-expanded={showAdvancedFilters}
+                              aria-controls="advanced-filters-panel"
+                              aria-label={advancedSearchLabel}
+                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
+                            >
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 transition-transform ${
+                                  showAdvancedFilters ? "rotate-180 text-emerald-700" : "text-slate-500"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
+
+                      {!progressiveAdvancedFilters && showSearchAuxControls ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex h-9 shrink-0 select-none items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 whitespace-nowrap text-xs font-semibold text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={filters.match}
+                              onChange={(event) => updateFilters({ match: event.target.checked })}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span>{matchLabel}</span>
+                          </label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 w-fit shrink-0 whitespace-nowrap rounded-lg border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50"
+                            onClick={clearSearchHistory}
+                            disabled={searchHistory.length === 0}
+                          >
+                            {t.filters.clearHistory}
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
-                    {enableBrandFilter ? (
+                    {showAdvancedFilters && enableBrandFilter ? (
                       <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.brand}
@@ -2320,23 +3060,23 @@ export default function EvaluationSourcePage({
                               setBrandDropdownShowAll(true);
                               setBrandDropdownOpen(true);
                             }}
-                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700"
                             aria-label={openBrandOptionsLabel}
                           >
                             <ChevronDown className="h-4 w-4" />
                           </button>
                           {brandDropdownOpen ? (
                             <div className={searchableDropdownClass}>
-                              {optionPoolLoading && !optionPoolLoaded ? (
+                              {optionPoolLoading && optionItems.length === 0 ? (
                                 <div className="px-3 py-2 text-center text-sm text-slate-400">{loadingOptionsLabel}</div>
                               ) : null}
                               <button
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  applyFilterSelection({ brand: "" });
                                   setBrandDropdownOpen(false);
                                   setBrandDropdownShowAll(false);
+                                  applyFilterSelection({ brand: "" });
                                 }}
                                 className={`${searchableDropdownOptionClass} ${
                                   filters.brand ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
@@ -2344,18 +3084,18 @@ export default function EvaluationSourcePage({
                               >
                                 {clearBrandLabel}
                               </button>
-                              {visibleBrandOptions.map((brand) => (
+                              {renderedBrandOptions.map((brand, index) => (
                                 <button
-                                  key={brand}
+                                  key={`${brand}-${index}`}
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    applyFilterSelection({ brand });
                                     setBrandDropdownOpen(false);
                                     setBrandDropdownShowAll(false);
+                                    applyFilterSelection({ brand });
                                   }}
                                   className={`${searchableDropdownOptionClass} ${
-                                    isVehicleTextMatch(brand, filters.brand)
+                                    brand.trim().toLowerCase() === filters.brand.trim().toLowerCase()
                                       ? "bg-emerald-50 text-emerald-700"
                                       : "text-slate-700"
                                   }`}
@@ -2363,6 +3103,20 @@ export default function EvaluationSourcePage({
                                   {brand}
                                 </button>
                               ))}
+                              {hasMoreBrandOptions ? (
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() =>
+                                    setBrandOptionsRenderLimit((prev) =>
+                                      prev + DROPDOWN_LOAD_MORE_STEP
+                                    )
+                                  }
+                                  className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+                                >
+                                  {showMoreOptionsLabel}
+                                </button>
+                              ) : null}
                               {visibleBrandOptions.length === 0 ? (
                                 <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
                               ) : null}
@@ -2371,7 +3125,7 @@ export default function EvaluationSourcePage({
                         </div>
                       </div>
                     ) : null}
-                    {enableModelFilter ? (
+                    {showAdvancedFilters && enableModelFilter ? (
                       <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.model}
@@ -2402,23 +3156,23 @@ export default function EvaluationSourcePage({
                               setModelDropdownShowAll(true);
                               setModelDropdownOpen(true);
                             }}
-                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700"
                             aria-label={openModelOptionsLabel}
                           >
                             <ChevronDown className="h-4 w-4" />
                           </button>
                           {modelDropdownOpen ? (
                             <div className={searchableDropdownClass}>
-                              {optionPoolLoading && !optionPoolLoaded ? (
+                              {optionPoolLoading && optionItems.length === 0 ? (
                                 <div className="px-3 py-2 text-center text-sm text-slate-400">{loadingOptionsLabel}</div>
                               ) : null}
                               <button
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  applyFilterSelection({ model: "" });
                                   setModelDropdownOpen(false);
                                   setModelDropdownShowAll(false);
+                                  applyFilterSelection({ model: "" });
                                 }}
                                 className={`${searchableDropdownOptionClass} ${
                                   filters.model ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
@@ -2426,18 +3180,18 @@ export default function EvaluationSourcePage({
                               >
                                 {clearModelLabel}
                               </button>
-                              {visibleModelOptions.map((model) => (
+                              {renderedModelOptions.map((model, index) => (
                                 <button
-                                  key={model}
+                                  key={`${model}-${index}`}
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    applyFilterSelection({ model });
                                     setModelDropdownOpen(false);
                                     setModelDropdownShowAll(false);
+                                    applyFilterSelection({ model });
                                   }}
                                   className={`${searchableDropdownOptionClass} ${
-                                    isVehicleTextMatch(model, filters.model)
+                                    model.trim().toLowerCase() === filters.model.trim().toLowerCase()
                                       ? "bg-emerald-50 text-emerald-700"
                                       : "text-slate-700"
                                   }`}
@@ -2445,6 +3199,20 @@ export default function EvaluationSourcePage({
                                   {model}
                                 </button>
                               ))}
+                              {hasMoreModelOptions ? (
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() =>
+                                    setModelOptionsRenderLimit((prev) =>
+                                      prev + DROPDOWN_LOAD_MORE_STEP
+                                    )
+                                  }
+                                  className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+                                >
+                                  {showMoreOptionsLabel}
+                                </button>
+                              ) : null}
                               {visibleModelOptions.length === 0 ? (
                                 <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
                               ) : null}
@@ -2453,7 +3221,7 @@ export default function EvaluationSourcePage({
                         </div>
                       </div>
                     ) : null}
-                    {enableModelYearFilter ? (
+                    {showAdvancedFilters && enableModelYearFilter ? (
                       <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.manufactureYear}
@@ -2485,7 +3253,7 @@ export default function EvaluationSourcePage({
                               setModelYearDropdownShowAll(true);
                               setModelYearDropdownOpen(true);
                             }}
-                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                            className="absolute right-1 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-emerald-50 hover:text-emerald-700"
                             aria-label={openModelYearOptionsLabel}
                           >
                             <ChevronDown className="h-4 w-4" />
@@ -2496,9 +3264,9 @@ export default function EvaluationSourcePage({
                                 type="button"
                                 onMouseDown={(event) => event.preventDefault()}
                                 onClick={() => {
-                                  applyFilterSelection({ modelYear: "" });
                                   setModelYearDropdownOpen(false);
                                   setModelYearDropdownShowAll(false);
+                                  applyFilterSelection({ modelYear: "" });
                                 }}
                                 className={`${searchableDropdownOptionClass} ${
                                   filters.modelYear ? "text-slate-700" : "bg-emerald-50 text-emerald-700"
@@ -2506,15 +3274,15 @@ export default function EvaluationSourcePage({
                               >
                                 {clearModelYearLabel}
                               </button>
-                              {visibleModelYearOptions.map((year) => (
+                              {renderedModelYearOptions.map((year, index) => (
                                 <button
-                                  key={year}
+                                  key={`${year}-${index}`}
                                   type="button"
                                   onMouseDown={(event) => event.preventDefault()}
                                   onClick={() => {
-                                    applyFilterSelection({ modelYear: year });
                                     setModelYearDropdownOpen(false);
                                     setModelYearDropdownShowAll(false);
+                                    applyFilterSelection({ modelYear: year });
                                   }}
                                   className={`${searchableDropdownOptionClass} ${
                                     year === filters.modelYear
@@ -2525,6 +3293,20 @@ export default function EvaluationSourcePage({
                                   {year}
                                 </button>
                               ))}
+                              {hasMoreModelYearOptions ? (
+                                <button
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() =>
+                                    setModelYearOptionsRenderLimit((prev) =>
+                                      prev + DROPDOWN_LOAD_MORE_STEP
+                                    )
+                                  }
+                                  className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+                                >
+                                  {showMoreOptionsLabel}
+                                </button>
+                              ) : null}
                               {visibleModelYearOptions.length === 0 ? (
                                 <div className="px-3 py-2 text-center text-sm text-slate-400">{noOptionsLabel}</div>
                               ) : null}
@@ -2533,7 +3315,7 @@ export default function EvaluationSourcePage({
                         </div>
                       </div>
                     ) : null}
-                    {showSourceFilter ? (
+                    {showAdvancedFilters && showSourceFilter ? (
                       <div className={filterFieldContainerClass}>
                         <Label className={filterLabelClass}>
                           {t.filters.source}
@@ -2563,14 +3345,19 @@ export default function EvaluationSourcePage({
                       </div>
                     ) : null}
                   </div>
-                  <div
-                    className={`mt-2 grid gap-2 md:grid-cols-2 ${
-                      enableMileageFilter ? "lg:grid-cols-10" : "lg:grid-cols-5"
-                    }`}
-                  >
-                    <div className="rounded-2xl border border-emerald-100/80 bg-white/95 p-2 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] lg:col-span-4">
+                  {showAdvancedFilters ? (
+                    <div
+                      className={`mt-1.5 grid gap-1.5 md:grid-cols-2 ${
+                        enableMileageFilter ? "xl:grid-cols-12" : "xl:grid-cols-8"
+                      }`}
+                    >
+                    <div
+                      className={`${
+                        enableMileageFilter ? "xl:col-span-6" : "xl:col-span-5"
+                      }`}
+                    >
                       <div
-                        className={`grid gap-2 sm:grid-cols-2 ${
+                        className={`grid gap-1.5 sm:grid-cols-2 ${
                           enableMileageFilter ? "lg:grid-cols-4" : "lg:grid-cols-3"
                         }`}
                       >
@@ -2580,17 +3367,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasImage: filters.hasImage === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition ${
                             filters.hasImage === "true"
-                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
+                              ? "border-emerald-700 bg-emerald-700 text-white"
+                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasImage === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-500 bg-white"
+                                : "border-slate-400 bg-white"
                             }`}
                           >
                             {filters.hasImage === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2603,17 +3390,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasPrice: filters.hasPrice === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition ${
                             filters.hasPrice === "true"
-                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
+                              ? "border-emerald-700 bg-emerald-700 text-white"
+                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasPrice === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-500 bg-white"
+                                : "border-slate-400 bg-white"
                             }`}
                           >
                             {filters.hasPrice === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2626,17 +3413,17 @@ export default function EvaluationSourcePage({
                           onClick={() =>
                             updateFilters({ hasComments: filters.hasComments === "true" ? "any" : "true" })
                           }
-                          className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
+                          className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition ${
                             filters.hasComments === "true"
-                              ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
+                              ? "border-emerald-700 bg-emerald-700 text-white"
+                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                           }`}
                         >
                           <span
                             className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                               filters.hasComments === "true"
                                 ? "border-white bg-white/20"
-                                : "border-emerald-500 bg-white"
+                                : "border-slate-400 bg-white"
                             }`}
                           >
                             {filters.hasComments === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2650,17 +3437,17 @@ export default function EvaluationSourcePage({
                             onClick={() =>
                               updateFilters({ hasMileage: filters.hasMileage === "true" ? "any" : "true" })
                             }
-                            className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border px-3 text-xs uppercase tracking-[0.18em] transition ${
+                            className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition ${
                               filters.hasMileage === "true"
-                                ? "border-emerald-600 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50"
+                                ? "border-emerald-700 bg-emerald-700 text-white"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
                           >
                             <span
                               className={`inline-flex h-4 w-4 items-center justify-center rounded-sm border ${
                                 filters.hasMileage === "true"
                                   ? "border-white bg-white/20"
-                                  : "border-emerald-500 bg-white"
+                                  : "border-slate-400 bg-white"
                               }`}
                             >
                               {filters.hasMileage === "true" ? <Check className="h-3 w-3" /> : null}
@@ -2671,11 +3458,17 @@ export default function EvaluationSourcePage({
                       </div>
                     </div>
                     {enableMileageFilter ? (
-                      <div className="flex flex-col gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)] sm:flex-row sm:items-center lg:col-span-4">
+                      <div
+                        className={`xl:col-span-4 ${
+                          progressiveAdvancedFilters
+                            ? "flex items-center gap-1.5"
+                            : "flex flex-col gap-1"
+                        }`}
+                      >
                         <Label className={mileageFilterLabelClass}>
                           {mileageLabel}
                         </Label>
-                        <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
+                        <div className="grid min-w-0 grid-cols-2 gap-1.5 flex-1">
                           <Input
                             type="number"
                             inputMode="numeric"
@@ -2683,7 +3476,7 @@ export default function EvaluationSourcePage({
                             onChange={(event) => updateFilters({ mileageMin: event.target.value })}
                             onKeyDown={handleEnterSearchKeyDown}
                             placeholder={mileageMinPlaceholder}
-                            className="h-9 w-full text-sm"
+                            className="h-9 w-full rounded-lg border-slate-200 bg-slate-50/70 text-sm focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-emerald-400/30"
                           />
                           <Input
                             type="number"
@@ -2692,20 +3485,20 @@ export default function EvaluationSourcePage({
                             onChange={(event) => updateFilters({ mileageMax: event.target.value })}
                             onKeyDown={handleEnterSearchKeyDown}
                             placeholder={mileageMaxPlaceholder}
-                            className="h-9 w-full text-sm"
+                            className="h-9 w-full rounded-lg border-slate-200 bg-slate-50/70 text-sm focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-emerald-400/30"
                           />
                         </div>
                       </div>
                     ) : null}
                     <div
                       className={`${filterFieldContainerClass} ${
-                        enableMileageFilter ? "lg:col-span-2" : ""
+                        enableMileageFilter ? "xl:col-span-2" : "xl:col-span-3"
                       }`}
                     >
                       <Label className={filterLabelClass}>
                         {t.filters.sortBy}
                       </Label>
-                      <div className="w-full min-w-0 sm:flex-1">
+                      <div className="w-full min-w-0">
                         <Select
                           value={filters.sort}
                           onValueChange={(value) => updateFilters({ sort: value })}
@@ -2723,9 +3516,10 @@ export default function EvaluationSourcePage({
                         </Select>
                       </div>
                     </div>
-                  </div>
-                  {requireSearchClickToApplyFilters ? (
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-100/80 bg-white/95 px-3 py-3 shadow-[0_12px_30px_-24px_rgba(16,185,129,0.75)]">
+                    </div>
+                  ) : null}
+                  {requireSearchClickToApplyFilters && !progressiveAdvancedFilters ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white px-3 py-3 shadow-[0_8px_20px_rgba(16,185,129,0.10)]">
                       <p className="text-xs text-slate-500">
                         {hasPendingFilterChanges ? pendingApplyLabel : readyLabel}
                       </p>
@@ -2733,14 +3527,14 @@ export default function EvaluationSourcePage({
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-10 rounded-xl border-slate-200 bg-white px-5 text-xs uppercase tracking-[0.16em] text-slate-700 hover:bg-slate-100"
+                        className="h-10 rounded-xl border-slate-300 bg-white px-4 text-sm text-slate-700 hover:bg-slate-50"
                         onClick={resetFilters}
                       >
-                        Reset
+                        {resetFiltersLabel}
                       </Button>
                       <Button
                         type="button"
-                        className="h-10 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-6 text-xs uppercase tracking-[0.16em] text-white shadow-md hover:from-emerald-700 hover:to-cyan-700"
+                        className="h-10 rounded-xl bg-emerald-700 px-5 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(5,150,105,0.24)] transition hover:bg-emerald-600"
                         onClick={applyFilters}
                       >
                         {t.filters.search}
@@ -2885,118 +3679,7 @@ export default function EvaluationSourcePage({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {items.map((item) => {
-                          const sourceName = getSourceDisplayName(item.source);
-                          const sourceUrl = resolveSourceUrl(item);
-
-                          return (
-                            <TableRow key={`${item.source}-${item.id}`}>
-                            <TableCell className="text-sm font-medium text-slate-900">
-                              <div className="space-y-1">
-                                <button
-                                  type="button"
-                                  onClick={() => openDetails(item)}
-                                  className="group inline-flex max-w-[280px] items-start rounded-md px-1 py-0.5 text-left rtl:text-right text-slate-900 transition-all hover:bg-emerald-50/70 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-white group-hover:scale-[1.02]"
-                                >
-                                  <span className="line-clamp-2 underline decoration-transparent decoration-2 underline-offset-4 transition-colors group-hover:decoration-emerald-300">
-                                    {item.title}
-                                  </span>
-                                </button>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-sm text-slate-600">{item.tags?.[1] || "-"}</TableCell>
-                            <TableCell className="text-sm text-slate-600">{item.tags?.[2] || "-"}</TableCell>
-                            <TableCell className="text-sm text-slate-600">{item.carModelYear ?? "-"}</TableCell>
-                            <TableCell className="text-sm text-slate-600">{formatMileage(item.mileage, true)}</TableCell>
-                            <TableCell
-                              className={`text-sm ${
-                                item.priceNumeric || item.priceFormatted
-                                  ? "font-semibold text-amber-600"
-                                  : "text-slate-600"
-                              }`}
-                            >
-                              {formatPrice(item.priceNumeric, item.priceFormatted)}
-                            </TableCell>
-                            <TableCell className="text-sm text-slate-600">{formatEpoch(item.postDate)}</TableCell>
-                            <TableCell className="text-sm text-slate-600">
-                              {item.imagesCount > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openImages(item)}
-                                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
-                                >
-                                  <ImageIcon className="h-3 w-3" />
-                                  {t.table.viewImages(item.imagesCount)}
-                                </button>
-                              ) : (
-                                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-400">
-                                  <ImageIcon className="h-3 w-3" />
-                                  {t.table.noImages}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-xs text-slate-600">
-                              {item.source === "yallamotor" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openComments(item)}
-                                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
-                                >
-                                  {t.modals.priceCompareTitle}
-                                </button>
-                              ) : item.commentsCount > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openComments(item)}
-                                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
-                                >
-                                  {t.table.commentsCount(item.commentsCount)}
-                                </button>
-                              ) : (
-                                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-400">
-                                  {t.table.noComments}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                size="sm"
-                                className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
-                                onClick={() => openDetails(item)}
-                              >
-                                <Eye className="h-4 w-4" />
-                                {t.table.seeMore}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-[11px] text-slate-600">{sourceName}</TableCell>
-                            <TableCell className="text-[11px] text-slate-600">
-                              {sourceUrl ? (
-                                <a
-                                  href={sourceUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={() =>
-                                    trackAction({
-                                      actionType: "open_source_link",
-                                      actionDetails: {
-                                        itemId: item.id,
-                                        source: item.source,
-                                        url: sourceUrl,
-                                      },
-                                    })
-                                  }
-                                  className="inline-flex items-center gap-1 text-[11px] text-emerald-700 underline decoration-emerald-300 underline-offset-2 transition hover:text-emerald-800 hover:decoration-emerald-500"
-                                >
-                                  <span aria-hidden="true" className="text-[12px] leading-none">↗</span>
-                                  {t.table.openSource}
-                                </a>
-                              ) : (
-                                <span className="text-slate-400">-</span>
-                              )}
-                            </TableCell>
-                            </TableRow>
-                          );
-                        })}
+                        {tableRows}
                       </TableBody>
                     </Table>
                   </>
@@ -3301,8 +3984,11 @@ export default function EvaluationSourcePage({
         onOpenChange={setAuthModalOpen}
         initialMode={authModalMode}
       />
-      <Footer />
+      <ValueTechServiceFooter />
     </div>
   );
 }
+
+
+
 

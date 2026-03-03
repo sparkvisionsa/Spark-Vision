@@ -19,15 +19,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  async redirects() {
-    return [
-      {
-        source: "/value-tech-app",
-        destination: "/value-tech",
-        permanent: false,
-      },
-    ];
-  },
   async rewrites() {
     const backendBaseUrl =
       process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??

@@ -1,7 +1,7 @@
 import Link from "@/components/prefetch-link";
 import { Car, Building2, Shapes, ArrowUpRight } from "lucide-react";
-import Header from "@/components/header";
-import Footer from "@/components/footer";
+import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
+import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 
 export default function Page() {
   const cards = [
@@ -30,7 +30,7 @@ export default function Page() {
 
   return (
     <div className="min-h-screen bg-[#f7f4ee] text-slate-900 flex flex-col">
-      <Header />
+      <ValueTechServiceNavbar />
       <main className="flex-1 px-6 py-10 sm:py-12">
         <div className="mx-auto w-full max-w-6xl">
           <div className="mb-8">
@@ -64,7 +64,7 @@ export default function Page() {
           </div>
         </div>
       </main>
-      <Footer />
+      <ValueTechServiceFooter />
     </div>
   );
 }

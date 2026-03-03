@@ -367,6 +367,7 @@ const AdminAnalyticsCharts = dynamic(
 
 export default function AdminDashboardPage() {
   const { user, csrfToken, trackAction } = useAuthTracking();
+  const sourceStatsSnapshotKey = "admin_source_record_stats_snapshot_v2";
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [config, setConfig] = useState<ConfigPayload | null>(null);
@@ -393,6 +394,7 @@ export default function AdminDashboardPage() {
   });
   const [activityPage, setActivityPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingSourceRecordStats, setLoadingSourceRecordStats] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -472,20 +474,41 @@ export default function AdminDashboardPage() {
     setActivities(result);
   }, [buildActivitySearchParams, csrfToken]);
 
-  const loadSourceRecordStats = useCallback(async () => {
-    const result = await apiRequest<SourceRecordStatsPayload>(
-      "/api/admin/source-record-stats",
-      csrfToken
-    );
-    setSourceRecordStats(result);
-  }, [csrfToken]);
+  const loadSourceRecordStats = useCallback(
+    async (options?: { showLoader?: boolean }) => {
+      const showLoader = options?.showLoader ?? false;
+      if (showLoader) {
+        setLoadingSourceRecordStats(true);
+      }
+      try {
+        const result = await apiRequest<SourceRecordStatsPayload>(
+          "/api/admin/source-record-stats",
+          csrfToken
+        );
+        setSourceRecordStats(result);
+        try {
+          window.localStorage.setItem(sourceStatsSnapshotKey, JSON.stringify(result));
+        } catch {
+          // Ignore local cache write failures (storage disabled or quota exceeded).
+        }
+      } finally {
+        if (showLoader) {
+          setLoadingSourceRecordStats(false);
+        }
+      }
+    },
+    [csrfToken, sourceStatsSnapshotKey]
+  );
 
   const loadAll = useCallback(async () => {
     if (!canAccess) return;
     setLoading(true);
     setError(null);
+    void loadSourceRecordStats({ showLoader: true }).catch((loadError) => {
+      setError(toErrorMessage(loadError, "Failed to load source statistics."));
+    });
     try {
-      await Promise.all([loadAnalytics(), loadActivities(), loadSourceRecordStats()]);
+      await Promise.all([loadAnalytics(), loadActivities()]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load admin data.");
     } finally {
@@ -520,11 +543,27 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!canAccess) return;
+    try {
+      const cached = window.localStorage.getItem(sourceStatsSnapshotKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as SourceRecordStatsPayload;
+        if (parsed && typeof parsed === "object") {
+          setSourceRecordStats(parsed);
+          setLoadingSourceRecordStats(false);
+        }
+      }
+    } catch {
+      // Ignore local cache parse errors and fall back to network.
+    }
+  }, [canAccess, sourceStatsSnapshotKey]);
+
+  useEffect(() => {
+    if (!canAccess) return;
     const timer = window.setInterval(() => {
       void loadSourceRecordStats().catch((loadError) => {
         setError(toErrorMessage(loadError, "Failed to refresh source stats."));
       });
-    }, 15000);
+    }, 60000);
     return () => window.clearInterval(timer);
   }, [canAccess, loadSourceRecordStats]);
 
@@ -729,7 +768,7 @@ export default function AdminDashboardPage() {
             </div>
           ) : null}
 
-          {loading && !sourceRecordStats ? (
+          {loadingSourceRecordStats && !sourceRecordStats ? (
             <Card>
               <CardContent className="py-6 text-sm text-slate-600">
                 Loading source record statistics...
