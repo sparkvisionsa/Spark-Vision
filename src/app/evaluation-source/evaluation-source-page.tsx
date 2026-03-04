@@ -116,6 +116,7 @@ type EvaluationSourcePageProps = {
   dataSources?: Array<"haraj" | "yallamotor" | "syarah">;
   progressiveAdvancedFilters?: boolean;
   requireSearchClickToApplyFilters?: boolean;
+  forceExactSearch?: boolean;
 };
 
 const defaultFilters = {
@@ -153,12 +154,14 @@ function hasFilterStateChanged(current: FilterState, next: FilterState) {
 
 const SEARCH_HISTORY_STORAGE_KEY = "evaluation-source-search-history";
 const SEARCH_HISTORY_MAX_ITEMS = 10;
-const LIST_RESPONSE_CACHE_MAX_ITEMS = 120;
+const LIST_RESPONSE_CACHE_MAX_ITEMS = 240;
 const SEARCH_SUGGESTIONS_MAX_ITEMS = 12;
 const SEARCH_SUGGESTIONS_MIN_CHARS = 1;
 const SEARCH_SUGGESTIONS_REMOTE_MIN_CHARS = 2;
 const SEARCH_SUGGESTIONS_DEBOUNCE_MS = 90;
-const SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS = 120;
+const SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS = 200;
+const DETAIL_DOCUMENT_CACHE_MAX_ITEMS = 320;
+const DETAIL_PREFETCH_VISIBLE_ITEMS = 8;
 const OPTION_POOL_PAGE_SIZE = 200;
 const OPTION_POOL_MAX_PAGES = 12;
 const OPTION_POOL_MAX_ITEMS = 2400;
@@ -1051,6 +1054,7 @@ export default function EvaluationSourcePage({
   dataSources,
   progressiveAdvancedFilters = false,
   requireSearchClickToApplyFilters = false,
+  forceExactSearch = false,
 }: EvaluationSourcePageProps) {
   const langContext = useContext(LanguageContext);
   const { trackAction } = useAuthTracking();
@@ -1140,6 +1144,7 @@ export default function EvaluationSourcePage({
   const [, setError] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailStatus, setDetailStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [detailHydrating, setDetailHydrating] = useState(false);
   const [detail, setDetail] = useState<Record<string, any> | null>(null);
   const [imagesOpen, setImagesOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
@@ -1151,6 +1156,7 @@ export default function EvaluationSourcePage({
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [liveSearchSuggestions, setLiveSearchSuggestions] = useState<string[]>([]);
   const [liveSearchSuggestionsLoading, setLiveSearchSuggestionsLoading] = useState(false);
+  const [searchRequestPending, setSearchRequestPending] = useState(false);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const [searchSuggestionActiveIndex, setSearchSuggestionActiveIndex] = useState(-1);
   const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
@@ -1182,6 +1188,10 @@ export default function EvaluationSourcePage({
   const [, startFilterSelectionTransition] = useTransition();
   const listResponseCacheRef = useRef<Map<string, ListResponse>>(new Map());
   const searchSuggestionsCacheRef = useRef<Map<string, string[]>>(new Map());
+  const detailDocumentCacheRef = useRef<Map<string, Record<string, any>>>(new Map());
+  const detailRequestCacheRef = useRef<Map<string, Promise<Record<string, any>>>>(
+    new Map()
+  );
   const searchDropdownRef = useRef<HTMLDivElement | null>(null);
   const brandDropdownRef = useRef<HTMLDivElement | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -1322,8 +1332,13 @@ export default function EvaluationSourcePage({
     () => new Set(liveSearchSuggestions.map((item) => item.trim().toLowerCase())),
     [liveSearchSuggestions]
   );
+  const shouldShowClearSearchHistoryAction = searchHistory.length > 0;
   const shouldShowSearchLoadingIndicator =
     liveSearchSuggestionsLoading && mergedSearchSuggestions.length === 0;
+  const isSearchResultsLoading =
+    searchRequestPending || (status === "loading" && Boolean(appliedFilters.search.trim()));
+  const shouldShowSearchInputLoadingIndicator =
+    shouldShowSearchLoadingIndicator || isSearchResultsLoading;
   useEffect(() => {
     if (!progressiveAdvancedFilters) return;
     if (!hasAdvancedFilterSelections) return;
@@ -1441,7 +1456,16 @@ export default function EvaluationSourcePage({
     }
   };
 
+  const handleClearSearchHistoryFromDropdown = () => {
+    clearSearchHistory();
+    setSearchSuggestionActiveIndex(-1);
+    if (!filters.search.trim()) {
+      setSearchDropdownOpen(false);
+    }
+  };
+
   const applyFiltersSnapshot = (nextFilters: FilterState) => {
+    setSearchRequestPending(Boolean(nextFilters.search.trim()));
     trackAction({
       actionType: "search",
       actionDetails: {
@@ -1557,6 +1581,7 @@ export default function EvaluationSourcePage({
     setModelDropdownShowAll(false);
     setModelYearDropdownOpen(false);
     setModelYearDropdownShowAll(false);
+    setSearchRequestPending(false);
     if (progressiveAdvancedFilters) {
       setAdvancedFiltersOpen(false);
     }
@@ -1582,7 +1607,10 @@ export default function EvaluationSourcePage({
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (appliedFilters.search) params.set("search", appliedFilters.search);
-    if (appliedFilters.match && appliedFilters.search.trim()) {
+    const shouldUseExactSearch =
+      Boolean(appliedFilters.search.trim()) &&
+      (forceExactSearch || appliedFilters.match);
+    if (shouldUseExactSearch) {
       params.set("exactSearch", "true");
     }
     if (appliedFilters.city) params.set("city", appliedFilters.city);
@@ -1630,6 +1658,7 @@ export default function EvaluationSourcePage({
     return params.toString();
   }, [
     appliedFilters,
+    forceExactSearch,
     page,
     limit,
     tag0,
@@ -1942,6 +1971,7 @@ export default function EvaluationSourcePage({
             if (payload.error === "registration_required") {
               if (active) {
                 triggerRegistrationRequired(payload.message);
+                setSearchRequestPending(false);
               }
               return;
             }
@@ -1954,6 +1984,7 @@ export default function EvaluationSourcePage({
           setData(result);
           setRegistrationRequiredMessage(null);
           setStatus("idle");
+          setSearchRequestPending(false);
         }
 
         if (result.hasNext) {
@@ -1987,6 +2018,7 @@ export default function EvaluationSourcePage({
         if (active) {
           setStatus("error");
           setError(t.status.error);
+          setSearchRequestPending(false);
         }
       }
     };
@@ -2363,8 +2395,38 @@ export default function EvaluationSourcePage({
   const hasMoreModelYearOptions =
     renderedModelYearOptions.length < modelYearOptionsForRender.length;
 
+  const buildDetailCacheKey = useCallback(
+    (item: EvaluationSourceItem) => `${item.source ?? "haraj"}:${String(item.id ?? "")}`,
+    []
+  );
+
+  const setCachedDetailDocument = useCallback((cacheKey: string, doc: Record<string, any>) => {
+    const cache = detailDocumentCacheRef.current;
+    if (cache.has(cacheKey)) {
+      cache.delete(cacheKey);
+    }
+    cache.set(cacheKey, doc);
+    while (cache.size > DETAIL_DOCUMENT_CACHE_MAX_ITEMS) {
+      const oldestKey = cache.keys().next().value;
+      if (!oldestKey) break;
+      cache.delete(oldestKey);
+    }
+  }, []);
+
   const fetchDetail = useCallback(async (item: EvaluationSourceItem) => {
     const source = item.source ?? "haraj";
+    const itemId = String(item.id ?? "");
+    const cacheKey = buildDetailCacheKey(item);
+    const cached = detailDocumentCacheRef.current.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const inflight = detailRequestCacheRef.current.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
     const endpoint = toApiUrl(
       source === "yallamotor"
         ? "/api/yallamotor-scrape"
@@ -2372,14 +2434,110 @@ export default function EvaluationSourcePage({
           ? "/api/syarah-scrape"
           : "/api/haraj-scrape"
     );
-    const response = await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error("Unable to load document details.");
+
+    const request = (async () => {
+      const response = await fetch(`${endpoint}/${encodeURIComponent(itemId)}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Unable to load document details.");
+      }
+      const rawDoc = (await response.json()) as Record<string, any>;
+      const normalizedDoc = { ...rawDoc, __source: source, __cacheKey: cacheKey } as Record<
+        string,
+        any
+      >;
+      setCachedDetailDocument(cacheKey, normalizedDoc);
+      return normalizedDoc;
+    })();
+
+    detailRequestCacheRef.current.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      detailRequestCacheRef.current.delete(cacheKey);
     }
-    const doc = (await response.json()) as Record<string, any>;
-    return { ...doc, __source: source } as Record<string, any>;
+  }, [buildDetailCacheKey, setCachedDetailDocument]);
+
+  const prefetchDetail = useCallback((item: EvaluationSourceItem) => {
+    void fetchDetail(item).catch(() => {
+      // Prefetch is best-effort only.
+    });
+  }, [fetchDetail]);
+
+  const buildDetailPreviewFromItem = useCallback((item: EvaluationSourceItem) => {
+    const source = item.source ?? "haraj";
+
+    if (source === "yallamotor") {
+      return {
+        __source: "yallamotor",
+        id: item.id,
+        title: item.title,
+        cardTitle: item.title,
+        cardPriceText: item.priceFormatted ?? (item.priceNumeric ?? null),
+        fetchedAt: item.postDate ?? null,
+        url: item.url ?? "",
+        detail: {
+          url: item.url ?? "",
+          breadcrumb: ["", "", item.city ?? "", item.tags?.[1] ?? "", item.tags?.[2] ?? ""],
+          images: [],
+          importantSpecs: {},
+          features: [],
+          description: "",
+          priceCompare: item.priceCompare ?? null,
+        },
+      } as Record<string, any>;
+    }
+
+    if (source === "syarah") {
+      return {
+        __source: "syarah",
+        id: item.id,
+        title: item.title,
+        city: item.city,
+        priceNumeric: item.priceNumeric ?? null,
+        price_cash: item.priceNumeric ?? null,
+        fetchedAt: item.postDate ?? null,
+        share_link: item.url ?? "",
+        url: item.url ?? "",
+        brand: item.tags?.[1] ?? "",
+        model: item.tags?.[2] ?? "",
+        mileage_km: item.mileage ?? null,
+        images: [],
+      } as Record<string, any>;
+    }
+
+    return {
+      __source: "haraj",
+      id: item.id,
+      title: item.title,
+      city: item.city,
+      postDate: item.postDate ?? null,
+      phone: item.phone ?? "",
+      url: item.url ?? "",
+      tags: item.tags ?? [],
+      priceNumeric: item.priceNumeric ?? null,
+      item: {
+        title: item.title,
+        city: item.city,
+        geoCity: item.city,
+        URL: item.url ?? "",
+        tags: item.tags ?? [],
+        imagesList: [],
+        price: {
+          numeric: item.priceNumeric ?? null,
+          formattedPrice: item.priceFormatted ?? null,
+        },
+        carInfo: {
+          mileage: item.mileage ?? null,
+        },
+        bodyTEXT: "",
+      },
+      comments: [],
+      carInfo: {
+        mileage: item.mileage ?? null,
+      },
+    } as Record<string, any>;
   }, []);
 
   const openDetails = useCallback(async (item: EvaluationSourceItem) => {
@@ -2390,17 +2548,28 @@ export default function EvaluationSourcePage({
         source: item.source,
       },
     });
+    const cacheKey = buildDetailCacheKey(item);
+    const cachedDoc = detailDocumentCacheRef.current.get(cacheKey);
     setDetailOpen(true);
-    setDetailStatus("loading");
-    setDetail(null);
+    if (cachedDoc) {
+      setDetail(cachedDoc);
+      setDetailStatus("idle");
+      setDetailHydrating(false);
+      return;
+    }
+    const optimisticDetail = buildDetailPreviewFromItem(item);
+    setDetail(optimisticDetail);
+    setDetailStatus("idle");
+    setDetailHydrating(true);
     try {
       const doc = await fetchDetail(item);
       setDetail(doc);
       setDetailStatus("idle");
+      setDetailHydrating(false);
     } catch (err) {
-      setDetailStatus("error");
+      setDetailHydrating(false);
     }
-  }, [fetchDetail, trackAction]);
+  }, [buildDetailCacheKey, buildDetailPreviewFromItem, fetchDetail, trackAction]);
 
   const openImages = useCallback(async (item: EvaluationSourceItem) => {
     trackAction({
@@ -2412,6 +2581,21 @@ export default function EvaluationSourcePage({
       },
     });
     setImagesOpen(true);
+    const cacheKey = buildDetailCacheKey(item);
+    const cachedDoc = detailDocumentCacheRef.current.get(cacheKey);
+    if (cachedDoc) {
+      const cachedImages =
+        item.source === "yallamotor"
+          ? ((cachedDoc?.detail?.images ?? cachedDoc?.images ?? []) as string[])
+          : item.source === "syarah"
+            ? ((cachedDoc?.images ??
+                (cachedDoc?.featured_image ? [cachedDoc.featured_image] : [])) as string[])
+            : ((cachedDoc?.item?.imagesList ?? cachedDoc?.imagesList ?? []) as string[]);
+      setModalImages(cachedImages);
+      setModalStatus("idle");
+      return;
+    }
+
     setModalStatus("loading");
     setModalImages([]);
     try {
@@ -2427,7 +2611,7 @@ export default function EvaluationSourcePage({
     } catch (err) {
       setModalStatus("error");
     }
-  }, [fetchDetail, trackAction]);
+  }, [buildDetailCacheKey, fetchDetail, trackAction]);
 
   const openComments = useCallback(async (item: EvaluationSourceItem) => {
     trackAction({
@@ -2448,6 +2632,19 @@ export default function EvaluationSourcePage({
     }
     setCommentsOpen(true);
     setCommentsMode("comments");
+    const cacheKey = buildDetailCacheKey(item);
+    const cachedDoc = detailDocumentCacheRef.current.get(cacheKey);
+    if (cachedDoc) {
+      const comments =
+        (cachedDoc?.comments ??
+          cachedDoc?.gql?.comments?.json?.data?.comments?.items ??
+          []) as Array<Record<string, any>>;
+      setModalComments(filterVisibleComments(comments));
+      setModalPriceCompare(null);
+      setModalStatus("idle");
+      return;
+    }
+
     setModalStatus("loading");
     setModalComments([]);
     setModalPriceCompare(null);
@@ -2462,7 +2659,36 @@ export default function EvaluationSourcePage({
     } catch (err) {
       setModalStatus("error");
     }
-  }, [fetchDetail, trackAction]);
+  }, [buildDetailCacheKey, fetchDetail, trackAction]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+
+    const prefetchCandidates = items
+      .filter((item) => item.imagesCount > 0 || item.commentsCount > 0)
+      .slice(0, DETAIL_PREFETCH_VISIBLE_ITEMS);
+    if (prefetchCandidates.length === 0) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const warm = async () => {
+        for (const item of prefetchCandidates) {
+          if (cancelled) break;
+          try {
+            await fetchDetail(item);
+          } catch {
+            // Warm-up is best-effort only.
+          }
+        }
+      };
+      void warm();
+    }, 140);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [items, fetchDetail]);
 
   const detailSource = (detail as any)?.__source ?? (detail as any)?.source ?? "haraj";
   const isYallaDetail = detailSource === "yallamotor";
@@ -2669,6 +2895,9 @@ export default function EvaluationSourcePage({
                 <button
                   type="button"
                   onClick={() => openDetails(item)}
+                  onMouseEnter={() => prefetchDetail(item)}
+                  onFocus={() => prefetchDetail(item)}
+                  onTouchStart={() => prefetchDetail(item)}
                   className="group inline-flex max-w-[280px] items-start rounded-md px-1 py-0.5 text-left rtl:text-right text-slate-900 transition-all hover:bg-emerald-50/70 hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-white group-hover:scale-[1.02]"
                 >
                   <span className="line-clamp-2 underline decoration-transparent decoration-2 underline-offset-4 transition-colors group-hover:decoration-emerald-300">
@@ -2696,6 +2925,9 @@ export default function EvaluationSourcePage({
                 <button
                   type="button"
                   onClick={() => openImages(item)}
+                  onMouseEnter={() => prefetchDetail(item)}
+                  onFocus={() => prefetchDetail(item)}
+                  onTouchStart={() => prefetchDetail(item)}
                   className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                 >
                   <ImageIcon className="h-3 w-3" />
@@ -2713,6 +2945,9 @@ export default function EvaluationSourcePage({
                 <button
                   type="button"
                   onClick={() => openComments(item)}
+                  onMouseEnter={() => prefetchDetail(item)}
+                  onFocus={() => prefetchDetail(item)}
+                  onTouchStart={() => prefetchDetail(item)}
                   className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                 >
                   {t.modals.priceCompareTitle}
@@ -2721,6 +2956,9 @@ export default function EvaluationSourcePage({
                 <button
                   type="button"
                   onClick={() => openComments(item)}
+                  onMouseEnter={() => prefetchDetail(item)}
+                  onFocus={() => prefetchDetail(item)}
+                  onTouchStart={() => prefetchDetail(item)}
                   className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
                 >
                   {t.table.commentsCount(item.commentsCount)}
@@ -2736,6 +2974,9 @@ export default function EvaluationSourcePage({
                 size="sm"
                 className="h-8 gap-2 bg-slate-900 text-white hover:bg-slate-800"
                 onClick={() => openDetails(item)}
+                onMouseEnter={() => prefetchDetail(item)}
+                onFocus={() => prefetchDetail(item)}
+                onTouchStart={() => prefetchDetail(item)}
               >
                 <Eye className="h-4 w-4" />
                 {t.table.seeMore}
@@ -2770,7 +3011,7 @@ export default function EvaluationSourcePage({
           </TableRow>
         );
       }),
-    [items, getSourceDisplayName, openDetails, openImages, openComments, t, trackAction]
+    [items, getSourceDisplayName, openDetails, openImages, openComments, prefetchDetail, t, trackAction]
   );
 
   const exportCurrentRows = () => {
@@ -2906,13 +3147,13 @@ export default function EvaluationSourcePage({
                         progressiveAdvancedFilters ? "xl:col-span-full" : "xl:col-span-2"
                       }`}
                     >
-                      <div className="flex w-full min-w-0 items-center justify-center gap-1.5">
+                      <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-center">
                         <div
-                          className="relative min-w-[170px] w-full sm:w-[52%] lg:w-[45%] xl:w-[38%] flex-none"
+                          className="relative w-full min-w-0 sm:min-w-[170px] sm:w-[52%] lg:w-[45%] xl:w-[38%] sm:flex-none"
                           ref={searchDropdownRef}
                         >
                           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
-                          {shouldShowSearchLoadingIndicator ? (
+                          {shouldShowSearchInputLoadingIndicator ? (
                             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-500" />
                           ) : null}
                           <Input
@@ -2926,6 +3167,18 @@ export default function EvaluationSourcePage({
                           />
                           {searchDropdownOpen ? (
                             <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.14)]">
+                              {shouldShowClearSearchHistoryAction ? (
+                                <div className="border-b border-slate-100 p-1.5">
+                                  <button
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={handleClearSearchHistoryFromDropdown}
+                                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
+                                  >
+                                    <span className="truncate">{t.filters.clearHistory}</span>
+                                  </button>
+                                </div>
+                              ) : null}
                               {mergedSearchSuggestions.length > 0 ? (
                                 <div className="max-h-64 overflow-y-auto p-1.5">
                                   {mergedSearchSuggestions.map((value, index) => {
@@ -2974,34 +3227,45 @@ export default function EvaluationSourcePage({
                             </div>
                           ) : null}
                         </div>
-                        {progressiveAdvancedFilters && requireSearchClickToApplyFilters ? (
-                          <Button
-                            type="button"
-                            className="h-9 rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-600"
-                            onClick={applyFilters}
-                          >
-                            {t.filters.search}
-                          </Button>
-                        ) : null}
-                        {progressiveAdvancedFilters && hasAdvancedFilterControls ? (
-                          <div className="inline-flex items-center gap-1 pl-0.5">
-                            <span className="text-[11px] font-semibold text-slate-700">
-                              {advancedSearchLabel}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setAdvancedFiltersOpen((prev) => !prev)}
-                              aria-expanded={showAdvancedFilters}
-                              aria-controls="advanced-filters-panel"
-                              aria-label={advancedSearchLabel}
-                              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
-                            >
-                              <ChevronDown
-                                className={`h-3.5 w-3.5 transition-transform ${
-                                  showAdvancedFilters ? "rotate-180 text-emerald-700" : "text-slate-500"
-                                }`}
-                              />
-                            </button>
+                        {progressiveAdvancedFilters &&
+                        (requireSearchClickToApplyFilters || hasAdvancedFilterControls) ? (
+                          <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-row sm:items-center sm:flex-none">
+                            {requireSearchClickToApplyFilters ? (
+                              <Button
+                                type="button"
+                                className="h-9 w-full rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-600 sm:w-auto"
+                                onClick={applyFilters}
+                              >
+                                {t.filters.search}
+                              </Button>
+                            ) : null}
+                            {requireSearchClickToApplyFilters ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-9 w-full rounded-md border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-emerald-700 sm:w-auto"
+                                onClick={resetFilters}
+                              >
+                                {resetFiltersLabel}
+                              </Button>
+                            ) : null}
+                            {hasAdvancedFilterControls ? (
+                              <button
+                                type="button"
+                                onClick={() => setAdvancedFiltersOpen((prev) => !prev)}
+                                aria-expanded={showAdvancedFilters}
+                                aria-controls="advanced-filters-panel"
+                                aria-label={advancedSearchLabel}
+                                className="inline-flex h-9 w-full min-w-0 items-center justify-between rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700 sm:w-auto sm:justify-center sm:gap-1.5 sm:px-3"
+                              >
+                                <span className="truncate">{advancedSearchLabel}</span>
+                                <ChevronDown
+                                  className={`h-3.5 w-3.5 shrink-0 transition-transform ${
+                                    showAdvancedFilters ? "rotate-180 text-emerald-700" : "text-slate-500"
+                                  }`}
+                                />
+                              </button>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -3808,6 +4072,12 @@ export default function EvaluationSourcePage({
             <DialogHeader className="border-b border-slate-200 px-4 py-3">
               <div className="flex flex-wrap items-center gap-3">
                 <DialogTitle className={`text-2xl font-semibold ${sora.className}`}>{t.modals.detailTitle}</DialogTitle>
+                {detailHydrating ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {t.modals.loadingDetails}
+                  </span>
+                ) : null}
                 {normalizedDetailTags.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {normalizedDetailTags.map((tag) => (
@@ -3850,12 +4120,7 @@ export default function EvaluationSourcePage({
                 <div className="min-w-0 space-y-3">
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{t.modals.summary}</p>
-                    {detailStatus === "loading" ? (
-                      <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {t.modals.loadingDetails}
-                      </div>
-                    ) : detailStatus === "error" ? (
+                    {detailStatus === "error" ? (
                       <p className="mt-3 text-sm text-rose-500">{t.modals.unableDetails}</p>
                     ) : detail ? (
                       <div className="mt-4">

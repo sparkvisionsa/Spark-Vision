@@ -14,6 +14,7 @@ export default function EvaluationSourceCarsPage() {
       dataSources={["haraj", "yallamotor", "syarah"]}
       progressiveAdvancedFilters
       requireSearchClickToApplyFilters
+      forceExactSearch
     />
   );
 }
