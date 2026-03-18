@@ -205,6 +205,8 @@ const copy = {
   },
 } as const;
 
+type Copy = (typeof copy)[keyof typeof copy];
+
 // ─── status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
@@ -641,7 +643,7 @@ function StatusBadge({
   t,
 }: {
   status: ValuationStatus;
-  t: (typeof copy)["ar"];
+  t: Copy;
 }) {
   const config = STATUS_CONFIG[status];
   const label = t[status];
@@ -665,7 +667,7 @@ function PriorityBadge({
   t,
 }: {
   priority: Priority;
-  t: (typeof copy)["ar"];
+  t: Copy;
 }) {
   if (priority === "urgent") {
     return (
@@ -716,7 +718,7 @@ function ValuationTableRow({
   isExpanded: boolean;
   onToggleSelect: () => void;
   onToggleExpand: () => void;
-  t: (typeof copy)["ar"];
+  t: Copy;
 }) {
   return (
     <div
@@ -1063,7 +1065,7 @@ function Pagination({
   totalItems: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
-  t: (typeof copy)["ar"];
+  t: Copy;
 }) {
   const start = (currentPage - 1) * pageSize + 1;
   const end = Math.min(currentPage * pageSize, totalItems);
