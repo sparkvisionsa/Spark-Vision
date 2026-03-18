@@ -12,15 +12,26 @@ const BASE_ROUTES = [
   "/profile",
 ];
 
+/** Value Tech section routes – prefetch so navigation from sidebar is instant */
+const VALUE_TECH_ROUTES = [
+  "/value-tech",
+  "/value-tech-app",
+  "/real-estate-valuation",
+  "/machine-valuation",
+  "/clients",
+  "/settings",
+];
+
 export default function RoutePrefetcher() {
   const router = useRouter();
   const { user } = useAuthTracking();
 
   const routes = useMemo(() => {
+    const base = [...BASE_ROUTES, ...VALUE_TECH_ROUTES];
     if (user?.role === "super_admin") {
-      return [...BASE_ROUTES, "/admin"];
+      return [...base, "/admin"];
     }
-    return BASE_ROUTES;
+    return base;
   }, [user?.role]);
 
   useEffect(() => {
@@ -34,7 +45,7 @@ export default function RoutePrefetcher() {
       routes.forEach((route, index) => {
         const handle = window.setTimeout(() => {
           void router.prefetch(route);
-        }, index * 200);
+        }, index * 80);
         timeoutHandles.push(handle);
       });
     };
@@ -47,10 +58,10 @@ export default function RoutePrefetcher() {
         () => {
           startPrefetch();
         },
-        { timeout: 1500 }
+        { timeout: 800 }
       );
     } else {
-      delayedHandle = window.setTimeout(startPrefetch, 500);
+      delayedHandle = window.setTimeout(startPrefetch, 300);
     }
 
     return () => {

@@ -1,14 +1,13 @@
-import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
-import ValueTechServiceFooter from "@/components/value-tech-service-footer";
+import ValueTechShell from "@/components/value-tech-shell";
 
 export default function EvaluationSourceRealEstatePage() {
   return (
-    <div className="min-h-screen bg-[#f7f4ee] text-slate-900 flex flex-col">
-      <ValueTechServiceNavbar />
-      <main className="flex flex-1 items-center justify-center px-6 py-20">
-        <h1 className="text-4xl font-semibold tracking-wide">SOON</h1>
-      </main>
-      <ValueTechServiceFooter />
-    </div>
+    <ValueTechShell>
+      <div className="flex items-center justify-center px-6 py-16">
+        <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-8 text-center shadow-sm">
+          <h1 className="text-3xl font-semibold tracking-wide text-slate-900">SOON</h1>
+        </div>
+      </div>
+    </ValueTechShell>
   );
 }

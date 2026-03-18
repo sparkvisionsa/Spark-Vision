@@ -16,8 +16,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { Cairo, Manrope, Playfair_Display } from "next/font/google";
-import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
-import ValueTechServiceFooter from "@/components/value-tech-service-footer";
+import ValueTechShell from "@/components/value-tech-shell";
 import { LanguageContext } from "@/components/layout-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -320,9 +319,12 @@ export default function ValueTechPage() {
   const year = useMemo(() => new Date().getFullYear(), []);
 
   return (
-    <div className={cn("min-h-screen bg-[#edf3f4] text-slate-900", pageFont)} dir={isArabic ? "rtl" : "ltr"}>
+    <ValueTechShell>
+      <div
+        className={cn("min-h-screen bg-[#edf3f4] text-slate-900 rounded-3xl", pageFont)}
+        dir={isArabic ? "rtl" : "ltr"}
+      >
       <style>{pageStyles}</style>
-      <ValueTechServiceNavbar />
 
       <main className="relative overflow-hidden pb-20">
         <div className="pointer-events-none absolute -top-24 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-cyan-300/25 blur-3xl" />
@@ -595,8 +597,6 @@ export default function ValueTechPage() {
         </section>
       </main>
 
-      <ValueTechServiceFooter />
-
       <button
         type="button"
         onClick={scrollToTop}
@@ -610,6 +610,7 @@ export default function ValueTechPage() {
       >
         <ArrowUp className="h-5 w-5" />
       </button>
-    </div>
+      </div>
+    </ValueTechShell>
   );
 }

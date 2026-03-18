@@ -1,296 +1,254 @@
 "use client";
 
-import { useContext, useEffect, useMemo, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import { useContext, useId } from "react";
 import {
   ArrowUpRight,
-  Building2,
-  Car,
-  Compass,
-  Flag,
-  Layers,
+  ChevronDown,
+  Globe,
   LayoutGrid,
-  Laptop,
-  Shapes,
-  Sparkles,
-  ShieldCheck,
-  Wrench,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Link from "@/components/prefetch-link";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  match: (pathname: string) => boolean;
-};
+import { LanguageSwitcher } from "@/components/language-switcher";
+import AuthUserMenu from "@/components/auth-user-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const copy = {
   en: {
-    backToSparkVision: "Back to SparkVision",
+    backToSparkVision: "SparkVision",
     valueTechHub: "Value Tech Home",
     valueTechApp: "Value Tech App",
-    evaluationSource: "Evaluation Source",
-    appSections: "Value Tech App Sections",
-    appOverview: "Overview",
-    appFeatures: "Features",
-    appWorkflow: "Workflow",
-    installGuide: "Install Guide",
-    appTrust: "Trust",
-    appGetStarted: "Get Started",
-    evaluationSections: "Evaluation Source Categories",
-    overview: "Overview",
-    cars: "Cars",
-    realEstate: "Real Estate",
-    other: "Other",
+    products: "Products",
+    language: "Language",
   },
   ar: {
-    backToSparkVision:
-      "\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 SparkVision",
+    backToSparkVision: "SparkVision",
     valueTechHub: "\u0635\u0641\u062d\u0629 Value Tech",
     valueTechApp: "\u062a\u0637\u0628\u064a\u0642 Value Tech",
-    evaluationSource: "\u0645\u0635\u0627\u062f\u0631 \u0627\u0644\u062a\u0642\u064a\u064a\u0645",
-    appSections: "\u0623\u0642\u0633\u0627\u0645 \u062a\u0637\u0628\u064a\u0642 Value Tech",
-    appOverview: "\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629",
-    appFeatures: "\u0627\u0644\u0645\u0645\u064a\u0632\u0627\u062a",
-    appWorkflow: "\u0633\u064a\u0631 \u0627\u0644\u0639\u0645\u0644",
-    installGuide: "\u062f\u0644\u064a\u0644 \u0627\u0644\u062a\u062b\u0628\u064a\u062a",
-    appTrust: "\u0627\u0644\u0645\u0648\u062b\u0648\u0642\u064a\u0629",
-    appGetStarted: "\u0627\u0628\u062f\u0623 \u0627\u0644\u0622\u0646",
-    evaluationSections:
-      "\u062a\u0635\u0646\u064a\u0641\u0627\u062a \u0645\u0635\u0627\u062f\u0631 \u0627\u0644\u062a\u0642\u064a\u064a\u0645",
-    overview: "\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629",
-    cars: "\u0627\u0644\u0633\u064a\u0627\u0631\u0627\u062a",
-    realEstate: "\u0627\u0644\u0639\u0642\u0627\u0631\u0627\u062a",
-    other: "\u0623\u062e\u0631\u0649",
+    products: "\u0645\u0646\u062a\u062c\u0627\u062a",
+    language: "\u0627\u0644\u0644\u063a\u0629",
   },
 } as const;
+
+function ValueTechLogo({ size = 32 }: { size?: number }) {
+  const id = useId();
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 36 36"
+      fill="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient
+          id={`${id}-bg`}
+          x1="0"
+          y1="0"
+          x2="36"
+          y2="36"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#0d9488" />
+          <stop offset="1" stopColor="#0ea5e9" />
+        </linearGradient>
+        <linearGradient
+          id={`${id}-shine`}
+          x1="18"
+          y1="0"
+          x2="18"
+          y2="22"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" stopOpacity="0.28" />
+          <stop offset="1" stopColor="white" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <rect width="36" height="36" rx="9" fill={`url(#${id}-bg)`} />
+      <rect width="36" height="36" rx="9" fill={`url(#${id}-shine)`} />
+      <path
+        d="M11.5 11L18 26L24.5 11"
+        stroke="white"
+        strokeWidth="2.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 7.5L19.2 9.5L18 11.5L16.8 9.5Z"
+        fill="white"
+        fillOpacity="0.8"
+      />
+    </svg>
+  );
+}
 
 export default function ValueTechServiceNavbar() {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
+  const setLanguage = langContext?.setLanguage;
   const isArabic = language === "ar";
   const t = copy[language];
   const pathname = usePathname() || "/";
-  const [currentHash, setCurrentHash] = useState("");
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const isValueTechRoute =
+    pathname.startsWith("/value-tech") ||
+    pathname.startsWith("/evaluation-source") ||
+    pathname.startsWith("/real-estate-valuation") ||
+    pathname.startsWith("/machine-valuation") ||
+    pathname.startsWith("/clients") ||
+    pathname.startsWith("/settings");
 
-    const updateHash = () => {
-      setCurrentHash(window.location.hash || "");
-    };
-
-    updateHash();
-    window.addEventListener("hashchange", updateHash);
-    return () => window.removeEventListener("hashchange", updateHash);
-  }, [pathname]);
-
-  const primaryItems = useMemo<NavItem[]>(
-    () => [
-      {
-        href: "/value-tech",
-        label: t.valueTechHub,
-        icon: LayoutGrid,
-        match: (path) => path === "/value-tech",
-      },
-      {
-        href: "/value-tech-app",
-        label: t.valueTechApp,
-        icon: Laptop,
-        match: (path) => path.startsWith("/value-tech-app"),
-      },
-      {
-        href: "/evaluation-source",
-        label: t.evaluationSource,
-        icon: Layers,
-        match: (path) =>
-          path.startsWith("/evaluation-source") || path.startsWith("/evaluation-sourc"),
-      },
-    ],
-    [t.evaluationSource, t.valueTechApp, t.valueTechHub]
+  const dropdownItems = (
+    <>
+      <DropdownMenuItem asChild>
+        <Link href="/value-tech" className="text-[13px]">
+          {t.valueTechHub}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/value-tech-app" className="text-[13px]">
+          {t.valueTechApp}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/real-estate-valuation" className="text-[13px]">
+          {isArabic ? "تقييم العقارات" : "Real Estate Valuation"}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/machine-valuation" className="text-[13px]">
+          {isArabic ? "تقييم الآلات" : "Machines Valuation"}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/evaluation-source" className="text-[13px]">
+          {isArabic ? "مصادر المعلومات" : "Information Sources"}
+        </Link>
+      </DropdownMenuItem>
+    </>
   );
-
-  const appSecondaryItems = useMemo(
-    () => [
-      {
-        href: "/value-tech-app#overview",
-        hash: "#overview",
-        label: t.appOverview,
-        icon: Compass,
-      },
-      {
-        href: "/value-tech-app#features",
-        hash: "#features",
-        label: t.appFeatures,
-        icon: Sparkles,
-      },
-      {
-        href: "/value-tech-app#workflow",
-        hash: "#workflow",
-        label: t.appWorkflow,
-        icon: LayoutGrid,
-      },
-      {
-        href: "/value-tech-app#install",
-        hash: "#install",
-        label: t.installGuide,
-        icon: Wrench,
-      },
-      {
-        href: "/value-tech-app#trust",
-        hash: "#trust",
-        label: t.appTrust,
-        icon: ShieldCheck,
-      },
-      {
-        href: "/value-tech-app#cta",
-        hash: "#cta",
-        label: t.appGetStarted,
-        icon: Flag,
-      },
-    ],
-    [
-      t.appFeatures,
-      t.appGetStarted,
-      t.appOverview,
-      t.appTrust,
-      t.appWorkflow,
-      t.installGuide,
-    ]
-  );
-
-  const evaluationSecondaryItems = useMemo(
-    () => [
-      {
-        href: "/evaluation-source",
-        label: t.overview,
-        icon: LayoutGrid,
-        active: pathname === "/evaluation-source" || pathname === "/evaluation-sourc",
-      },
-      {
-        href: "/evaluation-source/cars",
-        label: t.cars,
-        icon: Car,
-        active: pathname.startsWith("/evaluation-source/cars"),
-      },
-      {
-        href: "/evaluation-source/real-estate",
-        label: t.realEstate,
-        icon: Building2,
-        active: pathname.startsWith("/evaluation-source/real-estate"),
-      },
-      {
-        href: "/evaluation-source/other",
-        label: t.other,
-        icon: Shapes,
-        active: pathname.startsWith("/evaluation-source/other"),
-      },
-    ],
-    [pathname, t.cars, t.other, t.overview, t.realEstate]
-  );
-
-  const isEvaluationRoute =
-    pathname.startsWith("/evaluation-source") || pathname.startsWith("/evaluation-sourc");
-  const isValueTechAppRoute = pathname.startsWith("/value-tech-app");
-  const appRouteItems = isValueTechAppRoute
-    ? appSecondaryItems.map((item, index) => {
-        const activeHash =
-          currentHash.length > 0 ? currentHash === item.hash : index === 0;
-        return {
-          ...item,
-          active: activeHash,
-        };
-      })
-    : [];
-  const inlineItems = isEvaluationRoute ? evaluationSecondaryItems : appRouteItems;
-
-  const theme = isValueTechAppRoute
-    ? {
-        header: "border-amber-300/25 bg-slate-950/95",
-        shell: "border-amber-300/30 bg-slate-900/95 shadow-[0_18px_40px_-30px_rgba(251,191,36,0.6)]",
-        brand: "text-white",
-        logoWrap: "bg-amber-300/20 text-amber-200",
-        backButton: "border border-amber-300/50 bg-amber-300 text-slate-950 hover:brightness-110",
-        primaryActive: "bg-amber-300 text-slate-950",
-        primaryIdle: "text-slate-200 hover:bg-slate-800 hover:text-white",
-        secondaryActive: "bg-amber-300/20 text-amber-100",
-        secondaryIdle: "text-slate-300 hover:bg-slate-800 hover:text-white",
-        divider: "bg-slate-700",
-      }
-    : {
-        header: "border-slate-200/90 bg-white/95",
-        shell: "border-slate-200 bg-white/95 shadow-[0_14px_30px_-26px_rgba(15,23,42,0.55)]",
-        brand: "text-slate-900",
-        logoWrap: "bg-slate-900 text-white",
-        backButton: "border border-cyan-600/20 bg-cyan-600 text-white hover:bg-cyan-700",
-        primaryActive: "bg-slate-900 text-white",
-        primaryIdle: "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
-        secondaryActive: "bg-cyan-100 text-cyan-900",
-        secondaryIdle: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-        divider: "bg-slate-200",
-      };
 
   return (
-    <header className={cn("sticky top-0 z-50 border-b backdrop-blur-md", theme.header)}>
-      <div className="container py-1.5">
-        <div className={cn("flex h-12 items-center gap-2 rounded-xl border px-2", theme.shell)}>
-          <Link href="/value-tech" className="inline-flex shrink-0 items-center gap-1.5">
-            <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md", theme.logoWrap)}>
-              <Sparkles className="h-3.5 w-3.5" />
+    <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
+      <div className="container">
+        <div className="flex h-14 items-center gap-3">
+          {/* Logo + Brand */}
+          <Link
+            href="/value-tech"
+            className="group/logo inline-flex shrink-0 items-center gap-2.5"
+          >
+            <span className="transition-transform duration-200 group-hover/logo:scale-[1.04]">
+              <ValueTechLogo size={32} />
             </span>
-            <span className={cn("text-sm font-semibold", theme.brand)}>Value Tech</span>
+            <span className="hidden sm:inline text-[15px] font-semibold tracking-[-0.01em] text-slate-800">
+              Value Tech
+            </span>
           </Link>
 
-          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap">
-            {primaryItems.map((item) => {
-              const active = item.match(pathname);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
+          {/* Divider */}
+          <div className="hidden sm:block h-5 w-px shrink-0 bg-slate-200" />
+
+          {/* Products navigation */}
+          <nav className="flex min-w-0 items-center">
+            {/* Desktop */}
+            <div className="hidden sm:flex items-center">
+              <DropdownMenu>
+                <DropdownMenuTrigger
                   className={cn(
-                    "rounded-md px-2.5 py-1 text-[11px] font-medium transition",
-                    active ? theme.primaryActive : theme.primaryIdle
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium outline-none transition-colors duration-150",
+                    isValueTechRoute
+                      ? "text-teal-700 bg-teal-50/80"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-50",
                   )}
-                  aria-current={active ? "page" : undefined}
                 >
-                  {item.label}
-                </Link>
-              );
-            })}
+                  {t.products}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-40" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align={isArabic ? "end" : "start"}
+                  className="min-w-[210px]"
+                >
+                  {dropdownItems}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
-            {inlineItems.length > 0 ? <span className={cn("mx-1 h-4 w-px shrink-0", theme.divider)} /> : null}
-
-            {inlineItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-[11px] font-medium transition",
-                  item.active ? theme.secondaryActive : theme.secondaryIdle
-                )}
-                aria-current={item.active ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {/* Mobile */}
+            <div className="flex sm:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label={t.products}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 outline-none transition-colors duration-150 hover:text-slate-700 hover:bg-slate-100/70"
+                >
+                  <LayoutGrid className="h-[18px] w-[18px]" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align={isArabic ? "end" : "start"}>
+                  {dropdownItems}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </nav>
 
-          <Link
-            href="/"
-            className={cn(
-              "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition",
-              theme.backButton
-            )}
-          >
-            <span className="hidden sm:inline">{t.backToSparkVision}</span>
-            <span className="sm:hidden">{isArabic ? "\u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629" : "Home"}</span>
-            <ArrowUpRight className={cn("h-3.5 w-3.5", isArabic ? "rotate-180" : "")} />
-          </Link>
+          {/* Spacer */}
+          <div className="flex-1 min-w-0" />
+
+          {/* Right-side actions */}
+          <div className="flex items-center gap-1">
+            {/* Desktop: language + auth */}
+            <div className="hidden sm:flex items-center gap-0.5">
+              <LanguageSwitcher />
+              <AuthUserMenu />
+            </div>
+
+            {/* Mobile: language icon */}
+            <div className="sm:hidden">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  aria-label={t.language}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 outline-none transition-colors duration-150 hover:text-slate-700 hover:bg-slate-100/70"
+                >
+                  <Globe className="h-[18px] w-[18px]" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align={isArabic ? "end" : "start"}>
+                  <DropdownMenuItem
+                    onClick={() => setLanguage?.("ar")}
+                    className={cn("text-[13px]", language === "ar" && "font-semibold")}
+                  >
+                    العربية
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setLanguage?.("en")}
+                    className={cn("text-[13px]", language === "en" && "font-semibold")}
+                  >
+                    English
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Mobile: auth */}
+            <div className="sm:hidden">
+              <AuthUserMenu />
+            </div>
+
+            {/* Back to SparkVision */}
+            <Link
+              href="/"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-800 hover:border-slate-300"
+            >
+              <span className="hidden md:inline">{t.backToSparkVision}</span>
+              <ArrowUpRight
+                className={cn("h-3.5 w-3.5 opacity-60", isArabic && "rotate-180")}
+              />
+            </Link>
+          </div>
         </div>
       </div>
     </header>

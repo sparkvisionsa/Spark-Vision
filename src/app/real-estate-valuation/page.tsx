@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import ValueTechShell from "@/components/value-tech-shell";
 import { ValuationStatusStrip } from "@/components/ui/realEstateStatusCards";
 import {
   RealEstateSearch,
@@ -9,6 +10,7 @@ import {
   NewTransactionButton,
   NewTransactionModal,
 } from "@/components/ui/new-transaction-modal";
+import { ValuationTable } from "@/components/ui/valuation-table";
 
 const DUMMY_COUNTS = {
   new: 12,
@@ -25,8 +27,8 @@ const RealEstateValuationPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#f7f4ee] text-slate-900">
-      <main className="container py-8">
+    <ValueTechShell>
+      <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
         <RealEstateSearch
           onSearch={(v) => console.log("search:", v)}
           className="mb-6"
@@ -36,14 +38,16 @@ const RealEstateValuationPage = () => {
           onClick={() => setModalOpen(true)}
           className="mb-6"
         />
-      </main>
+      </div>
+
+      <ValuationTable className="mt-4" />
 
       <NewTransactionModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSubmit={(values) => console.log("new transaction:", values)}
       />
-    </div>
+    </ValueTechShell>
   );
 };
 

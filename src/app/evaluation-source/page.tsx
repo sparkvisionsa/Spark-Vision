@@ -1,7 +1,6 @@
 import Link from "@/components/prefetch-link";
 import { Car, Building2, Shapes, ArrowUpRight } from "lucide-react";
-import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
-import ValueTechServiceFooter from "@/components/value-tech-service-footer";
+import ValueTechShell from "@/components/value-tech-shell";
 
 export default function Page() {
   const cards = [
@@ -29,42 +28,36 @@ export default function Page() {
   ] as const;
 
   return (
-    <div className="min-h-screen bg-[#f7f4ee] text-slate-900 flex flex-col">
-      <ValueTechServiceNavbar />
-      <main className="flex-1 px-6 py-10 sm:py-12">
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="mb-8">
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Evaluation Source</h1>
-            <p className="mt-2 text-sm text-slate-600 sm:text-base">
-              Choose a category to continue.
-            </p>
-          </div>
-
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {cards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <Link
-                  key={card.href}
-                  href={card.href}
-                  className={`group rounded-3xl border bg-gradient-to-br p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg ${card.accent}`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 shadow-sm">
-                      <Icon className="h-6 w-6 text-slate-700" />
-                    </span>
-                    <ArrowUpRight className="h-5 w-5 text-slate-500 transition group-hover:text-slate-900" />
-                  </div>
-
-                  <h2 className="mt-6 text-xl font-semibold text-slate-900">{card.title}</h2>
-                  <p className="mt-2 text-sm text-slate-600">{card.description}</p>
-                </Link>
-              );
-            })}
-          </div>
+    <ValueTechShell>
+      <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
+        <div className="mb-8">
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Evaluation Source</h1>
+          <p className="mt-2 text-sm text-slate-600 sm:text-base">Choose a category to continue.</p>
         </div>
-      </main>
-      <ValueTechServiceFooter />
-    </div>
+
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {cards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <Link
+                key={card.href}
+                href={card.href}
+                className={`group rounded-3xl border bg-gradient-to-br p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-lg ${card.accent}`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 shadow-sm">
+                    <Icon className="h-6 w-6 text-slate-700" />
+                  </span>
+                  <ArrowUpRight className="h-5 w-5 text-slate-500 transition group-hover:text-slate-900" />
+                </div>
+
+                <h2 className="mt-6 text-xl font-semibold text-slate-900">{card.title}</h2>
+                <p className="mt-2 text-sm text-slate-600">{card.description}</p>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    </ValueTechShell>
   );
 }

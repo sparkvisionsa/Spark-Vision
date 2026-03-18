@@ -1,4 +1,4 @@
-﻿
+
 "use client";
 
 import {
@@ -12,8 +12,6 @@ import {
   useTransition,
   type KeyboardEvent,
 } from "react";
-import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
-import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 import AuthModal from "@/components/auth-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -3075,9 +3073,8 @@ export default function EvaluationSourcePage({
   };
 
   return (
-    <div className={`min-h-screen bg-[#f7f4ee] text-slate-900 ${plex.className}`}>
-      <ValueTechServiceNavbar />
-      <main className="overflow-x-hidden">
+    <div className={`min-w-0 max-w-full overflow-x-hidden ${plex.className}`}>
+        <main className="min-w-0 max-w-full overflow-x-hidden">
         {/* <section className="relative">
           <div className="w-full px-6 py-12">
             <div className="space-y-6">
@@ -3091,8 +3088,8 @@ export default function EvaluationSourcePage({
           </div>
         </section> */}
 
-        <section className="relative pb-16">
-          <div className="w-full px-6">
+        <section className="relative min-w-0 pb-16">
+          <div className="w-full min-w-0 px-6">
             <div
               className={`relative overflow-visible border border-slate-200/80 ${
                 progressiveAdvancedFilters
@@ -3810,7 +3807,7 @@ export default function EvaluationSourcePage({
               </div>
             </div>
 
-            <div className="mt-8 rounded-3xl border border-slate-200 bg-white/95 shadow-2xl">
+            <div className="mt-8 min-w-0 rounded-3xl border border-slate-200 bg-white/95 shadow-2xl">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">
                 <div className="flex items-center gap-3">
                   <div className="rounded-2xl bg-slate-900 text-white px-3 py-2 text-xs uppercase tracking-[0.25em]">
@@ -3862,7 +3859,7 @@ export default function EvaluationSourcePage({
               </div>
             </div>
 
-              <div className="px-6 py-4">
+              <div className="min-w-0 px-6 py-4">
                 {status === "error" ? (
                   <div className="text-sm text-rose-500">
                     {registrationRequiredMessage ?? t.status.error}
@@ -3877,7 +3874,7 @@ export default function EvaluationSourcePage({
                     <div className="text-sm text-slate-500">{t.status.noRecords}</div>
                   )
                 ) : (
-                  <>
+                  <div className="min-w-0 overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -3946,7 +3943,7 @@ export default function EvaluationSourcePage({
                         {tableRows}
                       </TableBody>
                     </Table>
-                  </>
+                  </div>
                 )}
               </div>
 
@@ -4243,13 +4240,12 @@ export default function EvaluationSourcePage({
             </ScrollArea>
           </DialogContent>
         </Dialog>
-      </main>
+        </main>
       <AuthModal
         open={authModalOpen}
         onOpenChange={setAuthModalOpen}
         initialMode={authModalMode}
       />
-      <ValueTechServiceFooter />
     </div>
   );
 }

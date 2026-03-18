@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import Link from "@/components/prefetch-link";
-import { ChevronDown, LogOut, Shield, UserCircle } from "lucide-react";
+import { ChevronDown, LogIn, LogOut, Shield, UserCircle, UserPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -15,12 +15,29 @@ import {
 } from "@/components/ui/dropdown-menu";
 import AuthModal from "@/components/auth-modal";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { LanguageContext } from "@/components/layout-provider";
+
+const copy = {
+  en: {
+    login: "Login",
+    register: "Register",
+    loginOrRegister: "Login / Register",
+  },
+  ar: {
+    login: "تسجيل الدخول",
+    register: "تسجيل",
+    loginOrRegister: "تسجيل / تسجيل الدخول",
+  },
+} as const;
 
 export default function AuthUserMenu() {
   const { user, logout, guestAccess, loading } = useAuthTracking();
   const [openAuthModal, setOpenAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const autoOpenTriggeredRef = useRef(false);
+  const langContext = useContext(LanguageContext);
+  const language = langContext?.language ?? "ar";
+  const t = language === "ar" ? copy.ar : copy.en;
 
   const attemptsText =
     guestAccess && guestAccess.registrationRequired
@@ -74,15 +91,31 @@ export default function AuthUserMenu() {
             <div className="mt-1 text-[10px] text-slate-500">{attemptsText}</div>
           </div>
         ) : null}
-        <Button
-          size="sm"
-          onClick={() => {
-            setAuthMode("login");
-            setOpenAuthModal(true);
-          }}
-        >
-          Login / Register
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            onClick={() => {
+              setAuthMode("login");
+              setOpenAuthModal(true);
+            }}
+          >
+            <LogIn className="h-4 w-4" />
+            <span className="hidden sm:inline">{t.login}</span>
+          </Button>
+          <Button
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              setAuthMode("register");
+              setOpenAuthModal(true);
+            }}
+          >
+            <UserPlus className="h-4 w-4" />
+            <span className="hidden sm:inline">{t.register}</span>
+          </Button>
+        </div>
         <AuthModal
           open={openAuthModal}
           onOpenChange={setOpenAuthModal}

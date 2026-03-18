@@ -14,7 +14,7 @@ function shouldUseTurboPack() {
 
   if (selectedBundler === "webpack") return false;
   if (selectedBundler === "turbopack") return true;
-  return false;
+  return true;
 }
 
 function shouldWarmRoutes() {
@@ -24,8 +24,22 @@ function shouldWarmRoutes() {
   return value !== "0" && value !== "false" && value !== "no";
 }
 
+const DEFAULT_WARM_ROUTES = [
+  "/admin",
+  "/evaluation-source",
+  "/evaluation-source/cars",
+  "/evaluation-source/real-estate",
+  "/evaluation-source/other",
+  "/value-tech",
+  "/value-tech-app",
+  "/real-estate-valuation",
+  "/machine-valuation",
+  "/clients",
+  "/settings",
+];
+
 function parseWarmRoutes() {
-  const raw = (process.env.FRONTEND_DEV_WARM_LIST ?? "/admin,/evaluation-source/cars")
+  const raw = (process.env.FRONTEND_DEV_WARM_LIST ?? DEFAULT_WARM_ROUTES.join(","))
     .trim();
   if (!raw) return [];
   const routes = raw
@@ -97,9 +111,12 @@ async function warmRoutes(port) {
     return;
   }
 
-  console.log(`[frontend] warming routes: ${routes.join(", ")}`);
+  console.log(`[frontend] warming ${routes.length} routes in parallel…`);
   const startedAt = Date.now();
-  await Promise.allSettled(routes.map((route) => warmRoute(origin, route)));
+  const BATCH = 4;
+  for (let i = 0; i < routes.length; i += BATCH) {
+    await Promise.all(routes.slice(i, i + BATCH).map((r) => warmRoute(origin, r)));
+  }
   console.log(`[frontend] route warmup finished in ${Date.now() - startedAt}ms`);
 }
 

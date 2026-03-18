@@ -35,6 +35,7 @@ export default function PrefetchLink({
   return (
     <Link
       href={href}
+      prefetch={true}
       onMouseEnter={(event) => {
         prefetch();
         onMouseEnter?.(event);

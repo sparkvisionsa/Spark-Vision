@@ -7,17 +7,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Sheet,
-  SheetContent,
-  SheetTrigger,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { LanguageSwitcher } from "./language-switcher";
 import AuthUserMenu from "./auth-user-menu";
 import { ChevronDown, Menu } from "lucide-react";
@@ -154,7 +146,7 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={`flex items-center gap-2 text-foreground/60 transition-colors hover:text-foreground/80 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                      className={`flex items-center gap-1 text-foreground/60 transition-colors hover:text-foreground/80 ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
                       aria-disabled={navDisabled}
                       tabIndex={navDisabled ? -1 : undefined}
                       disabled={navDisabled}
@@ -168,80 +160,14 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                     align={isArabic ? "end" : "start"}
                     className={`w-56 ${isArabic ? "text-right" : "text-left"}`}
                   >
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        className={`flex w-full items-center justify-between ${
-                          isArabic
-                            ? "[&_svg]:ml-0 [&_svg]:mr-auto [&_svg]:rotate-180"
-                            : "[&_svg]:ml-auto [&_svg]:mr-0"
-                        }`}
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href="/value-tech"
+                        className="flex w-full items-center justify-between"
                       >
                         {serviceMenuLabels.valueTech}
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent
-                        className={`w-56 ${isArabic ? "text-right" : "text-left"}`}
-                      >
-                        {showValueTechAppLink ? (
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href="/value-tech-app"
-                              className="flex w-full items-center justify-between"
-                            >
-                              {serviceMenuLabels.valueTechApp}
-                            </Link>
-                          </DropdownMenuItem>
-                        ) : null}
-
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href="/real-estate-valuation"
-                            className="flex w-full items-center justify-between"
-                          >
-                            {serviceMenuLabels.realEstateValuation}
-                          </Link>
-                        </DropdownMenuItem>
-
-                        <DropdownMenuSub>
-                          <DropdownMenuSubTrigger
-                            className={`flex w-full items-center justify-between ${
-                              isArabic
-                                ? "[&_svg]:ml-0 [&_svg]:mr-auto [&_svg]:rotate-180"
-                                : "[&_svg]:ml-auto [&_svg]:mr-0"
-                            }`}
-                          >
-                            {serviceMenuLabels.evaluationSource}
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent
-                            className={`w-52 ${isArabic ? "text-right" : "text-left"}`}
-                          >
-                            <DropdownMenuItem asChild>
-                              <Link
-                                href="/evaluation-source/cars"
-                                className="flex w-full items-center justify-between"
-                              >
-                                {serviceMenuLabels.cars}
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link
-                                href="/evaluation-source/real-estate"
-                                className="flex w-full items-center justify-between"
-                              >
-                                {serviceMenuLabels.realEstate}
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link
-                                href="/evaluation-source/other"
-                                className="flex w-full items-center justify-between"
-                              >
-                                {serviceMenuLabels.other}
-                              </Link>
-                            </DropdownMenuItem>
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
+                      </Link>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
@@ -299,140 +225,19 @@ export default function Header({ navDisabled = false }: HeaderProps) {
               <div className="flex flex-col space-y-3">
                 {c.nav.map((item) =>
                   item.href === "#services" ? (
-                    <details key={item.href} className="group">
-                      <summary
-                        className={`flex cursor-pointer list-none items-center justify-between text-foreground ${
-                          isArabic ? "flex-row-reverse" : ""
-                        } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                        aria-disabled={navDisabled}
-                        tabIndex={navDisabled ? -1 : undefined}
-                        onClick={
-                          navDisabled ? (e) => e.preventDefault() : undefined
-                        }
-                      >
-                        <span>{item.name}</span>
-                        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                      </summary>
-
-                      <div className="mt-2 flex flex-col gap-2 pl-4">
-                        <details className="group">
-                          <summary
-                            className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${
-                              isArabic ? "flex-row-reverse" : ""
-                            } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                            aria-disabled={navDisabled}
-                            tabIndex={navDisabled ? -1 : undefined}
-                            onClick={
-                              navDisabled
-                                ? (e) => e.preventDefault()
-                                : undefined
-                            }
-                          >
-                            <span>{serviceMenuLabels.valueTech}</span>
-                            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                          </summary>
-
-                          <div className="mt-2 flex flex-col gap-2 pl-4">
-                            {showValueTechAppLink ? (
-                              <Link
-                                href="/value-tech-app"
-                                onClick={() => setIsOpen(false)}
-                                className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                                aria-disabled={navDisabled}
-                                tabIndex={navDisabled ? -1 : undefined}
-                                onClickCapture={
-                                  navDisabled
-                                    ? (e) => e.preventDefault()
-                                    : undefined
-                                }
-                              >
-                                {serviceMenuLabels.valueTechApp}
-                              </Link>
-                            ) : null}
-
-                            <Link
-                              href="/real-estate-valuation"
-                              onClick={() => setIsOpen(false)}
-                              className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                              aria-disabled={navDisabled}
-                              tabIndex={navDisabled ? -1 : undefined}
-                              onClickCapture={
-                                navDisabled
-                                  ? (e) => e.preventDefault()
-                                  : undefined
-                              }
-                            >
-                              {serviceMenuLabels.realEstateValuation}
-                            </Link>
-
-                            <details className="group">
-                              <summary
-                                className={`flex cursor-pointer list-none items-center justify-between text-sm text-foreground/80 hover:text-foreground ${
-                                  isArabic ? "flex-row-reverse" : ""
-                                } ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                                aria-disabled={navDisabled}
-                                tabIndex={navDisabled ? -1 : undefined}
-                                onClick={
-                                  navDisabled
-                                    ? (e) => e.preventDefault()
-                                    : undefined
-                                }
-                              >
-                                <span>
-                                  {serviceMenuLabels.evaluationSource}
-                                </span>
-                                <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                              </summary>
-
-                              <div className="mt-2 flex flex-col gap-2 pl-4">
-                                <Link
-                                  href="/evaluation-source/cars"
-                                  onClick={() => setIsOpen(false)}
-                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                                  aria-disabled={navDisabled}
-                                  tabIndex={navDisabled ? -1 : undefined}
-                                  onClickCapture={
-                                    navDisabled
-                                      ? (e) => e.preventDefault()
-                                      : undefined
-                                  }
-                                >
-                                  {serviceMenuLabels.cars}
-                                </Link>
-                                <Link
-                                  href="/evaluation-source/real-estate"
-                                  onClick={() => setIsOpen(false)}
-                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                                  aria-disabled={navDisabled}
-                                  tabIndex={navDisabled ? -1 : undefined}
-                                  onClickCapture={
-                                    navDisabled
-                                      ? (e) => e.preventDefault()
-                                      : undefined
-                                  }
-                                >
-                                  {serviceMenuLabels.realEstate}
-                                </Link>
-                                <Link
-                                  href="/evaluation-source/other"
-                                  onClick={() => setIsOpen(false)}
-                                  className={`text-sm text-foreground/80 hover:text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
-                                  aria-disabled={navDisabled}
-                                  tabIndex={navDisabled ? -1 : undefined}
-                                  onClickCapture={
-                                    navDisabled
-                                      ? (e) => e.preventDefault()
-                                      : undefined
-                                  }
-                                >
-                                  {serviceMenuLabels.other}
-                                </Link>
-                              </div>
-                            </details>
-                          </div>
-                        </details>
-                      </div>
-                    </details>
+                    <Link
+                      key={item.href}
+                      href="/value-tech"
+                      onClick={() => setIsOpen(false)}
+                      className={`text-foreground ${navDisabled ? "pointer-events-none text-foreground/40" : ""}`}
+                      aria-disabled={navDisabled}
+                      tabIndex={navDisabled ? -1 : undefined}
+                      onClickCapture={
+                        navDisabled ? (e) => e.preventDefault() : undefined
+                      }
+                    >
+                      {serviceMenuLabels.valueTech}
+                    </Link>
                   ) : (
                     <Link
                       key={item.href}

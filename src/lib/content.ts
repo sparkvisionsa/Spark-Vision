@@ -489,7 +489,7 @@ export const content = {
   en: {
     nav: [
       { name: "About", href: "#about" },
-      { name: "Services", href: "#services" },
+      { name: "Products", href: "#services" },
       { name: "Portfolio", href: "#portfolio" },
       { name: "Contact", href: "#contact" },
     ],
@@ -720,7 +720,7 @@ export const content = {
   ar: {
     nav: [
       { name: "من نحن", href: "#about" },
-      { name: "خدماتنا", href: "#services" },
+      { name: "منتجاتنا", href: "#services" },
       { name: "أعمالنا", href: "#portfolio" },
       { name: "اتصل بنا", href: "#contact" },
     ],

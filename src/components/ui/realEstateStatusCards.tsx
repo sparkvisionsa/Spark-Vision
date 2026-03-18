@@ -145,17 +145,17 @@ export function ValuationStatusCard({
       )}
     >
       <div className={cn("rounded-lg p-1.5", color.bg)}>
-        <Icon className={cn("h-8 w-8", color.icon)} strokeWidth={1.75} />
+        <Icon className={cn("h-6 w-6 sm:h-8 sm:w-8", color.icon)} strokeWidth={1.75} />
       </div>
       <span
         className={cn(
-          "text-2xl font-bold leading-none tabular-nums",
+          "text-xl font-bold leading-none tabular-nums sm:text-2xl",
           color.number,
         )}
       >
         {count}
       </span>
-      <span className="text-center text-[11px] font-medium leading-tight text-slate-500">
+      <span className="text-center text-[10px] font-medium leading-tight text-slate-500 sm:text-[11px]">
         {label}
       </span>
     </div>
@@ -179,7 +179,7 @@ export function ValuationStatusStrip({
   const language = langContext?.language ?? "en";
 
   return (
-    <div className={cn("grid w-full grid-cols-8 gap-3", className)}>
+    <div className={cn("grid w-full grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3 lg:grid-cols-8", className)}>
       {STATUS_CARDS.map((card) => (
         <ValuationStatusCard
           key={card.key}
