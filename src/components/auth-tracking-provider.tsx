@@ -174,6 +174,18 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+const isTrackingUrl = (url: string) =>
+  url.includes("/api/track/") || url.includes("/api/auth/me");
+
+async function safeRequestJson<T>(url: string, options?: RequestInit): Promise<T | null> {
+  try {
+    return await requestJson<T>(url, options);
+  } catch {
+    if (isTrackingUrl(url)) return null;
+    throw arguments[0];
+  }
+}
+
 export default function AuthTrackingProvider({
   children,
 }: {
@@ -210,7 +222,7 @@ export default function AuthTrackingProvider({
     const batch = actionQueueRef.current.splice(0, 50);
     if (!batch.length) return;
     try {
-      const result = await requestJson<{ guestAccess?: GuestAccess }>("/api/track/action", {
+      const result = await safeRequestJson<{ guestAccess?: GuestAccess }>("/api/track/action", {
         method: "POST",
         headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
         body: JSON.stringify({
@@ -218,7 +230,7 @@ export default function AuthTrackingProvider({
         }),
         keepalive: true,
       });
-      if (result.guestAccess) {
+      if (result?.guestAccess) {
         setGuestAccess(result.guestAccess);
       }
     } catch {
@@ -270,21 +282,21 @@ export default function AuthTrackingProvider({
       if (eventType === "start") {
         payload.fingerprint = await collectFingerprint();
       }
-      const response = await requestJson<SessionPayload>("/api/track/session", {
+      const response = await safeRequestJson<SessionPayload>("/api/track/session", {
         method: "POST",
         headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
         body: JSON.stringify(payload),
         keepalive: eventType === "end",
       });
-      applySnapshot(response);
+      if (response) applySnapshot(response);
       return response;
     },
     [applySnapshot, csrfToken]
   );
 
   const refresh = useCallback(async () => {
-    const response = await requestJson<SessionPayload>("/api/auth/me");
-    applySnapshot(response);
+    const response = await safeRequestJson<SessionPayload>("/api/auth/me");
+    if (response) applySnapshot(response);
   }, [applySnapshot]);
 
   const login = useCallback(

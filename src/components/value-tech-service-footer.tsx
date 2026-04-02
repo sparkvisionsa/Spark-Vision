@@ -13,7 +13,7 @@ const copy = {
     subtitle: "Professional workspace for app access and evaluation data sources.",
     quickLinks: "Quick Links",
     valueTechHome: "Value Tech Home",
-    valueTechApp: "Value Tech App",
+    valueTechApp: "Report Upload System",
     evaluationSource: "Evaluation Source",
     categories: "Categories",
     cars: "Cars",
@@ -23,20 +23,18 @@ const copy = {
     copyright: "All rights reserved.",
   },
   ar: {
-    title: "Value Tech",
-    subtitle:
-      "\u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 \u0627\u062d\u062a\u0631\u0627\u0641\u064a\u0629 \u0644\u0644\u062a\u0637\u0628\u064a\u0642 \u0648\u0645\u0635\u0627\u062f\u0631 \u0627\u0644\u062a\u0642\u064a\u064a\u0645.",
-    quickLinks: "\u0631\u0648\u0627\u0628\u0637 \u0633\u0631\u064a\u0639\u0629",
-    valueTechHome: "\u0635\u0641\u062d\u0629 Value Tech",
-    valueTechApp: "\u062a\u0637\u0628\u064a\u0642 Value Tech",
-    evaluationSource: "\u0645\u0635\u0627\u062f\u0631 \u0627\u0644\u062a\u0642\u064a\u064a\u0645",
-    categories: "\u062a\u0635\u0646\u064a\u0641\u0627\u062a \u0627\u0644\u0645\u0635\u0627\u062f\u0631",
-    cars: "\u0627\u0644\u0633\u064a\u0627\u0631\u0627\u062a",
-    realEstate: "\u0627\u0644\u0639\u0642\u0627\u0631\u0627\u062a",
-    other: "\u0623\u062e\u0631\u0649",
-    backToSparkVision:
-      "\u0627\u0644\u0639\u0648\u062f\u0629 \u0625\u0644\u0649 SparkVision",
-    copyright: "\u062c\u0645\u064a\u0639 \u0627\u0644\u062d\u0642\u0648\u0642 \u0645\u062d\u0641\u0648\u0638\u0629.",
+    title: "فاليو تك",
+    subtitle: "مساحة عمل احترافية للتطبيق ومصادر التقييم.",
+    quickLinks: "روابط سريعة",
+    valueTechHome: "صفحة فاليو تك",
+    valueTechApp: "نظام رفع التقارير",
+    evaluationSource: "نظام مصادر المعلومات",
+    categories: "تصنيفات المصادر",
+    cars: "السيارات",
+    realEstate: "العقارات",
+    other: "أخرى",
+    backToSparkVision: "العودة إلى سبارك فيجن",
+    copyright: "جميع الحقوق محفوظة.",
   },
 } as const;
 
@@ -105,16 +103,6 @@ export default function ValueTechServiceFooter() {
               <h2 className={cn("text-2xl font-semibold", theme.title)}>{t.title}</h2>
               <p className={cn("max-w-md text-sm leading-7", theme.subtitle)}>{t.subtitle}</p>
 
-              <Link
-                href="/"
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition",
-                  theme.cta
-                )}
-              >
-                {t.backToSparkVision}
-                <ArrowUpRight className={cn("h-4 w-4", isArabic ? "rotate-180" : "")} />
-              </Link>
             </div>
 
             <div>

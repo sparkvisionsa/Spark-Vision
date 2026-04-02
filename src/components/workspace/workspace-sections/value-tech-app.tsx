@@ -16,7 +16,6 @@ import {
   Wrench,
 } from "lucide-react";
 import { Cairo, Manrope, Playfair_Display } from "next/font/google";
-import ValueTechShell from "@/components/value-tech-shell";
 import { LanguageContext } from "@/components/layout-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -68,7 +67,7 @@ const pageStyles = `
 const copy = {
   en: {
     heroBadge: "Desktop Platform",
-    heroTitle: "Value Tech App",
+    heroTitle: "Report Upload System",
     heroDescription:
       "A modern valuation workspace built for speed, clarity, and reliable report delivery.",
     heroPrimaryCta: "Download for Windows",
@@ -172,7 +171,7 @@ const copy = {
   },
   ar: {
     heroBadge: "منصة سطح مكتب",
-    heroTitle: "تطبيق Value Tech",
+    heroTitle: "نظام رفع التقارير",
     heroDescription:
       "مساحة عمل تقييم حديثة تجمع بين السرعة والوضوح والثبات في إنجاز التقارير.",
     heroPrimaryCta: "تنزيل التطبيق لويندوز",
@@ -254,7 +253,7 @@ const copy = {
         description: "سجل واضح للعمليات يساعد في المراجعة ورفع المساءلة.",
       },
     ],
-    testimonialsTitle: "فرق العمل تثق في Value Tech",
+    testimonialsTitle: "فرق العمل تثق في فاليو تك",
     testimonials: [
       {
         quote:
@@ -319,11 +318,10 @@ export default function ValueTechPage() {
   const year = useMemo(() => new Date().getFullYear(), []);
 
   return (
-    <ValueTechShell>
-      <div
-        className={cn("min-h-screen bg-[#edf3f4] text-slate-900 rounded-3xl", pageFont)}
-        dir={isArabic ? "rtl" : "ltr"}
-      >
+    <div
+      className={cn("min-h-screen bg-[#edf3f4] text-slate-900 rounded-3xl", pageFont)}
+      dir={isArabic ? "rtl" : "ltr"}
+    >
       <style>{pageStyles}</style>
 
       <main className="relative overflow-hidden pb-20">
@@ -592,7 +590,7 @@ export default function ValueTechPage() {
               </Button>
             </div>
 
-            <p className="mt-8 text-xs text-slate-300">&copy; {year} Spark Vision - Value Tech</p>
+            <p className="mt-8 text-xs text-slate-300">&copy; {year} Value Tech</p>
           </div>
         </section>
       </main>
@@ -610,7 +608,6 @@ export default function ValueTechPage() {
       >
         <ArrowUp className="h-5 w-5" />
       </button>
-      </div>
-    </ValueTechShell>
+    </div>
   );
 }

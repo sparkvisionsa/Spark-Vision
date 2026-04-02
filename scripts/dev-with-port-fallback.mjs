@@ -18,14 +18,17 @@ function shouldUseTurboPack() {
 }
 
 function shouldWarmRoutes() {
+  // Default ON: pre-compile main routes after dev server is ready so first navigation feels instant.
+  // Disable with FRONTEND_DEV_WARM_ROUTES=false if the machine is slow or you need minimal CPU.
   const value = (process.env.FRONTEND_DEV_WARM_ROUTES ?? "true")
     .trim()
     .toLowerCase();
   return value !== "0" && value !== "false" && value !== "no";
 }
 
+// Order matters: `/w/[[...slug]]` routes are grouped so one Turbopack compile covers many paths.
 const DEFAULT_WARM_ROUTES = [
-  "/admin",
+  "/",
   "/evaluation-source",
   "/evaluation-source/cars",
   "/evaluation-source/real-estate",
@@ -34,6 +37,8 @@ const DEFAULT_WARM_ROUTES = [
   "/value-tech-app",
   "/real-estate-valuation",
   "/machine-valuation",
+  "/admin",
+  "/profile",
   "/clients",
   "/settings",
 ];
@@ -54,22 +59,48 @@ async function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitUntilReady(origin, timeoutMs = 45_000) {
+/** TCP connect only — avoids GET / which forces a full `/` compile before warmup starts. */
+function tryConnectLocalPort(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ port, host }, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+    socket.setTimeout(2000, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitUntilDevServerListening(port, timeoutMs = 60_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(`${origin}/`, {
-        cache: "no-store",
-      });
-      if (response.ok) {
-        return true;
-      }
-    } catch {
-      // server not ready yet
+    if (await tryConnectLocalPort(port)) {
+      return true;
     }
-    await sleep(600);
+    await sleep(150);
   }
   return false;
+}
+
+function warmBatchSize() {
+  const raw = (process.env.FRONTEND_DEV_WARM_BATCH ?? "5").trim();
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 1 && n <= 24) {
+    return Math.floor(n);
+  }
+  return 5;
+}
+
+function warmBatchGapMs() {
+  const raw = (process.env.FRONTEND_DEV_WARM_BATCH_GAP_MS ?? "80").trim();
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0 && n <= 5000) {
+    return Math.floor(n);
+  }
+  return 80;
 }
 
 async function warmRoute(origin, route) {
@@ -88,7 +119,13 @@ async function warmRoute(origin, route) {
       );
       return;
     }
-    console.log(`[frontend] warmed ${route} in ${elapsedMs}ms`);
+    // Drain body so the request fully completes (helps Turbopack finish the graph).
+    try {
+      await response.arrayBuffer();
+    } catch {
+      // ignore
+    }
+    console.log(`[frontend] warmed ${route} in ${Date.now() - startedAt}ms`);
   } catch {
     // warmup is best-effort only
   }
@@ -105,17 +142,23 @@ async function warmRoutes(port) {
   }
 
   const origin = `http://127.0.0.1:${port}`;
-  const ready = await waitUntilReady(origin);
+  const ready = await waitUntilDevServerListening(port);
   if (!ready) {
     console.warn("[frontend] skipped route warmup: dev server readiness timeout");
     return;
   }
 
-  console.log(`[frontend] warming ${routes.length} routes in parallel…`);
+  const batch = warmBatchSize();
+  const gapMs = warmBatchGapMs();
+  console.log(
+    `[frontend] warming ${routes.length} routes (batch=${batch}, gap=${gapMs}ms) — TCP readiness only, no extra GET / before warmup…`
+  );
   const startedAt = Date.now();
-  const BATCH = 4;
-  for (let i = 0; i < routes.length; i += BATCH) {
-    await Promise.all(routes.slice(i, i + BATCH).map((r) => warmRoute(origin, r)));
+  for (let i = 0; i < routes.length; i += batch) {
+    await Promise.all(routes.slice(i, i + batch).map((r) => warmRoute(origin, r)));
+    if (i + batch < routes.length && gapMs > 0) {
+      await sleep(gapMs);
+    }
   }
   console.log(`[frontend] route warmup finished in ${Date.now() - startedAt}ms`);
 }

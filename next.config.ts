@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
   onDemandEntries: {
-    // Keep frequently used routes compiled longer during `next dev`.
+    // Keep recently visited routes in memory during dev for faster back/forward navigation
     maxInactiveAge: 60 * 60 * 1000,
     pagesBufferLength: 200,
   },
@@ -20,9 +20,11 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
+    // Server-side proxy target (must match where Nest runs). Prefer BACKEND_URL in .env.local
     const backendBaseUrl =
+      process.env.BACKEND_URL?.replace(/\/+$/, "") ??
       process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??
-      "http://167.71.231.64:5000";
+      "http://127.0.0.1:5000";
     return [
       {
         source: "/api/:path*",

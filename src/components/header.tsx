@@ -40,21 +40,19 @@ export default function Header({ navDisabled = false }: HeaderProps) {
   const c = content[language];
   const serviceMenuLabels = isArabic
     ? {
-        valueTech: "\u0641\u0627\u0644\u064A\u0648 \u062A\u0643",
-        valueTechApp: "\u062A\u0637\u0628\u064A\u0642 Value Tech",
-        realEstateValuation: "تقييم العقارات",
-        evaluationSource:
-          "\u0645\u0635\u0627\u062F\u0631 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
-        cars: "\u0627\u0644\u0633\u064A\u0627\u0631\u0627\u062A",
-        realEstate: "\u0627\u0644\u0639\u0642\u0627\u0631\u0627\u062A",
-        other: "\u0623\u062E\u0631\u0649",
+        valueTech: "فاليو تك",
+        valueTechApp: "نظام رفع التقارير",
+        realEstateValuation: "نظام تقييم العقارات",
+        evaluationSource: "نظام مصادر المعلومات",
+        cars: "السيارات",
+        realEstate: "العقارات",
+        other: "أخرى",
       }
     : {
         valueTech: "Value Tech",
-        valueTechApp: "Value Tech App",
-        realEstateValuation: "Real Estate Valuation",
-
-        evaluationSource: "Evaluation Source",
+        valueTechApp: "Report Upload System",
+        realEstateValuation: "Real Estate Valuation System",
+        evaluationSource: "Information Sources System",
         cars: "Cars",
         realEstate: "Real Estate",
         other: "Other",

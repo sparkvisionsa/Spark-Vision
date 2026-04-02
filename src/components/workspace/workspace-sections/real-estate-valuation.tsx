@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import ValueTechShell from "@/components/value-tech-shell";
 import { ValuationStatusStrip } from "@/components/ui/realEstateStatusCards";
 import {
   RealEstateSearch,
@@ -23,11 +22,11 @@ const DUMMY_COUNTS = {
   pending: 9,
 };
 
-const RealEstateValuationPage = () => {
+const RealEstateValuationSection = () => {
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
-    <ValueTechShell>
+    <>
       <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
         <RealEstateSearch
           onSearch={(v) => console.log("search:", v)}
@@ -47,8 +46,8 @@ const RealEstateValuationPage = () => {
         onClose={() => setModalOpen(false)}
         onSubmit={(values) => console.log("new transaction:", values)}
       />
-    </ValueTechShell>
+    </>
   );
 };
 
-export default RealEstateValuationPage;
+export default RealEstateValuationSection;

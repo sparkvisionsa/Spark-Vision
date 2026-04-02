@@ -319,13 +319,10 @@ export default function ValueTechHero({
           isArabic && "font-value-tech",
         )}
       >
-        {/* Logo + Badge */}
+        {/* Logo */}
         <div className="value-tech-hero-badge flex flex-col items-center gap-4">
           <span className="inline-flex rounded-2xl bg-white/[0.06] p-2.5 ring-1 ring-white/[0.08] backdrop-blur-sm">
             <HeroLogo size={44} />
-          </span>
-          <span className="inline-flex items-center rounded-full border border-teal-400/20 bg-teal-500/10 px-4 py-1.5 text-[13px] font-medium tracking-wide text-teal-200/90 backdrop-blur-sm">
-            {copy.badge}
           </span>
         </div>
 

@@ -125,6 +125,102 @@
   animation: slide-in-up 0.7s ease-out 0.4s both;
 }
 
+/* ── Scroll-reveal animations ── */
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(2rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes reveal-scale {
+  from { opacity: 0; transform: scale(0.92) translateY(1rem); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes reveal-left {
+  from { opacity: 0; transform: translateX(-2rem); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes reveal-right {
+  from { opacity: 0; transform: translateX(2rem); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.vt-reveal {
+  opacity: 0;
+}
+.vt-reveal.vt-visible {
+  animation: reveal-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.vt-reveal-scale {
+  opacity: 0;
+}
+.vt-reveal-scale.vt-visible {
+  animation: reveal-scale 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Staggered card entrance */
+.vt-card-stagger { opacity: 0; }
+.vt-card-stagger.vt-visible {
+  animation: reveal-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.vt-card-stagger:nth-child(1) { animation-delay: 0.05s; }
+.vt-card-stagger:nth-child(2) { animation-delay: 0.12s; }
+.vt-card-stagger:nth-child(3) { animation-delay: 0.19s; }
+.vt-card-stagger:nth-child(4) { animation-delay: 0.26s; }
+.vt-card-stagger:nth-child(5) { animation-delay: 0.33s; }
+.vt-card-stagger:nth-child(6) { animation-delay: 0.40s; }
+.vt-card-stagger.vt-visible:nth-child(1) { animation-delay: 0.05s; }
+.vt-card-stagger.vt-visible:nth-child(2) { animation-delay: 0.12s; }
+.vt-card-stagger.vt-visible:nth-child(3) { animation-delay: 0.19s; }
+.vt-card-stagger.vt-visible:nth-child(4) { animation-delay: 0.26s; }
+.vt-card-stagger.vt-visible:nth-child(5) { animation-delay: 0.33s; }
+.vt-card-stagger.vt-visible:nth-child(6) { animation-delay: 0.40s; }
+
+/* Counter number pop */
+@keyframes count-pop {
+  0%   { opacity: 0; transform: scale(0.5) translateY(0.5rem); }
+  60%  { transform: scale(1.12) translateY(-0.15rem); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.vt-count-pop { opacity: 0; }
+.vt-count-pop.vt-visible {
+  animation: count-pop 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.vt-count-pop:nth-child(1) .vt-count-num { animation-delay: 0.1s; }
+.vt-count-pop:nth-child(2) .vt-count-num { animation-delay: 0.25s; }
+.vt-count-pop:nth-child(3) .vt-count-num { animation-delay: 0.4s; }
+
+/* Floating decorative orbs */
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-12px) rotate(3deg); }
+}
+@keyframes float-medium {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-8px) rotate(-2deg); }
+}
+.vt-float-slow   { animation: float-slow 6s ease-in-out infinite; }
+.vt-float-medium { animation: float-medium 4s ease-in-out infinite; }
+
+/* Gradient line shimmer */
+@keyframes shimmer-line {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.vt-shimmer-line {
+  height: 2px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, rgba(13,148,136,0.4), rgba(14,165,233,0.4), transparent);
+  background-size: 200% 100%;
+  animation: shimmer-line 3s ease-in-out infinite;
+}
+
+/* Pulse ring */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.9); opacity: 0.6; }
+  50%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.6; }
+}
+.vt-pulse-ring { animation: pulse-ring 3s ease-in-out infinite; }
+
 /* Value Tech Hero */
 @keyframes hero-fade-up {
   from {
@@ -151,4 +247,29 @@
 
 .value-tech-hero-cta {
   animation: hero-fade-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.5s both;
+}
+
+/* ── Prevent layout shift from scroll-lock (react-remove-scroll-bar) ──
+   The library injects a <style> with !important at runtime. We use repeated
+   :root/:where/:is selectors to boost specificity and guarantee our rules win. */
+:root {
+  overflow-y: scroll !important;
+}
+:root body[data-scroll-locked] {
+  overflow: visible !important;
+  overscroll-behavior: auto !important;
+  padding-right: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
+}
+:root .with-scroll-bars-hidden {
+  overflow: visible !important;
+  padding-right: 0 !important;
+}
+:root .right-scroll-bar-position {
+  right: 0 !important;
+}
+:root .width-before-scroll-bar {
+  margin: 0 !important;
 }

@@ -41,11 +41,13 @@ export default function RoutePrefetcher() {
       cancelIdleCallback?: (handle: number) => void;
     };
 
+    const staggerMs = process.env.NODE_ENV === "development" ? 90 : 200;
+
     const startPrefetch = () => {
       routes.forEach((route, index) => {
         const handle = window.setTimeout(() => {
           void router.prefetch(route);
-        }, index * 80);
+        }, index * staggerMs);
         timeoutHandles.push(handle);
       });
     };
@@ -58,10 +60,10 @@ export default function RoutePrefetcher() {
         () => {
           startPrefetch();
         },
-        { timeout: 800 }
+        { timeout: process.env.NODE_ENV === "development" ? 400 : 1200 }
       );
     } else {
-      delayedHandle = window.setTimeout(startPrefetch, 300);
+      delayedHandle = window.setTimeout(startPrefetch, 200);
     }
 
     return () => {

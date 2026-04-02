@@ -2,9 +2,9 @@
 
 import { useContext, useId } from "react";
 import {
-  ArrowUpRight,
   ChevronDown,
   Globe,
+  Home,
   LayoutGrid,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
@@ -22,18 +22,26 @@ import {
 
 const copy = {
   en: {
-    backToSparkVision: "SparkVision",
-    valueTechHub: "Value Tech Home",
-    valueTechApp: "Value Tech App",
+    home: "Home",
+    valueTechApp: "Report Upload System",
+    realEstate: "Real Estate Valuation System",
+    machines: "Machines Valuation System",
+    sources: "Information Sources System",
+    assetInventory: "Asset Inventory System",
+    assetInspection: "Asset Inspection System",
     products: "Products",
     language: "Language",
   },
   ar: {
-    backToSparkVision: "SparkVision",
-    valueTechHub: "\u0635\u0641\u062d\u0629 Value Tech",
-    valueTechApp: "\u062a\u0637\u0628\u064a\u0642 Value Tech",
-    products: "\u0645\u0646\u062a\u062c\u0627\u062a",
-    language: "\u0627\u0644\u0644\u063a\u0629",
+    home: "الرئيسية",
+    valueTechApp: "نظام رفع التقارير",
+    realEstate: "نظام تقييم العقارات",
+    machines: "نظام تقييم الآلات",
+    sources: "مصادر المعلومات",
+    assetInventory: "تطبيق حصر الأصول",
+    assetInspection: "تطبيق معاينة الأصول",
+    products: "المنتجات",
+    language: "اللغة",
   },
 } as const;
 
@@ -102,14 +110,17 @@ export default function ValueTechServiceNavbar() {
     pathname.startsWith("/evaluation-source") ||
     pathname.startsWith("/real-estate-valuation") ||
     pathname.startsWith("/machine-valuation") ||
+    pathname.startsWith("/asset-inventory") ||
+    pathname.startsWith("/asset-inspection") ||
     pathname.startsWith("/clients") ||
     pathname.startsWith("/settings");
 
   const dropdownItems = (
     <>
-      <DropdownMenuItem asChild>
-        <Link href="/value-tech" className="text-[13px]">
-          {t.valueTechHub}
+      <DropdownMenuItem asChild className="sm:hidden">
+        <Link href="/value-tech" className="text-[13px] gap-2">
+          <Home className="h-3.5 w-3.5" />
+          {t.home}
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
@@ -119,17 +130,27 @@ export default function ValueTechServiceNavbar() {
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <Link href="/real-estate-valuation" className="text-[13px]">
-          {isArabic ? "تقييم العقارات" : "Real Estate Valuation"}
+          {t.realEstate}
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <Link href="/machine-valuation" className="text-[13px]">
-          {isArabic ? "تقييم الآلات" : "Machines Valuation"}
+          {t.machines}
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
         <Link href="/evaluation-source" className="text-[13px]">
-          {isArabic ? "مصادر المعلومات" : "Information Sources"}
+          {t.sources}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/asset-inventory" className="text-[13px]">
+          {t.assetInventory}
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/asset-inspection" className="text-[13px]">
+          {t.assetInspection}
         </Link>
       </DropdownMenuItem>
     </>
@@ -154,6 +175,20 @@ export default function ValueTechServiceNavbar() {
 
           {/* Divider */}
           <div className="hidden sm:block h-5 w-px shrink-0 bg-slate-200" />
+
+          {/* Home link */}
+          <Link
+            href="/value-tech"
+            className={cn(
+              "hidden sm:inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-150",
+              pathname === "/value-tech"
+                ? "text-teal-700 bg-teal-50/80"
+                : "text-slate-500 hover:text-teal-700 hover:bg-teal-50/60",
+            )}
+          >
+            <Home className="h-3.5 w-3.5" />
+            {t.home}
+          </Link>
 
           {/* Products navigation */}
           <nav className="flex min-w-0 items-center">
@@ -238,16 +273,6 @@ export default function ValueTechServiceNavbar() {
               <AuthUserMenu />
             </div>
 
-            {/* Back to SparkVision */}
-            <Link
-              href="/"
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] font-medium text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-800 hover:border-slate-300"
-            >
-              <span className="hidden md:inline">{t.backToSparkVision}</span>
-              <ArrowUpRight
-                className={cn("h-3.5 w-3.5 opacity-60", isArabic && "rotate-180")}
-              />
-            </Link>
           </div>
         </div>
       </div>
