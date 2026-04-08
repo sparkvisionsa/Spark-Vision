@@ -9,7 +9,7 @@ const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentTy
   vt: () => import("./workspace-sections/value-tech-hub"),
   "value-tech-app": () => import("./workspace-sections/value-tech-app"),
   "real-estate-valuation": () => import("./workspace-sections/real-estate-valuation"),
-  "machine-valuation": () => import("./workspace-sections/machine-valuation"),
+  "machine-valuation": () => import("./workspace-sections/machine-valuation/index"),
   "asset-inventory": () => import("./workspace-sections/asset-inventory"),
   "asset-inspection": () => import("./workspace-sections/asset-inspection"),
   clients: () => import("./workspace-sections/clients"),
@@ -20,8 +20,12 @@ const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentTy
   "evaluation-source/other": () => import("./workspace-sections/evaluation-source-other"),
 };
 
+const PREFIX_SECTIONS = new Set(["machine-valuation"]);
+
 function slugToKey(slug?: string[]): string {
   if (!slug || slug.length === 0) return "vt";
+  const first = slug[0];
+  if (PREFIX_SECTIONS.has(first)) return first;
   return slug.join("/");
 }
 

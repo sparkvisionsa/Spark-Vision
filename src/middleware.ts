@@ -10,12 +10,13 @@ const EXACT_REWRITES: [string, string][] = [
   ["/value-tech", "/w/vt"],
   ["/value-tech-app", "/w/value-tech-app"],
   ["/real-estate-valuation", "/w/real-estate-valuation"],
-  ["/machine-valuation", "/w/machine-valuation"],
   ["/asset-inventory", "/w/asset-inventory"],
   ["/asset-inspection", "/w/asset-inspection"],
   ["/clients", "/w/clients"],
   ["/settings", "/w/settings"],
 ];
+
+const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -28,8 +29,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith("/evaluation-source")) {
-    return NextResponse.rewrite(new URL(`/w${pathname}`, request.url));
+  for (const prefix of PREFIX_REWRITES) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) {
+      return NextResponse.rewrite(new URL(`/w${pathname}`, request.url));
+    }
   }
 
   for (const [from, to] of EXACT_REWRITES) {
@@ -47,6 +50,7 @@ export const config = {
     "/value-tech-app",
     "/real-estate-valuation",
     "/machine-valuation",
+    "/machine-valuation/:path*",
     "/asset-inventory",
     "/asset-inspection",
     "/clients",

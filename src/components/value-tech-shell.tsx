@@ -277,6 +277,33 @@ function ValueTechSidebarAccount({
   );
 }
 
+/** Main column: wider + tighter gutters when desktop sidebar is collapsed (icon rail). */
+function ValueTechSidebarWorkspace({ children }: { children: React.ReactNode }) {
+  const { state, isMobile } = useSidebar();
+  const sidebarCollapsed = !isMobile && state === "collapsed";
+
+  return (
+    <SidebarInset
+      className={cn(
+        "min-w-0 overflow-x-hidden px-3 pt-5 pb-8 md:pt-6 md:pb-10",
+        sidebarCollapsed ? "md:px-3 lg:px-4" : "md:px-5",
+      )}
+    >
+      <main
+        className={cn(
+          "mx-auto flex w-full min-w-0 flex-col gap-4 md:gap-5 min-h-[60vh] overflow-x-hidden",
+          sidebarCollapsed ? "max-w-none" : "max-w-6xl",
+        )}
+      >
+        <div className="mb-2 flex items-center justify-between md:hidden">
+          <SidebarTrigger className="rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-sm hover:bg-slate-100" />
+        </div>
+        {children}
+      </main>
+    </SidebarInset>
+  );
+}
+
 function SidebarToggleArrow({ isArabic }: { isArabic: boolean }) {
   const { toggleSidebar, state } = useSidebar();
   const isExpanded = state === "expanded";
@@ -358,12 +385,12 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
     return (
       <div className="min-h-screen min-w-0 overflow-x-hidden bg-gradient-to-br from-slate-50 via-sky-50/40 to-emerald-50 text-slate-900 flex flex-col pt-14">
         <ValueTechServiceNavbar />
-        <div className="flex-1 px-4 py-6 md:px-8 md:py-8">
+        <div className="flex-1 px-4 pt-6 pb-10 md:px-8 md:pt-8 md:pb-10">
           <main className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-6 md:gap-8 min-h-[60vh] overflow-x-hidden">
             {children}
-            <ValueTechServiceFooter />
           </main>
         </div>
+        <ValueTechServiceFooter />
       </div>
     );
   }
@@ -459,18 +486,9 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
 
         <SidebarToggleArrow isArabic={isArabic} />
 
-        <SidebarInset className="min-w-0 overflow-x-hidden px-4 py-6 md:px-8 md:py-8">
-          <main className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-6 md:gap-8 min-h-[60vh] overflow-x-hidden">
-            <div className="flex items-center justify-between md:hidden mb-2">
-              <SidebarTrigger className="rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-sm hover:bg-slate-100" />
-            </div>
-
-            {children}
-
-            <ValueTechServiceFooter />
-          </main>
-        </SidebarInset>
+        <ValueTechSidebarWorkspace>{children}</ValueTechSidebarWorkspace>
       </SidebarProvider>
+      <ValueTechServiceFooter />
     </div>
   );
 }
