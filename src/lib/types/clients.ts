@@ -1,4 +1,12 @@
-export type TemplateFieldType = "text" | "number" | "date" | "textarea" | "email" | "tel" | "select";
+export type TemplateFieldType =
+  | "text"
+  | "number"
+  | "date"
+  | "textarea"
+  | "email"
+  | "tel"
+  | "select"
+  | "file";
 
 export type FormFieldDef = {
   id: string;

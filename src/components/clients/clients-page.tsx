@@ -43,7 +43,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { toApiUrl } from "@/lib/api-url";
-import type { Client, ClientType, FormFieldDef, FormTemplate, TemplateFieldType } from "@/lib/types/clients";
+import type {
+  Client,
+  ClientType,
+  FormFieldDef,
+  FormTemplate,
+  TemplateFieldType,
+} from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -71,6 +77,7 @@ const FIELD_TYPE_OPTIONS: { value: TemplateFieldType; label: string }[] = [
   { value: "email", label: "بريد إلكتروني" },
   { value: "tel", label: "هاتف" },
   { value: "select", label: "قائمة منسدلة" },
+  { value: "file", label: "ملف" }, // ← added
 ];
 
 /** سطر لكل خيار؛ تُزال التكرارات مع الحفاظ على الترتيب */
@@ -101,7 +108,9 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const payload = (await res.json()) as { message?: string | string[] };
       if (payload?.message) {
-        message = Array.isArray(payload.message) ? payload.message.join(" ") : payload.message;
+        message = Array.isArray(payload.message)
+          ? payload.message.join(" ")
+          : payload.message;
       }
     } catch {
       // ignore
@@ -121,7 +130,12 @@ type BuilderRow = {
 };
 
 function emptyRow(): BuilderRow {
-  return { id: crypto.randomUUID(), label: "", fieldType: "text", selectOptionsText: "" };
+  return {
+    id: crypto.randomUUID(),
+    label: "",
+    fieldType: "text",
+    selectOptionsText: "",
+  };
 }
 
 export default function ClientsPage() {
@@ -137,7 +151,9 @@ export default function ClientsPage() {
   const [typeId, setTypeId] = useState("");
   const [formTemplateId, setFormTemplateId] = useState<string | null>(null);
   const [clientAddress, setClientAddress] = useState("");
-  const [templateFieldValues, setTemplateFieldValues] = useState<Record<string, string>>({});
+  const [templateFieldValues, setTemplateFieldValues] = useState<
+    Record<string, string>
+  >({});
   const [bankName, setBankName] = useState("");
   const [bankAccountAddress, setBankAccountAddress] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
@@ -148,8 +164,12 @@ export default function ClientsPage() {
   const [newTypeName, setNewTypeName] = useState("");
 
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [templateModalMode, setTemplateModalMode] = useState<"create" | "edit">("create");
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateModalMode, setTemplateModalMode] = useState<"create" | "edit">(
+    "create",
+  );
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(
+    null,
+  );
   const [templateName, setTemplateName] = useState("");
   const [builderRows, setBuilderRows] = useState<BuilderRow[]>([emptyRow()]);
 
@@ -204,7 +224,8 @@ export default function ClientsPage() {
         if (next[f.id] === undefined) next[f.id] = "";
       }
       for (const key of Object.keys(next)) {
-        if (!selectedTemplate.fields.some((f) => f.id === key)) delete next[key];
+        if (!selectedTemplate.fields.some((f) => f.id === key))
+          delete next[key];
       }
       return next;
     });
@@ -248,7 +269,9 @@ export default function ClientsPage() {
             label: f.label,
             fieldType: f.fieldType,
             selectOptionsText:
-              f.fieldType === "select" && f.options?.length ? f.options.join("\n") : "",
+              f.fieldType === "select" && f.options?.length
+                ? f.options.join("\n")
+                : "",
           }))
         : [emptyRow()],
     );
@@ -305,7 +328,9 @@ export default function ClientsPage() {
       toast({ title: "أضف حقلًا واحدًا على الأقل", variant: "destructive" });
       return;
     }
-    const badSelect = fields.find((f) => f.fieldType === "select" && (!f.options || f.options.length === 0));
+    const badSelect = fields.find(
+      (f) => f.fieldType === "select" && (!f.options || f.options.length === 0),
+    );
     if (badSelect) {
       toast({
         title: "خيارات القائمة المنسدلة مطلوبة",
@@ -324,14 +349,24 @@ export default function ClientsPage() {
         setFormTemplates((prev) => [...prev, created]);
         setFormTemplateId(created.id);
       } else if (editingTemplateId) {
-        const updated = await apiJson<FormTemplate>(`/api/form-templates/${editingTemplateId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ name: n, fields }),
-        });
-        setFormTemplates((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+        const updated = await apiJson<FormTemplate>(
+          `/api/form-templates/${editingTemplateId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ name: n, fields }),
+          },
+        );
+        setFormTemplates((prev) =>
+          prev.map((x) => (x.id === updated.id ? updated : x)),
+        );
       }
       setTemplateModalOpen(false);
-      toast({ title: templateModalMode === "create" ? "تم إنشاء النموذج" : "تم تحديث النموذج" });
+      toast({
+        title:
+          templateModalMode === "create"
+            ? "تم إنشاء النموذج"
+            : "تم تحديث النموذج",
+      });
     } catch (e) {
       toast({
         title: "فشل حفظ النموذج",
@@ -363,7 +398,9 @@ export default function ClientsPage() {
           method: "PATCH",
           body: JSON.stringify(payload),
         });
-        setClients((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        setClients((prev) =>
+          prev.map((c) => (c.id === updated.id ? updated : c)),
+        );
         toast({ title: "تم تحديث بيانات العميل" });
       } else {
         const created = await apiJson<Client>("/api/clients", {
@@ -422,7 +459,9 @@ export default function ClientsPage() {
   async function confirmDeleteTemplate() {
     if (!deleteTemplateId) return;
     try {
-      await apiJson(`/api/form-templates/${deleteTemplateId}`, { method: "DELETE" });
+      await apiJson(`/api/form-templates/${deleteTemplateId}`, {
+        method: "DELETE",
+      });
       setFormTemplates((prev) => prev.filter((t) => t.id !== deleteTemplateId));
       if (formTemplateId === deleteTemplateId) setFormTemplateId(null);
       toast({ title: "تم حذف النموذج" });
@@ -448,6 +487,14 @@ export default function ClientsPage() {
 
     const inputCls = "h-7 text-[12px]";
     switch (f.fieldType) {
+      case "file":
+        return (
+          <div className="flex h-7 items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 text-[11px] text-slate-400">
+            <span>📎</span>
+            <span>رفع ملف — متاح عند تعبئة النموذج</span>
+          </div>
+        );
+
       case "textarea":
         return (
           <Textarea
@@ -459,13 +506,46 @@ export default function ClientsPage() {
           />
         );
       case "number":
-        return <Input type="number" value={v} onChange={(e) => onChange(e.target.value)} placeholder={f.label} className={inputCls} />;
+        return (
+          <Input
+            type="number"
+            value={v}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={f.label}
+            className={inputCls}
+          />
+        );
       case "date":
-        return <Input type="date" value={v} onChange={(e) => onChange(e.target.value)} className={inputCls} />;
+        return (
+          <Input
+            type="date"
+            value={v}
+            onChange={(e) => onChange(e.target.value)}
+            className={inputCls}
+          />
+        );
       case "email":
-        return <Input type="email" inputMode="email" value={v} onChange={(e) => onChange(e.target.value)} placeholder={f.label} className={inputCls} />;
+        return (
+          <Input
+            type="email"
+            inputMode="email"
+            value={v}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={f.label}
+            className={inputCls}
+          />
+        );
       case "tel":
-        return <Input type="tel" inputMode="tel" value={v} onChange={(e) => onChange(e.target.value)} placeholder={f.label} className={inputCls} />;
+        return (
+          <Input
+            type="tel"
+            inputMode="tel"
+            value={v}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={f.label}
+            className={inputCls}
+          />
+        );
       case "select": {
         const opts = f.options?.length ? f.options : [];
         const displayOpts = v && !opts.includes(v) ? [v, ...opts] : opts;
@@ -483,14 +563,23 @@ export default function ClientsPage() {
             </SelectTrigger>
             <SelectContent>
               {displayOpts.map((opt) => (
-                <SelectItem key={opt} value={opt} className="text-[12px]">{opt}</SelectItem>
+                <SelectItem key={opt} value={opt} className="text-[12px]">
+                  {opt}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
         );
       }
       default:
-        return <Input value={v} onChange={(e) => onChange(e.target.value)} placeholder={f.label} className={inputCls} />;
+        return (
+          <Input
+            value={v}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={f.label}
+            className={inputCls}
+          />
+        );
     }
   }
 
@@ -502,7 +591,9 @@ export default function ClientsPage() {
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 text-white shadow-sm">
             <Users className="h-3.5 w-3.5" />
           </div>
-          <h1 className="text-[15px] font-bold tracking-tight text-slate-900">العملاء</h1>
+          <h1 className="text-[15px] font-bold tracking-tight text-slate-900">
+            العملاء
+          </h1>
         </div>
         <Button
           type="button"
@@ -528,22 +619,53 @@ export default function ClientsPage() {
         <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
           <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
             <UserPlus className="h-3 w-3 text-sky-600" />
-            <span className="text-[12px] font-semibold text-slate-800">بيانات العميل</span>
+            <span className="text-[12px] font-semibold text-slate-800">
+              بيانات العميل
+            </span>
           </div>
           <div className="px-2.5 py-2 space-y-1.5">
             {/* Row 1: name / phone / email */}
             <div className="grid gap-x-2 gap-y-1.5 sm:grid-cols-3">
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-name">الاسم</Label>
-                <Input id="c-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم العميل" required className="h-7 text-[12px]" />
+                <Label className="text-[11px] text-slate-500" htmlFor="c-name">
+                  الاسم
+                </Label>
+                <Input
+                  id="c-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="اسم العميل"
+                  required
+                  className="h-7 text-[12px]"
+                />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-phone">الهاتف</Label>
-                <Input id="c-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xxxxxxxx" className="h-7 text-[12px]" />
+                <Label className="text-[11px] text-slate-500" htmlFor="c-phone">
+                  الهاتف
+                </Label>
+                <Input
+                  id="c-phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="05xxxxxxxx"
+                  className="h-7 text-[12px]"
+                />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-email">البريد</Label>
-                <Input id="c-email" type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" className="h-7 text-[12px]" />
+                <Label className="text-[11px] text-slate-500" htmlFor="c-email">
+                  البريد
+                </Label>
+                <Input
+                  id="c-email"
+                  type="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  className="h-7 text-[12px]"
+                />
               </div>
             </div>
 
@@ -562,7 +684,13 @@ export default function ClientsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {clientTypes.map((t) => (
-                        <SelectItem key={t.id} value={t.id} className="text-[12px]">{t.name}</SelectItem>
+                        <SelectItem
+                          key={t.id}
+                          value={t.id}
+                          className="text-[12px]"
+                        >
+                          {t.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -585,15 +713,25 @@ export default function ClientsPage() {
                 <Label className="text-[11px] text-slate-500">النموذج</Label>
                 <Select
                   value={formTemplateId ?? "none"}
-                  onValueChange={(v) => setFormTemplateId(v === "none" ? null : v)}
+                  onValueChange={(v) =>
+                    setFormTemplateId(v === "none" ? null : v)
+                  }
                 >
                   <SelectTrigger className="h-7 text-[12px]">
                     <SelectValue placeholder="بدون نموذج" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none" className="text-[12px]">بدون نموذج</SelectItem>
+                    <SelectItem value="none" className="text-[12px]">
+                      بدون نموذج
+                    </SelectItem>
                     {formTemplates.map((t) => (
-                      <SelectItem key={t.id} value={t.id} className="text-[12px]">{t.name}</SelectItem>
+                      <SelectItem
+                        key={t.id}
+                        value={t.id}
+                        className="text-[12px]"
+                      >
+                        {t.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -635,7 +773,12 @@ export default function ClientsPage() {
 
             {/* Row 3: address */}
             <div className="space-y-0.5">
-              <Label className="text-[11px] text-slate-500" htmlFor="c-client-address">عنوان العميل</Label>
+              <Label
+                className="text-[11px] text-slate-500"
+                htmlFor="c-client-address"
+              >
+                عنوان العميل
+              </Label>
               <Input
                 id="c-client-address"
                 value={clientAddress}
@@ -655,8 +798,16 @@ export default function ClientsPage() {
                   {selectedTemplate.fields.map((f) => {
                     const isWide = f.fieldType === "textarea";
                     return (
-                      <div key={f.id} className={cn("space-y-0.5", isWide && "sm:col-span-2 lg:col-span-3")}>
-                        <Label className="text-[11px] text-slate-500">{f.label}</Label>
+                      <div
+                        key={f.id}
+                        className={cn(
+                          "space-y-0.5",
+                          isWide && "sm:col-span-2 lg:col-span-3",
+                        )}
+                      >
+                        <Label className="text-[11px] text-slate-500">
+                          {f.label}
+                        </Label>
                         {renderDynamicInput(f)}
                       </div>
                     );
@@ -671,21 +822,53 @@ export default function ClientsPage() {
         <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
           <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
             <Building2 className="h-3 w-3 text-sky-600" />
-            <span className="text-[12px] font-semibold text-slate-800">معلومات البنك</span>
+            <span className="text-[12px] font-semibold text-slate-800">
+              معلومات البنك
+            </span>
           </div>
           <div className="px-2.5 py-2">
             <div className="grid gap-x-2 gap-y-1.5 sm:grid-cols-3">
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-bank">البنك</Label>
-                <Input id="c-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="اسم البنك" className="h-7 text-[12px]" />
+                <Label className="text-[11px] text-slate-500" htmlFor="c-bank">
+                  البنك
+                </Label>
+                <Input
+                  id="c-bank"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  placeholder="اسم البنك"
+                  className="h-7 text-[12px]"
+                />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-bank-addr">عنوان الحساب</Label>
-                <Input id="c-bank-addr" value={bankAccountAddress} onChange={(e) => setBankAccountAddress(e.target.value)} placeholder="الفرع أو عنوان الحساب" className="h-7 text-[12px]" />
+                <Label
+                  className="text-[11px] text-slate-500"
+                  htmlFor="c-bank-addr"
+                >
+                  عنوان الحساب
+                </Label>
+                <Input
+                  id="c-bank-addr"
+                  value={bankAccountAddress}
+                  onChange={(e) => setBankAccountAddress(e.target.value)}
+                  placeholder="الفرع أو عنوان الحساب"
+                  className="h-7 text-[12px]"
+                />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[11px] text-slate-500" htmlFor="c-bank-acc">الحساب / الآيبان</Label>
-                <Input id="c-bank-acc" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} placeholder="رقم الحساب أو الآيبان" className="h-7 text-[12px]" />
+                <Label
+                  className="text-[11px] text-slate-500"
+                  htmlFor="c-bank-acc"
+                >
+                  الحساب / الآيبان
+                </Label>
+                <Input
+                  id="c-bank-acc"
+                  value={bankAccountNumber}
+                  onChange={(e) => setBankAccountNumber(e.target.value)}
+                  placeholder="رقم الحساب أو الآيبان"
+                  className="h-7 text-[12px]"
+                />
               </div>
             </div>
           </div>
@@ -696,13 +879,28 @@ export default function ClientsPage() {
           <Button
             type="submit"
             size="sm"
-            disabled={savingClient || !name.trim() || !typeId || clientTypes.length === 0}
+            disabled={
+              savingClient ||
+              !name.trim() ||
+              !typeId ||
+              clientTypes.length === 0
+            }
             className="h-7 gap-1 px-3 bg-gradient-to-r from-sky-600 to-teal-600 text-[12px] font-semibold shadow-sm hover:from-sky-700 hover:to-teal-700"
           >
-            {loading ? "جاري التحميل…" : editingId ? "حفظ التعديلات" : "إضافة عميل"}
+            {loading
+              ? "جاري التحميل…"
+              : editingId
+                ? "حفظ التعديلات"
+                : "إضافة عميل"}
           </Button>
           {editingId && (
-            <Button type="button" variant="outline" size="sm" onClick={resetClientForm} className="h-7 text-[12px]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={resetClientForm}
+              className="h-7 text-[12px]"
+            >
               إلغاء
             </Button>
           )}
@@ -713,16 +911,25 @@ export default function ClientsPage() {
       <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
         <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
           <Users className="h-3 w-3 text-slate-500" />
-          <span className="text-[12px] font-semibold text-slate-800">قائمة العملاء</span>
-          <Badge variant="secondary" className="mr-auto h-4 px-1.5 text-[9px] font-semibold">
+          <span className="text-[12px] font-semibold text-slate-800">
+            قائمة العملاء
+          </span>
+          <Badge
+            variant="secondary"
+            className="mr-auto h-4 px-1.5 text-[9px] font-semibold"
+          >
             {clients.length}
           </Badge>
         </div>
         <div>
           {loading ? (
-            <p className="text-[12px] text-slate-400 py-8 text-center">جاري التحميل…</p>
+            <p className="text-[12px] text-slate-400 py-8 text-center">
+              جاري التحميل…
+            </p>
           ) : clients.length === 0 ? (
-            <p className="text-[12px] text-slate-400 py-8 text-center">لا يوجد عملاء بعد.</p>
+            <p className="text-[12px] text-slate-400 py-8 text-center">
+              لا يوجد عملاء بعد.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <Table className="w-full table-fixed border-collapse text-[12px]">
@@ -752,7 +959,9 @@ export default function ClientsPage() {
                         <span className="line-clamp-1">{c.name}</span>
                       </TableCell>
                       <TableCell className="px-2.5 py-1.5 align-middle text-slate-600">
-                        <span className="line-clamp-1">{typeLabel(c.typeId)}</span>
+                        <span className="line-clamp-1">
+                          {typeLabel(c.typeId)}
+                        </span>
                       </TableCell>
                       <TableCell className="px-2.5 py-1.5 align-middle text-center">
                         <span
@@ -765,10 +974,24 @@ export default function ClientsPage() {
                       </TableCell>
                       <TableCell className="px-2.5 py-1.5 align-middle">
                         <div className="flex items-center justify-center gap-0.5">
-                          <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => startEdit(c)} aria-label="تعديل">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => startEdit(c)}
+                            aria-label="تعديل"
+                          >
                             <Pencil className="h-3 w-3" />
                           </Button>
-                          <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-red-500 hover:text-red-600" onClick={() => setDeleteClientId(c.id)} aria-label="حذف">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-red-500 hover:text-red-600"
+                            onClick={() => setDeleteClientId(c.id)}
+                            aria-label="حذف"
+                          >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
@@ -787,21 +1010,57 @@ export default function ClientsPage() {
         <DialogContent className="sm:max-w-sm gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="bg-gradient-to-br from-sky-500 to-teal-500 px-5 py-4">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur"><Tag className="h-4 w-4 text-white" /></div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Tag className="h-4 w-4 text-white" />
+              </div>
               <div>
-                <DialogTitle className="text-[15px] font-bold text-white">إضافة نوع عميل</DialogTitle>
-                <DialogDescription className="text-[11px] text-white/70 mt-0.5">سيُضاف ويُحدَّد تلقائيًا</DialogDescription>
+                <DialogTitle className="text-[15px] font-bold text-white">
+                  إضافة نوع عميل
+                </DialogTitle>
+                <DialogDescription className="text-[11px] text-white/70 mt-0.5">
+                  سيُضاف ويُحدَّد تلقائيًا
+                </DialogDescription>
               </div>
             </div>
           </div>
           <div className="px-5 py-4 space-y-3">
             <div className="space-y-1">
-              <Label htmlFor="new-type" className="text-[11px] text-slate-500">اسم النوع</Label>
-              <Input id="new-type" value={newTypeName} onChange={(e) => setNewTypeName(e.target.value)} placeholder="مثال: فرد، شركة، بنك" className="h-8 text-[13px]" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void submitNewType(); } }} />
+              <Label htmlFor="new-type" className="text-[11px] text-slate-500">
+                اسم النوع
+              </Label>
+              <Input
+                id="new-type"
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                placeholder="مثال: فرد، شركة، بنك"
+                className="h-8 text-[13px]"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitNewType();
+                  }
+                }}
+              />
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" size="sm" className="h-8 text-[12px]" onClick={() => setTypeModalOpen(false)}>إلغاء</Button>
-              <Button type="button" size="sm" className="h-8 text-[12px] gap-1 bg-sky-600 hover:bg-sky-700" onClick={() => void submitNewType()}><Plus className="h-3.5 w-3.5" />إضافة</Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-[12px]"
+                onClick={() => setTypeModalOpen(false)}
+              >
+                إلغاء
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 text-[12px] gap-1 bg-sky-600 hover:bg-sky-700"
+                onClick={() => void submitNewType()}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                إضافة
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -812,41 +1071,146 @@ export default function ClientsPage() {
         <DialogContent className="sm:max-w-lg max-h-[90vh] gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl flex flex-col">
           <div className="bg-gradient-to-br from-violet-500 to-sky-500 px-5 py-4 shrink-0">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur"><Layers className="h-4 w-4 text-white" /></div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Layers className="h-4 w-4 text-white" />
+              </div>
               <div>
-                <DialogTitle className="text-[15px] font-bold text-white">{templateModalMode === "create" ? "إضافة نموذج جديد" : "تعديل النموذج"}</DialogTitle>
-                <DialogDescription className="text-[11px] text-white/70 mt-0.5">حدّد الاسم وأضف الحقول — لنوع «قائمة» اكتب الخيارات (سطر لكل خيار)</DialogDescription>
+                <DialogTitle className="text-[15px] font-bold text-white">
+                  {templateModalMode === "create"
+                    ? "إضافة نموذج جديد"
+                    : "تعديل النموذج"}
+                </DialogTitle>
+                <DialogDescription className="text-[11px] text-white/70 mt-0.5">
+                  حدّد الاسم وأضف الحقول — لنوع «قائمة» اكتب الخيارات (سطر لكل
+                  خيار)
+                </DialogDescription>
               </div>
             </div>
           </div>
           <div className="flex-1 overflow-hidden px-5 py-3 space-y-2.5">
             <div className="space-y-1">
               <Label className="text-[11px] text-slate-500">اسم النموذج</Label>
-              <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="مثال: نموذج تقييم عقاري" className="h-8 text-[13px]" />
+              <Input
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="مثال: نموذج تقييم عقاري"
+                className="h-8 text-[13px]"
+              />
             </div>
             <div className="flex items-center gap-2">
-              <Button type="button" size="sm" className="h-7 gap-1 text-[11px] bg-violet-600 hover:bg-violet-700" onClick={() => setBuilderRows((rows) => [...rows, emptyRow()])}><ListPlus className="h-3 w-3" />إضافة حقل</Button>
-              <span className="text-[10px] text-slate-400">اختر نوع الحقل بجانب كل صف</span>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 text-[11px] bg-violet-600 hover:bg-violet-700"
+                onClick={() => setBuilderRows((rows) => [...rows, emptyRow()])}
+              >
+                <ListPlus className="h-3 w-3" />
+                إضافة حقل
+              </Button>
+              <span className="text-[10px] text-slate-400">
+                اختر نوع الحقل بجانب كل صف
+              </span>
             </div>
             <ScrollArea className="h-[min(36vh,280px)] -mx-1 px-1">
               <div className="space-y-2">
                 {builderRows.map((row, idx) => (
-                  <div key={row.id} className="space-y-1.5 rounded-lg border border-slate-200/80 bg-gradient-to-br from-slate-50/80 to-white p-2.5">
+                  <div
+                    key={row.id}
+                    className="space-y-1.5 rounded-lg border border-slate-200/80 bg-gradient-to-br from-slate-50/80 to-white p-2.5"
+                  >
                     <div className="grid gap-1.5 sm:grid-cols-[1fr_120px_auto] sm:items-center">
                       <div className="flex items-center gap-1.5">
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-slate-200/80 text-[10px] font-bold text-slate-500">{idx + 1}</span>
-                        <Input value={row.label} onChange={(e) => setBuilderRows((rows) => rows.map((r) => (r.id === row.id ? { ...r, label: e.target.value } : r)))} placeholder="اسم الحقل" className="h-7 text-[12px]" />
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-slate-200/80 text-[10px] font-bold text-slate-500">
+                          {idx + 1}
+                        </span>
+                        <Input
+                          value={row.label}
+                          onChange={(e) =>
+                            setBuilderRows((rows) =>
+                              rows.map((r) =>
+                                r.id === row.id
+                                  ? { ...r, label: e.target.value }
+                                  : r,
+                              ),
+                            )
+                          }
+                          placeholder="اسم الحقل"
+                          className="h-7 text-[12px]"
+                        />
                       </div>
-                      <Select value={row.fieldType} onValueChange={(v) => { const next = v as TemplateFieldType; setBuilderRows((rows) => rows.map((r) => r.id === row.id ? { ...r, fieldType: next, selectOptionsText: next === "select" ? r.selectOptionsText : "" } : r)); }}>
-                        <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>{FIELD_TYPE_OPTIONS.map((o) => (<SelectItem key={o.value} value={o.value} className="text-[12px]">{o.label}</SelectItem>))}</SelectContent>
+                      <Select
+                        value={row.fieldType}
+                        onValueChange={(v) => {
+                          const next = v as TemplateFieldType;
+                          setBuilderRows((rows) =>
+                            rows.map((r) =>
+                              r.id === row.id
+                                ? {
+                                    ...r,
+                                    fieldType: next,
+                                    selectOptionsText:
+                                      next === "select"
+                                        ? r.selectOptionsText
+                                        : "",
+                                  }
+                                : r,
+                            ),
+                          );
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FIELD_TYPE_OPTIONS.map((o) => (
+                            <SelectItem
+                              key={o.value}
+                              value={o.value}
+                              className="text-[12px]"
+                            >
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
-                      <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => setBuilderRows((rows) => rows.length <= 1 ? rows : rows.filter((r) => r.id !== row.id))} aria-label="حذف"><Trash2 className="h-3 w-3" /></Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() =>
+                          setBuilderRows((rows) =>
+                            rows.length <= 1
+                              ? rows
+                              : rows.filter((r) => r.id !== row.id),
+                          )
+                        }
+                        aria-label="حذف"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
                     {row.fieldType === "select" && (
                       <div className="space-y-1 pt-1 border-t border-slate-100">
-                        <Label className="text-[10px] text-slate-500">خيارات القائمة (سطر لكل خيار)</Label>
-                        <Textarea dir="auto" rows={3} value={row.selectOptionsText} onChange={(e) => setBuilderRows((rows) => rows.map((r) => r.id === row.id ? { ...r, selectOptionsText: e.target.value } : r))} placeholder={"شركة\nفرد\nمؤسسة"} className="text-[12px] min-h-[50px]" />
+                        <Label className="text-[10px] text-slate-500">
+                          خيارات القائمة (سطر لكل خيار)
+                        </Label>
+                        <Textarea
+                          dir="auto"
+                          rows={3}
+                          value={row.selectOptionsText}
+                          onChange={(e) =>
+                            setBuilderRows((rows) =>
+                              rows.map((r) =>
+                                r.id === row.id
+                                  ? { ...r, selectOptionsText: e.target.value }
+                                  : r,
+                              ),
+                            )
+                          }
+                          placeholder={"شركة\nفرد\nمؤسسة"}
+                          className="text-[12px] min-h-[50px]"
+                        />
                       </div>
                     )}
                   </div>
@@ -855,21 +1219,48 @@ export default function ClientsPage() {
             </ScrollArea>
           </div>
           <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3 shrink-0">
-            <Button type="button" variant="ghost" size="sm" className="h-8 text-[12px]" onClick={() => setTemplateModalOpen(false)}>إلغاء</Button>
-            <Button type="button" size="sm" className="h-8 text-[12px] gap-1 bg-violet-600 hover:bg-violet-700" onClick={() => void submitTemplate()}><Sparkles className="h-3.5 w-3.5" />{templateModalMode === "create" ? "إنشاء النموذج" : "حفظ التعديلات"}</Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-[12px]"
+              onClick={() => setTemplateModalOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 text-[12px] gap-1 bg-violet-600 hover:bg-violet-700"
+              onClick={() => void submitTemplate()}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {templateModalMode === "create"
+                ? "إنشاء النموذج"
+                : "حفظ التعديلات"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Modal: browse templates */}
-      <Dialog open={templatesBrowserOpen} onOpenChange={setTemplatesBrowserOpen}>
+      <Dialog
+        open={templatesBrowserOpen}
+        onOpenChange={setTemplatesBrowserOpen}
+      >
         <DialogContent className="sm:max-w-md gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="bg-gradient-to-br from-slate-700 to-slate-900 px-5 py-4">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 backdrop-blur"><FolderOpen className="h-4 w-4 text-white" /></div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 backdrop-blur">
+                <FolderOpen className="h-4 w-4 text-white" />
+              </div>
               <div>
-                <DialogTitle className="text-[15px] font-bold text-white">النماذج المحفوظة</DialogTitle>
-                <DialogDescription className="text-[11px] text-white/60 mt-0.5">عرض أو تعديل أو حذف</DialogDescription>
+                <DialogTitle className="text-[15px] font-bold text-white">
+                  النماذج المحفوظة
+                </DialogTitle>
+                <DialogDescription className="text-[11px] text-white/60 mt-0.5">
+                  عرض أو تعديل أو حذف
+                </DialogDescription>
               </div>
             </div>
           </div>
@@ -882,15 +1273,52 @@ export default function ClientsPage() {
                 </div>
               ) : (
                 formTemplates.map((t) => (
-                  <div key={t.id} className="group flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition-colors hover:border-slate-200 hover:bg-slate-50/80">
+                  <div
+                    key={t.id}
+                    className="group flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition-colors hover:border-slate-200 hover:bg-slate-50/80"
+                  >
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600"><Layers className="h-3 w-3" /></div>
-                      <span className="text-[13px] font-medium text-slate-800 truncate">{t.name}</span>
+                      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-600">
+                        <Layers className="h-3 w-3" />
+                      </div>
+                      <span className="text-[13px] font-medium text-slate-800 truncate">
+                        {t.name}
+                      </span>
                     </div>
                     <div className="flex shrink-0 gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setViewTemplate(t)} aria-label="عرض"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => { openEditTemplate(t); setTemplatesBrowserOpen(false); }} aria-label="تعديل"><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50" onClick={() => setDeleteTemplateId(t.id)} aria-label="حذف"><Trash2 className="h-3.5 w-3.5" /></Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => setViewTemplate(t)}
+                        aria-label="عرض"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          openEditTemplate(t);
+                          setTemplatesBrowserOpen(false);
+                        }}
+                        aria-label="تعديل"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => setDeleteTemplateId(t.id)}
+                        aria-label="حذف"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -901,26 +1329,47 @@ export default function ClientsPage() {
       </Dialog>
 
       {/* Modal: view template fields */}
-      <Dialog open={viewTemplate !== null} onOpenChange={(o) => !o && setViewTemplate(null)}>
+      <Dialog
+        open={viewTemplate !== null}
+        onOpenChange={(o) => !o && setViewTemplate(null)}
+      >
         <DialogContent className="sm:max-w-sm gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="bg-gradient-to-br from-teal-500 to-emerald-600 px-5 py-4">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur"><Eye className="h-4 w-4 text-white" /></div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Eye className="h-4 w-4 text-white" />
+              </div>
               <div>
-                <DialogTitle className="text-[15px] font-bold text-white">{viewTemplate?.name}</DialogTitle>
-                <DialogDescription className="text-[11px] text-white/70 mt-0.5">{viewTemplate?.fields.length ?? 0} حقل</DialogDescription>
+                <DialogTitle className="text-[15px] font-bold text-white">
+                  {viewTemplate?.name}
+                </DialogTitle>
+                <DialogDescription className="text-[11px] text-white/70 mt-0.5">
+                  {viewTemplate?.fields.length ?? 0} حقل
+                </DialogDescription>
               </div>
             </div>
           </div>
           <div className="p-4 space-y-1.5">
             {viewTemplate?.fields.map((f, idx) => (
-              <div key={f.id} className="flex items-start gap-2.5 rounded-lg bg-slate-50/80 px-3 py-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-teal-100 text-[10px] font-bold text-teal-700 mt-0.5">{idx + 1}</span>
+              <div
+                key={f.id}
+                className="flex items-start gap-2.5 rounded-lg bg-slate-50/80 px-3 py-2"
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-teal-100 text-[10px] font-bold text-teal-700 mt-0.5">
+                  {idx + 1}
+                </span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-slate-800">{f.label}</p>
+                  <p className="text-[13px] font-medium text-slate-800">
+                    {f.label}
+                  </p>
                   <p className="text-[11px] text-slate-500">
-                    {FIELD_TYPE_OPTIONS.find((o) => o.value === f.fieldType)?.label ?? f.fieldType}
-                    {f.fieldType === "select" && f.options?.length ? (<span className="mr-1 text-slate-400">— {f.options.join("، ")}</span>) : null}
+                    {FIELD_TYPE_OPTIONS.find((o) => o.value === f.fieldType)
+                      ?.label ?? f.fieldType}
+                    {f.fieldType === "select" && f.options?.length ? (
+                      <span className="mr-1 text-slate-400">
+                        — {f.options.join("، ")}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
               </div>
@@ -930,35 +1379,69 @@ export default function ClientsPage() {
       </Dialog>
 
       {/* Alert: delete client */}
-      <AlertDialog open={deleteClientId !== null} onOpenChange={(o) => !o && setDeleteClientId(null)}>
+      <AlertDialog
+        open={deleteClientId !== null}
+        onOpenChange={(o) => !o && setDeleteClientId(null)}
+      >
         <AlertDialogContent className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="flex items-center gap-3 bg-gradient-to-br from-red-500 to-rose-600 px-5 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur"><AlertTriangle className="h-4 w-4 text-white" /></div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+              <AlertTriangle className="h-4 w-4 text-white" />
+            </div>
             <div>
-              <AlertDialogTitle className="text-[15px] font-bold text-white">حذف العميل؟</AlertDialogTitle>
-              <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">لا يمكن التراجع عن هذا الإجراء.</AlertDialogDescription>
+              <AlertDialogTitle className="text-[15px] font-bold text-white">
+                حذف العميل؟
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">
+                لا يمكن التراجع عن هذا الإجراء.
+              </AlertDialogDescription>
             </div>
           </div>
           <div className="flex justify-end gap-2 px-5 py-3">
-            <AlertDialogCancel className="h-8 text-[12px]">إلغاء</AlertDialogCancel>
-            <AlertDialogAction className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700" onClick={() => void confirmDeleteClient()}><Trash2 className="h-3.5 w-3.5" />حذف نهائي</AlertDialogAction>
+            <AlertDialogCancel className="h-8 text-[12px]">
+              إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700"
+              onClick={() => void confirmDeleteClient()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف نهائي
+            </AlertDialogAction>
           </div>
         </AlertDialogContent>
       </AlertDialog>
 
       {/* Alert: delete template */}
-      <AlertDialog open={deleteTemplateId !== null} onOpenChange={(o) => !o && setDeleteTemplateId(null)}>
+      <AlertDialog
+        open={deleteTemplateId !== null}
+        onOpenChange={(o) => !o && setDeleteTemplateId(null)}
+      >
         <AlertDialogContent className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="flex items-center gap-3 bg-gradient-to-br from-red-500 to-rose-600 px-5 py-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur"><AlertTriangle className="h-4 w-4 text-white" /></div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+              <AlertTriangle className="h-4 w-4 text-white" />
+            </div>
             <div>
-              <AlertDialogTitle className="text-[15px] font-bold text-white">حذف النموذج؟</AlertDialogTitle>
-              <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">سيتم إزالة ارتباطه من العملاء المستخدمين له.</AlertDialogDescription>
+              <AlertDialogTitle className="text-[15px] font-bold text-white">
+                حذف النموذج؟
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">
+                سيتم إزالة ارتباطه من العملاء المستخدمين له.
+              </AlertDialogDescription>
             </div>
           </div>
           <div className="flex justify-end gap-2 px-5 py-3">
-            <AlertDialogCancel className="h-8 text-[12px]">إلغاء</AlertDialogCancel>
-            <AlertDialogAction className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700" onClick={() => void confirmDeleteTemplate()}><Trash2 className="h-3.5 w-3.5" />حذف نهائي</AlertDialogAction>
+            <AlertDialogCancel className="h-8 text-[12px]">
+              إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700"
+              onClick={() => void confirmDeleteTemplate()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف نهائي
+            </AlertDialogAction>
           </div>
         </AlertDialogContent>
       </AlertDialog>

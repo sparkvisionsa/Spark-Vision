@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useState, useMemo, useCallback } from "react";
+import { useContext, useState, useMemo, useCallback, useEffect } from "react";
 import {
   Eye,
   Printer,
@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
+import { toApiUrl } from "@/lib/api-url";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
@@ -48,24 +49,69 @@ import {
 // ─── types ────────────────────────────────────────────────────────────────────
 
 type Priority = "normal" | "urgent";
-
 type ValuationStatus =
   | "new"
   | "inspection"
   | "review"
   | "audit"
   | "approved"
-  | "sent";
+  | "sent"
+  | "cancelled"
+  | "pending";
+
+// Raw shape returned by /api/transactions
+type ApiTransaction = {
+  id: string;
+  assignmentNumber: string;
+  authorizationNumber?: string;
+  assignmentDate: string;
+  valuationPurpose: string;
+  intendedUse?: string;
+  valuationBasis: string;
+  ownershipType: string;
+  valuationHypothesis: string;
+  clientId: string;
+  clientName?: string;
+  branch: string;
+  templateId?: string;
+  templateName?: string;
+  // top-level status is legacy/optional — evalData.status is the source of truth
+  status?: string;
+  priority?: string;
+  finalAssetValue?: number;
+  createdAt: string;
+  updatedAt: string;
+  templateFieldValues?: Record<string, { label: string; value: string }>;
+  // evalData holds all fields saved by the appraiser
+  evalData?: {
+    status?: string;
+    finalAssetValue?: number | string;
+    ownerName?: string;
+    clientName?: string;
+    deedNumber?: string;
+    cityName?: string;
+    neighborhoodName?: string;
+    [key: string]: any;
+  };
+  // legacy flat fields (kept for backwards compatibility)
+  deedNumber?: string;
+  ownerName?: string;
+  propertyTypeId?: string;
+  cityName?: string;
+  neighborhoodName?: string;
+  imagesCount?: number;
+  attachmentsCount?: number;
+};
 
 type ValuationRow = {
-  id: number;
+  id: string;
   isDraft: boolean;
   priority: Priority;
   clientLogo: string | null;
   assignment: {
     requester: string;
     template: string;
-    referenceNumber: number;
+    referenceNumber: string;
     assignmentNumber: string;
     assignmentDate: string;
     authorizationNumber?: string;
@@ -81,8 +127,6 @@ type ValuationRow = {
   };
   value: number;
   status: ValuationStatus;
-  elapsedTime: string;
-  elapsedLabel: string;
   timerValue: string;
   isOverdue: boolean;
   attachmentsCount: number;
@@ -92,6 +136,7 @@ type ValuationRow = {
   workingOn?: string;
   lastUpdate: string;
   lastUpdateBy: string;
+  elapsedLabel: string;
 };
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
@@ -138,6 +183,8 @@ const copy = {
     audit: "Audit",
     approved: "Approved",
     sent: "Sent",
+    cancelled: "Cancelled",
+    pending: "Pending",
     selectAll: "Select All",
     showing: "Showing",
     of: "of",
@@ -149,6 +196,8 @@ const copy = {
     expandDetails: "Show details",
     collapseDetails: "Hide details",
     sar: "SAR",
+    loading: "Loading transactions...",
+    error: "Failed to load transactions.",
   },
   ar: {
     assignment: "التكليف",
@@ -191,6 +240,8 @@ const copy = {
     audit: "التدقيق",
     approved: "معتمدة",
     sent: "مرسلة",
+    cancelled: "ملغية",
+    pending: "معلقة",
     selectAll: "تحديد الكل",
     showing: "عرض",
     of: "من",
@@ -202,6 +253,8 @@ const copy = {
     expandDetails: "عرض التفاصيل",
     collapseDetails: "إخفاء التفاصيل",
     sar: "ر.س",
+    loading: "جاري تحميل المعاملات...",
+    error: "فشل تحميل المعاملات.",
   },
 } as const;
 
@@ -213,387 +266,19 @@ const STATUS_CONFIG: Record<
   ValuationStatus,
   { bg: string; text: string; dot: string }
 > = {
-  new: {
-    bg: "bg-slate-100",
-    text: "text-slate-700",
-    dot: "bg-slate-400",
-  },
-  inspection: {
-    bg: "bg-blue-50",
-    text: "text-blue-700",
-    dot: "bg-blue-500",
-  },
-  review: {
-    bg: "bg-purple-50",
-    text: "text-purple-700",
-    dot: "bg-purple-500",
-  },
-  audit: {
-    bg: "bg-teal-50",
-    text: "text-teal-700",
-    dot: "bg-teal-500",
-  },
+  new: { bg: "bg-slate-100", text: "text-slate-700", dot: "bg-slate-400" },
+  inspection: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
+  review: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
+  audit: { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
   approved: {
     bg: "bg-emerald-50",
     text: "text-emerald-700",
     dot: "bg-emerald-500",
   },
-  sent: {
-    bg: "bg-cyan-50",
-    text: "text-cyan-700",
-    dot: "bg-cyan-500",
-  },
+  sent: { bg: "bg-cyan-50", text: "text-cyan-700", dot: "bg-cyan-500" },
+  cancelled: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-400" },
+  pending: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-400" },
 };
-
-// ─── dummy data ───────────────────────────────────────────────────────────────
-
-const DUMMY_DATA: ValuationRow[] = [
-  {
-    id: 7056,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester:
-        "مركز الاسناد والتصفية إنفاذ",
-      template: "مفصل - معتمد",
-      referenceNumber: 7056,
-      assignmentNumber: "S02879",
-      assignmentDate: "18-03-2026",
-      authorizationNumber: "PRC-04-011-26-03-694",
-    },
-    details: {
-      deedNumber: "498552034572",
-      plotNumber: "363 / ج / س",
-      clientName: "-",
-      ownerName: "-",
-      propertyType: "شقة",
-      address: "جدة - أم السلم",
-      contactNumber: "0555658802",
-    },
-    value: 0,
-    status: "inspection",
-    elapsedTime: "5 ساعات",
-    elapsedLabel: "5 ساعات",
-    timerValue: "05:37:59",
-    isOverdue: false,
-    attachmentsCount: 5,
-    imagesCount: 0,
-    hasUnreadNotes: false,
-    inspector: "عبدالله ابراهيم عبدالله الغامدي",
-    workingOn: "عبدالله ابراهيم عبدالله الغامدي",
-    lastUpdate: "18-03-2026 06:13 AM",
-    lastUpdateBy: "عبدالله ابراهيم عبدالله الغامدي",
-  },
-  {
-    id: 7052,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "بنك الجزيرة",
-      template: "مختصر - معتمد",
-      referenceNumber: 7052,
-      assignmentNumber: "181130 - 1045020805",
-      assignmentDate: "16-03-2026",
-    },
-    details: {
-      deedNumber: "7173586869400000",
-      plotNumber: "998",
-      clientName: "عبدالله بن سعيد",
-      ownerName: "عبدالله سعيد سعد بن سعيد",
-      propertyType: "عمارة",
-      address: "الرياض - حطين",
-      contactNumber: "0555238555",
-    },
-    value: 19688857.73,
-    status: "review",
-    elapsedTime: "يومان و 1 ساعة",
-    elapsedLabel: "يومان و 1 ساعة",
-    timerValue: "21:48:31",
-    isOverdue: true,
-    attachmentsCount: 4,
-    imagesCount: 83,
-    hasUnreadNotes: true,
-    inspector: "عبدالعزيز ابراهيم الصبيعي",
-    lastUpdate: "17-03-2026 02:03 PM",
-    lastUpdateBy: "عبدالعزيز ابراهيم الصبيعي",
-  },
-  {
-    id: 7054,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "بنك الجزيرة",
-      template: "مختصر - معتمد",
-      referenceNumber: 7054,
-      assignmentNumber: "2519912",
-      assignmentDate: "16-03-2026",
-    },
-    details: {
-      deedNumber: "460026298051",
-      plotNumber: "6 / 2",
-      clientName: "شيان محمد مهنا الردادي",
-      ownerName: "شركة مساكن طبية للتطوير العقاري",
-      propertyType: "عمارة",
-      address: "المدينة المنورة - شوران",
-      contactNumber: "0502456994",
-    },
-    value: 1703746.46,
-    status: "review",
-    elapsedTime: "يوم و 20 ساعة",
-    elapsedLabel: "يوم و 20 ساعة",
-    timerValue: "30:55:37",
-    isOverdue: true,
-    attachmentsCount: 2,
-    imagesCount: 42,
-    hasUnreadNotes: false,
-    inspector: "أحمد حامد الحجيلي",
-    lastUpdate: "17-03-2026 04:55 AM",
-    lastUpdateBy: "أحمد حامد الحجيلي",
-  },
-  {
-    id: 7053,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "بنك الجزيرة",
-      template: "مختصر - معتمد",
-      referenceNumber: 7053,
-      assignmentNumber: "2519710",
-      assignmentDate: "16-03-2026",
-    },
-    details: {
-      deedNumber: "395024002985",
-      plotNumber: "772 / أ",
-      clientName: "خالد محمد مفرح الشهري",
-      ownerName: "خالد محمد مفرح الشهري",
-      propertyType: "فيلا سكنية",
-      address: "خميس مشيط - اليرموك",
-      contactNumber: "0500147112",
-    },
-    value: 2009518.65,
-    status: "approved",
-    elapsedTime: "يوم و 23 ساعة",
-    elapsedLabel: "يوم و 23 ساعة",
-    timerValue: "31:32:52",
-    isOverdue: true,
-    attachmentsCount: 4,
-    imagesCount: 97,
-    hasUnreadNotes: true,
-    inspector: "مبارك محمد الشهراني",
-    lastUpdate: "17-03-2026 04:18 AM",
-    lastUpdateBy: "عمر تاج الملك",
-  },
-  {
-    id: 7040,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester:
-        "مركز الاسناد والتصفية إنفاذ",
-      template: "مفصل - معتمد",
-      referenceNumber: 7040,
-      assignmentNumber: "-",
-      assignmentDate: "15-03-2026",
-    },
-    details: {
-      deedNumber: "750116004746",
-      plotNumber: "بدون",
-      clientName: "مركز الاسناد والتصفية",
-      ownerName: "مسلم سويلم عيد العطوي",
-      propertyType: "فيلا سكنية",
-      address: "تبوك - البساتين",
-    },
-    value: 0,
-    status: "review",
-    elapsedTime: "يومان و 18 ساعة",
-    elapsedLabel: "يومان و 18 ساعة",
-    timerValue: "41:42:58",
-    isOverdue: true,
-    attachmentsCount: 4,
-    imagesCount: 28,
-    hasUnreadNotes: false,
-    inspector: "خالد شامان",
-    lastUpdate: "16-03-2026 06:08 PM",
-    lastUpdateBy: "خالد شامان",
-  },
-  {
-    id: 7055,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "منصة خبرة",
-      template: "تقرير سردي - مباني",
-      referenceNumber: 7055,
-      assignmentNumber: "خبرة - 4771851238",
-      assignmentDate: "16-03-2026",
-      authorizationNumber:
-        "خبرة - 4771851238 (عبدالرحمن عثمان محمد الشبانه)",
-    },
-    details: {
-      clientName:
-        "خبرة - 4771851238 (عبدالرحمن عثمان محمد الشبانه)",
-      ownerName: "-",
-      propertyType: "أرض",
-      address: "الرياض - النرجس",
-    },
-    value: 0,
-    status: "new",
-    elapsedTime: "يوم و 20 ساعة",
-    elapsedLabel: "يوم و 20 ساعة",
-    timerValue: "44:31:46",
-    isOverdue: true,
-    attachmentsCount: 0,
-    imagesCount: 0,
-    hasUnreadNotes: false,
-    inspector: "عبدالعزيز خالد الخالد",
-    workingOn: "عبدالعزيز الخالد",
-    lastUpdate: "16-03-2026 03:19 PM",
-    lastUpdateBy: "عبدالعزيز الخالد",
-  },
-  {
-    id: 7050,
-    isDraft: false,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "البنك السعودي الفرنسي",
-      template: "الفرنسي شركات",
-      referenceNumber: 7050,
-      assignmentNumber: "15919",
-      assignmentDate: "15-03-2026",
-    },
-    details: {
-      deedNumber: "420118000543",
-      plotNumber: "3358",
-      clientName: "إبراهيم عبدالله عبد العزيز السريع",
-      ownerName: "إبراهيم عبدالله عبد العزيز السريع",
-      propertyType: "أرض",
-      address: "مكة المكرمة - العوالي",
-      contactNumber: "0537579360",
-    },
-    value: 5631256.52,
-    status: "audit",
-    elapsedTime: "يومان و 9 ساعات",
-    elapsedLabel: "يومان و 9 ساعات",
-    timerValue: "44:59:08",
-    isOverdue: true,
-    attachmentsCount: 3,
-    imagesCount: 16,
-    hasUnreadNotes: false,
-    inspector: "عبدالله ابراهيم عبدالله الغامدي",
-    lastUpdate: "16-03-2026 02:52 PM",
-    lastUpdateBy: "نجلاء ناصر الجريسي",
-  },
-  {
-    id: 7051,
-    isDraft: true,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester: "ورثة عمر بن صديق بن عمر عطار",
-      template: "مختصر - معتمد",
-      referenceNumber: 7051,
-      assignmentNumber: "325510001079",
-      assignmentDate: "16-03-2026",
-    },
-    details: {
-      plotNumber: "2007 الى 2014",
-      clientName: "عمر بن صديق بن عمر عطار",
-      ownerName:
-        "نادين صديق بن عمر عطار 9.72% - مريم صديق بن عمر عطار 9.72% - سامر صديق بن عمر عطار 19.44%",
-      propertyType: "أرض",
-      address: "جدة - الخالدية",
-      contactNumber: "+",
-    },
-    value: 35791800.0,
-    status: "inspection",
-    elapsedTime: "يومان و ساعتين",
-    elapsedLabel: "يومان و ساعتين",
-    timerValue: "45:32:57",
-    isOverdue: true,
-    attachmentsCount: 5,
-    imagesCount: 1,
-    hasUnreadNotes: false,
-    inspector: "عبدالله ابراهيم عبدالله الغامدي",
-    lastUpdate: "16-03-2026 02:18 PM",
-    lastUpdateBy: "عبدالله ابراهيم عبدالله الغامدي",
-  },
-  {
-    id: 7041,
-    isDraft: true,
-    priority: "normal",
-    clientLogo: null,
-    assignment: {
-      requester:
-        "مركز الاسناد والتصفية إنفاذ",
-      template: "مفصل - معتمد",
-      referenceNumber: 7041,
-      assignmentNumber: "-",
-      assignmentDate: "15-03-2026",
-    },
-    details: {
-      deedNumber: "344302000802",
-      plotNumber: "218",
-      clientName: "مركز الاسناد والتصفية",
-      ownerName: "عادل خلف مرجي الشراري",
-      propertyType: "فيلا سكنية",
-      address: "طبرجل - السمح",
-    },
-    value: 616851.0,
-    status: "audit",
-    elapsedTime: "يومان و 17 ساعة",
-    elapsedLabel: "يومان و 17 ساعة",
-    timerValue: "45:34:29",
-    isOverdue: true,
-    attachmentsCount: 5,
-    imagesCount: 38,
-    hasUnreadNotes: false,
-    inspector: "فهد طليحان الاسمر الضلعان",
-    lastUpdate: "16-03-2026 02:17 PM",
-    lastUpdateBy: "نجلاء ناصر الجريسي",
-  },
-  {
-    id: 7039,
-    isDraft: false,
-    priority: "urgent",
-    clientLogo: null,
-    assignment: {
-      requester:
-        "مركز الاسناد والتصفية إنفاذ",
-      template: "مفصل - معتمد",
-      referenceNumber: 7039,
-      assignmentNumber: "S02850",
-      assignmentDate: "14-03-2026",
-    },
-    details: {
-      deedNumber: "560679000713",
-      plotNumber: "935",
-      clientName: "مركز الاسناد والتصفية",
-      ownerName: "مسلم سويلم عيد العطوي",
-      propertyType: "أرض سكنية",
-      address: "تبوك - البساتين",
-      contactNumber: "0551234567",
-    },
-    value: 875000.0,
-    status: "sent",
-    elapsedTime: "3 أيام و 5 ساعات",
-    elapsedLabel: "3 أيام و 5 ساعات",
-    timerValue: "77:15:22",
-    isOverdue: true,
-    attachmentsCount: 6,
-    imagesCount: 18,
-    hasUnreadNotes: true,
-    inspector: "خالد شامان",
-    lastUpdate: "15-03-2026 10:30 AM",
-    lastUpdateBy: "خالد شامان",
-  },
-];
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -603,6 +288,107 @@ function formatCurrency(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function elapsedSince(dateStr: string): {
+  label: string;
+  isOverdue: boolean;
+  timer: string;
+} {
+  const created = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - created.getTime();
+  const diffH = Math.floor(diffMs / 3600000);
+  const diffM = Math.floor((diffMs % 3600000) / 60000);
+  const isOverdue = diffH >= 24;
+
+  let label = "";
+  if (diffH < 1) label = "أقل من ساعة";
+  else if (diffH < 24) label = `${diffH} ساعة`;
+  else {
+    const days = Math.floor(diffH / 24);
+    const remH = diffH % 24;
+    label = remH > 0 ? `${days} يوم و ${remH} ساعة` : `${days} يوم`;
+  }
+
+  const hh = String(diffH).padStart(2, "0");
+  const mm = String(diffM).padStart(2, "0");
+  const timer = `${hh}:${mm}:00`;
+
+  return { label, isOverdue, timer };
+}
+
+/** Build a label→value lookup from templateFieldValues */
+function byLabel(
+  tfv?: Record<string, { label: string; value: string }>,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!tfv) return map;
+  Object.values(tfv).forEach((e) => {
+    if (e?.label) map[e.label] = e.value ?? "";
+  });
+  return map;
+}
+
+/** Map an API transaction to a ValuationRow */
+function mapToRow(tx: ApiTransaction): ValuationRow {
+  const bl = byLabel(tx.templateFieldValues);
+  const elapsed = elapsedSince(tx.createdAt);
+  const ed = tx.evalData ?? {};
+
+  const address =
+    [
+      ed.cityName ?? tx.cityName ?? bl["المدينة"],
+      ed.neighborhoodName ?? tx.neighborhoodName ?? bl["الحي"],
+    ]
+      .filter(Boolean)
+      .join(" - ") ||
+    bl["العنوان"] ||
+    "—";
+
+  // ── Status: evalData.status is the source of truth; fall back to
+  // top-level tx.status for records not yet opened by the appraiser ──
+  const resolvedStatus = (ed.status || tx.status || "new") as ValuationStatus;
+
+  // ── Final value: prefer evalData, then top-level ──
+  const resolvedValue =
+    parseFloat(String(ed.finalAssetValue ?? tx.finalAssetValue ?? 0)) || 0;
+
+  return {
+    id: tx.id,
+    isDraft: false,
+    priority: (tx.priority as Priority) ?? "normal",
+    clientLogo: null,
+    assignment: {
+      requester: tx.clientName ?? tx.clientId ?? "—",
+      template: tx.templateName ?? tx.templateId ?? "—",
+      referenceNumber: tx.id.slice(-6).toUpperCase(),
+      assignmentNumber: tx.assignmentNumber || "—",
+      assignmentDate: tx.assignmentDate || "—",
+      authorizationNumber: tx.authorizationNumber,
+    },
+    details: {
+      deedNumber: ed.deedNumber ?? tx.deedNumber ?? bl["رقم الصك"] ?? undefined,
+      plotNumber: bl["رقم القطعة"] ?? undefined,
+      clientName: ed.clientName ?? tx.clientName ?? bl["اسم العميل"] ?? "—",
+      ownerName: ed.ownerName ?? tx.ownerName ?? bl["اسم المالك"] ?? "—",
+      propertyType: bl["نوع الأصل"] ?? "—",
+      address,
+      contactNumber: bl["رقم التواصل"] ?? undefined,
+    },
+    value: resolvedValue,
+    status: resolvedStatus,
+    timerValue: elapsed.timer,
+    isOverdue: elapsed.isOverdue,
+    elapsedLabel: elapsed.label,
+    attachmentsCount: tx.attachmentsCount ?? 0,
+    imagesCount: tx.imagesCount ?? 0,
+    hasUnreadNotes: false,
+    inspector: bl["المعاين"] ?? "—",
+    workingOn: undefined,
+    lastUpdate: new Date(tx.updatedAt).toLocaleString("ar-SA"),
+    lastUpdateBy: "—",
+  };
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -638,16 +424,9 @@ function ActionButton({
   );
 }
 
-function StatusBadge({
-  status,
-  t,
-}: {
-  status: ValuationStatus;
-  t: Copy;
-}) {
-  const config = STATUS_CONFIG[status];
-  const label = t[status];
-
+function StatusBadge({ status, t }: { status: ValuationStatus; t: Copy }) {
+  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.new;
+  const label = (t as any)[status] ?? status;
   return (
     <span
       className={cn(
@@ -662,13 +441,7 @@ function StatusBadge({
   );
 }
 
-function PriorityBadge({
-  priority,
-  t,
-}: {
-  priority: Priority;
-  t: Copy;
-}) {
+function PriorityBadge({ priority, t }: { priority: Priority; t: Copy }) {
   if (priority === "urgent") {
     return (
       <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600 ring-1 ring-inset ring-red-200">
@@ -693,7 +466,7 @@ function DetailPair({
   label: string;
   value: string;
 }) {
-  if (!value || value === "-") return null;
+  if (!value || value === "-" || value === "—") return null;
   return (
     <div className="flex items-start gap-2 text-sm">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
@@ -711,6 +484,7 @@ function ValuationTableRow({
   isExpanded,
   onToggleSelect,
   onToggleExpand,
+  onOpen,
   t,
 }: {
   row: ValuationRow;
@@ -718,6 +492,7 @@ function ValuationTableRow({
   isExpanded: boolean;
   onToggleSelect: () => void;
   onToggleExpand: () => void;
+  onOpen: (id: string) => void;
   t: Copy;
 }) {
   return (
@@ -728,7 +503,7 @@ function ValuationTableRow({
         isExpanded && "bg-slate-50/50",
       )}
     >
-      {/* ─── MAIN ROW ─── */}
+      {/* MAIN ROW */}
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Checkbox */}
         <div className="flex shrink-0 flex-col items-center gap-2">
@@ -823,16 +598,18 @@ function ValuationTableRow({
               {row.timerValue}
             </span>
           </div>
-          <span className="text-[10px] text-slate-400">
-            {row.elapsedLabel}
-          </span>
+          <span className="text-[10px] text-slate-400">{row.elapsedLabel}</span>
         </div>
 
         {/* Actions */}
         <div className="flex w-[200px] shrink-0 items-center justify-center gap-0.5">
-          <ActionButton tooltip={t.openTransaction}>
+          <ActionButton
+            tooltip={t.openTransaction}
+            onClick={() => onOpen(row.id)}
+          >
             <Eye className="h-4 w-4" />
           </ActionButton>
+
           <ActionButton
             tooltip={`${t.attachments} (${row.attachmentsCount})`}
             className="relative"
@@ -844,15 +621,14 @@ function ValuationTableRow({
               </span>
             )}
           </ActionButton>
-          <ActionButton
-            tooltip={t.followUpNotes}
-            className="relative"
-          >
+
+          <ActionButton tooltip={t.followUpNotes} className="relative">
             <MessageCircle className="h-4 w-4" />
             {row.hasUnreadNotes && (
               <span className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
             )}
           </ActionButton>
+
           <ActionButton
             tooltip={`${t.images} (${row.imagesCount})`}
             className="relative"
@@ -865,7 +641,6 @@ function ValuationTableRow({
             )}
           </ActionButton>
 
-          {/* More dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
@@ -902,7 +677,6 @@ function ValuationTableRow({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Expand toggle */}
           <button
             onClick={onToggleExpand}
             className="ms-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-slate-100 hover:text-slate-700"
@@ -917,7 +691,7 @@ function ValuationTableRow({
         </div>
       </div>
 
-      {/* ─── EXPANDED DETAILS ─── */}
+      {/* EXPANDED DETAILS */}
       <div
         className={cn(
           "grid transition-all duration-300 ease-in-out",
@@ -927,7 +701,6 @@ function ValuationTableRow({
         <div className="overflow-hidden">
           <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {/* Assignment Details */}
               <div className="space-y-2">
                 <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
                   <FileText className="h-3.5 w-3.5" />
@@ -946,7 +719,7 @@ function ValuationTableRow({
                 <DetailPair
                   icon={Hash}
                   label={t.refNumber}
-                  value={String(row.assignment.referenceNumber)}
+                  value={row.assignment.referenceNumber}
                 />
                 <DetailPair
                   icon={Hash}
@@ -966,8 +739,6 @@ function ValuationTableRow({
                   />
                 )}
               </div>
-
-              {/* Property Details */}
               <div className="space-y-2">
                 <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
                   <Building2 className="h-3.5 w-3.5" />
@@ -1015,8 +786,6 @@ function ValuationTableRow({
                   />
                 )}
               </div>
-
-              {/* Inspector & Meta */}
               <div className="space-y-2">
                 <h4 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
                   <User className="h-3.5 w-3.5" />
@@ -1063,13 +832,12 @@ function Pagination({
   totalPages: number;
   pageSize: number;
   totalItems: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
+  onPageChange: (p: number) => void;
+  onPageSizeChange: (s: number) => void;
   t: Copy;
 }) {
   const start = (currentPage - 1) * pageSize + 1;
   const end = Math.min(currentPage * pageSize, totalItems);
-
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3">
       <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -1077,7 +845,6 @@ function Pagination({
           {t.showing} {start}-{end} {t.of} {totalItems} {t.entries}
         </span>
       </div>
-
       <div className="hidden sm:flex items-center gap-2">
         <span className="text-xs text-slate-500">{t.rowsPerPage}:</span>
         <select
@@ -1085,14 +852,13 @@ function Pagination({
           onChange={(e) => onPageSizeChange(Number(e.target.value))}
           className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-100"
         >
-          {[5, 10, 20, 50].map((size) => (
-            <option key={size} value={size}>
-              {size}
+          {[5, 10, 20, 50].map((s) => (
+            <option key={s} value={s}>
+              {s}
             </option>
           ))}
         </select>
       </div>
-
       <div className="flex items-center gap-1">
         <button
           onClick={() => onPageChange(1)}
@@ -1108,7 +874,6 @@ function Pagination({
         >
           <ChevronRight className="h-4 w-4 rtl:rotate-180" />
         </button>
-
         {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
           <button
             key={page}
@@ -1123,7 +888,6 @@ function Pagination({
             {page}
           </button>
         ))}
-
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
@@ -1172,70 +936,90 @@ function ColumnHeader({
 
 type ValuationTableProps = {
   className?: string;
+  onOpenTransaction?: (transactionId: string) => void;
 };
 
-export function ValuationTable({ className }: ValuationTableProps) {
+export function ValuationTable({
+  className,
+  onOpenTransaction,
+}: ValuationTableProps) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const isArabic = language === "ar";
   const t = copy[language];
 
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [rows, setRows] = useState<ValuationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(toApiUrl("/api/transactions"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Error ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const arr: ApiTransaction[] = Array.isArray(data)
+          ? data
+          : (data.data ?? data.transactions ?? data.items ?? []);
+        setRows(arr.map(mapToRow));
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const data = DUMMY_DATA;
-  const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return data.slice(start, start + pageSize);
-  }, [data, currentPage, pageSize]);
+    return rows.slice(start, start + pageSize);
+  }, [rows, currentPage, pageSize]);
 
   const allSelected =
-    paginatedData.length > 0 &&
-    paginatedData.every((row) => selected.has(row.id));
+    paginatedData.length > 0 && paginatedData.every((r) => selected.has(r.id));
 
   const toggleSelectAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allSelected) {
-        paginatedData.forEach((row) => next.delete(row.id));
-      } else {
-        paginatedData.forEach((row) => next.add(row.id));
-      }
+      if (allSelected) paginatedData.forEach((r) => next.delete(r.id));
+      else paginatedData.forEach((r) => next.add(r.id));
       return next;
     });
   }, [allSelected, paginatedData]);
 
-  const toggleSelect = useCallback((id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleExpand = useCallback((id: number) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
+  const toggleSelect = useCallback(
+    (id: string) =>
+      setSelected((prev) => {
+        const n = new Set(prev);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+      }),
+    [],
+  );
+  const toggleExpand = useCallback(
+    (id: string) =>
+      setExpanded((prev) => {
+        const n = new Set(prev);
+        n.has(id) ? n.delete(id) : n.add(id);
+        return n;
+      }),
+    [],
+  );
   const handlePageChange = useCallback(
-    (page: number) => {
-      setCurrentPage(Math.max(1, Math.min(page, totalPages)));
-    },
+    (p: number) => setCurrentPage(Math.max(1, Math.min(p, totalPages))),
     [totalPages],
   );
-
-  const handlePageSizeChange = useCallback((size: number) => {
-    setPageSize(size);
+  const handlePageSizeChange = useCallback((s: number) => {
+    setPageSize(s);
     setCurrentPage(1);
   }, []);
 
@@ -1250,7 +1034,7 @@ export function ValuationTable({ className }: ValuationTableProps) {
       >
         <div className="overflow-x-auto">
           <div className="min-w-[780px]">
-            {/* ─── TABLE HEADER ─── */}
+            {/* TABLE HEADER */}
             <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
               <div className="flex shrink-0 items-center">
                 <Checkbox
@@ -1264,7 +1048,11 @@ export function ValuationTable({ className }: ValuationTableProps) {
                 <ColumnHeader label={t.assignment} sortable />
               </div>
               <div className="w-28 shrink-0 text-center">
-                <ColumnHeader label={t.value} sortable className="justify-center" />
+                <ColumnHeader
+                  label={t.value}
+                  sortable
+                  className="justify-center"
+                />
               </div>
               <div className="w-24 shrink-0 text-center">
                 <ColumnHeader
@@ -1278,8 +1066,16 @@ export function ValuationTable({ className }: ValuationTableProps) {
               </div>
             </div>
 
-            {/* ─── ROWS ─── */}
-            {paginatedData.length > 0 ? (
+            {/* ROWS */}
+            {loading ? (
+              <div className="flex h-40 items-center justify-center text-sm text-slate-400">
+                {t.loading}
+              </div>
+            ) : error ? (
+              <div className="flex h-40 items-center justify-center text-sm text-red-400">
+                {t.error} {error}
+              </div>
+            ) : paginatedData.length > 0 ? (
               <div>
                 {paginatedData.map((row) => (
                   <ValuationTableRow
@@ -1289,6 +1085,7 @@ export function ValuationTable({ className }: ValuationTableProps) {
                     isExpanded={expanded.has(row.id)}
                     onToggleSelect={() => toggleSelect(row.id)}
                     onToggleExpand={() => toggleExpand(row.id)}
+                    onOpen={(id) => onOpenTransaction?.(id)}
                     t={t}
                   />
                 ))}
@@ -1301,12 +1098,11 @@ export function ValuationTable({ className }: ValuationTableProps) {
           </div>
         </div>
 
-        {/* ─── PAGINATION ─── */}
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
           pageSize={pageSize}
-          totalItems={data.length}
+          totalItems={rows.length}
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
           t={t}

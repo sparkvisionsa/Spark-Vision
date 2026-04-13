@@ -1,14 +1,10 @@
 "use client";
 import { useState } from "react";
 import { ValuationStatusStrip } from "@/components/ui/realEstateStatusCards";
-import {
-  RealEstateSearch,
-  type RealEstateSearchValues,
-} from "@/components/ui/real-estate-search";
-import {
-  NewTransactionButton,
-  NewTransactionModal,
-} from "@/components/ui/new-transaction-modal";
+import { RealEstateSearch } from "@/components/ui/real-estate-search";
+import { NewTransactionButton } from "@/components/ui/new-transaction-modal";
+import { NewTransactionPage } from "@/components/ui/new-transaction-page";
+import { TransactionEvaluationPage } from "@/components/ui/TransactionValuationPage"; // 👈 import this
 import { ValuationTable } from "@/components/ui/valuation-table";
 
 const DUMMY_COUNTS = {
@@ -22,8 +18,36 @@ const DUMMY_COUNTS = {
   pending: 9,
 };
 
+type View =
+  | { name: "list" }
+  | { name: "new" }
+  | { name: "evaluation"; transactionId: string };
+
 const RealEstateValuationSection = () => {
-  const [modalOpen, setModalOpen] = useState(false);
+  const [view, setView] = useState<View>({ name: "list" });
+
+  if (view.name === "new") {
+    return (
+      <NewTransactionPage
+        onBack={() => setView({ name: "list" })}
+        onSubmit={(created) =>
+          setView({
+            name: "evaluation",
+            transactionId: created._id ?? created.id,
+          })
+        }
+      />
+    );
+  }
+
+  if (view.name === "evaluation") {
+    return (
+      <TransactionEvaluationPage
+        transactionId={view.transactionId}
+        onBack={() => setView({ name: "list" })}
+      />
+    );
+  }
 
   return (
     <>
@@ -34,17 +58,15 @@ const RealEstateValuationSection = () => {
         />
         <ValuationStatusStrip counts={DUMMY_COUNTS} className="mb-4" />
         <NewTransactionButton
-          onClick={() => setModalOpen(true)}
+          onClick={() => setView({ name: "new" })}
           className="mb-6"
         />
       </div>
-
-      <ValuationTable className="mt-4" />
-
-      <NewTransactionModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSubmit={(values) => console.log("new transaction:", values)}
+      <ValuationTable
+        className="mt-4"
+        onOpenTransaction={(id) =>
+          setView({ name: "evaluation", transactionId: id })
+        }
       />
     </>
   );
