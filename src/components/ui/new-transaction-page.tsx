@@ -359,7 +359,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
       return;
     }
     setTemplateFieldValues((prev) => {
-      const next: Record<string, string> = {};
+      const next: Record<string, string | File> = {};
       for (const f of selectedTemplate.fields) {
         next[f.id] = prev[f.id] ?? ""; // preserve any already-typed values
       }
