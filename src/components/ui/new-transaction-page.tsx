@@ -369,6 +369,28 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
 
   function renderDynamicInput(f: FormFieldDef) {
     const v = templateFieldValues[f.id] ?? "";
+
+    // Handle file type separately to avoid type conflicts
+    if (f.fieldType === "file") {
+      return (
+        <input
+          type="file"
+          multiple={f.multiple}
+          onChange={(e) => {
+            const files = e.target.files;
+            if (!files?.length) return;
+            setTemplateFieldValues((prev) => ({
+              ...prev,
+              [f.id]: files[0],
+            }));
+          }}
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+        />
+      );
+    }
+
+    // For non-file fields, ensure we have a string value
+    const stringValue = typeof v === "string" ? v : "";
     const onChange = (val: string) =>
       setTemplateFieldValues((prev) => ({ ...prev, [f.id]: val }));
 
@@ -376,28 +398,11 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
       case "textarea":
         return (
           <textarea
-            value={v}
+            value={stringValue}
             onChange={(e) => onChange(e.target.value)}
             rows={3}
             placeholder={`${f.label}…`}
             className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
-          />
-        );
-      case "file":
-        return (
-          <input
-            type="file"
-            multiple={f.multiple}
-            onChange={(e) => {
-              const files = e.target.files;
-              if (!files?.length) return;
-              // Store first file (or handle multiple as needed)
-              setTemplateFieldValues((prev) => ({
-                ...prev,
-                [f.id]: files[0],
-              }));
-            }}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
           />
         );
       case "select": {
@@ -408,7 +413,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
             </p>
           );
         return (
-          <SelectField value={v} onChange={onChange}>
+          <SelectField value={stringValue} onChange={onChange}>
             <option value="" disabled>{`Select ${f.label}`}</option>
             {f.options.map((opt) => (
               <option key={opt} value={opt}>
@@ -422,14 +427,13 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
         return (
           <TextField
             type={f.fieldType} // covers text / number / date / email / tel
-            value={v}
+            value={stringValue}
             onChange={onChange}
             placeholder={f.label}
           />
         );
     }
   }
-
   useEffect(() => {
     // Fetch clients and templates in parallel on mount
     Promise.all([

@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { toApiUrl } from "@/lib/api-url";
+import { SettlementComparison } from "./SettlementComparison";
+import React from "react";
+import { DEFAULT_SECTION1_TITLES } from "./SettlementComparison";
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -70,6 +73,11 @@ const WORKFLOW_STATUSES = [
   { value: "cancelled", label: "ملغية" },
   { value: "pending", label: "معلقة" },
 ];
+
+const USE_LABELS: Record<string, string> = {
+  "1": "أراضي",
+  "2": "مباني",
+};
 
 const IMPORTANT_LINKS = [
   { href: "https://srem.moj.gov.sa/deed-inquiry", label: "استعلام عن الصك" },
@@ -921,8 +929,6 @@ function ReplacementTable({
   );
 }
 
-import React from "react";
-
 // ─── empty evalData default ───────────────────────────────────────────────────
 
 function emptyEval() {
@@ -990,6 +996,8 @@ function emptyEval() {
       costLandBuildTotal: "",
       costReason: "",
     },
+    settlementWeights: ["", "", ""] as string[],
+    section1Rows: [] as { title: string; colAdj: string[] }[],
     methodsIncome: { incomeTotal: "", incomeReason: "" },
     reportItems: { standards: "", scope: "", assumptions: "", risks: "" },
     authors: {
@@ -1003,11 +1011,7 @@ function emptyEval() {
       author4Title: "",
     },
     comparisonRows: [emptyComparisonRow(), emptyComparisonRow()],
-    settlementRows: [
-      emptySettlementRow(),
-      emptySettlementRow(),
-      emptySettlementRow(),
-    ],
+    settlementRows: [],
     settlementBases: ["", "", ""],
     replacementLines: [
       emptyReplacementLine(),
@@ -1095,6 +1099,13 @@ export function TransactionEvaluationPage({
 
     setEv({
       status: pick(e.status, "new"),
+      section1Rows:
+        Array.isArray(e.section1Rows) && e.section1Rows.length > 0
+          ? e.section1Rows
+          : DEFAULT_SECTION1_TITLES.map((title) => ({ title, colAdj: [] })),
+      settlementWeights: Array.isArray(e.settlementWeights)
+        ? e.settlementWeights
+        : ["", "", ""],
       location: {
         regionId: pick(e.regionId, resolveRegionId(bl["المنطقة"] ?? "")),
         cityName: pick(e.cityName, bl["المدينة"]),
@@ -1182,9 +1193,7 @@ export function TransactionEvaluationPage({
       comparisonRows: e.comparisonRows?.length
         ? e.comparisonRows
         : [emptyComparisonRow(), emptyComparisonRow()],
-      settlementRows: e.settlementRows?.length
-        ? e.settlementRows
-        : [emptySettlementRow(), emptySettlementRow(), emptySettlementRow()],
+      settlementRows: e.settlementRows?.length ? e.settlementRows : [],
       settlementBases: e.settlementBases?.length
         ? e.settlementBases
         : ["", "", ""],
@@ -1196,7 +1205,7 @@ export function TransactionEvaluationPage({
             emptyReplacementLine(),
           ],
       meterPriceLand: pick(e.meterPriceLand),
-      landSpace: pick(e.landSpace),
+      landSpace: pick(e.landSpace, bl["مساحة الأصل"]),
       replacementFields: {
         managementPct: pick(e.managementPct),
         professionalPct: pick(e.professionalPct),
@@ -1218,7 +1227,9 @@ export function TransactionEvaluationPage({
   }, [tx]);
 
   const [settlementNumCols, setSettlementNumCols] = useState(3);
-  const [settlementNotes, setSettlementNotes] = useState("");
+  const [settlementNotes, setSettlementNotes] = useState(
+    "-تم اجراء عملية التسويات و التعديلات حسب ما هو متعارف في السوق واستنادا على ما هو معروض بالسوق.\n-بعد معاينة المنطقة المحيطة بالعقار تم الوصول إلى صفقات منفذة وعروض قائمة.",
+  );
   const [activeVmTab, setActiveVmTab] = useState("vm-m");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -1263,14 +1274,15 @@ export function TransactionEvaluationPage({
         ...ev.reportItems,
         ...ev.authors,
         comparisonRows: ev.comparisonRows,
+        section1Rows: ev.section1Rows,
         settlementRows: ev.settlementRows,
         settlementBases: ev.settlementBases,
+        settlementWeights: ev.settlementWeights,
         replacementLines: ev.replacementLines,
         meterPriceLand: ev.meterPriceLand,
         landSpace: ev.landSpace,
         ...ev.replacementFields,
       };
-
       const res = await fetch(toApiUrl(`/api/transactions/${transactionId}`), {
         method: "PATCH",
         credentials: "include",
@@ -1770,61 +1782,33 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* ── FIX 3: المقارنة — now a proper collapsible SectionCard ── */}
       <SectionCard title="المقارنة" accentColor="#1a6fc4">
-        <ComparisonTable
-          rows={ev.comparisonRows}
-          onChange={(rows) => setEv((p) => ({ ...p, comparisonRows: rows }))}
+        <SettlementComparison
+          useLabel={USE_LABELS[ev.location.assetCategoryId] ?? "عام"}
+          subjectArea={ev.landSpace}
+          settlementWeights={ev.settlementWeights}
+          onSettlementWeightsChange={(w) =>
+            setEv((p) => ({ ...p, settlementWeights: w }))
+          }
+          section1Rows={ev.section1Rows}
+          onSection1RowsChange={(rows) =>
+            setEv((p) => ({ ...p, section1Rows: rows }))
+          }
+          comparisonRows={ev.comparisonRows}
+          onComparisonRowsChange={(rows) =>
+            setEv((p) => ({ ...p, comparisonRows: rows }))
+          }
+          settlementRows={ev.settlementRows}
+          onSettlementRowsChange={(rows) =>
+            setEv((p) => ({ ...p, settlementRows: rows }))
+          }
+          settlementBases={ev.settlementBases}
+          onSettlementBasesChange={(bases) =>
+            setEv((p) => ({ ...p, settlementBases: bases }))
+          }
+          settlementNotes={settlementNotes}
+          onSettlementNotesChange={setSettlementNotes}
         />
-        <div
-          style={{
-            margin: "20px 0 8px",
-            borderTop: "2px dashed #ccc",
-            paddingTop: 12,
-          }}
-        >
-          <strong style={{ fontSize: 14 }}>جدول التسويات</strong>
-        </div>
-        <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={styles.fieldLabel}>عدد أعمدة المقارنات</label>
-            <Input
-              type="number"
-              dir="ltr"
-              value={String(settlementNumCols)}
-              onChange={(e) =>
-                setSettlementNumCols(Math.max(1, Math.min(8, +e.target.value)))
-              }
-            />
-          </div>
-        </div>
-        <SettlementTable
-          rows={ev.settlementRows}
-          onChange={(rows) => setEv((p) => ({ ...p, settlementRows: rows }))}
-          bases={ev.settlementBases}
-          numCols={settlementNumCols}
-        />
-        <div
-          style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 24,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={styles.kpi}>
-            <span style={styles.kpiLabel}>متوسط مرجّح بعد التسوية</span>
-            <div style={styles.kpiVal}>{weightedAvg}</div>
-          </div>
-        </div>
-        <div style={{ marginTop: 8 }}>
-          <label style={styles.fieldLabel}>ملاحظات التسويات</label>
-          <Textarea
-            value={settlementNotes}
-            onChange={(e) => setSettlementNotes(e.target.value)}
-            rows={3}
-          />
-        </div>
       </SectionCard>
 
       {/* ── FIX 3: تكلفة الإحلال — now a proper collapsible SectionCard ── */}
