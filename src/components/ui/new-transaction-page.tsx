@@ -9,6 +9,8 @@ import { toApiUrl } from "@/lib/api-url";
 // ─── types ────────────────────────────────────────────────────────────────────
 
 export type NewTransactionValues = {
+  _id?: string | undefined;
+  id?: string | undefined;
   assignmentNumber: string;
   authorizationNumber: string;
   assignmentDate: string;

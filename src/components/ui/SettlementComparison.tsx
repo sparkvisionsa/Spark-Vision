@@ -1716,7 +1716,8 @@ export function SettlementComparison({
   const handleSection1Change = onSection1RowsChange ?? setLocalSection1;
 
   const section2Rows: SettlementSection2Row[] = (() => {
-    if (settlementRows.length > 0) return settlementRows as any;
+    if (settlementRows.length > 0)
+      return settlementRows as unknown as SettlementSection2Row[];
     return DEFAULT_SECTION2_TITLES[lang].map((title) => ({
       inReport: true,
       title,

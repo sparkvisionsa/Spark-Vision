@@ -30,10 +30,10 @@ const RealEstateValuationSection = () => {
     return (
       <NewTransactionPage
         onBack={() => setView({ name: "list" })}
-        onSubmit={(created) =>
+        onSubmit={(created: { _id?: string; id?: string }) =>
           setView({
             name: "evaluation",
-            transactionId: created._id ?? created.id,
+            transactionId: (created._id ?? created.id) as string,
           })
         }
       />

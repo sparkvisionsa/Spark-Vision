@@ -960,7 +960,7 @@ function StatusMsg({
   type,
   children,
 }: {
-  type: string;
+  type: "ok" | "error" | "info";
   children: React.ReactNode;
 }) {
   const bg =
@@ -995,8 +995,8 @@ function emptyComparisonRow() {
     description: "",
     roads: "",
     street: "",
+    source: "",
     notes: "",
-    services: "",
     coords: "",
   };
 }
@@ -1592,7 +1592,7 @@ function emptyEval() {
       author4Title: "",
     },
     comparisonRows: [emptyComparisonRow(), emptyComparisonRow()],
-    settlementRows: [],
+    settlementRows: [] as SettlementRow[],
     settlementBases: ["", "", ""],
     replacementLines: [
       emptyReplacementLine(),
@@ -1661,7 +1661,10 @@ export function TransactionEvaluationPage({
       .finally(() => setLoading(false));
   }, [transactionId]);
 
-  const [statusMsg, setStatusMsg] = useState({ type: "ok", text: "" });
+  const [statusMsg, setStatusMsg] = useState<{
+    type: "ok" | "error" | "info";
+    text: string;
+  }>({ type: "ok", text: "" });
   const [saving, setSaving] = useState(false);
   const [ev, setEv] = useState(emptyEval());
   const [settlementNumCols] = useState(3);
@@ -1673,10 +1676,13 @@ export function TransactionEvaluationPage({
   const [activeVmTab, setActiveVmTab] = useState("vm-m");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const setField = (section: keyof typeof ev, field: string, val: string) =>
+  const setField = (section: string, field: string, val: string) =>
     setEv((prev) => ({
       ...prev,
-      [section]: { ...(prev[section] as any), [field]: val },
+      [section]: {
+        ...(prev[section as keyof typeof prev] as any),
+        [field]: val,
+      },
     }));
 
   useEffect(() => {
