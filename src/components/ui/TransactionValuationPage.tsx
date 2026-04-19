@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useContext } from "react";
 import { toApiUrl } from "@/lib/api-url";
+import { SettlementRow } from "./SettlementComparison";
 import { SettlementComparison } from "./SettlementComparison";
 import React from "react";
 import { DEFAULT_SECTION1_TITLES } from "./SettlementComparison";
