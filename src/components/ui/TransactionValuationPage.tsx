@@ -1691,7 +1691,10 @@ export function TransactionEvaluationPage({
       section1Rows:
         Array.isArray(e.section1Rows) && e.section1Rows.length > 0
           ? e.section1Rows
-          : DEFAULT_SECTION1_TITLES.map((title) => ({ title, colAdj: [] })),
+          : DEFAULT_SECTION1_TITLES[lang].map((title) => ({
+              title,
+              colAdj: [],
+            })),
       settlementWeights: Array.isArray(e.settlementWeights)
         ? e.settlementWeights
         : ["", "", ""],
