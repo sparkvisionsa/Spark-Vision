@@ -3,15 +3,58 @@
 
 import React, { useEffect, useState, useRef } from "react";
 
+type Lang = "ar" | "en";
+
+const MP = {
+  ar: {
+    title: "🗺️ اختر الموقع من الخريطة",
+    searchPlaceholder: "ابحث عن موقع (مثال: الرياض، مكة، شارع الملك فهد)...",
+    searching: "جاري البحث...",
+    search: "بحث",
+    myLocation: "📍 موقعي",
+    myLocationTitle: "استخدام موقعي الحالي",
+    hint: "💡 انقر على الخريطة لتحديد الموقع | اسحب العلامة لضبط الإحداثيات",
+    latLabel: "خط العرض (Latitude):",
+    lngLabel: "خط الطول (Longitude):",
+    cancel: "إلغاء",
+    confirm: "تأكيد الإحداثيات",
+    geoNotSupported: "Geolocation is not supported by your browser",
+    geoError:
+      "Could not get your location. Please check your browser permissions.",
+  },
+  en: {
+    title: "🗺️ Pick Location from Map",
+    searchPlaceholder:
+      "Search for a location (e.g., Riyadh, Mecca, King Fahd Road)...",
+    searching: "Searching...",
+    search: "Search",
+    myLocation: "📍 My Location",
+    myLocationTitle: "Use my current location",
+    hint: "💡 Click on the map to set location | Drag the marker to fine-tune coordinates",
+    latLabel: "Latitude:",
+    lngLabel: "Longitude:",
+    cancel: "Cancel",
+    confirm: "Confirm Coordinates",
+    geoNotSupported: "Geolocation is not supported by your browser",
+    geoError:
+      "Could not get your location. Please check your browser permissions.",
+  },
+} as const;
+
 export default function MapPickerComponent({
   value,
   onChange,
   onClose,
+  lang = "ar",
 }: {
   value: string;
   onChange: (coords: string) => void;
   onClose: () => void;
+  lang?: Lang;
 }) {
+  const t = MP[lang];
+  const isRtl = lang === "ar";
+
   const [lat, setLat] = useState<string>("24.7136");
   const [lng, setLng] = useState<string>("46.6753");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -34,18 +77,14 @@ export default function MapPickerComponent({
     }
   }, [value]);
 
-  // Load Leaflet dynamically
   useEffect(() => {
-    // Only run on client side
     if (typeof window === "undefined") return;
 
-    // Load CSS
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
     document.head.appendChild(link);
 
-    // Load JS
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
     script.onload = () => {
@@ -54,12 +93,11 @@ export default function MapPickerComponent({
     document.body.appendChild(script);
 
     return () => {
-      // Cleanup
       if (mapRef.current) {
         mapRef.current.remove();
       }
-      document.head.removeChild(link);
-      document.body.removeChild(script);
+      if (document.head.contains(link)) document.head.removeChild(link);
+      if (document.body.contains(script)) document.body.removeChild(script);
     };
   }, []);
 
@@ -68,24 +106,20 @@ export default function MapPickerComponent({
 
     const L = (window as any).L;
 
-    // Initialize map
     const map = L.map(mapContainerRef.current).setView(
       [parseFloat(lat), parseFloat(lng)],
       14,
     );
 
-    // Add tile layer
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
-    // Add marker
     const marker = L.marker([parseFloat(lat), parseFloat(lng)], {
       draggable: true,
     }).addTo(map);
 
-    // Update coordinates when marker is dragged
     marker.on("dragend", (e: any) => {
       const position = marker.getLatLng();
       const newLat = position.lat.toFixed(6);
@@ -94,7 +128,6 @@ export default function MapPickerComponent({
       setLng(newLng);
     });
 
-    // Update coordinates when map is clicked
     map.on("click", (e: any) => {
       const newLat = e.latlng.lat.toFixed(6);
       const newLng = e.latlng.lng.toFixed(6);
@@ -107,7 +140,6 @@ export default function MapPickerComponent({
     markerRef.current = marker;
   };
 
-  // Update map view when lat/lng change manually
   useEffect(() => {
     if (mapRef.current && (window as any).L) {
       mapRef.current.setView(
@@ -147,7 +179,7 @@ export default function MapPickerComponent({
 
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser");
+      alert(t.geoNotSupported);
       return;
     }
 
@@ -165,9 +197,7 @@ export default function MapPickerComponent({
       },
       (error) => {
         console.error("Geolocation error:", error);
-        alert(
-          "Could not get your location. Please check your browser permissions.",
-        );
+        alert(t.geoError);
         setIsLoading(false);
       },
     );
@@ -175,6 +205,7 @@ export default function MapPickerComponent({
 
   return (
     <div
+      dir={isRtl ? "rtl" : "ltr"}
       style={{
         position: "fixed",
         top: 0,
@@ -205,19 +236,19 @@ export default function MapPickerComponent({
         <h3
           style={{
             margin: "0 0 16px",
-            textAlign: "right",
+            textAlign: isRtl ? "right" : "left",
             fontSize: 18,
             fontWeight: 600,
           }}
         >
-          🗺️ اختر الموقع من الخريطة
+          {t.title}
         </h3>
 
         {/* Search box */}
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <input
             type="text"
-            placeholder="ابحث عن موقع (مثال: الرياض، مكة، شارع الملك فهد)..."
+            placeholder={t.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyPress={(e) => e.key === "Enter" && handleSearch()}
@@ -241,9 +272,10 @@ export default function MapPickerComponent({
               padding: "8px 16px",
               cursor: "pointer",
               fontSize: 13,
+              whiteSpace: "nowrap",
             }}
           >
-            {isLoading ? "جاري البحث..." : "بحث"}
+            {isLoading ? t.searching : t.search}
           </button>
           <button
             type="button"
@@ -257,10 +289,11 @@ export default function MapPickerComponent({
               padding: "8px 16px",
               cursor: "pointer",
               fontSize: 13,
+              whiteSpace: "nowrap",
             }}
-            title="استخدام موقعي الحالي"
+            title={t.myLocationTitle}
           >
-            📍 موقعي
+            {t.myLocation}
           </button>
         </div>
 
@@ -285,7 +318,7 @@ export default function MapPickerComponent({
             textAlign: "center",
           }}
         >
-          💡 انقر على الخريطة لتحديد الموقع | اسحب العلامة لضبط الإحداثيات
+          {t.hint}
         </p>
 
         <div
@@ -305,7 +338,7 @@ export default function MapPickerComponent({
                 color: "#666",
               }}
             >
-              خط العرض (Latitude):
+              {t.latLabel}
             </label>
             <input
               type="number"
@@ -318,6 +351,7 @@ export default function MapPickerComponent({
                 border: "1px solid #ccc",
                 borderRadius: 4,
                 fontSize: 13,
+                boxSizing: "border-box",
               }}
             />
           </div>
@@ -330,7 +364,7 @@ export default function MapPickerComponent({
                 color: "#666",
               }}
             >
-              خط الطول (Longitude):
+              {t.lngLabel}
             </label>
             <input
               type="number"
@@ -343,12 +377,19 @@ export default function MapPickerComponent({
                 border: "1px solid #ccc",
                 borderRadius: 4,
                 fontSize: 13,
+                boxSizing: "border-box",
               }}
             />
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            justifyContent: isRtl ? "flex-start" : "flex-end",
+          }}
+        >
           <button
             type="button"
             onClick={onClose}
@@ -362,7 +403,7 @@ export default function MapPickerComponent({
               fontSize: 13,
             }}
           >
-            إلغاء
+            {t.cancel}
           </button>
           <button
             type="button"
@@ -380,7 +421,7 @@ export default function MapPickerComponent({
               fontSize: 13,
             }}
           >
-            تأكيد الإحداثيات
+            {t.confirm}
           </button>
         </div>
       </div>

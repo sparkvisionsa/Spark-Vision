@@ -1,160 +1,736 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { toApiUrl } from "@/lib/api-url";
 import { SettlementComparison } from "./SettlementComparison";
 import React from "react";
 import { DEFAULT_SECTION1_TITLES } from "./SettlementComparison";
+import { LanguageContext } from "@/components/layout-provider";
+
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+
+const T = {
+  ar: {
+    loading: "جاري تحميل بيانات المعاملة...",
+    errorPrefix: "خطأ في تحميل البيانات:",
+    noId: "لم يتم تحديد معرف المعاملة",
+    back: "← العودة",
+    saving: "جاري الحفظ...",
+    save: "💾 حفظ في قاعدة البيانات",
+    download: "⬇ تحميل",
+    savedOk: "✓ تم الحفظ بنجاح",
+    saveError: "✗ فشل الحفظ. يرجى المحاولة مجدداً.",
+    pageTitle: "تفاصيل المعاملة",
+    // section titles
+    secRequest: "معلومات الطلب",
+    secLinks: "🔗 الروابط الهامة (استعلامات ومخططات)",
+    secAssetDetails: "تفاصيل الأصول",
+    secAssetInfo: "معلومات الأصل",
+    secLocation: "الموقع وتصنيف الأصل",
+    secBasic: "البيانات الأساسية",
+    secBoundaries: "الحدود والأطوال",
+    secFinishing: "بيانات التشطيب",
+    secServices: "خدمات العقار",
+    secMap: "الموقع على الخارطة",
+    secComparison: "المقارنة",
+    secReplacement: "تكلفة الإحلال",
+    secMethods: "طرق التقييم",
+    secAppraiser: "رأي المقيم",
+    secReport: "بنود التقرير",
+    secAuthors: "معدي التقرير",
+    // request info labels
+    refNo: "الرقم المرجعي",
+    assignmentNo: "رقم التكليف",
+    assignmentDate: "تاريخ التكليف",
+    valuationPurpose: "الغرض من التقييم",
+    valuationBasis: "أساس القيمة",
+    ownershipType: "نوع الملكية",
+    valuationHypothesis: "فرضية التقييم",
+    assetCount: "عدد الأصول",
+    client: "العميل",
+    template: "النموذج",
+    notes: "ملاحظات",
+    // asset info labels
+    address: "العنوان",
+    assetType: "نوع الأصل",
+    assetArea: "مساحة الأصل",
+    usage: "الاستخدام",
+    inspector: "المعاين",
+    contactNo: "رقم التواصل",
+    reviewer: "المراجع",
+    // action buttons
+    btnImages: "📷 الصور",
+    btnAttachments: "📎 المرفقات",
+    btnEdit: "✏️ تعديل",
+    btnNearComps: "🗺 المقارنات القريبة",
+    btnCopyComps: "📌 نسخ المقارنات",
+    btnView: "🖨 عرض",
+    btnPdf: "📄 تحميل PDF",
+    btnMessages: "💬 ملاحظات",
+    // location
+    region: "المنطقة",
+    city: "المدينة",
+    neighborhood: "الحي",
+    assetCategory: "تصنيف الأصل",
+    selectRegion: "الرجاء اختيار المنطقة",
+    enterCity: "الرجاء إدخال المدينة",
+    enterNeighborhood: "الرجاء إدخال الحي",
+    selectCategory: "الرجاء اختيار التصنيف",
+    selectPropertyType: "الرجاء اختيار نوع العقار",
+    land: "أراضي",
+    buildings: "مباني",
+    // basic
+    propertyCode: "رمز العقار",
+    clientName: "اسم العميل",
+    authorizedName: "اسم المفوض بطلب التقييم",
+    ownerName: "اسم المالك",
+    deedNumber: "رقم الصك",
+    deedDate: "تاريخ الصك",
+    // boundaries
+    northBoundary: "الحد الشمالي",
+    northLength: "طول الحد الشمالي",
+    southBoundary: "الحد الجنوبي",
+    southLength: "طول الحد الجنوبي",
+    eastBoundary: "الحد الشرقي",
+    eastLength: "طول الحد الشرقي",
+    westBoundary: "الحد الغربي",
+    westLength: "طول الحد الغربي",
+    // finishing
+    buildingState: "حالة المبنى",
+    floorsCount: "عدد الادوار",
+    propertyAge: "عمر العقار",
+    finishLevel: "مستوى التشطيب",
+    buildQuality: "حالة البناء",
+    selectValue: "الرجاء اختيار قيمة",
+    stateNew: "جديد",
+    stateUsed: "مستخدم",
+    stateUnderConstruction: "تحت الإنشاء",
+    stateOther: "اخرى",
+    finishLuxury: "تشطيب فاخر",
+    finishMedium: "تشطيب متوسط",
+    finishBasic: "تشطيب عادي",
+    finishNone: "بدون تشطيب",
+    qualityExcellent: "ممتاز",
+    qualityVeryGood: "جيد جداً",
+    qualityPoor: "ردئ",
+    qualityGood: "جيد",
+    // services
+    street: "الشارع",
+    electricity: "الكهرباء",
+    water: "المياه",
+    phone: "الهاتف",
+    drainage: "التصريف",
+    pavedStreets: "الشوارع مسفلته",
+    lighting: "الإنارة",
+    internet: "الإنترنت",
+    // map
+    coords: "الاحداثيات",
+    lat: "خط العرض",
+    lng: "خط الطول",
+    zoomMap: "الزوم (الخارطة)",
+    zoomAerial: "الزوم (الصورة الجوية)",
+    zoomComparisons: "الزوم (خريطة المقارنات)",
+    // replacement
+    meterPriceLand: "سعر المتر للأرض",
+    landSpace: "مساحة الأرض",
+    landValueCalc: "قيمة الأرض (محسوبة)",
+    managementPct: "نسبة الرسوم الإدارية %",
+    professionalPct: "نسبة الرسوم المهنية %",
+    utilityNetworkPct: "نسبة شبكة المرافق %",
+    emergencyPct: "نسبة التكاليف الطارئة %",
+    financePct: "نسبة التمويل %",
+    yearDev: "مدة التطوير (سنوات)",
+    earningsRate: "هامش ربح المطور %",
+    buildAge: "عمر الأصل الفعلي",
+    defaultAge: "عمر الأصل الافتراضي",
+    depreciationPct: "التقادم المادي %",
+    economicPct: "التقادم الاقتصادي %",
+    careerPct: "التقادم الوظيفي %",
+    maintenancePrice: "تكاليف الصيانة",
+    finishesPrice: "تكاليف التشطيبات المتبقية",
+    completionPct: "نسبة إكتمال البناء %",
+    // valuation methods
+    vmMarket: "المقارنة",
+    vmCost: "تكلفة الإحلال",
+    vmIncome: "الاستثمار",
+    vmResidual: "القيمة المتبقية",
+    vmDcf: "DCF",
+    vmRental: "القيمة الإيجارية",
+    comingSoon: "هذا القسم قيد التطوير.",
+    marketMeterPrice: "سعر المتر (جدول)",
+    marketWeightPct: "النسبة الموزونة",
+    propertyAreaMethod: "مساحة العقار",
+    total: "المجموع",
+    usageReason: "سبب الإستخدام",
+    costNetBuildings: "صافي تكلفة المباني",
+    costNetLandPrice: "صافي سعر الأرض",
+    costLandBuildTotal: "صافي قيمة الأرض والمباني",
+    incomeTotal: "إجمالي الدخل",
+    // appraiser
+    evalDate: "تاريخ المعاينة",
+    completedDate: "تاريخ التقييم",
+    reportDate: "تاريخ التقرير",
+    finalAssetValue: "القيمة النهائية للأصل",
+    appraiserDesc: "وصف المقيم ورأيه حول الأصل",
+    appraiserNotes: "الملاحظات أو النواقص",
+    // report
+    standards: "معايير التقييم المتبعة",
+    scope: "نطاق البحث والاستقصاء",
+    assumptions: "الافتراضات",
+    risks: "المخاطر أو عدم اليقين",
+    // authors
+    authorId: "معد %n — معرف/اسم",
+    authorTitle: "معد %n — المنصب",
+    // comparison table
+    compDate: "التاريخ",
+    compType: "النوع",
+    compKind: "نوع المقارنة",
+    compArea: "المساحة",
+    compMeterPrice: "سعر المتر",
+    compTotalPrice: "الإجمالي",
+    compBaad: "البَعد",
+    compRoads: "عدد الشوارع",
+    compStreet: "عرض الشارع",
+    compSource: "المصدر",
+    compNotes: "ملاحظات",
+    compCoords: "الإحداثيات",
+    compDelete: "حذف",
+    addComparison: "＋ مقارنة جديدة",
+    // settlement table
+    settlementItem: "البند",
+    settlementSubject: "محل التقييم",
+    settlementComp: "المقارنة",
+    settlementDesc: "وصف",
+    settlementAdj: "تعديل",
+    meterPrice: "سعر المتر",
+    totalAdjustments: "مجموع التسويات",
+    priceAfterAdj: "سعر المقارن بعد التسوية",
+    addSettlement: "＋ بند تسوية",
+    // replacement table
+    repTitle: "العنوان",
+    repArea: "المساحة",
+    repPrice: "السعر",
+    repTotal: "الإجمالي",
+    repNotes: "ملاحظات",
+    repUseArea: "يُحتسب بالمساحة",
+    repDelete: "حذف",
+    addRepLine: "＋ بند جديد",
+    // misc
+    close: "إغلاق",
+    assetCountVal: "1",
+  },
+  en: {
+    loading: "Loading transaction data...",
+    errorPrefix: "Error loading data:",
+    noId: "No transaction ID specified",
+    back: "← Back",
+    saving: "Saving...",
+    save: "💾 Save to Database",
+    download: "⬇ Download",
+    savedOk: "✓ Saved successfully",
+    saveError: "✗ Save failed. Please try again.",
+    pageTitle: "Transaction Details",
+    // section titles
+    secRequest: "Request Information",
+    secLinks: "🔗 Important Links (Queries & Maps)",
+    secAssetDetails: "Asset Details",
+    secAssetInfo: "Asset Information",
+    secLocation: "Location & Asset Classification",
+    secBasic: "Basic Data",
+    secBoundaries: "Boundaries & Dimensions",
+    secFinishing: "Finishing Data",
+    secServices: "Property Services",
+    secMap: "Map Location",
+    secComparison: "Comparison",
+    secReplacement: "Replacement Cost",
+    secMethods: "Valuation Methods",
+    secAppraiser: "Appraiser Opinion",
+    secReport: "Report Items",
+    secAuthors: "Report Authors",
+    // request info labels
+    refNo: "Reference Number",
+    assignmentNo: "Assignment Number",
+    assignmentDate: "Assignment Date",
+    valuationPurpose: "Valuation Purpose",
+    valuationBasis: "Valuation Basis",
+    ownershipType: "Ownership Type",
+    valuationHypothesis: "Valuation Hypothesis",
+    assetCount: "Asset Count",
+    client: "Client",
+    template: "Template",
+    notes: "Notes",
+    // asset info labels
+    address: "Address",
+    assetType: "Asset Type",
+    assetArea: "Asset Area",
+    usage: "Usage",
+    inspector: "Inspector",
+    contactNo: "Contact Number",
+    reviewer: "Reviewer",
+    // action buttons
+    btnImages: "📷 Images",
+    btnAttachments: "📎 Attachments",
+    btnEdit: "✏️ Edit",
+    btnNearComps: "🗺 Nearby Comparisons",
+    btnCopyComps: "📌 Copy Comparisons",
+    btnView: "🖨 View",
+    btnPdf: "📄 Download PDF",
+    btnMessages: "💬 Notes",
+    // location
+    region: "Region",
+    city: "City",
+    neighborhood: "Neighborhood",
+    assetCategory: "Asset Category",
+    selectRegion: "Please select region",
+    enterCity: "Please enter city",
+    enterNeighborhood: "Please enter neighborhood",
+    selectCategory: "Please select category",
+    selectPropertyType: "Please select property type",
+    land: "Land",
+    buildings: "Buildings",
+    // basic
+    propertyCode: "Property Code",
+    clientName: "Client Name",
+    authorizedName: "Authorized Requester Name",
+    ownerName: "Owner Name",
+    deedNumber: "Deed Number",
+    deedDate: "Deed Date",
+    // boundaries
+    northBoundary: "North Boundary",
+    northLength: "North Length",
+    southBoundary: "South Boundary",
+    southLength: "South Length",
+    eastBoundary: "East Boundary",
+    eastLength: "East Length",
+    westBoundary: "West Boundary",
+    westLength: "West Length",
+    // finishing
+    buildingState: "Building State",
+    floorsCount: "Floors Count",
+    propertyAge: "Property Age",
+    finishLevel: "Finish Level",
+    buildQuality: "Build Quality",
+    selectValue: "Please select a value",
+    stateNew: "New",
+    stateUsed: "Used",
+    stateUnderConstruction: "Under Construction",
+    stateOther: "Other",
+    finishLuxury: "Luxury Finish",
+    finishMedium: "Medium Finish",
+    finishBasic: "Basic Finish",
+    finishNone: "No Finish",
+    qualityExcellent: "Excellent",
+    qualityVeryGood: "Very Good",
+    qualityPoor: "Poor",
+    qualityGood: "Good",
+    // services
+    street: "Street",
+    electricity: "Electricity",
+    water: "Water",
+    phone: "Phone",
+    drainage: "Drainage",
+    pavedStreets: "Paved Streets",
+    lighting: "Lighting",
+    internet: "Internet",
+    // map
+    coords: "Coordinates",
+    lat: "Latitude",
+    lng: "Longitude",
+    zoomMap: "Zoom (Map)",
+    zoomAerial: "Zoom (Aerial)",
+    zoomComparisons: "Zoom (Comparisons Map)",
+    // replacement
+    meterPriceLand: "Land Meter Price",
+    landSpace: "Land Area",
+    landValueCalc: "Land Value (Calculated)",
+    managementPct: "Management Fees %",
+    professionalPct: "Professional Fees %",
+    utilityNetworkPct: "Utility Network %",
+    emergencyPct: "Contingency Costs %",
+    financePct: "Finance %",
+    yearDev: "Development Period (years)",
+    earningsRate: "Developer Profit Margin %",
+    buildAge: "Actual Asset Age",
+    defaultAge: "Assumed Asset Age",
+    depreciationPct: "Physical Depreciation %",
+    economicPct: "Economic Obsolescence %",
+    careerPct: "Functional Obsolescence %",
+    maintenancePrice: "Maintenance Costs",
+    finishesPrice: "Remaining Finish Costs",
+    completionPct: "Construction Completion %",
+    // valuation methods
+    vmMarket: "Comparison",
+    vmCost: "Replacement Cost",
+    vmIncome: "Investment",
+    vmResidual: "Residual Value",
+    vmDcf: "DCF",
+    vmRental: "Rental Value",
+    comingSoon: "This section is under development.",
+    marketMeterPrice: "Meter Price (Table)",
+    marketWeightPct: "Weighted Ratio",
+    propertyAreaMethod: "Property Area",
+    total: "Total",
+    usageReason: "Reason for Use",
+    costNetBuildings: "Net Building Cost",
+    costNetLandPrice: "Net Land Price",
+    costLandBuildTotal: "Net Land + Buildings Value",
+    incomeTotal: "Total Income",
+    // appraiser
+    evalDate: "Inspection Date",
+    completedDate: "Valuation Date",
+    reportDate: "Report Date",
+    finalAssetValue: "Final Asset Value",
+    appraiserDesc: "Appraiser Description & Opinion",
+    appraiserNotes: "Notes or Deficiencies",
+    // report
+    standards: "Applied Valuation Standards",
+    scope: "Scope of Investigation",
+    assumptions: "Assumptions",
+    risks: "Risks or Uncertainty",
+    // authors
+    authorId: "Author %n — ID/Name",
+    authorTitle: "Author %n — Title",
+    // comparison table
+    compDate: "Date",
+    compType: "Type",
+    compKind: "Comparison Kind",
+    compArea: "Area",
+    compMeterPrice: "Meter Price",
+    compTotalPrice: "Total",
+    compBaad: "Distance",
+    compRoads: "Road Count",
+    compStreet: "Street Width",
+    compSource: "Source",
+    compNotes: "Notes",
+    compCoords: "Coordinates",
+    compDelete: "Delete",
+    addComparison: "＋ New Comparison",
+    // settlement table
+    settlementItem: "Item",
+    settlementSubject: "Subject Property",
+    settlementComp: "Comparison",
+    settlementDesc: "Description",
+    settlementAdj: "Adjustment",
+    meterPrice: "Meter Price",
+    totalAdjustments: "Total Adjustments",
+    priceAfterAdj: "Price After Adjustment",
+    addSettlement: "＋ New Settlement Item",
+    // replacement table
+    repTitle: "Title",
+    repArea: "Area",
+    repPrice: "Price",
+    repTotal: "Total",
+    repNotes: "Notes",
+    repUseArea: "Calculate by Area",
+    repDelete: "Delete",
+    addRepLine: "＋ New Line",
+    // misc
+    close: "Close",
+    assetCountVal: "1",
+  },
+} as const;
+
+type TKeys = keyof (typeof T)["ar"];
+type Lang = "ar" | "en";
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
-const VALUATION_PURPOSES: Record<string, string> = {
-  "1": "التمويل",
-  "2": "الشراء",
-  "3": "البيع",
-  "4": "الرهن",
-  "5": "محاسبة",
-  "6": "إفلاس",
-  "7": "استحواذ",
-  "8": "التقرير المالي",
-  "9": "الضرائب",
-  "10": "الأغراض التأمينية",
-  "11": "تقاضي",
-  "12": "أغراض داخلية",
-  "13": "نزع الملكية",
-  "14": "نقل",
-  "15": "ورث",
-  "16": "اخرى",
-  "17": "توزيع تركه",
-  "18": "البيع القسري",
-  "19": "معرفة القيمة السوقية",
-  "20": "معرفة القيمة الإيجارية",
-  "21": "التصفية",
-  "50": "أغراض إستثمارية",
-  "54": "التعويض",
+const VALUATION_PURPOSES: Record<Lang, Record<string, string>> = {
+  ar: {
+    "1": "التمويل",
+    "2": "الشراء",
+    "3": "البيع",
+    "4": "الرهن",
+    "5": "محاسبة",
+    "6": "إفلاس",
+    "7": "استحواذ",
+    "8": "التقرير المالي",
+    "9": "الضرائب",
+    "10": "الأغراض التأمينية",
+    "11": "تقاضي",
+    "12": "أغراض داخلية",
+    "13": "نزع الملكية",
+    "14": "نقل",
+    "15": "ورث",
+    "16": "اخرى",
+    "17": "توزيع تركه",
+    "18": "البيع القسري",
+    "19": "معرفة القيمة السوقية",
+    "20": "معرفة القيمة الإيجارية",
+    "21": "التصفية",
+    "50": "أغراض إستثمارية",
+    "54": "التعويض",
+  },
+  en: {
+    "1": "Financing",
+    "2": "Purchase",
+    "3": "Sale",
+    "4": "Mortgage",
+    "5": "Accounting",
+    "6": "Bankruptcy",
+    "7": "Acquisition",
+    "8": "Financial Reporting",
+    "9": "Taxation",
+    "10": "Insurance Purposes",
+    "11": "Litigation",
+    "12": "Internal Purposes",
+    "13": "Expropriation",
+    "14": "Transfer",
+    "15": "Inheritance",
+    "16": "Other",
+    "17": "Estate Distribution",
+    "18": "Forced Sale",
+    "19": "Market Value Assessment",
+    "20": "Rental Value Assessment",
+    "21": "Liquidation",
+    "50": "Investment Purposes",
+    "54": "Compensation",
+  },
 };
 
-const VALUATION_BASES: Record<string, string> = {
-  "1": "القيمة السوقية",
-  "2": "القيمة الاستثمارية",
-  "3": "القيمة المنصفة",
-  "4": "قيمة التصفية",
-  "5": "القيمة التكاملية",
-  "6": "الايجار السوقي",
-  "7": "القيمة السوقية / قيمة الايجار السوقي",
-  "8": "القيمة العادلة",
-  "10": "الإدراج في القوائم المالية",
+const VALUATION_BASES: Record<Lang, Record<string, string>> = {
+  ar: {
+    "1": "القيمة السوقية",
+    "2": "القيمة الاستثمارية",
+    "3": "القيمة المنصفة",
+    "4": "قيمة التصفية",
+    "5": "القيمة التكاملية",
+    "6": "الايجار السوقي",
+    "7": "القيمة السوقية / قيمة الايجار السوقي",
+    "8": "القيمة العادلة",
+    "10": "الإدراج في القوائم المالية",
+  },
+  en: {
+    "1": "Market Value",
+    "2": "Investment Value",
+    "3": "Fair Value",
+    "4": "Liquidation Value",
+    "5": "Synergistic Value",
+    "6": "Market Rent",
+    "7": "Market Value / Market Rent",
+    "8": "Fair Value",
+    "10": "Financial Statement Recognition",
+  },
 };
 
-const OWNERSHIP_TYPES: Record<string, string> = {
-  "1": "الملكية المطلقة",
-  "2": "الملكية المشروطة",
-  "3": "الملكية المقيدة",
-  "4": "ملكية مدى الحياة",
-  "5": "منفعة",
-  "6": "مشاع",
-  "7": "ملكية مرهونة",
+const OWNERSHIP_TYPES: Record<Lang, Record<string, string>> = {
+  ar: {
+    "1": "الملكية المطلقة",
+    "2": "الملكية المشروطة",
+    "3": "الملكية المقيدة",
+    "4": "ملكية مدى الحياة",
+    "5": "منفعة",
+    "6": "مشاع",
+    "7": "ملكية مرهونة",
+  },
+  en: {
+    "1": "Freehold",
+    "2": "Conditional Ownership",
+    "3": "Restricted Ownership",
+    "4": "Life Interest",
+    "5": "Usufruct",
+    "6": "Common Ownership",
+    "7": "Mortgaged",
+  },
 };
 
-const VALUATION_HYPOTHESES: Record<string, string> = {
-  "1": "الاستخدام الحالي",
-  "2": "الاستخدام الأعلى والأفضل",
-  "3": "التصفية المنظمة",
-  "4": "البيع القسري",
+const VALUATION_HYPOTHESES: Record<Lang, Record<string, string>> = {
+  ar: {
+    "1": "الاستخدام الحالي",
+    "2": "الاستخدام الأعلى والأفضل",
+    "3": "التصفية المنظمة",
+    "4": "البيع القسري",
+  },
+  en: {
+    "1": "Current Use",
+    "2": "Highest and Best Use",
+    "3": "Orderly Liquidation",
+    "4": "Forced Sale",
+  },
 };
 
-const WORKFLOW_STATUSES = [
-  { value: "new", label: "جديدة" },
-  { value: "inspection", label: "معاينة" },
-  { value: "review", label: "مراجعة" },
-  { value: "audit", label: "تدقيق" },
-  { value: "approved", label: "معتمدة" },
-  { value: "sent", label: "مرسلة" },
-  { value: "cancelled", label: "ملغية" },
-  { value: "pending", label: "معلقة" },
-];
+const WORKFLOW_STATUSES: Record<Lang, { value: string; label: string }[]> = {
+  ar: [
+    { value: "new", label: "جديدة" },
+    { value: "inspection", label: "معاينة" },
+    { value: "review", label: "مراجعة" },
+    { value: "audit", label: "تدقيق" },
+    { value: "approved", label: "معتمدة" },
+    { value: "sent", label: "مرسلة" },
+    { value: "cancelled", label: "ملغية" },
+    { value: "pending", label: "معلقة" },
+  ],
+  en: [
+    { value: "new", label: "New" },
+    { value: "inspection", label: "Inspection" },
+    { value: "review", label: "Review" },
+    { value: "audit", label: "Audit" },
+    { value: "approved", label: "Approved" },
+    { value: "sent", label: "Sent" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "pending", label: "Pending" },
+  ],
+};
 
-const USE_LABELS: Record<string, string> = {
-  "1": "أراضي",
-  "2": "مباني",
+const USE_LABELS: Record<Lang, Record<string, string>> = {
+  ar: { "1": "أراضي", "2": "مباني" },
+  en: { "1": "Land", "2": "Buildings" },
+};
+
+const PROPERTY_TYPES_OPTIONS: Record<Lang, { value: string; label: string }[]> =
+  {
+    ar: [
+      { value: "1", label: "أرض" },
+      { value: "2", label: "شقة" },
+      { value: "3", label: "فيلا سكنية" },
+      { value: "4", label: "عمارة" },
+      { value: "5", label: "إستراحة" },
+      { value: "6", label: "مزرعة" },
+      { value: "7", label: "مستودع" },
+      { value: "9", label: "محل تجاري" },
+      { value: "10", label: "دور" },
+      { value: "21", label: "أرض سكنية" },
+      { value: "22", label: "أرض تجارية" },
+      { value: "24", label: "فندق" },
+      { value: "28", label: "مبنى تجاري" },
+      { value: "67", label: "عمارة سكنية" },
+    ],
+    en: [
+      { value: "1", label: "Land" },
+      { value: "2", label: "Apartment" },
+      { value: "3", label: "Residential Villa" },
+      { value: "4", label: "Building" },
+      { value: "5", label: "Rest House" },
+      { value: "6", label: "Farm" },
+      { value: "7", label: "Warehouse" },
+      { value: "9", label: "Shop" },
+      { value: "10", label: "Floor" },
+      { value: "21", label: "Residential Land" },
+      { value: "22", label: "Commercial Land" },
+      { value: "24", label: "Hotel" },
+      { value: "28", label: "Commercial Building" },
+      { value: "67", label: "Residential Building" },
+    ],
+  };
+
+const COMPARISON_KINDS: Record<Lang, string[]> = {
+  ar: ["حد", "تنفيذ", "سوم", "عرض", "ايجار", "مزاد"],
+  en: ["Boundary", "Executed", "Asking", "Offer", "Rental", "Auction"],
+};
+
+const REGIONS: Record<Lang, { value: string; label: string }[]> = {
+  ar: [
+    { value: "1", label: "منطقة الرياض" },
+    { value: "2", label: "منطقة مكة المكرمة" },
+    { value: "3", label: "منطقة المدينة المنورة" },
+    { value: "4", label: "منطقة القصيم" },
+    { value: "5", label: "المنطقة الشرقية" },
+    { value: "6", label: "منطقة عسير" },
+    { value: "7", label: "منطقة تبوك" },
+    { value: "8", label: "منطقة حائل" },
+    { value: "9", label: "منطقة الحدود الشمالية" },
+    { value: "10", label: "منطقة جازان" },
+    { value: "11", label: "منطقة نجران" },
+    { value: "12", label: "منطقة الباحة" },
+    { value: "13", label: "منطقة الجوف" },
+  ],
+  en: [
+    { value: "1", label: "Riyadh Region" },
+    { value: "2", label: "Makkah Region" },
+    { value: "3", label: "Madinah Region" },
+    { value: "4", label: "Qassim Region" },
+    { value: "5", label: "Eastern Region" },
+    { value: "6", label: "Asir Region" },
+    { value: "7", label: "Tabuk Region" },
+    { value: "8", label: "Hail Region" },
+    { value: "9", label: "Northern Borders Region" },
+    { value: "10", label: "Jazan Region" },
+    { value: "11", label: "Najran Region" },
+    { value: "12", label: "Al-Baha Region" },
+    { value: "13", label: "Al-Jouf Region" },
+  ],
 };
 
 const IMPORTANT_LINKS = [
-  { href: "https://srem.moj.gov.sa/deed-inquiry", label: "استعلام عن الصك" },
+  {
+    href: "https://srem.moj.gov.sa/deed-inquiry",
+    labelAr: "استعلام عن الصك",
+    labelEn: "Deed Inquiry",
+  },
   {
     href: "https://apps.balady.gov.sa/Eservices/Inquiries/inquiry",
-    label: "استعلام عن الرخصة (بلدي)",
+    labelAr: "استعلام عن الرخصة (بلدي)",
+    labelEn: "License Inquiry (Balady)",
   },
-  { href: "https://umaps.balady.gov.sa/", label: "يو ماب (مخططات)" },
+  {
+    href: "https://umaps.balady.gov.sa/",
+    labelAr: "يو ماب (مخططات)",
+    labelEn: "U-Maps (Plans)",
+  },
   {
     href: "https://mapservice.alriyadh.gov.sa/geoportal/geomap",
-    label: "البوابة المكانية الرياض",
+    labelAr: "البوابة المكانية الرياض",
+    labelEn: "Riyadh Spatial Portal",
   },
   {
     href: "https://gis.qassim.gov.sa/QMENEW/",
-    label: "المستكشف الجغرافي - القصيم",
+    labelAr: "المستكشف الجغرافي - القصيم",
+    labelEn: "Geo Explorer - Qassim",
   },
-  { href: "https://smartmap.jeddah.gov.sa/", label: "المستكشف الجغرافي-جدة" },
-  { href: "https://maps.holymakkah.gov.sa/", label: "المستكشف الجغرافي-مكة" },
+  {
+    href: "https://smartmap.jeddah.gov.sa/",
+    labelAr: "المستكشف الجغرافي-جدة",
+    labelEn: "Geo Explorer - Jeddah",
+  },
+  {
+    href: "https://maps.holymakkah.gov.sa/",
+    labelAr: "المستكشف الجغرافي-مكة",
+    labelEn: "Geo Explorer - Makkah",
+  },
   {
     href: "https://geomed.amana-md.gov.sa/madinah-explorer/#/ar",
-    label: "المستكشف الجغرافي-المدينة",
+    labelAr: "المستكشف الجغرافي-المدينة",
+    labelEn: "Geo Explorer - Madinah",
   },
   {
     href: "https://srem.moj.gov.sa/transactions-info",
-    label: "البورصة العقارية",
+    labelAr: "البورصة العقارية",
+    labelEn: "Real Estate Exchange",
   },
-  { href: "https://sa.aqar.fm/map/", label: "عقار (عروض مقارنة)" },
-  { href: "https://aqarsas.sa/ulanding/", label: "عقار ساس" },
-  { href: "https://qaren.ai/comparisons", label: "منصة قارن" },
-  { href: "https://paseetah.com/", label: "موقع بسيطة" },
-  { href: "https://earth.google.com/web/", label: "رابط قوقل ايرث" },
+  {
+    href: "https://sa.aqar.fm/map/",
+    labelAr: "عقار (عروض مقارنة)",
+    labelEn: "Aqar (Comparison Listings)",
+  },
+  {
+    href: "https://aqarsas.sa/ulanding/",
+    labelAr: "عقار ساس",
+    labelEn: "Aqar SAS",
+  },
+  {
+    href: "https://qaren.ai/comparisons",
+    labelAr: "منصة قارن",
+    labelEn: "Qaren Platform",
+  },
+  { href: "https://paseetah.com/", labelAr: "موقع بسيطة", labelEn: "Paseetah" },
+  {
+    href: "https://earth.google.com/web/",
+    labelAr: "رابط قوقل ايرث",
+    labelEn: "Google Earth",
+  },
   {
     href: "https://eservices.rer.sa/#/title-verification",
-    label: "استعلام عن صك (السجل العقاري)",
+    labelAr: "استعلام عن صك (السجل العقاري)",
+    labelEn: "Deed Inquiry (Real Estate Registry)",
   },
   {
     href: "https://webgis.eamana.gov.sa/eexplorer/",
-    label: "المستكشف الجغرافي-الشرقية",
+    labelAr: "المستكشف الجغرافي-الشرقية",
+    labelEn: "Geo Explorer - Eastern Region",
   },
 ];
 
-const PROPERTY_TYPES_OPTIONS = [
-  { value: "1", label: "أرض" },
-  { value: "2", label: "شقة" },
-  { value: "3", label: "فيلا سكنية" },
-  { value: "4", label: "عمارة" },
-  { value: "5", label: "إستراحة" },
-  { value: "6", label: "مزرعة" },
-  { value: "7", label: "مستودع" },
-  { value: "9", label: "محل تجاري" },
-  { value: "10", label: "دور" },
-  { value: "21", label: "أرض سكنية" },
-  { value: "22", label: "أرض تجارية" },
-  { value: "24", label: "فندق" },
-  { value: "28", label: "مبنى تجاري" },
-  { value: "67", label: "عمارة سكنية" },
-];
-
-const COMPARISON_KINDS = ["حد", "تنفيذ", "سوم", "عرض", "ايجار", "مزاد"];
-
-const REGIONS = [
-  { value: "1", label: "منطقة الرياض" },
-  { value: "2", label: "منطقة مكة المكرمة" },
-  { value: "3", label: "منطقة المدينة المنورة" },
-  { value: "4", label: "منطقة القصيم" },
-  { value: "5", label: "المنطقة الشرقية" },
-  { value: "6", label: "منطقة عسير" },
-  { value: "7", label: "منطقة تبوك" },
-  { value: "8", label: "منطقة حائل" },
-  { value: "9", label: "منطقة الحدود الشمالية" },
-  { value: "10", label: "منطقة جازان" },
-  { value: "11", label: "منطقة نجران" },
-  { value: "12", label: "منطقة الباحة" },
-  { value: "13", label: "منطقة الجوف" },
-];
-
-// ─── helper: build label→value map from templateFieldValues ──────────────────
+// ─── helper: build label→value map ───────────────────────────────────────────
 
 function buildByLabel(
   templateFieldValues:
@@ -169,15 +745,13 @@ function buildByLabel(
   return map;
 }
 
-function resolveRegionId(nameOrId: string): string {
+function resolveRegionId(nameOrId: string, lang: Lang): string {
   if (!nameOrId) return "";
-  const match = REGIONS.find((r) => r.label === nameOrId);
+  const match = REGIONS[lang].find((r) => r.label === nameOrId);
   return match ? match.value : nameOrId;
 }
 
-// ─── FIX 1 & 2: Clean read-only display components ───────────────────────────
-// Replaced fake-input InfoItem with clean label/value text layout.
-// No input boxes, no borders — just a muted label above a plain value.
+// ─── read-only display ────────────────────────────────────────────────────────
 
 function ReadOnlyGrid({ children }: { children: React.ReactNode }) {
   return (
@@ -253,11 +827,7 @@ function SectionCard({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        style={{
-          ...styles.sectionHead,
-          background: headBg,
-          color: headColor,
-        }}
+        style={{ ...styles.sectionHead, background: headBg, color: headColor }}
       >
         <span>{title}</span>
         <span
@@ -434,10 +1004,13 @@ function emptyComparisonRow() {
 function ComparisonTable({
   rows,
   onChange,
+  lang,
 }: {
   rows: any[];
   onChange: (rows: any[]) => void;
+  lang: Lang;
 }) {
+  const t = T[lang];
   const addRow = () => onChange([...rows, emptyComparisonRow()]);
   const removeRow = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
   const updateRow = (i: number, field: string, val: string) => {
@@ -464,19 +1037,19 @@ function ComparisonTable({
           <thead>
             <tr>
               {[
-                "التاريخ",
-                "النوع",
-                "نوع المقارنة",
-                "المساحة",
-                "سعر المتر",
-                "الإجمالي",
-                "البَعد",
-                "عدد الشوارع",
-                "عرض الشارع",
-                "المصدر",
-                "ملاحظات",
-                "الإحداثيات",
-                "حذف",
+                t.compDate,
+                t.compType,
+                t.compKind,
+                t.compArea,
+                t.compMeterPrice,
+                t.compTotalPrice,
+                t.compBaad,
+                t.compRoads,
+                t.compStreet,
+                t.compSource,
+                t.compNotes,
+                t.compCoords,
+                t.compDelete,
               ].map((h) => (
                 <th key={h} style={styles.th}>
                   {h}
@@ -504,9 +1077,9 @@ function ComparisonTable({
                     style={styles.cellInput}
                   >
                     <option value="" disabled>
-                      نوع
+                      {lang === "ar" ? "نوع" : "Type"}
                     </option>
-                    {PROPERTY_TYPES_OPTIONS.map((o) => (
+                    {PROPERTY_TYPES_OPTIONS[lang].map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -521,7 +1094,7 @@ function ComparisonTable({
                     }
                     style={styles.cellInput}
                   >
-                    {COMPARISON_KINDS.map((k) => (
+                    {COMPARISON_KINDS[lang].map((k) => (
                       <option key={k} value={k}>
                         {k}
                       </option>
@@ -612,7 +1185,7 @@ function ComparisonTable({
         </table>
       </div>
       <button type="button" onClick={addRow} style={styles.linkBtn}>
-        ＋ مقارنة جديدة
+        {t.addComparison}
       </button>
     </div>
   );
@@ -635,12 +1208,15 @@ function SettlementTable({
   onChange,
   bases,
   numCols,
+  lang,
 }: {
   rows: any[];
   onChange: (rows: any[]) => void;
   bases: string[];
   numCols: number;
+  lang: Lang;
 }) {
+  const t = T[lang];
   const n = Math.min(numCols, 8);
   const addRow = () => onChange([...rows, emptySettlementRow()]);
   const removeRow = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
@@ -668,11 +1244,11 @@ function SettlementTable({
         <table style={styles.table}>
           <thead>
             <tr>
-              <th style={styles.th}>البند</th>
-              <th style={styles.th}>محل التقييم</th>
+              <th style={styles.th}>{t.settlementItem}</th>
+              <th style={styles.th}>{t.settlementSubject}</th>
               {Array.from({ length: n }, (_, c) => (
                 <th key={c} colSpan={2} style={styles.th}>
-                  المقارنة {c + 1}
+                  {t.settlementComp} {c + 1}
                 </th>
               ))}
             </tr>
@@ -681,8 +1257,8 @@ function SettlementTable({
               <th style={styles.th}>—</th>
               {Array.from({ length: n }, (_, c) => (
                 <React.Fragment key={c}>
-                  <th style={styles.th}>وصف</th>
-                  <th style={styles.th}>تعديل</th>
+                  <th style={styles.th}>{t.settlementDesc}</th>
+                  <th style={styles.th}>{t.settlementAdj}</th>
                 </React.Fragment>
               ))}
             </tr>
@@ -690,7 +1266,7 @@ function SettlementTable({
           <tbody>
             <tr style={{ background: "#e8f4fd" }}>
               <td colSpan={2} style={styles.td}>
-                <strong>سعر المتر</strong>
+                <strong>{t.meterPrice}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
                 <td key={c} colSpan={2} style={styles.td}>
@@ -719,7 +1295,9 @@ function SettlementTable({
                     <input
                       value={row.title}
                       onChange={(e) => updateRow(i, "title", e.target.value)}
-                      placeholder="بند التسوية"
+                      placeholder={
+                        lang === "ar" ? "بند التسوية" : "Settlement Item"
+                      }
                       style={{ ...styles.cellInput, flex: 1 }}
                     />
                     <button
@@ -765,7 +1343,7 @@ function SettlementTable({
             ))}
             <tr style={{ background: "#f5f5f5" }}>
               <td colSpan={2} style={styles.td}>
-                <strong>مجموع التسويات</strong>
+                <strong>{t.totalAdjustments}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
                 <td key={c} colSpan={2} style={styles.td}>
@@ -780,7 +1358,7 @@ function SettlementTable({
             </tr>
             <tr style={{ background: "#f5f5f5" }}>
               <td colSpan={2} style={styles.td}>
-                <strong>سعر المقارن بعد التسوية</strong>
+                <strong>{t.priceAfterAdj}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
                 <td key={c} colSpan={2} style={styles.td}>
@@ -797,7 +1375,7 @@ function SettlementTable({
         </table>
       </div>
       <button type="button" onClick={addRow} style={styles.linkBtn}>
-        ＋ بند تسوية
+        {t.addSettlement}
       </button>
     </div>
   );
@@ -819,10 +1397,13 @@ function emptyReplacementLine() {
 function ReplacementTable({
   lines,
   onChange,
+  lang,
 }: {
   lines: any[];
   onChange: (lines: any[]) => void;
+  lang: Lang;
 }) {
+  const t = T[lang];
   const addLine = () => onChange([...lines, emptyReplacementLine()]);
   const removeLine = (i: number) =>
     onChange(lines.filter((_, idx) => idx !== i));
@@ -847,13 +1428,13 @@ function ReplacementTable({
         <thead>
           <tr>
             {[
-              "العنوان",
-              "المساحة",
-              "السعر",
-              "الإجمالي",
-              "ملاحظات",
-              "يُحتسب بالمساحة",
-              "حذف",
+              t.repTitle,
+              t.repArea,
+              t.repPrice,
+              t.repTotal,
+              t.repNotes,
+              t.repUseArea,
+              t.repDelete,
             ].map((h) => (
               <th key={h} style={styles.th}>
                 {h}
@@ -923,7 +1504,7 @@ function ReplacementTable({
         </tbody>
       </table>
       <button type="button" onClick={addLine} style={styles.linkBtn}>
-        ＋ بند جديد
+        {t.addRepLine}
       </button>
     </div>
   );
@@ -1049,6 +1630,12 @@ export function TransactionEvaluationPage({
   transactionId: string;
   onBack: () => void;
 }) {
+  // ── language ──────────────────────────────────────────────────────────────
+  const langContext = useContext(LanguageContext);
+  const lang: Lang = (langContext?.language === "en" ? "en" : "ar") as Lang;
+  const isRtl = lang === "ar";
+  const t = T[lang];
+
   const [tx, setTx] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -1056,7 +1643,7 @@ export function TransactionEvaluationPage({
   useEffect(() => {
     if (!transactionId) {
       setLoading(false);
-      setFetchError("لم يتم تحديد معرف المعاملة");
+      setFetchError(t.noId);
       return;
     }
     setLoading(true);
@@ -1074,13 +1661,17 @@ export function TransactionEvaluationPage({
       .finally(() => setLoading(false));
   }, [transactionId]);
 
-  const [statusMsg, setStatusMsg] = useState({
-    type: "ok",
-    text: "تم التحميل.",
-  });
+  const [statusMsg, setStatusMsg] = useState({ type: "ok", text: "" });
   const [saving, setSaving] = useState(false);
-
   const [ev, setEv] = useState(emptyEval());
+  const [settlementNumCols] = useState(3);
+  const [settlementNotes, setSettlementNotes] = useState(
+    lang === "ar"
+      ? "-تم اجراء عملية التسويات و التعديلات حسب ما هو متعارف في السوق واستنادا على ما هو معروض بالسوق.\n-بعد معاينة المنطقة المحيطة بالعقار تم الوصول إلى صفقات منفذة وعروض قائمة."
+      : "-Adjustments were made in accordance with market norms and based on available market listings.\n-After inspecting the surrounding area, executed transactions and active listings were identified.",
+  );
+  const [activeVmTab, setActiveVmTab] = useState("vm-m");
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const setField = (section: keyof typeof ev, field: string, val: string) =>
     setEv((prev) => ({
@@ -1090,10 +1681,8 @@ export function TransactionEvaluationPage({
 
   useEffect(() => {
     if (!tx) return;
-
     const e: Record<string, any> = tx.evalData ?? {};
     const bl = buildByLabel(tx.templateFieldValues);
-
     const pick = (...candidates: (string | undefined)[]): string =>
       candidates.find((v) => v !== undefined && v !== "") ?? "";
 
@@ -1107,7 +1696,7 @@ export function TransactionEvaluationPage({
         ? e.settlementWeights
         : ["", "", ""],
       location: {
-        regionId: pick(e.regionId, resolveRegionId(bl["المنطقة"] ?? "")),
+        regionId: pick(e.regionId, resolveRegionId(bl["المنطقة"] ?? "", lang)),
         cityName: pick(e.cityName, bl["المدينة"]),
         neighborhoodName: pick(e.neighborhoodName, bl["الحي"]),
         assetCategoryId: pick(e.assetCategoryId),
@@ -1138,9 +1727,7 @@ export function TransactionEvaluationPage({
         finishLevel: pick(e.finishLevel),
         buildQuality: pick(e.buildQuality),
       },
-      services: {
-        street: pick(e.street),
-      },
+      services: { street: pick(e.street) },
       map: {
         coords: pick(e.coords),
         lat: pick(e.lat),
@@ -1226,38 +1813,13 @@ export function TransactionEvaluationPage({
     });
   }, [tx]);
 
-  const [settlementNumCols, setSettlementNumCols] = useState(3);
-  const [settlementNotes, setSettlementNotes] = useState(
-    "-تم اجراء عملية التسويات و التعديلات حسب ما هو متعارف في السوق واستنادا على ما هو معروض بالسوق.\n-بعد معاينة المنطقة المحيطة بالعقار تم الوصول إلى صفقات منفذة وعروض قائمة.",
-  );
-  const [activeVmTab, setActiveVmTab] = useState("vm-m");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const VM_TABS = [
-    { id: "vm-m", label: "المقارنة" },
-    { id: "vm-c", label: "تكلفة الإحلال" },
-    { id: "vm-i", label: "الاستثمار" },
-    { id: "vm-r", label: "القيمة المتبقية" },
-    { id: "vm-d", label: "DCF" },
-    { id: "vm-e", label: "القيمة الإيجارية" },
-  ];
-
-  const weightedAvg = (() => {
-    const vals = ev.settlementBases
-      .slice(0, settlementNumCols)
-      .map((b) => parseFloat(b) || 0)
-      .filter((v) => v > 0);
-    return vals.length
-      ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)
-      : "0.00";
-  })();
   const landValue = (
     (parseFloat(ev.meterPriceLand) || 0) * (parseFloat(ev.landSpace) || 0)
   ).toFixed(2);
 
   const handleSave = async () => {
     setSaving(true);
-    setStatusMsg({ type: "info", text: "جاري الحفظ..." });
+    setStatusMsg({ type: "info", text: t.saving });
     try {
       const evalData = {
         status: ev.status,
@@ -1292,21 +1854,29 @@ export function TransactionEvaluationPage({
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const updated = await res.json();
       setTx(updated);
-      setStatusMsg({ type: "ok", text: "✓ تم الحفظ بنجاح" });
+      setStatusMsg({ type: "ok", text: t.savedOk });
     } catch {
-      setStatusMsg({
-        type: "error",
-        text: "✗ فشل الحفظ. يرجى المحاولة مجدداً.",
-      });
+      setStatusMsg({ type: "error", text: t.saveError });
     } finally {
       setSaving(false);
     }
   };
 
+  const VM_TABS = [
+    { id: "vm-m", label: t.vmMarket },
+    { id: "vm-c", label: t.vmCost },
+    { id: "vm-i", label: t.vmIncome },
+    { id: "vm-r", label: t.vmResidual },
+    { id: "vm-d", label: t.vmDcf },
+    { id: "vm-e", label: t.vmRental },
+  ];
+
+  const bl = buildByLabel(tx?.templateFieldValues);
+
   if (loading)
     return (
       <div
-        dir="rtl"
+        dir={isRtl ? "rtl" : "ltr"}
         style={{
           ...styles.shell,
           display: "flex",
@@ -1314,15 +1884,13 @@ export function TransactionEvaluationPage({
           justifyContent: "center",
         }}
       >
-        <div style={{ fontSize: 16, color: "#555" }}>
-          جاري تحميل بيانات المعاملة...
-        </div>
+        <div style={{ fontSize: 16, color: "#555" }}>{t.loading}</div>
       </div>
     );
   if (fetchError)
     return (
       <div
-        dir="rtl"
+        dir={isRtl ? "rtl" : "ltr"}
         style={{
           ...styles.shell,
           display: "flex",
@@ -1331,19 +1899,66 @@ export function TransactionEvaluationPage({
         }}
       >
         <div style={{ fontSize: 16, color: "#c00" }}>
-          خطأ في تحميل البيانات: {fetchError}
+          {t.errorPrefix} {fetchError}
         </div>
       </div>
     );
 
-  const bl = buildByLabel(tx?.templateFieldValues);
+  const replacementFieldLabels: Record<string, TKeys> = {
+    managementPct: "managementPct",
+    professionalPct: "professionalPct",
+    utilityNetworkPct: "utilityNetworkPct",
+    emergencyPct: "emergencyPct",
+    financePct: "financePct",
+    yearDev: "yearDev",
+    earningsRate: "earningsRate",
+    buildAge: "buildAge",
+    defaultAge: "defaultAge",
+    depreciationPct: "depreciationPct",
+    economicPct: "economicPct",
+    careerPct: "careerPct",
+    maintenancePrice: "maintenancePrice",
+    finishesPrice: "finishesPrice",
+    completionPct: "completionPct",
+  };
+
+  const boundaryFields: { key: keyof typeof ev.boundaries; labelKey: TKeys }[] =
+    [
+      { key: "northBoundary", labelKey: "northBoundary" },
+      { key: "northLength", labelKey: "northLength" },
+      { key: "southBoundary", labelKey: "southBoundary" },
+      { key: "southLength", labelKey: "southLength" },
+      { key: "eastBoundary", labelKey: "eastBoundary" },
+      { key: "eastLength", labelKey: "eastLength" },
+      { key: "westBoundary", labelKey: "westBoundary" },
+      { key: "westLength", labelKey: "westLength" },
+    ];
+
+  const mapFields: { key: keyof typeof ev.map; labelKey: TKeys }[] = [
+    { key: "coords", labelKey: "coords" },
+    { key: "lat", labelKey: "lat" },
+    { key: "lng", labelKey: "lng" },
+    { key: "zoomMap", labelKey: "zoomMap" },
+    { key: "zoomAerial", labelKey: "zoomAerial" },
+    { key: "zoomComparisons", labelKey: "zoomComparisons" },
+  ];
+
+  const serviceCheckboxes: { key: string; labelKey: TKeys }[] = [
+    { key: "electricity", labelKey: "electricity" },
+    { key: "water", labelKey: "water" },
+    { key: "phone", labelKey: "phone" },
+    { key: "drainage", labelKey: "drainage" },
+    { key: "pavedStreets", labelKey: "pavedStreets" },
+    { key: "lighting", labelKey: "lighting" },
+    { key: "internet", labelKey: "internet" },
+  ];
 
   return (
-    <div dir="rtl" style={styles.shell}>
-      {/* ── Sticky save bar ─────────────────────────────────────────────── */}
+    <div dir={isRtl ? "rtl" : "ltr"} style={styles.shell}>
+      {/* ── Sticky save bar ──────────────────────────────────────────────── */}
       <div style={styles.stickyBar}>
         <button type="button" onClick={onBack} style={styles.btnSecondary}>
-          ← العودة
+          {t.back}
         </button>
         <div
           style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}
@@ -1352,13 +1967,15 @@ export function TransactionEvaluationPage({
             value={ev.status}
             onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
           >
-            {WORKFLOW_STATUSES.map((s) => (
+            {WORKFLOW_STATUSES[lang].map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
               </option>
             ))}
           </Select>
-          <StatusMsg type={statusMsg.type}>{statusMsg.text}</StatusMsg>
+          {statusMsg.text && (
+            <StatusMsg type={statusMsg.type}>{statusMsg.text}</StatusMsg>
+          )}
         </div>
         <button
           type="button"
@@ -1370,46 +1987,54 @@ export function TransactionEvaluationPage({
             minWidth: 130,
           }}
         >
-          {saving ? "جاري الحفظ..." : "💾 حفظ في قاعدة البيانات"}
+          {saving ? t.saving : t.save}
         </button>
         <button type="button" style={styles.btnSecondary}>
-          ⬇ تحميل
+          {t.download}
         </button>
       </div>
 
-      <h1 style={{ ...styles.pageTitle, marginTop: 8 }}>تفاصيل المعاملة</h1>
+      <h1 style={{ ...styles.pageTitle, marginTop: 8 }}>{t.pageTitle}</h1>
 
-      {/* ── FIX 1: معلومات الطلب — collapsible, read-only, clean text display ── */}
-      <SectionCard title="معلومات الطلب" defaultOpen={true}>
+      {/* معلومات الطلب */}
+      <SectionCard title={t.secRequest} defaultOpen={true}>
         <ReadOnlyGrid>
-          <ReadOnlyItem label="الرقم المرجعي" value={transactionId} />
-          <ReadOnlyItem label="رقم التكليف" value={tx?.assignmentNumber} />
-          <ReadOnlyItem label="تاريخ التكليف" value={tx?.assignmentDate} />
+          <ReadOnlyItem label={t.refNo} value={transactionId} />
+          <ReadOnlyItem label={t.assignmentNo} value={tx?.assignmentNumber} />
+          <ReadOnlyItem label={t.assignmentDate} value={tx?.assignmentDate} />
           <ReadOnlyItem
-            label="الغرض من التقييم"
+            label={t.valuationPurpose}
             value={
-              VALUATION_PURPOSES[tx?.valuationPurpose] ?? tx?.valuationPurpose
+              VALUATION_PURPOSES[lang][tx?.valuationPurpose] ??
+              tx?.valuationPurpose
             }
           />
           <ReadOnlyItem
-            label="أساس القيمة"
-            value={VALUATION_BASES[tx?.valuationBasis] ?? tx?.valuationBasis}
-          />
-          <ReadOnlyItem
-            label="نوع الملكية"
-            value={OWNERSHIP_TYPES[tx?.ownershipType] ?? tx?.ownershipType}
-          />
-          <ReadOnlyItem
-            label="فرضية التقييم"
+            label={t.valuationBasis}
             value={
-              VALUATION_HYPOTHESES[tx?.valuationHypothesis] ??
+              VALUATION_BASES[lang][tx?.valuationBasis] ?? tx?.valuationBasis
+            }
+          />
+          <ReadOnlyItem
+            label={t.ownershipType}
+            value={
+              OWNERSHIP_TYPES[lang][tx?.ownershipType] ?? tx?.ownershipType
+            }
+          />
+          <ReadOnlyItem
+            label={t.valuationHypothesis}
+            value={
+              VALUATION_HYPOTHESES[lang][tx?.valuationHypothesis] ??
               tx?.valuationHypothesis
             }
           />
-          <ReadOnlyItem label="عدد الأصول" value="1" />
-          <ReadOnlyItem label="العميل" value={tx?.clientName ?? tx?.clientId} />
-          <ReadOnlyItem label="النموذج" value={tx?.templateId} />
-          <ReadOnlyItem label="ملاحظات" value={tx?.intendedUse} full />
+          <ReadOnlyItem label={t.assetCount} value={t.assetCountVal} />
+          <ReadOnlyItem
+            label={t.client}
+            value={tx?.clientName ?? tx?.clientId}
+          />
+          <ReadOnlyItem label={t.template} value={tx?.templateId} />
+          <ReadOnlyItem label={t.notes} value={tx?.intendedUse} full />
         </ReadOnlyGrid>
       </SectionCard>
 
@@ -1424,7 +2049,7 @@ export function TransactionEvaluationPage({
             justifyContent: "space-between",
           }}
         >
-          🔗 الروابط الهامة (استعلامات ومخططات)
+          {t.secLinks}
         </summary>
         <div style={styles.sectionBody}>
           <ul
@@ -1444,7 +2069,7 @@ export function TransactionEvaluationPage({
                   rel="noopener noreferrer"
                   style={{ color: "#0066cc", fontSize: 13 }}
                 >
-                  {l.label}
+                  {lang === "ar" ? l.labelAr : l.labelEn}
                 </a>
               </li>
             ))}
@@ -1455,20 +2080,20 @@ export function TransactionEvaluationPage({
       {/* asset details header + action buttons */}
       <div style={{ marginBottom: 8, marginTop: 16 }}>
         <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 8px" }}>
-          تفاصيل الأصول
+          {t.secAssetDetails}
         </h2>
         <div
           style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}
         >
           {[
-            "📷 الصور",
-            "📎 المرفقات",
-            "✏️ تعديل",
-            "🗺 المقارنات القريبة",
-            "📌 نسخ المقارنات",
-            "🖨 عرض",
-            "📄 تحميل PDF",
-            "💬 ملاحظات",
+            t.btnImages,
+            t.btnAttachments,
+            t.btnEdit,
+            t.btnNearComps,
+            t.btnCopyComps,
+            t.btnView,
+            t.btnPdf,
+            t.btnMessages,
           ].map((btn) => (
             <button key={btn} type="button" style={styles.actionBtn}>
               {btn}
@@ -1477,54 +2102,54 @@ export function TransactionEvaluationPage({
         </div>
       </div>
 
-      {/* معلومات الأصل — read-only, sits with the other collapsible sections */}
-      <SectionCard title="معلومات الأصل">
+      {/* معلومات الأصل */}
+      <SectionCard title={t.secAssetInfo}>
         <ReadOnlyGrid>
-          <ReadOnlyItem label="العنوان" value={bl["العنوان"]} full />
-          <ReadOnlyItem label="نوع الأصل" value={bl["نوع الأصل"]} />
-          <ReadOnlyItem label="مساحة الأصل" value={bl["مساحة الأصل"]} />
-          <ReadOnlyItem label="الاستخدام" value={bl["الاستخدام"]} />
-          <ReadOnlyItem label="المعاين" value={bl["المعاين"]} />
-          <ReadOnlyItem label="رقم التواصل" value={bl["رقم التواصل"]} />
-          <ReadOnlyItem label="المراجع" value={bl["المراجع"]} />
+          <ReadOnlyItem label={t.address} value={bl["العنوان"]} full />
+          <ReadOnlyItem label={t.assetType} value={bl["نوع الأصل"]} />
+          <ReadOnlyItem label={t.assetArea} value={bl["مساحة الأصل"]} />
+          <ReadOnlyItem label={t.usage} value={bl["الاستخدام"]} />
+          <ReadOnlyItem label={t.inspector} value={bl["المعاين"]} />
+          <ReadOnlyItem label={t.contactNo} value={bl["رقم التواصل"]} />
+          <ReadOnlyItem label={t.reviewer} value={bl["المراجع"]} />
         </ReadOnlyGrid>
       </SectionCard>
 
       {/* الموقع وتصنيف الأصل */}
-      <SectionCard title="الموقع وتصنيف الأصل">
+      <SectionCard title={t.secLocation}>
         <GridFields>
-          <Field label="المنطقة">
+          <Field label={t.region}>
             <Select
               value={ev.location.regionId}
               onChange={(e) => setField("location", "regionId", e.target.value)}
             >
               <option value="" disabled>
-                الرجاء اختيار المنطقة
+                {t.selectRegion}
               </option>
-              {REGIONS.map((r) => (
+              {REGIONS[lang].map((r) => (
                 <option key={r.value} value={r.value}>
                   {r.label}
                 </option>
               ))}
             </Select>
           </Field>
-          <Field label="المدينة">
+          <Field label={t.city}>
             <Input
               value={ev.location.cityName}
               onChange={(e) => setField("location", "cityName", e.target.value)}
-              placeholder="الرجاء إدخال المدينة"
+              placeholder={t.enterCity}
             />
           </Field>
-          <Field label="الحي">
+          <Field label={t.neighborhood}>
             <Input
               value={ev.location.neighborhoodName}
               onChange={(e) =>
                 setField("location", "neighborhoodName", e.target.value)
               }
-              placeholder="الرجاء إدخال الحي"
+              placeholder={t.enterNeighborhood}
             />
           </Field>
-          <Field label="تصنيف الأصل">
+          <Field label={t.assetCategory}>
             <Select
               value={ev.location.assetCategoryId}
               onChange={(e) =>
@@ -1532,13 +2157,13 @@ export function TransactionEvaluationPage({
               }
             >
               <option value="" disabled>
-                الرجاء اختيار التصنيف
+                {t.selectCategory}
               </option>
-              <option value="1">أراضي</option>
-              <option value="2">مباني</option>
+              <option value="1">{t.land}</option>
+              <option value="2">{t.buildings}</option>
             </Select>
           </Field>
-          <Field label="نوع الأصل">
+          <Field label={t.assetType}>
             <Select
               value={ev.location.propertyTypeId}
               onChange={(e) =>
@@ -1546,9 +2171,9 @@ export function TransactionEvaluationPage({
               }
             >
               <option value="" disabled>
-                الرجاء اختيار نوع العقار
+                {t.selectPropertyType}
               </option>
-              {PROPERTY_TYPES_OPTIONS.map((o) => (
+              {PROPERTY_TYPES_OPTIONS[lang].map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -1559,9 +2184,9 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* البيانات الأساسية */}
-      <SectionCard title="البيانات الأساسية">
+      <SectionCard title={t.secBasic}>
         <GridFields>
-          <Field label="رمز العقار">
+          <Field label={t.propertyCode}>
             <Input
               value={ev.basic.propertyCode}
               onChange={(e) =>
@@ -1569,13 +2194,13 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="اسم العميل">
+          <Field label={t.clientName}>
             <Input
               value={ev.basic.clientName}
               onChange={(e) => setField("basic", "clientName", e.target.value)}
             />
           </Field>
-          <Field label="اسم المفوض بطلب التقييم">
+          <Field label={t.authorizedName}>
             <Input
               value={ev.basic.authorizedName}
               onChange={(e) =>
@@ -1583,19 +2208,19 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="اسم المالك">
+          <Field label={t.ownerName}>
             <Input
               value={ev.basic.ownerName}
               onChange={(e) => setField("basic", "ownerName", e.target.value)}
             />
           </Field>
-          <Field label="رقم الصك">
+          <Field label={t.deedNumber}>
             <Input
               value={ev.basic.deedNumber}
               onChange={(e) => setField("basic", "deedNumber", e.target.value)}
             />
           </Field>
-          <Field label="تاريخ الصك">
+          <Field label={t.deedDate}>
             <Input
               value={ev.basic.deedDate}
               onChange={(e) => setField("basic", "deedDate", e.target.value)}
@@ -1605,60 +2230,37 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* الحدود والأطوال */}
-      <SectionCard title="الحدود والأطوال">
+      <SectionCard title={t.secBoundaries}>
         <GridFields>
-          {(
-            [
-              "northBoundary",
-              "northLength",
-              "southBoundary",
-              "southLength",
-              "eastBoundary",
-              "eastLength",
-              "westBoundary",
-              "westLength",
-            ] as const
-          ).map((f) => {
-            const labels: Record<string, string> = {
-              northBoundary: "الحد الشمالي",
-              northLength: "طول الحد الشمالي",
-              southBoundary: "الحد الجنوبي",
-              southLength: "طول الحد الجنوبي",
-              eastBoundary: "الحد الشرقي",
-              eastLength: "طول الحد الشرقي",
-              westBoundary: "الحد الغربي",
-              westLength: "طول الحد الغربي",
-            };
-            return (
-              <Field key={f} label={labels[f]}>
-                <Input
-                  value={(ev.boundaries as any)[f]}
-                  onChange={(e) => setField("boundaries", f, e.target.value)}
-                />
-              </Field>
-            );
-          })}
+          {boundaryFields.map(({ key, labelKey }) => (
+            <Field key={key} label={t[labelKey] as string}>
+              <Input
+                value={(ev.boundaries as any)[key]}
+                onChange={(e) => setField("boundaries", key, e.target.value)}
+              />
+            </Field>
+          ))}
         </GridFields>
       </SectionCard>
 
       {/* بيانات التشطيب */}
-      <SectionCard title="بيانات التشطيب">
+      <SectionCard title={t.secFinishing}>
         <GridFields>
-          <Field label="حالة المبنى">
+          <Field label={t.buildingState}>
             <Select
               value={ev.finishing.buildingState}
               onChange={(e) =>
                 setField("finishing", "buildingState", e.target.value)
               }
             >
-              <option value="">الرجاء اختيار قيمة</option>
-              <option value="10001">جديد</option>
-              <option value="10002">مستخدم</option>
-              <option value="10003">تحت الإنشاء</option>
-              <option value="10004">اخرى</option>
+              <option value="">{t.selectValue}</option>
+              <option value="10001">{t.stateNew}</option>
+              <option value="10002">{t.stateUsed}</option>
+              <option value="10003">{t.stateUnderConstruction}</option>
+              <option value="10004">{t.stateOther}</option>
             </Select>
           </Field>
-          <Field label="عدد الادوار">
+          <Field label={t.floorsCount}>
             <Input
               value={ev.finishing.floorsCount}
               onChange={(e) =>
@@ -1666,7 +2268,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="عمر العقار">
+          <Field label={t.propertyAge}>
             <Input
               value={ev.finishing.propertyAge}
               onChange={(e) =>
@@ -1674,117 +2276,81 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="مستوى التشطيب">
+          <Field label={t.finishLevel}>
             <Select
               value={ev.finishing.finishLevel}
               onChange={(e) =>
                 setField("finishing", "finishLevel", e.target.value)
               }
             >
-              <option value="">الرجاء اختيار قيمة</option>
-              <option value="23">تشطيب فاخر</option>
-              <option value="24">تشطيب متوسط</option>
-              <option value="25">تشطيب عادي</option>
-              <option value="10006">بدون تشطيب</option>
+              <option value="">{t.selectValue}</option>
+              <option value="23">{t.finishLuxury}</option>
+              <option value="24">{t.finishMedium}</option>
+              <option value="25">{t.finishBasic}</option>
+              <option value="10006">{t.finishNone}</option>
             </Select>
           </Field>
-          <Field label="حالة البناء">
+          <Field label={t.buildQuality}>
             <Select
               value={ev.finishing.buildQuality}
               onChange={(e) =>
                 setField("finishing", "buildQuality", e.target.value)
               }
             >
-              <option value="">الرجاء اختيار قيمة</option>
-              <option value="44">ممتاز</option>
-              <option value="45">جيد جداً</option>
-              <option value="46">ردئ</option>
-              <option value="10058">جيد</option>
+              <option value="">{t.selectValue}</option>
+              <option value="44">{t.qualityExcellent}</option>
+              <option value="45">{t.qualityVeryGood}</option>
+              <option value="46">{t.qualityPoor}</option>
+              <option value="10058">{t.qualityGood}</option>
             </Select>
           </Field>
         </GridFields>
       </SectionCard>
 
       {/* خدمات العقار */}
-      <SectionCard title="خدمات العقار">
+      <SectionCard title={t.secServices}>
         <GridFields>
-          <Field label="الشارع">
+          <Field label={t.street}>
             <Input
               value={ev.services.street}
               onChange={(e) => setField("services", "street", e.target.value)}
             />
           </Field>
-          {(
-            [
-              "electricity",
-              "water",
-              "phone",
-              "drainage",
-              "pavedStreets",
-              "lighting",
-              "internet",
-            ] as const
-          ).map((f) => {
-            const labels: Record<string, string> = {
-              electricity: "الكهرباء",
-              water: "المياه",
-              phone: "الهاتف",
-              drainage: "التصريف",
-              pavedStreets: "الشوارع مسفلته",
-              lighting: "الإنارة",
-              internet: "الإنترنت",
-            };
-            return (
-              <div
-                key={f}
-                style={{ display: "flex", alignItems: "center", gap: 8 }}
-              >
-                <input type="checkbox" id={`svc-${f}`} />
-                <label htmlFor={`svc-${f}`} style={{ fontSize: 13 }}>
-                  {labels[f]}
-                </label>
-              </div>
-            );
-          })}
+          {serviceCheckboxes.map(({ key, labelKey }) => (
+            <div
+              key={key}
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <input type="checkbox" id={`svc-${key}`} />
+              <label htmlFor={`svc-${key}`} style={{ fontSize: 13 }}>
+                {t[labelKey] as string}
+              </label>
+            </div>
+          ))}
         </GridFields>
       </SectionCard>
 
       {/* الموقع على الخارطة */}
-      <SectionCard title="الموقع على الخارطة">
+      <SectionCard title={t.secMap}>
         <GridFields>
-          {(
-            [
-              "coords",
-              "lat",
-              "lng",
-              "zoomMap",
-              "zoomAerial",
-              "zoomComparisons",
-            ] as const
-          ).map((f) => {
-            const labels: Record<string, string> = {
-              coords: "الاحداثيات",
-              lat: "خط العرض",
-              lng: "خط الطول",
-              zoomMap: "الزوم (الخارطة)",
-              zoomAerial: "الزوم (الصورة الجوية)",
-              zoomComparisons: "الزوم (خريطة المقارنات)",
-            };
-            return (
-              <Field key={f} label={labels[f]}>
-                <Input
-                  value={(ev.map as any)[f]}
-                  onChange={(e) => setField("map", f, e.target.value)}
-                />
-              </Field>
-            );
-          })}
+          {mapFields.map(({ key, labelKey }) => (
+            <Field key={key} label={t[labelKey] as string}>
+              <Input
+                value={(ev.map as any)[key]}
+                onChange={(e) => setField("map", key, e.target.value)}
+              />
+            </Field>
+          ))}
         </GridFields>
       </SectionCard>
 
-      <SectionCard title="المقارنة" accentColor="#1a6fc4">
+      {/* المقارنة */}
+      <SectionCard title={t.secComparison} accentColor="#1a6fc4">
         <SettlementComparison
-          useLabel={USE_LABELS[ev.location.assetCategoryId] ?? "عام"}
+          useLabel={
+            USE_LABELS[lang][ev.location.assetCategoryId] ??
+            (lang === "ar" ? "عام" : "General")
+          }
           subjectArea={ev.landSpace}
           settlementWeights={ev.settlementWeights}
           onSettlementWeightsChange={(w) =>
@@ -1811,10 +2377,10 @@ export function TransactionEvaluationPage({
         />
       </SectionCard>
 
-      {/* ── FIX 3: تكلفة الإحلال — now a proper collapsible SectionCard ── */}
-      <SectionCard title="تكلفة الإحلال" accentColor="#1a6fc4">
+      {/* تكلفة الإحلال */}
+      <SectionCard title={t.secReplacement} accentColor="#1a6fc4">
         <GridFields tight>
-          <Field label="سعر المتر للأرض">
+          <Field label={t.meterPriceLand}>
             <Input
               dir="ltr"
               value={ev.meterPriceLand}
@@ -1823,7 +2389,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="مساحة الأرض">
+          <Field label={t.landSpace}>
             <Input
               dir="ltr"
               value={ev.landSpace}
@@ -1832,7 +2398,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="قيمة الأرض (محسوبة)">
+          <Field label={t.landValueCalc}>
             <Input dir="ltr" value={landValue} readOnly />
           </Field>
         </GridFields>
@@ -1842,6 +2408,7 @@ export function TransactionEvaluationPage({
             onChange={(lines) =>
               setEv((p) => ({ ...p, replacementLines: lines }))
             }
+            lang={lang}
           />
         </div>
         <GridFields tight>
@@ -1849,47 +2416,28 @@ export function TransactionEvaluationPage({
             Object.keys(ev.replacementFields) as Array<
               keyof typeof ev.replacementFields
             >
-          ).map((f) => {
-            const labels: Record<string, string> = {
-              managementPct: "نسبة الرسوم الإدارية %",
-              professionalPct: "نسبة الرسوم المهنية %",
-              utilityNetworkPct: "نسبة شبكة المرافق %",
-              emergencyPct: "نسبة التكاليف الطارئة %",
-              financePct: "نسبة التمويل %",
-              yearDev: "مدة التطوير (سنوات)",
-              earningsRate: "هامش ربح المطور %",
-              buildAge: "عمر الأصل الفعلي",
-              defaultAge: "عمر الأصل الافتراضي",
-              depreciationPct: "التقادم المادي %",
-              economicPct: "التقادم الاقتصادي %",
-              careerPct: "التقادم الوظيفي %",
-              maintenancePrice: "تكاليف الصيانة",
-              finishesPrice: "تكاليف التشطيبات المتبقية",
-              completionPct: "نسبة إكتمال البناء %",
-            };
-            return (
-              <Field key={f} label={labels[f]}>
-                <Input
-                  dir="ltr"
-                  value={ev.replacementFields[f]}
-                  onChange={(e) =>
-                    setEv((p) => ({
-                      ...p,
-                      replacementFields: {
-                        ...p.replacementFields,
-                        [f]: e.target.value,
-                      },
-                    }))
-                  }
-                />
-              </Field>
-            );
-          })}
+          ).map((f) => (
+            <Field key={f} label={t[replacementFieldLabels[f]] as string}>
+              <Input
+                dir="ltr"
+                value={ev.replacementFields[f]}
+                onChange={(e) =>
+                  setEv((p) => ({
+                    ...p,
+                    replacementFields: {
+                      ...p.replacementFields,
+                      [f]: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </Field>
+          ))}
         </GridFields>
       </SectionCard>
 
-      {/* ── FIX 3: طرق التقييم — now a proper collapsible SectionCard ── */}
-      <SectionCard title="طرق التقييم">
+      {/* طرق التقييم */}
+      <SectionCard title={t.secMethods}>
         <div
           style={{
             display: "flex",
@@ -1898,23 +2446,23 @@ export function TransactionEvaluationPage({
             flexWrap: "wrap",
           }}
         >
-          {VM_TABS.map((t) => (
+          {VM_TABS.map((tab) => (
             <button
-              key={t.id}
+              key={tab.id}
               type="button"
-              onClick={() => setActiveVmTab(t.id)}
+              onClick={() => setActiveVmTab(tab.id)}
               style={{
                 ...styles.vmTab,
-                ...(activeVmTab === t.id ? styles.vmTabActive : {}),
+                ...(activeVmTab === tab.id ? styles.vmTabActive : {}),
               }}
             >
-              {t.label}
+              {tab.label}
             </button>
           ))}
         </div>
         {activeVmTab === "vm-m" && (
           <GridFields tight>
-            <Field label="سعر المتر (جدول)">
+            <Field label={t.marketMeterPrice}>
               <Input
                 value={ev.methodsMarket.marketMeterPrice}
                 onChange={(e) =>
@@ -1922,7 +2470,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="النسبة الموزونة">
+            <Field label={t.marketWeightPct}>
               <Input
                 value={ev.methodsMarket.marketWeightPct}
                 onChange={(e) =>
@@ -1930,7 +2478,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="مساحة العقار">
+            <Field label={t.propertyAreaMethod}>
               <Input
                 value={ev.methodsMarket.propertyAreaMethod}
                 onChange={(e) =>
@@ -1942,7 +2490,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="المجموع">
+            <Field label={t.total}>
               <Input
                 value={ev.methodsMarket.marketMethodTotal}
                 onChange={(e) =>
@@ -1950,7 +2498,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="سبب الإستخدام" full>
+            <Field label={t.usageReason} full>
               <Textarea
                 value={ev.methodsMarket.marketReason}
                 onChange={(e) =>
@@ -1963,7 +2511,7 @@ export function TransactionEvaluationPage({
         )}
         {activeVmTab === "vm-c" && (
           <GridFields tight>
-            <Field label="صافي تكلفة المباني">
+            <Field label={t.costNetBuildings}>
               <Input
                 value={ev.methodsCost.costNetBuildings}
                 onChange={(e) =>
@@ -1971,7 +2519,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="صافي سعر الأرض">
+            <Field label={t.costNetLandPrice}>
               <Input
                 value={ev.methodsCost.costNetLandPrice}
                 onChange={(e) =>
@@ -1979,7 +2527,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="صافي قيمة الأرض والمباني">
+            <Field label={t.costLandBuildTotal}>
               <Input
                 value={ev.methodsCost.costLandBuildTotal}
                 onChange={(e) =>
@@ -1987,7 +2535,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="سبب الإستخدام" full>
+            <Field label={t.usageReason} full>
               <Textarea
                 value={ev.methodsCost.costReason}
                 onChange={(e) =>
@@ -2000,7 +2548,7 @@ export function TransactionEvaluationPage({
         )}
         {activeVmTab === "vm-i" && (
           <GridFields tight>
-            <Field label="إجمالي الدخل">
+            <Field label={t.incomeTotal}>
               <Input
                 value={ev.methodsIncome.incomeTotal}
                 onChange={(e) =>
@@ -2008,7 +2556,7 @@ export function TransactionEvaluationPage({
                 }
               />
             </Field>
-            <Field label="سبب الإستخدام" full>
+            <Field label={t.usageReason} full>
               <Textarea
                 value={ev.methodsIncome.incomeReason}
                 onChange={(e) =>
@@ -2022,14 +2570,14 @@ export function TransactionEvaluationPage({
         {(activeVmTab === "vm-r" ||
           activeVmTab === "vm-d" ||
           activeVmTab === "vm-e") && (
-          <p style={{ color: "#888", fontSize: 13 }}>هذا القسم قيد التطوير.</p>
+          <p style={{ color: "#888", fontSize: 13 }}>{t.comingSoon}</p>
         )}
       </SectionCard>
 
       {/* رأي المقيم */}
-      <SectionCard title="رأي المقيم">
+      <SectionCard title={t.secAppraiser}>
         <GridFields>
-          <Field label="تاريخ المعاينة">
+          <Field label={t.evalDate}>
             <Input
               type="date"
               value={ev.appraiser.evalDate}
@@ -2038,7 +2586,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="تاريخ التقييم">
+          <Field label={t.completedDate}>
             <Input
               type="date"
               value={ev.appraiser.completedDate}
@@ -2047,7 +2595,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="تاريخ التقرير">
+          <Field label={t.reportDate}>
             <Input
               type="date"
               value={ev.appraiser.reportDate}
@@ -2056,7 +2604,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="القيمة النهائية للأصل">
+          <Field label={t.finalAssetValue}>
             <Input
               dir="ltr"
               value={ev.appraiser.finalAssetValue}
@@ -2065,7 +2613,7 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label="وصف المقيم ورأيه حول الأصل" full>
+          <Field label={t.appraiserDesc} full>
             <Textarea
               value={ev.appraiser.appraiserDesc}
               onChange={(e) =>
@@ -2074,7 +2622,7 @@ export function TransactionEvaluationPage({
               rows={4}
             />
           </Field>
-          <Field label="الملاحظات أو النواقص" full>
+          <Field label={t.appraiserNotes} full>
             <Textarea
               value={ev.appraiser.appraiserNotes}
               onChange={(e) =>
@@ -2087,9 +2635,9 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* بنود التقرير */}
-      <SectionCard title="بنود التقرير">
+      <SectionCard title={t.secReport}>
         <GridFields>
-          <Field label="معايير التقييم المتبعة" full>
+          <Field label={t.standards} full>
             <Textarea
               value={ev.reportItems.standards}
               onChange={(e) =>
@@ -2098,14 +2646,14 @@ export function TransactionEvaluationPage({
               rows={3}
             />
           </Field>
-          <Field label="نطاق البحث والاستقصاء" full>
+          <Field label={t.scope} full>
             <Textarea
               value={ev.reportItems.scope}
               onChange={(e) => setField("reportItems", "scope", e.target.value)}
               rows={6}
             />
           </Field>
-          <Field label="الافتراضات" full>
+          <Field label={t.assumptions} full>
             <Textarea
               value={ev.reportItems.assumptions}
               onChange={(e) =>
@@ -2114,7 +2662,7 @@ export function TransactionEvaluationPage({
               rows={4}
             />
           </Field>
-          <Field label="المخاطر أو عدم اليقين" full>
+          <Field label={t.risks} full>
             <Textarea
               value={ev.reportItems.risks}
               onChange={(e) => setField("reportItems", "risks", e.target.value)}
@@ -2125,11 +2673,11 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* معدي التقرير */}
-      <SectionCard title="معدي التقرير">
+      <SectionCard title={t.secAuthors}>
         <GridFields>
           {[1, 2, 3, 4].map((n) => (
             <React.Fragment key={n}>
-              <Field label={`معد ${n} — معرف/اسم`}>
+              <Field label={t.authorId.replace("%n", String(n))}>
                 <Input
                   value={(ev.authors as any)[`author${n}Id`] ?? ""}
                   onChange={(e) =>
@@ -2137,7 +2685,7 @@ export function TransactionEvaluationPage({
                   }
                 />
               </Field>
-              <Field label={`معد ${n} — المنصب`}>
+              <Field label={t.authorTitle.replace("%n", String(n))}>
                 <Input
                   value={(ev.authors as any)[`author${n}Title`] ?? ""}
                   onChange={(e) =>
@@ -2156,7 +2704,7 @@ export function TransactionEvaluationPage({
           type="button"
           onClick={() => setDrawerOpen((o) => !o)}
           style={styles.railBtn}
-          title="الملخص المالي"
+          title={lang === "ar" ? "الملخص المالي" : "Financial Summary"}
         >
           💰
         </button>
@@ -2164,7 +2712,7 @@ export function TransactionEvaluationPage({
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           style={styles.railBtn}
-          title="للأعلى"
+          title={lang === "ar" ? "للأعلى" : "To top"}
         >
           ↑
         </button>
@@ -2332,9 +2880,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#444",
   },
   vmTabActive: { background: "#1a6fc4", color: "#fff", borderColor: "#1a6fc4" },
-  kpi: { background: "#f0f7ff", padding: "8px 12px", borderRadius: 4 },
-  kpiLabel: { fontSize: 11, color: "#555" },
-  kpiVal: { fontSize: 18, fontWeight: 700, color: "#1a6fc4" },
   sideRail: {
     position: "fixed",
     left: 0,

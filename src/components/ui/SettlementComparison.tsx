@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useContext } from "react";
+import { LanguageContext } from "@/components/layout-provider";
 
-// Import Leaflet dynamically to avoid SSR issues
 import dynamic from "next/dynamic";
 
-// Dynamic import for the map component (client-side only)
 const MapPickerComponent = dynamic(() => import("./MapPickerComponent"), {
   ssr: false,
 });
@@ -35,60 +34,277 @@ export type SettlementRow = {
   colAdj: string[];
 };
 
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+
+type Lang = "ar" | "en";
+
+const SC = {
+  ar: {
+    comparisonTable: "جدول المقارنات",
+    settlementTable: "جدول التسويات والتعديلات",
+    propertyComparisons: "العقارات المقارنة",
+    adjustmentsTable: "جدول التسويات والتعديلات",
+    headerTitle: "جدول المقارنة والتسويات",
+    headerSubtitle: (useLabel: string, count: number, area?: string) =>
+      `نوع الاستخدام: ${useLabel} · ${count} مقارنة${area ? ` · مساحة الأصل: ${area} م²` : ""}`,
+    noComparisons: 'لا توجد مقارنات. اضغط "＋ إضافة مقارنة" لإضافة عقار مقارن.',
+    addComparison: "＋ إضافة مقارنة",
+    addSection2Row: "＋ إضافة بند للقسم الثاني",
+    settlementNotes: "ملاحظات التسويات",
+    settlementNotesPlaceholder: "ملاحظات حول عملية التسويات والتعديلات...",
+    adjustmentHint:
+      "سعر المتر يُملأ تلقائياً من بيانات المقارنة أعلاه ويمكن تعديله يدوياً. القسم الأول يشمل تسويات ظروف السوق، والقسم الثاني يشمل خصائص العقار. الخانات المظللة تُحسب تلقائياً.",
+    section1Header: "القسم الأول: تعديلات ظروف السوق والتمويل",
+    section2Header: "القسم الثاني: تعديلات خصائص العقار",
+    meterPriceRow: "💰 سعر المتر (ريال/م²)",
+    section1Total: "∑ إجمالي تسويات القسم الأول (%)",
+    priceAfterS1: "📊 السعر بعد تسويات القسم الأول",
+    section2Total: "∑ إجمالي تسويات القسم الثاني (%)",
+    finalPrice: "✅ السعر النهائي بعد جميع التسويات",
+    weightRow: "⚖️ الوزن النسبي %",
+    weightsMustBe100: "يجب أن يساوي 100%",
+    weightsSum: (n: number) => `المجموع: ${n}%`,
+    weightOk: "✓",
+    weightError: "✗ يجب أن يكون 100",
+    contribution: "📐 مساهمة المقارن (مرجح)",
+    netMeterPrice: "صافي سعر المتر بعد جميع التسويات",
+    totalWeight: "إجمالي الوزن النسبي",
+    totalPropertyValue: "إجمالي قيمة العقار",
+    enterAreaFirst: "أدخل مساحة الأصل",
+    weightsMustEqual: "الأوزان لا تساوي 100%",
+    scaleFactor: "نسبة القياس الأساسي (%)",
+    scaleFactorHint: "100 = القيمة الأصلية | 50 = النصف | 200 = الضعف",
+    roundTo: "التقريب إلى أقرب",
+    roundingHint: "مثال: 1,234 مع تقريب 5 يصبح 1,235",
+    noRounding: "بدون تقريب",
+    nearest: (n: number) => `أقرب ${n}`,
+    // Comparison table headers
+    colSerial: "م",
+    colDate: "التاريخ",
+    colType: "النوع",
+    colKind: "نوع المقارنة",
+    colArea: "المساحة (م²)",
+    colMeterPrice: "سعر المتر (ريال)",
+    colTotal: "الإجمالي",
+    colDistance: "البُعد / الوصف",
+    colRoads: "عدد الشوارع",
+    colStreet: "عرض الشارع",
+    colSource: "المصدر",
+    colNotes: "ملاحظات",
+    colCoords: "الإحداثيات",
+    colDelete: "",
+    // Settlement table headers
+    settlColItem: "البند",
+    settlColSubject: "محل التقييم",
+    settlColDesc: "وصف",
+    settlColAdj: "تعديل %",
+    settlColComp: (n: number) => `مقارنة ${n}`,
+    // Input placeholders
+    placeholderItemName: "اسم البند",
+    placeholderSubjectValue: "قيمة الأصل",
+    placeholderDesc: "وصف",
+    placeholderCoords: "lat,lng",
+    placeholderZero: "0",
+    placeholderKind: "النوع",
+    // Map button
+    mapBtn: "🗺️ خريطة",
+    mapBtnTitle: "اختر من الخريطة",
+    deleteBtn: "✕",
+    deleteBtnTitle: "حذف",
+    // Section labels
+    sectionLabel1: "١",
+    sectionLabel1Title: "العقارات المقارنة",
+    sectionLabel2: "٢",
+    sectionLabel2Title: "جدول التسويات والتعديلات",
+    // SAR unit
+    sarUnit: "ريال/م²",
+    sarTotal: "ريال",
+  },
+  en: {
+    comparisonTable: "Comparison Table",
+    settlementTable: "Adjustments Table",
+    propertyComparisons: "Comparable Properties",
+    adjustmentsTable: "Settlement & Adjustments Table",
+    headerTitle: "Comparison & Settlement Table",
+    headerSubtitle: (useLabel: string, count: number, area?: string) =>
+      `Usage: ${useLabel} · ${count} comparable${count !== 1 ? "s" : ""}${area ? ` · Subject Area: ${area} m²` : ""}`,
+    noComparisons: 'No comparables yet. Click "＋ Add Comparable" to add one.',
+    addComparison: "＋ Add Comparable",
+    addSection2Row: "＋ Add Section 2 Item",
+    settlementNotes: "Adjustment Notes",
+    settlementNotesPlaceholder: "Notes about the adjustment process...",
+    adjustmentHint:
+      "Meter price is auto-filled from the comparables table above and can be overridden. Section 1 covers market condition adjustments; Section 2 covers property characteristics. Shaded cells are auto-calculated.",
+    section1Header: "Section 1: Market Conditions & Financing Adjustments",
+    section2Header: "Section 2: Property Characteristics Adjustments",
+    meterPriceRow: "💰 Meter Price (SAR/m²)",
+    section1Total: "∑ Section 1 Total Adjustments (%)",
+    priceAfterS1: "📊 Price After Section 1 Adjustments",
+    section2Total: "∑ Section 2 Total Adjustments (%)",
+    finalPrice: "✅ Final Price After All Adjustments",
+    weightRow: "⚖️ Relative Weight %",
+    weightsMustBe100: "Must equal 100%",
+    weightsSum: (n: number) => `Total: ${n}%`,
+    weightOk: "✓",
+    weightError: "✗ Must equal 100",
+    contribution: "📐 Comparable Contribution (weighted)",
+    netMeterPrice: "Net Meter Price After All Adjustments",
+    totalWeight: "Total Relative Weight",
+    totalPropertyValue: "Total Property Value",
+    enterAreaFirst: "Enter subject area",
+    weightsMustEqual: "Weights do not equal 100%",
+    scaleFactor: "Base Scale Factor (%)",
+    scaleFactorHint: "100 = original value | 50 = half | 200 = double",
+    roundTo: "Round to nearest",
+    roundingHint: "E.g., 1,234 rounded to 5 becomes 1,235",
+    noRounding: "No rounding",
+    nearest: (n: number) => `Nearest ${n}`,
+    // Comparison table headers
+    colSerial: "#",
+    colDate: "Date",
+    colType: "Type",
+    colKind: "Comparison Kind",
+    colArea: "Area (m²)",
+    colMeterPrice: "Meter Price (SAR)",
+    colTotal: "Total",
+    colDistance: "Distance / Description",
+    colRoads: "Road Count",
+    colStreet: "Street Width",
+    colSource: "Source",
+    colNotes: "Notes",
+    colCoords: "Coordinates",
+    colDelete: "",
+    // Settlement table headers
+    settlColItem: "Item",
+    settlColSubject: "Subject Property",
+    settlColDesc: "Description",
+    settlColAdj: "Adjustment %",
+    settlColComp: (n: number) => `Comparable ${n}`,
+    // Input placeholders
+    placeholderItemName: "Item name",
+    placeholderSubjectValue: "Subject value",
+    placeholderDesc: "Description",
+    placeholderCoords: "lat,lng",
+    placeholderZero: "0",
+    placeholderKind: "Kind",
+    // Map button
+    mapBtn: "🗺️ Map",
+    mapBtnTitle: "Pick from map",
+    deleteBtn: "✕",
+    deleteBtnTitle: "Delete",
+    // Section labels
+    sectionLabel1: "1",
+    sectionLabel1Title: "Comparable Properties",
+    sectionLabel2: "2",
+    sectionLabel2Title: "Settlement & Adjustments Table",
+    // SAR unit
+    sarUnit: "SAR/m²",
+    sarTotal: "SAR",
+  },
+} as const;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PROPERTY_TYPES: Record<string, string> = {
-  "1": "أرض",
-  "2": "شقة",
-  "3": "فيلا سكنية",
-  "4": "عمارة",
-  "5": "إستراحة",
-  "6": "مزرعة",
-  "7": "مستودع",
-  "9": "محل تجاري",
-  "10": "دور",
-  "20": "أرض زراعية",
-  "21": "أرض سكنية",
-  "22": "أرض تجارية",
-  "23": "أرض سكنية تجارية",
-  "24": "فندق",
-  "25": "مبنى",
-  "28": "مبنى تجاري",
-  "47": "مزرعة قائمة",
-  "67": "عمارة سكنية",
+const PROPERTY_TYPES: Record<Lang, Record<string, string>> = {
+  ar: {
+    "1": "أرض",
+    "2": "شقة",
+    "3": "فيلا سكنية",
+    "4": "عمارة",
+    "5": "إستراحة",
+    "6": "مزرعة",
+    "7": "مستودع",
+    "9": "محل تجاري",
+    "10": "دور",
+    "20": "أرض زراعية",
+    "21": "أرض سكنية",
+    "22": "أرض تجارية",
+    "23": "أرض سكنية تجارية",
+    "24": "فندق",
+    "25": "مبنى",
+    "28": "مبنى تجاري",
+    "47": "مزرعة قائمة",
+    "67": "عمارة سكنية",
+  },
+  en: {
+    "1": "Land",
+    "2": "Apartment",
+    "3": "Residential Villa",
+    "4": "Building",
+    "5": "Rest House",
+    "6": "Farm",
+    "7": "Warehouse",
+    "9": "Shop",
+    "10": "Floor",
+    "20": "Agricultural Land",
+    "21": "Residential Land",
+    "22": "Commercial Land",
+    "23": "Mixed-Use Land",
+    "24": "Hotel",
+    "25": "Building",
+    "28": "Commercial Building",
+    "47": "Existing Farm",
+    "67": "Residential Building",
+  },
 };
 
-const COMPARISON_KINDS = ["حد", "تنفيذ", "سوم", "عرض", "ايجار", "مزاد"];
+const COMPARISON_KINDS: Record<Lang, string[]> = {
+  ar: ["حد", "تنفيذ", "سوم", "عرض", "ايجار", "مزاد"],
+  en: ["Boundary", "Executed", "Asking", "Offer", "Rental", "Auction"],
+};
 
-const SOURCES = [
-  "وزارة العدل",
-  "الوسطاء والمكاتب العقارية",
-  "البيانات الخاصة بالشركة",
-  "البورصة العقارية",
-  "السجل العقاري",
-];
+const SOURCES: Record<Lang, string[]> = {
+  ar: [
+    "وزارة العدل",
+    "الوسطاء والمكاتب العقارية",
+    "البيانات الخاصة بالشركة",
+    "البورصة العقارية",
+    "السجل العقاري",
+  ],
+  en: [
+    "Ministry of Justice",
+    "Real Estate Brokers & Offices",
+    "Company Data",
+    "Real Estate Exchange",
+    "Real Estate Registry",
+  ],
+};
 
-// Section 1: Market condition items (first 3, always present, editable names)
-export const DEFAULT_SECTION1_TITLES = [
-  "ظروف السوق",
-  "شروط التمويل",
-  "عامل الوقت",
-];
+// Section 1: Market condition items
+export const DEFAULT_SECTION1_TITLES: Record<Lang, string[]> = {
+  ar: ["ظروف السوق", "شروط التمويل", "عامل الوقت"],
+  en: ["Market Conditions", "Financing Terms", "Time Factor"],
+};
 
-// Section 2: Property characteristic items (editable names)
-const DEFAULT_SECTION2_TITLES = [
-  "أفضلية الموقع",
-  "المساحة",
-  "نوع المقارنة",
-  "الإستخدام",
-  "عرض الشارع",
-  "الواجهات",
-  "العمر",
-  "طول الطرق الرئيسية",
-  "سهولة الوصول",
-  "الخدمات",
-  "اخرى",
-];
+// Section 2: Property characteristic items
+const DEFAULT_SECTION2_TITLES: Record<Lang, string[]> = {
+  ar: [
+    "أفضلية الموقع",
+    "المساحة",
+    "نوع المقارنة",
+    "الإستخدام",
+    "عرض الشارع",
+    "الواجهات",
+    "العمر",
+    "طول الطرق الرئيسية",
+    "سهولة الوصول",
+    "الخدمات",
+    "اخرى",
+  ],
+  en: [
+    "Location Preference",
+    "Area",
+    "Comparison Type",
+    "Usage",
+    "Street Width",
+    "Frontages",
+    "Age",
+    "Main Road Length",
+    "Accessibility",
+    "Services",
+    "Other",
+  ],
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,7 +349,7 @@ function parseNum(v: string | undefined): number {
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const T = {
+const DT = {
   blue: "#1a6fc4",
   blueLight: "#e8f3fb",
   blueMid: "#c5dff6",
@@ -152,10 +368,8 @@ const T = {
   shadow: "0 1px 3px rgba(0,0,0,0.06)",
 };
 
-// ─── Shared cell styles ───────────────────────────────────────────────────────
-
 const cellBase: React.CSSProperties = {
-  border: `1px solid ${T.border}`,
+  border: `1px solid ${DT.border}`,
   padding: "4px 6px",
   verticalAlign: "middle",
 };
@@ -163,33 +377,33 @@ const cellBase: React.CSSProperties = {
 const inputBase: React.CSSProperties = {
   width: "100%",
   padding: "4px 6px",
-  border: `1px solid ${T.border}`,
+  border: `1px solid ${DT.border}`,
   borderRadius: 4,
   fontSize: 12,
-  background: T.surface,
+  background: DT.surface,
   boxSizing: "border-box" as const,
   fontFamily: "inherit",
-  color: T.text,
+  color: DT.text,
   outline: "none",
 };
 
 const readonlyInput: React.CSSProperties = {
   ...inputBase,
-  background: T.surfaceAlt,
-  color: T.textMuted,
+  background: DT.surfaceAlt,
+  color: DT.textMuted,
   fontWeight: 500,
-  border: `1px solid ${T.border}`,
+  border: `1px solid ${DT.border}`,
 };
 
 const thBase: React.CSSProperties = {
-  background: T.surfaceAlt,
-  border: `1px solid ${T.border}`,
+  background: DT.surfaceAlt,
+  border: `1px solid ${DT.border}`,
   padding: "8px 10px",
   fontWeight: 600,
   fontSize: 12,
   whiteSpace: "nowrap" as const,
   textAlign: "center" as const,
-  color: T.text,
+  color: DT.text,
 };
 
 // ─── Comparison Properties Table ──────────────────────────────────────────────
@@ -197,10 +411,13 @@ const thBase: React.CSSProperties = {
 function ComparisonPropertiesTable({
   rows,
   onChange,
+  lang,
 }: {
   rows: ComparisonRow[];
   onChange: (rows: ComparisonRow[]) => void;
+  lang: Lang;
 }) {
+  const t = SC[lang];
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
 
@@ -239,20 +456,20 @@ function ComparisonPropertiesTable({
   );
 
   const headers = [
-    "م",
-    "التاريخ",
-    "النوع",
-    "نوع المقارنة",
-    "المساحة (م²)",
-    "سعر المتر (ريال)",
-    "الإجمالي",
-    "البُعد / الوصف",
-    "عدد الشوارع",
-    "عرض الشارع",
-    "المصدر",
-    "ملاحظات",
-    "الإحداثيات",
-    "",
+    t.colSerial,
+    t.colDate,
+    t.colType,
+    t.colKind,
+    t.colArea,
+    t.colMeterPrice,
+    t.colTotal,
+    t.colDistance,
+    t.colRoads,
+    t.colStreet,
+    t.colSource,
+    t.colNotes,
+    t.colCoords,
+    t.colDelete,
   ];
 
   return (
@@ -261,8 +478,8 @@ function ComparisonPropertiesTable({
         style={{
           overflowX: "auto",
           borderRadius: 8,
-          border: `1px solid ${T.border}`,
-          boxShadow: T.shadow,
+          border: `1px solid ${DT.border}`,
+          boxShadow: DT.shadow,
         }}
       >
         <table
@@ -275,7 +492,7 @@ function ComparisonPropertiesTable({
                   key={i}
                   style={{
                     ...thBase,
-                    background: T.blue,
+                    background: DT.blue,
                     color: "#fff",
                     border: `1px solid rgba(255,255,255,0.15)`,
                     padding: "10px 8px",
@@ -290,13 +507,13 @@ function ComparisonPropertiesTable({
             {rows.map((row, i) => (
               <tr
                 key={i}
-                style={{ background: i % 2 === 0 ? T.surface : T.surfaceAlt }}
+                style={{ background: i % 2 === 0 ? DT.surface : DT.surfaceAlt }}
               >
                 <td
                   style={{
                     ...cellBase,
                     textAlign: "center",
-                    color: T.textMuted,
+                    color: DT.textMuted,
                     fontWeight: 600,
                     fontSize: 11,
                     width: 28,
@@ -321,9 +538,9 @@ function ComparisonPropertiesTable({
                     style={{ ...inputBase, minWidth: 100 }}
                   >
                     <option value="" disabled>
-                      النوع
+                      {t.placeholderKind}
                     </option>
-                    {Object.entries(PROPERTY_TYPES).map(([v, l]) => (
+                    {Object.entries(PROPERTY_TYPES[lang]).map(([v, l]) => (
                       <option key={v} value={v}>
                         {l}
                       </option>
@@ -338,7 +555,7 @@ function ComparisonPropertiesTable({
                     }
                     style={{ ...inputBase, minWidth: 80 }}
                   >
-                    {COMPARISON_KINDS.map((k) => (
+                    {COMPARISON_KINDS[lang].map((k) => (
                       <option key={k} value={k}>
                         {k}
                       </option>
@@ -352,7 +569,7 @@ function ComparisonPropertiesTable({
                     value={row.landSpace}
                     onChange={(e) => updateRow(i, "landSpace", e.target.value)}
                     style={{ ...inputBase, minWidth: 80 }}
-                    placeholder="0"
+                    placeholder={t.placeholderZero}
                   />
                 </td>
                 <td style={cellBase}>
@@ -362,7 +579,7 @@ function ComparisonPropertiesTable({
                     value={row.price}
                     onChange={(e) => updateRow(i, "price", e.target.value)}
                     style={{ ...inputBase, minWidth: 80 }}
-                    placeholder="0"
+                    placeholder={t.placeholderZero}
                   />
                 </td>
                 <td style={cellBase}>
@@ -406,7 +623,7 @@ function ComparisonPropertiesTable({
                     style={{ ...inputBase, minWidth: 120 }}
                   />
                   <datalist id={`src-list-${i}`}>
-                    {SOURCES.map((s) => (
+                    {SOURCES[lang].map((s) => (
                       <option key={s} value={s} />
                     ))}
                   </datalist>
@@ -423,7 +640,7 @@ function ComparisonPropertiesTable({
                     style={{ display: "flex", gap: 4, alignItems: "center" }}
                   >
                     <input
-                      placeholder="lat,lng"
+                      placeholder={t.placeholderCoords}
                       value={row.coords}
                       onChange={(e) => updateRow(i, "coords", e.target.value)}
                       style={{ ...inputBase, minWidth: 110, flex: 1 }}
@@ -433,17 +650,17 @@ function ComparisonPropertiesTable({
                       type="button"
                       onClick={() => openMapPicker(i)}
                       style={{
-                        background: T.blueLight,
-                        border: `1px solid ${T.blueMid}`,
+                        background: DT.blueLight,
+                        border: `1px solid ${DT.blueMid}`,
                         borderRadius: 4,
                         padding: "4px 8px",
                         cursor: "pointer",
                         fontSize: 12,
                         whiteSpace: "nowrap",
                       }}
-                      title="اختر من الخريطة"
+                      title={t.mapBtnTitle}
                     >
-                      🗺️ خريطة
+                      {t.mapBtn}
                     </button>
                   </div>
                 </td>
@@ -455,14 +672,14 @@ function ComparisonPropertiesTable({
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: T.red,
+                      color: DT.red,
                       fontSize: 14,
                       padding: "2px 4px",
                       borderRadius: 4,
                     }}
-                    title="حذف"
+                    title={t.deleteBtnTitle}
                   >
-                    ✕
+                    {t.deleteBtn}
                   </button>
                 </td>
               </tr>
@@ -475,10 +692,10 @@ function ComparisonPropertiesTable({
                     ...cellBase,
                     textAlign: "center",
                     padding: 24,
-                    color: T.textMuted,
+                    color: DT.textMuted,
                   }}
                 >
-                  لا توجد مقارنات. اضغط "＋ إضافة مقارنة" لإضافة عقار مقارن.
+                  {t.noComparisons}
                 </td>
               </tr>
             )}
@@ -490,9 +707,9 @@ function ComparisonPropertiesTable({
         onClick={addRow}
         style={{
           marginTop: 10,
-          background: T.blueLight,
-          border: `1px solid ${T.blueMid}`,
-          color: T.blue,
+          background: DT.blueLight,
+          border: `1px solid ${DT.blueMid}`,
+          color: DT.blue,
           cursor: "pointer",
           fontSize: 13,
           padding: "6px 14px",
@@ -501,7 +718,7 @@ function ComparisonPropertiesTable({
           fontWeight: 500,
         }}
       >
-        ＋ إضافة مقارنة
+        {t.addComparison}
       </button>
 
       {showMapPicker && activeRowIndex !== null && (
@@ -509,6 +726,7 @@ function ComparisonPropertiesTable({
           value={rows[activeRowIndex]?.coords || ""}
           onChange={updateCoordsFromMap}
           onClose={() => setShowMapPicker(false)}
+          lang={lang}
         />
       )}
     </div>
@@ -517,7 +735,12 @@ function ComparisonPropertiesTable({
 
 // ─── Settlement Table ─────────────────────────────────────────────────────────
 
-type SettlementSection1Row = { title: string; colAdj: string[] };
+type SettlementSection1Row = {
+  title: string;
+  colAdj: string[];
+  cols?: string[];
+  valueM?: string;
+};
 type SettlementSection2Row = {
   inReport: boolean;
   title: string;
@@ -537,6 +760,7 @@ function SettlementAdjustmentsTable({
   subjectArea,
   weights,
   onWeightsChange,
+  lang,
 }: {
   comparisonRows: ComparisonRow[];
   bases: string[];
@@ -548,13 +772,14 @@ function SettlementAdjustmentsTable({
   subjectArea: string;
   weights: string[];
   onWeightsChange: (w: string[]) => void;
+  lang: Lang;
 }) {
+  const t = SC[lang];
   const n = Math.max(comparisonRows.length, 1);
 
   const [scaleFactor, setScaleFactor] = useState<string>("100");
   const [roundTo, setRoundTo] = useState<string>("0");
 
-  // Rounding helper function
   const roundValue = (value: number, roundTo: string): number => {
     const roundBase = parseNum(roundTo);
     if (roundBase <= 0) return value;
@@ -604,7 +829,7 @@ function SettlementAdjustmentsTable({
     onSection1Change(
       section1Rows.map((r, ri) => {
         if (ri !== i) return r;
-        const cols = [...(r.cols || [])];
+        const cols = [...((r as any).cols || [])];
         while (cols.length < n) cols.push("");
         cols[c] = val;
         return { ...r, cols };
@@ -647,10 +872,8 @@ function SettlementAdjustmentsTable({
   const removeS2Row = (i: number) =>
     onSection2Change(section2Rows.filter((_, ri) => ri !== i));
 
-  // Percentage-based adjustment: pct% of the base price
   const pctAdj = (base: number, pct: string) => base * (parseNum(pct) / 100);
 
-  // Section 1 totals (sum of % adjustments applied to each base)
   const s1AdjAmounts = useMemo(
     () =>
       Array.from({ length: n }, (_, c) => {
@@ -672,7 +895,6 @@ function SettlementAdjustmentsTable({
     [effectiveBases, s1AdjAmounts, n],
   );
 
-  // Section 2 totals (% of price-after-s1)
   const s2AdjAmounts = useMemo(
     () =>
       Array.from({ length: n }, (_, c) => {
@@ -703,7 +925,6 @@ function SettlementAdjustmentsTable({
     () =>
       Array.from({ length: n }, (_, c) => {
         if (!totalWeight) return 0;
-        // Show the price after applying weight (price × weight%)
         return priceAfterAll[c] * (parseNum(weights[c]) / 100);
       }),
     [priceAfterAll, weights, n],
@@ -752,11 +973,13 @@ function SettlementAdjustmentsTable({
     ...cellBase,
     fontWeight: 500,
     fontSize: 12,
-    color: T.text,
+    color: DT.text,
     whiteSpace: "nowrap",
     minWidth: 130,
-    background: T.surfaceAlt,
+    background: DT.surfaceAlt,
   };
+
+  const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
 
   return (
     <div>
@@ -764,8 +987,8 @@ function SettlementAdjustmentsTable({
         style={{
           overflowX: "auto",
           borderRadius: 8,
-          border: `1px solid ${T.border}`,
-          boxShadow: T.shadow,
+          border: `1px solid ${DT.border}`,
+          boxShadow: DT.shadow,
         }}
       >
         <table
@@ -773,27 +996,27 @@ function SettlementAdjustmentsTable({
         >
           <thead>
             <tr>
-              <th style={{ ...thBase, minWidth: 160 }}>البند</th>
-              <th style={{ ...thBase, minWidth: 100 }}>محل التقييم</th>
+              <th style={{ ...thBase, minWidth: 160 }}>{t.settlColItem}</th>
+              <th style={{ ...thBase, minWidth: 100 }}>{t.settlColSubject}</th>
               {Array.from({ length: n }, (_, c) => (
                 <th key={c} colSpan={2} style={colSpanStyle(c)}>
-                  مقارنة {c + 1}
+                  {t.settlColComp(c + 1)}
                   {comparisonRows[c]?.description
                     ? ` — ${comparisonRows[c].description}`
                     : ""}
                 </th>
               ))}
             </tr>
-            <tr style={{ background: T.surfaceAlt }}>
+            <tr style={{ background: DT.surfaceAlt }}>
               <th style={thBase}>—</th>
               <th style={thBase}>—</th>
               {Array.from({ length: n }, (_, c) => (
                 <React.Fragment key={c}>
-                  <th style={{ ...thBase, fontSize: 11, color: T.textMuted }}>
-                    وصف
+                  <th style={{ ...thBase, fontSize: 11, color: DT.textMuted }}>
+                    {t.settlColDesc}
                   </th>
-                  <th style={{ ...thBase, fontSize: 11, color: T.textMuted }}>
-                    تعديل %
+                  <th style={{ ...thBase, fontSize: 11, color: DT.textMuted }}>
+                    {t.settlColAdj}
                   </th>
                 </React.Fragment>
               ))}
@@ -803,9 +1026,9 @@ function SettlementAdjustmentsTable({
             {/* Base price row */}
             <tr style={{ background: "#e8f3fb" }}>
               <td
-                style={{ ...labelCell, background: "#dbeafe", color: T.blue }}
+                style={{ ...labelCell, background: "#dbeafe", color: DT.blue }}
               >
-                💰 سعر المتر (ريال/م²)
+                {t.meterPriceRow}
               </td>
               <td style={{ ...cellBase, background: "#dbeafe" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
@@ -824,7 +1047,7 @@ function SettlementAdjustmentsTable({
                       background: "#fff",
                       fontWeight: 600,
                     }}
-                    placeholder="0"
+                    placeholder={t.placeholderZero}
                   />
                 </td>
               ))}
@@ -843,20 +1066,20 @@ function SettlementAdjustmentsTable({
                   letterSpacing: 0.4,
                 }}
               >
-                القسم الأول: تعديلات ظروف السوق والتمويل
+                {t.section1Header}
               </td>
             </tr>
 
             {section1Rows.map((row, i) => (
               <tr
                 key={i}
-                style={{ background: i % 2 === 0 ? T.surface : T.surfaceAlt }}
+                style={{ background: i % 2 === 0 ? DT.surface : DT.surfaceAlt }}
               >
                 <td style={labelCell}>
                   <input
                     value={row.title}
                     onChange={(e) => updateS1Title(i, e.target.value)}
-                    placeholder="اسم البند"
+                    placeholder={t.placeholderItemName}
                     style={{ ...inputBase, fontWeight: 500 }}
                   />
                 </td>
@@ -865,7 +1088,7 @@ function SettlementAdjustmentsTable({
                     value={(row as any).valueM ?? ""}
                     onChange={(e) => updateS1ValueM(i, e.target.value)}
                     style={{ ...inputBase, minWidth: 80 }}
-                    placeholder="قيمة الأصل"
+                    placeholder={t.placeholderSubjectValue}
                   />
                 </td>
                 {Array.from({ length: n }, (_, c) => (
@@ -875,7 +1098,7 @@ function SettlementAdjustmentsTable({
                         value={((row as any).cols || [])[c] ?? ""}
                         onChange={(e) => updateS1Col(i, c, e.target.value)}
                         style={{ ...inputBase, minWidth: 60 }}
-                        placeholder="وصف"
+                        placeholder={t.placeholderDesc}
                       />
                     </td>
                     <td style={cellBase}>
@@ -885,7 +1108,7 @@ function SettlementAdjustmentsTable({
                         value={(row.colAdj || [])[c] ?? ""}
                         onChange={(e) => updateS1Adj(i, c, e.target.value)}
                         style={inputBase}
-                        placeholder="0"
+                        placeholder={t.placeholderZero}
                       />
                     </td>
                   </React.Fragment>
@@ -893,16 +1116,15 @@ function SettlementAdjustmentsTable({
               </tr>
             ))}
 
-            {/* Section 1 total - sum of percentages */}
+            {/* Section 1 total */}
             <tr style={{ background: "#e0edff", fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#e0edff", color: T.blue }}
+                style={{ ...labelCell, background: "#e0edff", color: DT.blue }}
               >
-                ∑ إجمالي تسويات القسم الأول (%)
+                {t.section1Total}
               </td>
               <td style={{ ...cellBase, background: "#e0edff" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
-                // Calculate sum of all adjustment percentages for this column
                 const sumPercentages = section1Rows.reduce(
                   (sum, row) => sum + parseNum((row.colAdj || [])[c]),
                   0,
@@ -920,7 +1142,7 @@ function SettlementAdjustmentsTable({
                       style={{
                         ...readonlyInput,
                         fontWeight: 600,
-                        color: sumPercentages < 0 ? T.red : T.green,
+                        color: sumPercentages < 0 ? DT.red : DT.green,
                       }}
                     />
                   </td>
@@ -931,9 +1153,9 @@ function SettlementAdjustmentsTable({
             {/* Price after S1 */}
             <tr style={{ fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#cfe3ff", color: T.blue }}
+                style={{ ...labelCell, background: "#cfe3ff", color: DT.blue }}
               >
-                📊 السعر بعد تسويات القسم الأول
+                {t.priceAfterS1}
               </td>
               <td style={{ ...cellBase, background: "#cfe3ff" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
@@ -950,7 +1172,7 @@ function SettlementAdjustmentsTable({
                       ...readonlyInput,
                       background: "#cfe3ff",
                       fontWeight: 700,
-                      color: T.blue,
+                      color: DT.blue,
                     }}
                   />
                 </td>
@@ -970,14 +1192,14 @@ function SettlementAdjustmentsTable({
                   letterSpacing: 0.4,
                 }}
               >
-                القسم الثاني: تعديلات خصائص العقار
+                {t.section2Header}
               </td>
             </tr>
 
             {section2Rows.map((row, i) => (
               <tr
                 key={i}
-                style={{ background: i % 2 === 0 ? T.surface : T.surfaceAlt }}
+                style={{ background: i % 2 === 0 ? DT.surface : DT.surfaceAlt }}
               >
                 <td style={labelCell}>
                   <div
@@ -990,7 +1212,7 @@ function SettlementAdjustmentsTable({
                         updateS2(i, "inReport", e.target.checked)
                       }
                       style={{
-                        accentColor: T.blue,
+                        accentColor: DT.blue,
                         width: 14,
                         height: 14,
                         flexShrink: 0,
@@ -999,7 +1221,7 @@ function SettlementAdjustmentsTable({
                     <input
                       value={row.title}
                       onChange={(e) => updateS2(i, "title", e.target.value)}
-                      placeholder="اسم البند"
+                      placeholder={t.placeholderItemName}
                       style={{ ...inputBase, flex: 1, fontWeight: 500 }}
                     />
                     <button
@@ -1009,7 +1231,7 @@ function SettlementAdjustmentsTable({
                         background: "none",
                         border: "none",
                         cursor: "pointer",
-                        color: T.textLight,
+                        color: DT.textLight,
                         fontSize: 12,
                         padding: "2px",
                         flexShrink: 0,
@@ -1024,7 +1246,7 @@ function SettlementAdjustmentsTable({
                     value={row.valueM}
                     onChange={(e) => updateS2(i, "valueM", e.target.value)}
                     style={{ ...inputBase, minWidth: 80 }}
-                    placeholder="قيمة الأصل"
+                    placeholder={t.placeholderSubjectValue}
                   />
                 </td>
                 {Array.from({ length: n }, (_, c) => (
@@ -1036,7 +1258,7 @@ function SettlementAdjustmentsTable({
                           updateS2Col(i, c, "cols", e.target.value)
                         }
                         style={{ ...inputBase, minWidth: 60 }}
-                        placeholder="وصف"
+                        placeholder={t.placeholderDesc}
                       />
                     </td>
                     <td style={cellBase}>
@@ -1048,7 +1270,7 @@ function SettlementAdjustmentsTable({
                           updateS2Col(i, c, "colAdj", e.target.value)
                         }
                         style={inputBase}
-                        placeholder="0"
+                        placeholder={t.placeholderZero}
                       />
                     </td>
                   </React.Fragment>
@@ -1056,16 +1278,15 @@ function SettlementAdjustmentsTable({
               </tr>
             ))}
 
-            {/* Section 2 total - sum of percentages */}
+            {/* Section 2 total */}
             <tr style={{ background: "#dcfce7", fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#dcfce7", color: T.green }}
+                style={{ ...labelCell, background: "#dcfce7", color: DT.green }}
               >
-                ∑ إجمالي تسويات القسم الثاني (%)
+                {t.section2Total}
               </td>
               <td style={{ ...cellBase, background: "#dcfce7" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
-                // Calculate sum of all adjustment percentages for this column from section 2
                 const sumPercentages = section2Rows.reduce(
                   (sum, row) => sum + parseNum((row.colAdj || [])[c]),
                   0,
@@ -1083,7 +1304,7 @@ function SettlementAdjustmentsTable({
                       style={{
                         ...readonlyInput,
                         fontWeight: 600,
-                        color: sumPercentages < 0 ? T.red : T.green,
+                        color: sumPercentages < 0 ? DT.red : DT.green,
                       }}
                     />
                   </td>
@@ -1100,7 +1321,7 @@ function SettlementAdjustmentsTable({
                   color: "#065f46",
                 }}
               >
-                ✅ السعر النهائي بعد جميع التسويات
+                {t.finalPrice}
               </td>
               <td style={{ ...cellBase, background: "#bbf7d0" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
@@ -1124,27 +1345,27 @@ function SettlementAdjustmentsTable({
               ))}
             </tr>
 
-            {/* Weights row — with live sum indicator */}
+            {/* Weights row */}
             <tr style={{ background: "#fef9c3" }}>
               <td style={{ ...labelCell, background: "#fef9c3" }}>
                 <div
                   style={{ display: "flex", flexDirection: "column", gap: 2 }}
                 >
-                  <span>⚖️ الوزن النسبي %</span>
+                  <span>{t.weightRow}</span>
                   <span
                     style={{
                       fontSize: 11,
                       color: weightError
-                        ? T.red
+                        ? DT.red
                         : weightOk
-                          ? T.green
-                          : T.textMuted,
+                          ? DT.green
+                          : DT.textMuted,
                       fontWeight: 600,
                     }}
                   >
                     {totalWeight > 0
-                      ? `المجموع: ${fmt(totalWeight, 0)}%${weightOk ? " ✓" : weightError ? " ✗ يجب أن يكون 100" : ""}`
-                      : "يجب أن يساوي 100%"}
+                      ? `${t.weightsSum(Math.round(totalWeight))}${weightOk ? ` ${t.weightOk}` : weightError ? ` ${t.weightError}` : ""}`
+                      : t.weightsMustBe100}
                   </span>
                 </div>
               </td>
@@ -1171,12 +1392,12 @@ function SettlementAdjustmentsTable({
                       ...inputBase,
                       background: "#fef9c3",
                       borderColor: weightError
-                        ? T.red
+                        ? DT.red
                         : weightOk
-                          ? T.green
-                          : T.border,
+                          ? DT.green
+                          : DT.border,
                     }}
-                    placeholder="0"
+                    placeholder={t.placeholderZero}
                   />
                 </td>
               ))}
@@ -1185,7 +1406,7 @@ function SettlementAdjustmentsTable({
             {/* Contributions */}
             <tr style={{ background: "#fef3c7" }}>
               <td style={{ ...labelCell, background: "#fde68a" }}>
-                📐 مساهمة المقارن (مرجح)
+                {t.contribution}
               </td>
               <td style={{ ...cellBase, background: "#fde68a" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
@@ -1202,7 +1423,7 @@ function SettlementAdjustmentsTable({
                       ...readonlyInput,
                       background: "#fde68a",
                       fontWeight: 600,
-                      color: T.amber,
+                      color: DT.amber,
                     }}
                   />
                 </td>
@@ -1217,9 +1438,9 @@ function SettlementAdjustmentsTable({
         onClick={addS2Row}
         style={{
           marginTop: 10,
-          background: T.surfaceAlt,
-          border: `1px solid ${T.border}`,
-          color: T.blue,
+          background: DT.surfaceAlt,
+          border: `1px solid ${DT.border}`,
+          color: DT.blue,
           cursor: "pointer",
           fontSize: 13,
           padding: "6px 14px",
@@ -1228,10 +1449,10 @@ function SettlementAdjustmentsTable({
           fontWeight: 500,
         }}
       >
-        ＋ إضافة بند للقسم الثاني
+        {t.addSection2Row}
       </button>
 
-      {/* Controls Row - Scale Factor and Rounding */}
+      {/* Controls Row */}
       <div
         style={{
           display: "grid",
@@ -1240,24 +1461,23 @@ function SettlementAdjustmentsTable({
           marginTop: 20,
           marginBottom: 20,
           padding: "16px",
-          background: T.surfaceAlt,
+          background: DT.surfaceAlt,
           borderRadius: 10,
-          border: `1px solid ${T.border}`,
+          border: `1px solid ${DT.border}`,
         }}
       >
-        {/* Scale Factor Control */}
         <div
           style={{
-            background: T.surface,
+            background: DT.surface,
             borderRadius: 8,
             padding: "12px 16px",
-            border: `1px solid ${T.border}`,
+            border: `1px solid ${DT.border}`,
           }}
         >
           <div
             style={{
               fontSize: 11,
-              color: T.textMuted,
+              color: DT.textMuted,
               marginBottom: 6,
               display: "flex",
               alignItems: "center",
@@ -1265,7 +1485,7 @@ function SettlementAdjustmentsTable({
             }}
           >
             <span style={{ fontSize: 14 }}>⚙️</span>
-            نسبة القياس الأساسي (%)
+            {t.scaleFactor}
           </div>
           <input
             dir="ltr"
@@ -1280,24 +1500,23 @@ function SettlementAdjustmentsTable({
             }}
             placeholder="100"
           />
-          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>
-            100 = القيمة الأصلية | 50 = النصف | 200 = الضعف
+          <div style={{ fontSize: 10, color: DT.textMuted, marginTop: 4 }}>
+            {t.scaleFactorHint}
           </div>
         </div>
 
-        {/* Rounding Control */}
         <div
           style={{
-            background: T.surface,
+            background: DT.surface,
             borderRadius: 8,
             padding: "12px 16px",
-            border: `1px solid ${T.border}`,
+            border: `1px solid ${DT.border}`,
           }}
         >
           <div
             style={{
               fontSize: 11,
-              color: T.textMuted,
+              color: DT.textMuted,
               marginBottom: 6,
               display: "flex",
               alignItems: "center",
@@ -1305,7 +1524,7 @@ function SettlementAdjustmentsTable({
             }}
           >
             <span style={{ fontSize: 14 }}>🔄</span>
-            التقريب إلى أقرب
+            {t.roundTo}
           </div>
           <select
             value={roundTo}
@@ -1317,19 +1536,15 @@ function SettlementAdjustmentsTable({
               textAlign: "center",
             }}
           >
-            <option value="0">بدون تقريب</option>
-            <option value="1">أقرب 1</option>
-            <option value="5">أقرب 5</option>
-            <option value="10">أقرب 10</option>
-            <option value="50">أقرب 50</option>
-            <option value="100">أقرب 100</option>
-            <option value="500">أقرب 500</option>
-            <option value="1000">أقرب 1000</option>
-            <option value="5000">أقرب 5000</option>
-            <option value="10000">أقرب 10000</option>
+            <option value="0">{t.noRounding}</option>
+            {ROUND_OPTIONS.slice(1).map((n) => (
+              <option key={n} value={String(n)}>
+                {t.nearest(n)}
+              </option>
+            ))}
           </select>
-          <div style={{ fontSize: 10, color: T.textMuted, marginTop: 4 }}>
-            مثال: 1,234 مع تقريب 5 يصبح 1,235
+          <div style={{ fontSize: 10, color: DT.textMuted, marginTop: 4 }}>
+            {t.roundingHint}
           </div>
         </div>
       </div>
@@ -1340,41 +1555,42 @@ function SettlementAdjustmentsTable({
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
           gap: 12,
-          marginTop: 0,
           padding: "16px",
-          background: T.surfaceAlt,
+          background: DT.surfaceAlt,
           borderRadius: 10,
-          border: `1px solid ${T.border}`,
+          border: `1px solid ${DT.border}`,
         }}
       >
         <KpiCard
-          label="صافي سعر المتر بعد جميع التسويات"
+          label={t.netMeterPrice}
           value={
             netPricePerMeter
-              ? `${fmt(netPricePerMeter)} ريال/م²`
+              ? `${fmt(netPricePerMeter)} ${t.sarUnit}`
               : weightError
-                ? "الأوزان لا تساوي 100%"
+                ? t.weightsMustEqual
                 : "—"
           }
-          accent={T.blue}
+          accent={DT.blue}
           icon="📊"
         />
         <KpiCard
-          label="إجمالي الوزن النسبي"
+          label={t.totalWeight}
           value={
-            totalWeight ? `${fmt(totalWeight, 0)}%${weightOk ? " ✓" : ""}` : "—"
+            totalWeight
+              ? `${fmt(totalWeight, 0)}%${weightOk ? ` ${t.weightOk}` : ""}`
+              : "—"
           }
-          accent={weightOk ? T.green : weightError ? T.red : "#7c3aed"}
+          accent={weightOk ? DT.green : weightError ? DT.red : "#7c3aed"}
           icon="⚖️"
         />
         <KpiCard
-          label="إجمالي قيمة العقار"
+          label={t.totalPropertyValue}
           value={
             subjectArea && netPricePerMeter
-              ? `${fmt(totalPropertyValue, 0)} ريال`
-              : "أدخل مساحة الأصل"
+              ? `${fmt(totalPropertyValue, 0)} ${t.sarTotal}`
+              : t.enterAreaFirst
           }
-          accent={T.green}
+          accent={DT.green}
           icon="🏠"
         />
       </div>
@@ -1396,11 +1612,10 @@ function KpiCard({
   return (
     <div
       style={{
-        background: T.surface,
+        background: DT.surface,
         borderRadius: 8,
         padding: "12px 16px",
-        borderRight: `4px solid ${accent}`,
-        border: `1px solid ${T.border}`,
+        border: `1px solid ${DT.border}`,
         borderRightWidth: 4,
         borderRightColor: accent,
       }}
@@ -1408,7 +1623,7 @@ function KpiCard({
       <div
         style={{
           fontSize: 11,
-          color: T.textMuted,
+          color: DT.textMuted,
           marginBottom: 6,
           display: "flex",
           alignItems: "center",
@@ -1451,7 +1666,6 @@ export type SettlementComparisonProps = {
   settlementBases: string[];
   onSettlementBasesChange: (bases: string[]) => void;
 
-  // Section 1 rows (market conditions — 3 default rows, editable names)
   section1Rows?: { title: string; colAdj: string[] }[];
   onSection1RowsChange?: (rows: { title: string; colAdj: string[] }[]) => void;
 
@@ -1460,7 +1674,7 @@ export type SettlementComparisonProps = {
 };
 
 export function SettlementComparison({
-  useLabel = "عام",
+  useLabel,
   subjectArea = "",
   comparisonRows,
   onComparisonRowsChange,
@@ -1475,15 +1689,22 @@ export function SettlementComparison({
   settlementNotes = "",
   onSettlementNotesChange,
 }: SettlementComparisonProps) {
+  // ── language from context ──────────────────────────────────────────────────
+  const langContext = useContext(LanguageContext);
+  const lang: Lang = langContext?.language === "en" ? "en" : "ar";
+  const isRtl = lang === "ar";
+  const t = SC[lang];
+
   const n = Math.max(comparisonRows.length, 1);
 
-  // Weights — lifted or local
+  // Default useLabel per language
+  const resolvedUseLabel = useLabel ?? (lang === "ar" ? "عام" : "General");
+
   const [localWeights, setLocalWeights] = useState<string[]>([]);
   const weights = settlementWeights ?? localWeights;
   const handleWeightsChange = onSettlementWeightsChange ?? setLocalWeights;
 
-  // AFTER
-  const defaultSection1 = DEFAULT_SECTION1_TITLES.map((title) => ({
+  const defaultSection1 = DEFAULT_SECTION1_TITLES[lang].map((title) => ({
     title,
     colAdj: Array(n).fill(""),
   }));
@@ -1494,10 +1715,9 @@ export function SettlementComparison({
       : localSection1;
   const handleSection1Change = onSection1RowsChange ?? setLocalSection1;
 
-  // Section 2 rows — use settlementRows from parent, but ensure default titles
   const section2Rows: SettlementSection2Row[] = (() => {
     if (settlementRows.length > 0) return settlementRows as any;
-    return DEFAULT_SECTION2_TITLES.map((title) => ({
+    return DEFAULT_SECTION2_TITLES[lang].map((title) => ({
       inReport: true,
       title,
       valueM: "",
@@ -1508,7 +1728,7 @@ export function SettlementComparison({
 
   return (
     <div
-      dir="rtl"
+      dir={isRtl ? "rtl" : "ltr"}
       style={{ fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif" }}
     >
       {/* Header bar */}
@@ -1519,18 +1739,19 @@ export function SettlementComparison({
           alignItems: "center",
           marginBottom: 16,
           padding: "10px 14px",
-          background: `linear-gradient(135deg, ${T.blue} 0%, #1558a0 100%)`,
+          background: `linear-gradient(135deg, ${DT.blue} 0%, #1558a0 100%)`,
           borderRadius: 8,
           color: "#fff",
         }}
       >
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>
-            جدول المقارنة والتسويات
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{t.headerTitle}</div>
           <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
-            نوع الاستخدام: {useLabel} · {comparisonRows.length} مقارنة
-            {subjectArea ? ` · مساحة الأصل: ${subjectArea} م²` : ""}
+            {t.headerSubtitle(
+              resolvedUseLabel,
+              comparisonRows.length,
+              subjectArea || undefined,
+            )}
           </div>
         </div>
         <div style={{ fontSize: 24, opacity: 0.7 }}>🏘</div>
@@ -1538,29 +1759,28 @@ export function SettlementComparison({
 
       {/* Part 1 */}
       <div style={{ marginBottom: 24 }}>
-        <SectionLabel number="١" title="العقارات المقارنة" />
+        <SectionLabel number={t.sectionLabel1} title={t.sectionLabel1Title} />
         <ComparisonPropertiesTable
           rows={comparisonRows}
           onChange={onComparisonRowsChange}
+          lang={lang}
         />
       </div>
 
-      <div style={{ borderTop: `2px dashed ${T.border}`, margin: "20px 0" }} />
+      <div style={{ borderTop: `2px dashed ${DT.border}`, margin: "20px 0" }} />
 
       {/* Part 2 */}
       <div style={{ marginBottom: 20 }}>
-        <SectionLabel number="٢" title="جدول التسويات والتعديلات" />
+        <SectionLabel number={t.sectionLabel2} title={t.sectionLabel2Title} />
         <p
           style={{
             fontSize: 12,
-            color: T.textMuted,
+            color: DT.textMuted,
             margin: "0 0 12px",
             lineHeight: 1.6,
           }}
         >
-          سعر المتر يُملأ تلقائياً من بيانات المقارنة أعلاه ويمكن تعديله يدوياً.
-          القسم الأول يشمل تسويات ظروف السوق، والقسم الثاني يشمل خصائص العقار.
-          الخانات المظللة تُحسب تلقائياً.
+          {t.adjustmentHint}
         </p>
         <SettlementAdjustmentsTable
           comparisonRows={comparisonRows}
@@ -1573,6 +1793,7 @@ export function SettlementComparison({
           subjectArea={subjectArea}
           weights={weights}
           onWeightsChange={handleWeightsChange}
+          lang={lang}
         />
       </div>
 
@@ -1582,12 +1803,12 @@ export function SettlementComparison({
           style={{
             display: "block",
             fontSize: 12,
-            color: T.textMuted,
+            color: DT.textMuted,
             marginBottom: 6,
             fontWeight: 500,
           }}
         >
-          ملاحظات التسويات
+          {t.settlementNotes}
         </label>
         <textarea
           value={settlementNotes}
@@ -1596,16 +1817,16 @@ export function SettlementComparison({
           style={{
             width: "100%",
             padding: "8px 10px",
-            border: `1px solid ${T.border}`,
+            border: `1px solid ${DT.border}`,
             borderRadius: 6,
             fontSize: 13,
             fontFamily: "inherit",
             resize: "vertical" as const,
             boxSizing: "border-box" as const,
-            color: T.text,
+            color: DT.text,
             outline: "none",
           }}
-          placeholder="ملاحظات حول عملية التسويات والتعديلات..."
+          placeholder={t.settlementNotesPlaceholder}
         />
       </div>
     </div>
@@ -1627,7 +1848,7 @@ function SectionLabel({ number, title }: { number: string; title: string }) {
           width: 28,
           height: 28,
           borderRadius: "50%",
-          background: T.blue,
+          background: DT.blue,
           color: "#fff",
           display: "flex",
           alignItems: "center",
@@ -1639,7 +1860,7 @@ function SectionLabel({ number, title }: { number: string; title: string }) {
       >
         {number}
       </div>
-      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: T.text }}>
+      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: DT.text }}>
         {title}
       </h4>
     </div>
