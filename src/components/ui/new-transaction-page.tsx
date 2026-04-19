@@ -39,6 +39,7 @@ type FormFieldDef = {
     | "file"
     | "select";
   options?: string[];
+  multiple?: boolean;
 };
 
 type TemplateOption = { id: string; name: string; fields: FormFieldDef[] }; // extend existing
