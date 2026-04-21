@@ -48,6 +48,7 @@ import {
   Layers,
   Users,
   GitBranch,
+  Loader2,
 } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
@@ -153,16 +154,43 @@ type ValuationRow = {
   lastUpdate: string;
   lastUpdateBy: string;
   elapsedLabel: string;
-  // Raw transaction data for editing
   rawData?: Partial<ApiTransaction>;
 };
+
+// ─── API attachment/image types (from backend) ────────────────────────────────
+
+type ApiAttachment = {
+  id: string;
+  transactionId: string;
+  name: string;
+  originalName: string;
+  mimeType: string;
+  filePath: string;
+  size: number;
+  uploadedAt: string;
+  type: "pdf" | "image" | "other";
+};
+
+type ApiImage = {
+  id: string;
+  transactionId: string;
+  name: string;
+  originalName: string;
+  mimeType: string;
+  filePath: string;
+  size: number;
+  sortIndex: number;
+  uploadedAt: string;
+};
+
+// ─── Frontend-only types ──────────────────────────────────────────────────────
 
 type AttachmentFile = {
   id: string;
   name: string;
   originalName: string;
   type: "pdf" | "image" | "other";
-  preview: string | null;
+  previewUrl: string | null; // derived from filePath or blob
   size: number;
   uploadedAt: string;
 };
@@ -175,13 +203,11 @@ type PendingUpload = {
   type: "pdf" | "image" | "other";
 };
 
-// ─── NEW: Image types ──────────────────────────────────────────────────────────
-
 type ImageFile = {
   id: string;
   name: string;
   originalName: string;
-  preview: string;
+  previewUrl: string; // derived from filePath or blob
   size: number;
   uploadedAt: string;
   sortIndex: number;
@@ -193,8 +219,6 @@ type PendingImageUpload = {
   name: string;
   preview: string;
 };
-
-// ─── NEW: Edit transaction types ───────────────────────────────────────────────
 
 type EditableTransactionData = {
   assignmentNumber: string;
@@ -212,7 +236,6 @@ type EditableTransactionData = {
 };
 
 type NoteAuthor = { id: string; name: string; role: string; color: string };
-
 type NoteMessage = {
   id: string;
   author: NoteAuthor;
@@ -222,341 +245,43 @@ type NoteMessage = {
   replyTo?: { id: string; content: string; authorName: string };
 };
 
-// ─── dummy data ───────────────────────────────────────────────────────────────
-
-const DUMMY_ATTACHMENTS: AttachmentFile[] = [
-  {
-    id: "att-1",
-    name: "صك الملكية",
-    originalName: "deed_document.pdf",
-    type: "pdf",
-    preview: "https://placehold.co/300x400/1e3a5f/ffffff?text=PDF",
-    size: 2400000,
-    uploadedAt: "2025-04-10T09:30:00",
-  },
-  {
-    id: "att-2",
-    name: "مخطط الموقع",
-    originalName: "site_plan.pdf",
-    type: "pdf",
-    preview: "https://placehold.co/300x400/0f4c3a/ffffff?text=PDF",
-    size: 1800000,
-    uploadedAt: "2025-04-10T10:15:00",
-  },
-  {
-    id: "att-3",
-    name: "صورة الواجهة",
-    originalName: "facade_photo.jpg",
-    type: "image",
-    preview: "https://placehold.co/300x400/4a2040/ffffff?text=IMG",
-    size: 950000,
-    uploadedAt: "2025-04-11T14:00:00",
-  },
-];
-
-// ─── NEW: Dummy images ─────────────────────────────────────────────────────────
-
-const DUMMY_IMAGES: ImageFile[] = [
-  {
-    id: "img-1",
-    name: "الواجهة الأمامية",
-    originalName: "front_facade.jpg",
-    preview: "https://placehold.co/400x300/1a3a5c/ffffff?text=واجهة+أمامية",
-    size: 1200000,
-    uploadedAt: "2025-04-10T09:30:00",
-    sortIndex: 1,
-  },
-  {
-    id: "img-2",
-    name: "الواجهة الخلفية",
-    originalName: "back_facade.jpg",
-    preview: "https://placehold.co/400x300/0f3d2a/ffffff?text=واجهة+خلفية",
-    size: 980000,
-    uploadedAt: "2025-04-10T10:15:00",
-    sortIndex: 2,
-  },
-  {
-    id: "img-3",
-    name: "المدخل الرئيسي",
-    originalName: "main_entrance.jpg",
-    preview: "https://placehold.co/400x300/3a1a4c/ffffff?text=المدخل",
-    size: 870000,
-    uploadedAt: "2025-04-11T14:00:00",
-    sortIndex: 3,
-  },
-  {
-    id: "img-4",
-    name: "الحديقة",
-    originalName: "garden.jpg",
-    preview: "https://placehold.co/400x300/1c3a1c/ffffff?text=الحديقة",
-    size: 1050000,
-    uploadedAt: "2025-04-11T15:30:00",
-    sortIndex: 4,
-  },
-];
-
-const DUMMY_AUTHORS: NoteAuthor[] = [
-  { id: "u1", name: "أحمد الزهراني", role: "مقيّم", color: "bg-cyan-500" },
-  { id: "u2", name: "سارة المالكي", role: "مراجع", color: "bg-violet-500" },
-  { id: "u3", name: "خالد العتيبي", role: "مدقق", color: "bg-emerald-500" },
-];
-const ME = DUMMY_AUTHORS[0];
-
-const DUMMY_NOTES: NoteMessage[] = [
-  {
-    id: "n1",
-    author: DUMMY_AUTHORS[1],
-    content:
-      "تم الانتهاء من مراجعة وثائق الصك، يرجى التحقق من رقم القطعة المدوّن في العقد.",
-    timestamp: "2025-04-10T09:15:00",
-    isPinned: true,
-  },
-  {
-    id: "n2",
-    author: DUMMY_AUTHORS[0],
-    content:
-      "تم التحقق، رقم القطعة صحيح ومطابق للمخطط. سأرفع التقرير اليوم بعد الظهر.",
-    timestamp: "2025-04-10T10:30:00",
-    isPinned: false,
-    replyTo: {
-      id: "n1",
-      content: "تم الانتهاء من مراجعة وثائق الصك...",
-      authorName: "سارة المالكي",
-    },
-  },
-  {
-    id: "n3",
-    author: DUMMY_AUTHORS[2],
-    content: "لاحظت أن صورة الواجهة الشمالية غير واضحة، هل يمكن إعادة التصوير؟",
-    timestamp: "2025-04-11T08:00:00",
-    isPinned: false,
-  },
-  {
-    id: "n4",
-    author: DUMMY_AUTHORS[0],
-    content: "سأزور الموقع غداً الصباح وأرفع صوراً جديدة.",
-    timestamp: "2025-04-11T08:45:00",
-    isPinned: false,
-    replyTo: {
-      id: "n3",
-      content: "لاحظت أن صورة الواجهة الشمالية غير واضحة...",
-      authorName: "خالد العتيبي",
-    },
-  },
-];
-
-// ─── i18n ─────────────────────────────────────────────────────────────────────
-
-const copy = {
-  en: {
-    assignment: "Assignment",
-    details: "Details",
-    value: "Value",
-    status: "Status",
-    actions: "Actions",
-    requester: "Requester",
-    template: "Template",
-    refNumber: "Ref #",
-    assignmentNo: "Assignment #",
-    assignmentDate: "Assignment Date",
-    authNo: "Authorization #",
-    deedNo: "Deed #",
-    plotNo: "Plot #",
-    clientName: "Client",
-    ownerName: "Owner",
-    propertyType: "Property Type",
-    address: "Address",
-    contactNo: "Contact",
-    openTransaction: "Open Transaction",
-    viewReport: "View Report",
-    downloadPdf: "Download PDF",
-    attachments: "Attachments",
-    editTransaction: "Edit Transaction",
-    followUpNotes: "Follow-up Notes",
-    editLog: "Edit Log",
-    duplicate: "Duplicate Transaction",
-    images: "Images",
-    inspector: "Inspector",
-    workingOn: "Working on",
-    lastUpdate: "Last Update",
-    normal: "Normal",
-    urgent: "Urgent",
-    draft: "Draft",
-    new: "New",
-    inspection: "Inspection",
-    review: "Review",
-    audit: "Audit",
-    approved: "Approved",
-    sent: "Sent",
-    cancelled: "Cancelled",
-    pending: "Pending",
-    selectAll: "Select All",
-    showing: "Showing",
-    of: "of",
-    entries: "entries",
-    rowsPerPage: "Rows per page",
-    noData: "No matching records found",
-    sar: "SAR",
-    loading: "Loading transactions...",
-    error: "Failed to load transactions.",
-    attachmentsModal: "Attachments",
-    dropFiles: "Drop files here or click to upload",
-    supportedFormats: "PDF, JPG, PNG supported",
-    noAttachments: "No attachments yet",
-    pendingLabel: "Pending",
-    enterFileName: "Enter file name...",
-    deleteSelected: "Delete Selected",
-    downloadSelected: "Download Selected",
-    notesModal: "Follow-up Notes",
-    notesPlaceholder: "Write a note...",
-    sendNote: "Send",
-    pinned: "Pinned",
-    reply: "Reply",
-    pin: "Pin",
-    noNotes: "No notes yet. Start the conversation.",
-    online: "online",
-    participants: "Participants",
-    // NEW image modal
-    imagesModal: "Property Images",
-    dropImages: "Drop images here or click to upload",
-    supportedImageFormats: "JPG, PNG, WEBP supported",
-    noImages: "No images yet",
-    enterImageName: "Enter image name...",
-    imageIndex: "Order",
-    // NEW edit modal
-    editTransactionModal: "Edit Transaction",
-    saveChanges: "Save Changes",
-    cancel: "Cancel",
-    assignmentNumberLabel: "Assignment Number",
-    authorizationNumberLabel: "Authorization Number",
-    assignmentDateLabel: "Assignment Date",
-    valuationPurposeLabel: "Valuation Purpose",
-    intendedUseLabel: "Intended Use",
-    valuationBasisLabel: "Valuation Basis",
-    ownershipTypeLabel: "Ownership Type",
-    valuationHypothesisLabel: "Valuation Hypothesis",
-    clientIdLabel: "Client ID",
-    branchLabel: "Branch",
-    priorityLabel: "Priority",
-    statusLabel: "Status",
-  },
-  ar: {
-    assignment: "التكليف",
-    details: "التفاصيل",
-    value: "القيمة",
-    status: "الحالة",
-    actions: "الإجراءات",
-    requester: "طالب التقييم",
-    template: "النموذج",
-    refNumber: "الرقم المرجعي",
-    assignmentNo: "رقم التكليف",
-    assignmentDate: "تاريخ التكليف",
-    authNo: "رقم التعميد",
-    deedNo: "رقم الصك",
-    plotNo: "رقم القطعة",
-    clientName: "اسم العميل",
-    ownerName: "اسم المالك",
-    propertyType: "نوع العقار",
-    address: "العنوان",
-    contactNo: "رقم التواصل",
-    openTransaction: "فتح المعاملة",
-    viewReport: "عرض التقرير",
-    downloadPdf: "تحميل PDF",
-    attachments: "المرفقات",
-    editTransaction: "تعديل بيانات المعاملة",
-    followUpNotes: "ملاحظات المتابعة",
-    editLog: "سجل التعديلات",
-    duplicate: "تكرار المعاملة",
-    images: "الصور",
-    inspector: "المعاين",
-    workingOn: "يعمل على المعاملة",
-    lastUpdate: "آخر تحديث",
-    normal: "عادية",
-    urgent: "عاجلة",
-    draft: "مسودة",
-    new: "جديدة",
-    inspection: "المعاينة",
-    review: "المراجعة",
-    audit: "التدقيق",
-    approved: "معتمدة",
-    sent: "مرسلة",
-    cancelled: "ملغية",
-    pending: "معلقة",
-    selectAll: "تحديد الكل",
-    showing: "عرض",
-    of: "من",
-    entries: "سجل",
-    rowsPerPage: "صفوف في الصفحة",
-    noData: "لم يتم العثور على سجلات مطابقة",
-    sar: "ر.س",
-    loading: "جاري تحميل المعاملات...",
-    error: "فشل تحميل المعاملات.",
-    attachmentsModal: "المرفقات",
-    dropFiles: "اسحب الملفات هنا أو اضغط للرفع",
-    supportedFormats: "يدعم PDF و JPG و PNG",
-    noAttachments: "لا توجد مرفقات حتى الآن",
-    pendingLabel: "قيد الرفع",
-    enterFileName: "أدخل اسم الملف...",
-    deleteSelected: "حذف المحدد",
-    downloadSelected: "تحميل المحدد",
-    notesModal: "ملاحظات المتابعة",
-    notesPlaceholder: "اكتب ملاحظة...",
-    sendNote: "إرسال",
-    pinned: "مثبّت",
-    reply: "رد",
-    pin: "تثبيت",
-    noNotes: "لا توجد ملاحظات بعد. ابدأ المحادثة.",
-    online: "متصل",
-    participants: "المشاركون",
-    // NEW image modal
-    imagesModal: "صور العقار",
-    dropImages: "اسحب الصور هنا أو اضغط للرفع",
-    supportedImageFormats: "يدعم JPG و PNG و WEBP",
-    noImages: "لا توجد صور حتى الآن",
-    enterImageName: "أدخل اسم الصورة...",
-    imageIndex: "الترتيب",
-    // NEW edit modal
-    editTransactionModal: "تعديل بيانات المعاملة",
-    saveChanges: "حفظ التغييرات",
-    cancel: "إلغاء",
-    assignmentNumberLabel: "رقم التكليف",
-    authorizationNumberLabel: "رقم التعميد",
-    assignmentDateLabel: "تاريخ التكليف",
-    valuationPurposeLabel: "الغرض من التقييم",
-    intendedUseLabel: "الاستخدام المقصود",
-    valuationBasisLabel: "أساس التقييم",
-    ownershipTypeLabel: "نوع الملكية",
-    valuationHypothesisLabel: "فرضية التقييم",
-    clientIdLabel: "معرّف العميل",
-    branchLabel: "الفرع",
-    priorityLabel: "الأولوية",
-    statusLabel: "الحالة",
-  },
-} as const;
-
-type Copy = (typeof copy)[keyof typeof copy];
-
-// ─── status config ────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<
-  ValuationStatus,
-  { bg: string; text: string; dot: string }
-> = {
-  new: { bg: "bg-slate-100", text: "text-slate-700", dot: "bg-slate-400" },
-  inspection: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
-  review: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
-  audit: { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
-  approved: {
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    dot: "bg-emerald-500",
-  },
-  sent: { bg: "bg-cyan-50", text: "text-cyan-700", dot: "bg-cyan-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-400" },
-  pending: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-400" },
-};
-
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+function apiUrl(path: string) {
+  return toApiUrl(`/api${path}`);
+}
+
+/** Convert a server filePath (e.g. "uploads/abc.jpg") to a usable preview URL */
+function filePreviewUrl(filePath: string): string {
+  return `/${filePath}`;
+}
+
+function attachmentFromApi(a: ApiAttachment): AttachmentFile {
+  return {
+    id: a.id,
+    name: a.name,
+    originalName: a.originalName,
+    type: a.type,
+    previewUrl:
+      a.type === "image" || a.type === "pdf"
+        ? filePreviewUrl(a.filePath)
+        : null,
+    size: a.size,
+    uploadedAt: a.uploadedAt,
+  };
+}
+
+function imageFromApi(img: ApiImage): ImageFile {
+  return {
+    id: img.id,
+    name: img.name,
+    originalName: img.originalName,
+    previewUrl: filePreviewUrl(img.filePath),
+    size: img.size,
+    uploadedAt: img.uploadedAt,
+    sortIndex: img.sortIndex,
+  };
+}
 
 function formatCurrency(v: number) {
   if (v === 0) return "0.00";
@@ -588,7 +313,7 @@ function elapsedSince(dateStr: string) {
   const diffH = Math.floor(diffMs / 3600000);
   const diffM = Math.floor((diffMs % 3600000) / 60000);
   const isOverdue = diffH >= 24;
-  let label =
+  const label =
     diffH < 1
       ? "أقل من ساعة"
       : diffH < 24
@@ -664,6 +389,275 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
   };
 }
 
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+
+const copy = {
+  en: {
+    assignment: "Assignment",
+    details: "Details",
+    value: "Value",
+    status: "Status",
+    actions: "Actions",
+    requester: "Requester",
+    template: "Template",
+    refNumber: "Ref #",
+    assignmentNo: "Assignment #",
+    assignmentDate: "Assignment Date",
+    authNo: "Authorization #",
+    deedNo: "Deed #",
+    plotNo: "Plot #",
+    clientName: "Client",
+    ownerName: "Owner",
+    propertyType: "Property Type",
+    address: "Address",
+    contactNo: "Contact",
+    openTransaction: "Open Transaction",
+    viewReport: "View Report",
+    downloadPdf: "Download PDF",
+    attachments: "Attachments",
+    editTransaction: "Edit Transaction",
+    followUpNotes: "Follow-up Notes",
+    editLog: "Edit Log",
+    duplicate: "Duplicate Transaction",
+    images: "Images",
+    inspector: "Inspector",
+    workingOn: "Working on",
+    lastUpdate: "Last Update",
+    normal: "Normal",
+    urgent: "Urgent",
+    draft: "Draft",
+    new: "New",
+    inspection: "Inspection",
+    review: "Review",
+    audit: "Audit",
+    approved: "Approved",
+    sent: "Sent",
+    cancelled: "Cancelled",
+    pending: "Pending",
+    selectAll: "Select All",
+    showing: "Showing",
+    of: "of",
+    entries: "entries",
+    rowsPerPage: "Rows per page",
+    noData: "No matching records found",
+    sar: "SAR",
+    loading: "Loading transactions...",
+    error: "Failed to load transactions.",
+    attachmentsModal: "Attachments",
+    dropFiles: "Drop files here or click to upload",
+    supportedFormats: "PDF, JPG, PNG supported",
+    noAttachments: "No attachments yet",
+    pendingLabel: "Pending",
+    enterFileName: "Enter file name...",
+    deleteSelected: "Delete Selected",
+    downloadSelected: "Download Selected",
+    notesModal: "Follow-up Notes",
+    notesPlaceholder: "Write a note...",
+    sendNote: "Send",
+    pinned: "Pinned",
+    reply: "Reply",
+    pin: "Pin",
+    noNotes: "No notes yet. Start the conversation.",
+    online: "online",
+    participants: "Participants",
+    imagesModal: "Property Images",
+    dropImages: "Drop images here or click to upload",
+    supportedImageFormats: "JPG, PNG, WEBP supported",
+    noImages: "No images yet",
+    enterImageName: "Enter image name...",
+    imageIndex: "Order",
+    editTransactionModal: "Edit Transaction",
+    saveChanges: "Save Changes",
+    cancel: "Cancel",
+    assignmentNumberLabel: "Assignment Number",
+    authorizationNumberLabel: "Authorization Number",
+    assignmentDateLabel: "Assignment Date",
+    valuationPurposeLabel: "Valuation Purpose",
+    intendedUseLabel: "Intended Use",
+    valuationBasisLabel: "Valuation Basis",
+    ownershipTypeLabel: "Ownership Type",
+    valuationHypothesisLabel: "Valuation Hypothesis",
+    clientIdLabel: "Client ID",
+    branchLabel: "Branch",
+    priorityLabel: "Priority",
+    statusLabel: "Status",
+    errorSaving: "Failed to save changes.",
+    errorLoading: "Failed to load.",
+    errorDeleting: "Failed to delete.",
+    errorUploading: "Failed to upload.",
+    errorReordering: "Failed to reorder.",
+  },
+  ar: {
+    assignment: "التكليف",
+    details: "التفاصيل",
+    value: "القيمة",
+    status: "الحالة",
+    actions: "الإجراءات",
+    requester: "طالب التقييم",
+    template: "النموذج",
+    refNumber: "الرقم المرجعي",
+    assignmentNo: "رقم التكليف",
+    assignmentDate: "تاريخ التكليف",
+    authNo: "رقم التعميد",
+    deedNo: "رقم الصك",
+    plotNo: "رقم القطعة",
+    clientName: "اسم العميل",
+    ownerName: "اسم المالك",
+    propertyType: "نوع العقار",
+    address: "العنوان",
+    contactNo: "رقم التواصل",
+    openTransaction: "فتح المعاملة",
+    viewReport: "عرض التقرير",
+    downloadPdf: "تحميل PDF",
+    attachments: "المرفقات",
+    editTransaction: "تعديل بيانات المعاملة",
+    followUpNotes: "ملاحظات المتابعة",
+    editLog: "سجل التعديلات",
+    duplicate: "تكرار المعاملة",
+    images: "الصور",
+    inspector: "المعاين",
+    workingOn: "يعمل على المعاملة",
+    lastUpdate: "آخر تحديث",
+    normal: "عادية",
+    urgent: "عاجلة",
+    draft: "مسودة",
+    new: "جديدة",
+    inspection: "المعاينة",
+    review: "المراجعة",
+    audit: "التدقيق",
+    approved: "معتمدة",
+    sent: "مرسلة",
+    cancelled: "ملغية",
+    pending: "معلقة",
+    selectAll: "تحديد الكل",
+    showing: "عرض",
+    of: "من",
+    entries: "سجل",
+    rowsPerPage: "صفوف في الصفحة",
+    noData: "لم يتم العثور على سجلات مطابقة",
+    sar: "ر.س",
+    loading: "جاري تحميل المعاملات...",
+    error: "فشل تحميل المعاملات.",
+    attachmentsModal: "المرفقات",
+    dropFiles: "اسحب الملفات هنا أو اضغط للرفع",
+    supportedFormats: "يدعم PDF و JPG و PNG",
+    noAttachments: "لا توجد مرفقات حتى الآن",
+    pendingLabel: "قيد الرفع",
+    enterFileName: "أدخل اسم الملف...",
+    deleteSelected: "حذف المحدد",
+    downloadSelected: "تحميل المحدد",
+    notesModal: "ملاحظات المتابعة",
+    notesPlaceholder: "اكتب ملاحظة...",
+    sendNote: "إرسال",
+    pinned: "مثبّت",
+    reply: "رد",
+    pin: "تثبيت",
+    noNotes: "لا توجد ملاحظات بعد. ابدأ المحادثة.",
+    online: "متصل",
+    participants: "المشاركون",
+    imagesModal: "صور العقار",
+    dropImages: "اسحب الصور هنا أو اضغط للرفع",
+    supportedImageFormats: "يدعم JPG و PNG و WEBP",
+    noImages: "لا توجد صور حتى الآن",
+    enterImageName: "أدخل اسم الصورة...",
+    imageIndex: "الترتيب",
+    editTransactionModal: "تعديل بيانات المعاملة",
+    saveChanges: "حفظ التغييرات",
+    cancel: "إلغاء",
+    assignmentNumberLabel: "رقم التكليف",
+    authorizationNumberLabel: "رقم التعميد",
+    assignmentDateLabel: "تاريخ التكليف",
+    valuationPurposeLabel: "الغرض من التقييم",
+    intendedUseLabel: "الاستخدام المقصود",
+    valuationBasisLabel: "أساس التقييم",
+    ownershipTypeLabel: "نوع الملكية",
+    valuationHypothesisLabel: "فرضية التقييم",
+    clientIdLabel: "معرّف العميل",
+    branchLabel: "الفرع",
+    priorityLabel: "الأولوية",
+    statusLabel: "الحالة",
+    errorSaving: "فشل حفظ التغييرات.",
+    errorLoading: "فشل التحميل.",
+    errorDeleting: "فشل الحذف.",
+    errorUploading: "فشل الرفع.",
+    errorReordering: "فشل إعادة الترتيب.",
+  },
+} as const;
+
+type Copy = (typeof copy)[keyof typeof copy];
+
+// ─── status config ────────────────────────────────────────────────────────────
+
+const STATUS_CONFIG: Record<
+  ValuationStatus,
+  { bg: string; text: string; dot: string }
+> = {
+  new: { bg: "bg-slate-100", text: "text-slate-700", dot: "bg-slate-400" },
+  inspection: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
+  review: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
+  audit: { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
+  approved: {
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    dot: "bg-emerald-500",
+  },
+  sent: { bg: "bg-cyan-50", text: "text-cyan-700", dot: "bg-cyan-500" },
+  cancelled: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-400" },
+  pending: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-400" },
+};
+
+// ─── dummy note data (notes not wired to backend yet) ─────────────────────────
+
+const DUMMY_AUTHORS: NoteAuthor[] = [
+  { id: "u1", name: "أحمد الزهراني", role: "مقيّم", color: "bg-cyan-500" },
+  { id: "u2", name: "سارة المالكي", role: "مراجع", color: "bg-violet-500" },
+  { id: "u3", name: "خالد العتيبي", role: "مدقق", color: "bg-emerald-500" },
+];
+const ME = DUMMY_AUTHORS[0];
+
+const DUMMY_NOTES: NoteMessage[] = [
+  {
+    id: "n1",
+    author: DUMMY_AUTHORS[1],
+    content:
+      "تم الانتهاء من مراجعة وثائق الصك، يرجى التحقق من رقم القطعة المدوّن في العقد.",
+    timestamp: "2025-04-10T09:15:00",
+    isPinned: true,
+  },
+  {
+    id: "n2",
+    author: DUMMY_AUTHORS[0],
+    content:
+      "تم التحقق، رقم القطعة صحيح ومطابق للمخطط. سأرفع التقرير اليوم بعد الظهر.",
+    timestamp: "2025-04-10T10:30:00",
+    isPinned: false,
+    replyTo: {
+      id: "n1",
+      content: "تم الانتهاء من مراجعة وثائق الصك...",
+      authorName: "سارة المالكي",
+    },
+  },
+  {
+    id: "n3",
+    author: DUMMY_AUTHORS[2],
+    content: "لاحظت أن صورة الواجهة الشمالية غير واضحة، هل يمكن إعادة التصوير؟",
+    timestamp: "2025-04-11T08:00:00",
+    isPinned: false,
+  },
+  {
+    id: "n4",
+    author: DUMMY_AUTHORS[0],
+    content: "سأزور الموقع غداً الصباح وأرفع صوراً جديدة.",
+    timestamp: "2025-04-11T08:45:00",
+    isPinned: false,
+    replyTo: {
+      id: "n3",
+      content: "لاحظت أن صورة الواجهة الشمالية غير واضحة...",
+      authorName: "خالد العتيبي",
+    },
+  },
+];
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({
@@ -697,41 +691,112 @@ function Avatar({
   );
 }
 
+// ─── Inline error banner ──────────────────────────────────────────────────────
+
+function ErrorBanner({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="mx-6 mt-3 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+      <span className="flex-1">{message}</span>
+      <button onClick={onDismiss} className="text-red-400 hover:text-red-600">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 // ─── Images Modal ─────────────────────────────────────────────────────────────
 
 function ImagesModal({
   transactionId,
   requester,
   onClose,
+  onCountChange,
   t,
   isRtl,
 }: {
   transactionId: string;
   requester: string;
   onClose: () => void;
+  onCountChange: (count: number) => void;
   t: Copy;
   isRtl: boolean;
 }) {
-  const [images, setImages] = useState<ImageFile[]>(
-    [...DUMMY_IMAGES].sort((a, b) => a.sortIndex - b.sortIndex),
-  );
+  const [images, setImages] = useState<ImageFile[]>([]);
+  const [loadingImages, setLoadingImages] = useState(true);
   const [pending, setPending] = useState<PendingImageUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [lightboxImg, setLightboxImg] = useState<ImageFile | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Drag-to-reorder state
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
+  // Debounce timer for reorder calls after index input editing
+  const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Keep images sorted by sortIndex
   const sortedImages = useMemo(
     () => [...images].sort((a, b) => a.sortIndex - b.sortIndex),
     [images],
   );
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    setLoadingImages(true);
+    fetch(apiUrl(`/transactions/${transactionId}/images`), {
+      credentials: "include",
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then((data: ApiImage[]) => {
+        setImages(data.map(imageFromApi));
+        onCountChange(data.length);
+      })
+      .catch(() => setError(t.errorLoading))
+      .finally(() => setLoadingImages(false));
+  }, [transactionId]);
+
+  // ── Reorder helper (calls API with current image state) ───────────────────
+
+  const pushReorder = useCallback(
+    (imgs: ImageFile[]) => {
+      const order = imgs.map((img) => ({
+        id: img.id,
+        sortIndex: img.sortIndex,
+      }));
+      fetch(apiUrl(`/transactions/${transactionId}/images/reorder`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then((data: ApiImage[]) => {
+          setImages(data.map(imageFromApi));
+        })
+        .catch(() => setError(t.errorReordering));
+    },
+    [transactionId, t],
+  );
+
+  // ── Upload ────────────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
@@ -750,24 +815,109 @@ function ImagesModal({
     });
   };
 
-  const confirmUpload = (p: PendingImageUpload) => {
-    const maxIndex = images.reduce((m, img) => Math.max(m, img.sortIndex), 0);
-    setImages((prev) => [
-      ...prev,
-      {
-        id: `img-${Date.now()}`,
-        name: p.name || p.file.name,
-        originalName: p.file.name,
-        preview: p.preview,
-        size: p.file.size,
-        uploadedAt: new Date().toISOString(),
-        sortIndex: maxIndex + 1,
-      },
-    ]);
-    setPending((prev) => prev.filter((x) => x.id !== p.id));
+  const confirmUpload = async (p: PendingImageUpload) => {
+    const fd = new FormData();
+    fd.append("files[]", p.file, p.file.name);
+    fd.append(
+      `names[${p.file.name}]`,
+      p.name || p.file.name.replace(/\.[^.]+$/, ""),
+    );
+    try {
+      const r = await fetch(apiUrl(`/transactions/${transactionId}/images`), {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      if (!r.ok) throw new Error();
+      const data: ApiImage[] = await r.json();
+      const newImgs = data.map(imageFromApi);
+      setImages((prev) => {
+        const merged = [...prev, ...newImgs];
+        onCountChange(merged.length);
+        return merged;
+      });
+      setPending((prev) => prev.filter((x) => x.id !== p.id));
+    } catch {
+      setError(t.errorUploading);
+    }
   };
 
-  // Direct index editing — renumber others to keep indices consistent
+  // ── Rename (on blur / Enter) ──────────────────────────────────────────────
+
+  const commitRename = async (img: ImageFile) => {
+    setEditingNameId(null);
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/images/${img.id}`),
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: img.name }),
+        },
+      );
+      if (!r.ok) throw new Error();
+    } catch {
+      setError(t.errorSaving);
+    }
+  };
+
+  // ── Delete single ─────────────────────────────────────────────────────────
+
+  const deleteOne = async (id: string) => {
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/images/${id}`),
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+      if (!r.ok) throw new Error();
+      setImages((prev) => {
+        const next = prev
+          .filter((a) => a.id !== id)
+          .map((img, i) => ({ ...img, sortIndex: i + 1 }));
+        onCountChange(next.length);
+        return next;
+      });
+      setSelectedIds((p) => {
+        const n = new Set(p);
+        n.delete(id);
+        return n;
+      });
+    } catch {
+      setError(t.errorDeleting);
+    }
+  };
+
+  // ── Bulk delete ───────────────────────────────────────────────────────────
+
+  const deleteSelected = async () => {
+    const ids = [...selectedIds];
+    try {
+      const r = await fetch(apiUrl(`/transactions/${transactionId}/images`), {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!r.ok) throw new Error();
+      setImages((prev) => {
+        const next = prev
+          .filter((a) => !ids.includes(a.id))
+          .map((img, i) => ({ ...img, sortIndex: i + 1 }));
+        onCountChange(next.length);
+        return next;
+      });
+      setSelectedIds(new Set());
+    } catch {
+      setError(t.errorDeleting);
+    }
+  };
+
+  // ── Index editing with debounced reorder ──────────────────────────────────
+
   const setImageIndex = (id: string, newIndex: number) => {
     if (newIndex < 1) return;
     setImages((prev) => {
@@ -777,11 +927,16 @@ function ImagesModal({
       if (!moving) return prev;
       const others = sorted.filter((img) => img.id !== id);
       others.splice(clamped - 1, 0, moving);
-      return others.map((img, i) => ({ ...img, sortIndex: i + 1 }));
+      const reindexed = others.map((img, i) => ({ ...img, sortIndex: i + 1 }));
+      // Debounce the API call so rapid typing doesn't spam
+      if (reorderTimer.current) clearTimeout(reorderTimer.current);
+      reorderTimer.current = setTimeout(() => pushReorder(reindexed), 600);
+      return reindexed;
     });
   };
 
-  // Drag-to-reorder handlers
+  // ── Drag-to-reorder ───────────────────────────────────────────────────────
+
   const handleDragStart = (id: string) => setDraggedId(id);
   const handleDragOver = (e: React.DragEvent, id: string) => {
     e.preventDefault();
@@ -801,11 +956,18 @@ function ImagesModal({
       const reordered = [...sorted];
       const [moved] = reordered.splice(fromIdx, 1);
       reordered.splice(toIdx, 0, moved);
-      return reordered.map((img, i) => ({ ...img, sortIndex: i + 1 }));
+      const reindexed = reordered.map((img, i) => ({
+        ...img,
+        sortIndex: i + 1,
+      }));
+      pushReorder(reindexed);
+      return reindexed;
     });
     setDraggedId(null);
     setDragOverId(null);
   };
+
+  // ── Selection ─────────────────────────────────────────────────────────────
 
   const toggleSel = (id: string) =>
     setSelectedIds((prev) => {
@@ -817,13 +979,6 @@ function ImagesModal({
     images.length > 0 && images.every((a) => selectedIds.has(a.id));
   const toggleSelAll = () =>
     setSelectedIds(allSel ? new Set() : new Set(images.map((a) => a.id)));
-  const deleteSelected = () => {
-    setImages((prev) => {
-      const filtered = prev.filter((a) => !selectedIds.has(a.id));
-      return filtered.map((img, i) => ({ ...img, sortIndex: i + 1 }));
-    });
-    setSelectedIds(new Set());
-  };
 
   return (
     <>
@@ -864,6 +1019,11 @@ function ImagesModal({
               </button>
             </div>
           </div>
+
+          {/* Error banner */}
+          {error && (
+            <ErrorBanner message={error} onDismiss={() => setError(null)} />
+          )}
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto">
@@ -985,13 +1145,17 @@ function ImagesModal({
 
             {/* Images grid */}
             <div className="px-6 pb-6">
-              {images.length === 0 ? (
+              {loadingImages ? (
+                <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t.loading}
+                </div>
+              ) : images.length === 0 ? (
                 <div className="flex h-32 items-center justify-center text-sm text-slate-400">
                   {t.noImages}
                 </div>
               ) : (
                 <>
-                  {/* Bulk action bar */}
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -1011,13 +1175,6 @@ function ImagesModal({
                     {selectedIds.size > 0 && (
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => {}}
-                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          {t.downloadSelected}
-                        </button>
-                        <button
                           onClick={deleteSelected}
                           className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                         >
@@ -1027,15 +1184,12 @@ function ImagesModal({
                       </div>
                     )}
                   </div>
-
-                  {/* Drag hint */}
                   <p className="mb-3 flex items-center gap-1.5 text-[11px] text-slate-400">
                     <GripVertical className="h-3 w-3" />
                     {isRtl
                       ? "اسحب الصور لإعادة ترتيبها أو عدّل الرقم مباشرة"
                       : "Drag images to reorder or edit the index number directly"}
                   </p>
-
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                     {sortedImages.map((img) => (
                       <div
@@ -1058,7 +1212,6 @@ function ImagesModal({
                             "border-violet-400 ring-2 ring-violet-200 scale-[1.02]",
                         )}
                       >
-                        {/* Checkbox */}
                         <div className="absolute start-2 top-2 z-10">
                           <Checkbox
                             checked={selectedIds.has(img.id)}
@@ -1066,50 +1219,30 @@ function ImagesModal({
                             className="h-4 w-4 border-white bg-white/80 data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600"
                           />
                         </div>
-
-                        {/* Drag handle */}
                         <div className="absolute end-2 top-2 z-10 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white">
                             <GripVertical className="h-3.5 w-3.5" />
                           </div>
                         </div>
-
-                        {/* Image preview */}
                         <div
                           className="relative aspect-[4/3] cursor-pointer overflow-hidden bg-slate-100"
                           onClick={() => setLightboxImg(img)}
                         >
                           <img
-                            src={img.preview}
+                            src={img.previewUrl}
                             alt={img.name}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                           />
-                          {/* Delete on hover */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setImages((prev) => {
-                                const filtered = prev.filter(
-                                  (a) => a.id !== img.id,
-                                );
-                                return filtered.map((x, i) => ({
-                                  ...x,
-                                  sortIndex: i + 1,
-                                }));
-                              });
-                              setSelectedIds((p) => {
-                                const n = new Set(p);
-                                n.delete(img.id);
-                                return n;
-                              });
+                              deleteOne(img.id);
                             }}
                             className="absolute bottom-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-
-                        {/* Name + index */}
                         <div className="p-2">
                           {editingNameId === img.id ? (
                             <input
@@ -1125,9 +1258,9 @@ function ImagesModal({
                                   ),
                                 )
                               }
-                              onBlur={() => setEditingNameId(null)}
+                              onBlur={() => commitRename(img)}
                               onKeyDown={(e) =>
-                                e.key === "Enter" && setEditingNameId(null)
+                                e.key === "Enter" && commitRename(img)
                               }
                               className="w-full rounded border border-violet-300 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-200"
                             />
@@ -1140,8 +1273,6 @@ function ImagesModal({
                               {img.name}
                             </button>
                           )}
-
-                          {/* Index row */}
                           <div className="mt-1.5 flex items-center gap-1.5">
                             <span className="text-[10px] text-slate-400 shrink-0">
                               {t.imageIndex}:
@@ -1196,7 +1327,7 @@ function ImagesModal({
             onClick={(e) => e.stopPropagation()}
           >
             <img
-              src={lightboxImg.preview}
+              src={lightboxImg.previewUrl}
               alt={lightboxImg.name}
               className="w-full rounded-2xl object-contain max-h-[80vh]"
             />
@@ -1252,13 +1383,14 @@ const PRIORITY_OPTIONS: Priority[] = ["normal", "urgent"];
 function EditTransactionModal({
   row,
   onClose,
-  onSave,
+  onSaved,
   t,
   isRtl,
 }: {
   row: ValuationRow;
   onClose: () => void;
-  onSave: (data: EditableTransactionData) => void;
+  /** Called with the full updated ApiTransaction returned by the server */
+  onSaved: (updated: ApiTransaction) => void;
   t: Copy;
   isRtl: boolean;
 }) {
@@ -1277,19 +1409,46 @@ function EditTransactionModal({
     clientId: raw.clientId ?? "",
     branch: raw.branch ?? "",
     priority: raw.priority ?? row.priority ?? "normal",
-    status: raw.status ?? row.status ?? "new",
+    status: (raw.evalData?.status ??
+      raw.status ??
+      row.status ??
+      "new") as string,
   });
 
   const [isDirty, setIsDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const update = (key: keyof EditableTransactionData, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setIsDirty(true);
   };
 
-  const handleSave = () => {
-    onSave(form);
-    onClose();
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(apiUrl(`/transactions/${row.id}/core`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!r.ok) throw new Error();
+      // The service returns the full TransactionDoc serialised — we refetch to
+      // get the complete up-to-date object including evalData.
+      const full = await fetch(apiUrl(`/transactions/${row.id}`), {
+        credentials: "include",
+      });
+      if (!full.ok) throw new Error();
+      const updated: ApiTransaction = await full.json();
+      onSaved(updated);
+      onClose();
+    } catch {
+      setError(t.errorSaving);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const fields: {
@@ -1387,6 +1546,11 @@ function EditTransactionModal({
           </div>
         </div>
 
+        {/* Error banner */}
+        {error && (
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
+        )}
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1424,8 +1588,6 @@ function EditTransactionModal({
               );
             })}
           </div>
-
-          {/* Info note */}
           <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
             <p className="text-xs text-slate-500 leading-relaxed">
@@ -1446,10 +1608,14 @@ function EditTransactionModal({
           </button>
           <button
             onClick={handleSave}
-            disabled={!isDirty}
+            disabled={!isDirty || saving}
             className="flex items-center gap-2 rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
           >
-            <Save className="h-4 w-4" />
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
             {t.saveChanges}
           </button>
         </div>
@@ -1458,27 +1624,138 @@ function EditTransactionModal({
   );
 }
 
-// ─── Attachments Modal ────────────────────────────────────────────────────────
+// ─── Load pdf.js once via script tag ─────────────────────────────────────────
+
+let pdfjsLoadPromise: Promise<any> | null = null;
+
+function loadPdfJs(): Promise<any> {
+  if (pdfjsLoadPromise) return pdfjsLoadPromise;
+  pdfjsLoadPromise = new Promise((resolve, reject) => {
+    // Already loaded
+    if ((window as any).pdfjsLib) {
+      resolve((window as any).pdfjsLib);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.onload = () => {
+      const lib = (window as any).pdfjsLib;
+      lib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      resolve(lib);
+    };
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+  return pdfjsLoadPromise;
+}
+
+// ─── PDF Thumbnail ────────────────────────────────────────────────────────────
+
+function PdfThumbnail({ url, className }: { url: string; className?: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function render() {
+      try {
+        const pdfjsLib = await loadPdfJs();
+        const pdf = await pdfjsLib.getDocument(url).promise;
+        const page = await pdf.getPage(1);
+        if (cancelled) return;
+        const viewport = page.getViewport({ scale: 1 });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const scale = Math.min(200 / viewport.width, 260 / viewport.height);
+        const scaled = page.getViewport({ scale });
+        canvas.width = scaled.width;
+        canvas.height = scaled.height;
+        await page.render({
+          canvasContext: canvas.getContext("2d")!,
+          viewport: scaled,
+        }).promise;
+      } catch (e) {
+        console.error("PDF ERROR: ", e);
+        if (!cancelled) setFailed(true);
+      }
+    }
+    render();
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  if (failed) {
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center gap-2 bg-red-50",
+          className,
+        )}
+      >
+        <File className="h-10 w-10 text-red-400" />
+        <span className="text-[10px] font-bold uppercase tracking-wider text-red-500">
+          PDF
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={cn("h-full w-full object-cover", className)}
+      style={{ display: "block" }}
+    />
+  );
+}
 
 function AttachmentsModal({
+  transactionId,
   requester,
   onClose,
+  onCountChange,
   t,
   isRtl,
 }: {
   transactionId: string;
   requester: string;
   onClose: () => void;
+  onCountChange: (count: number) => void;
   t: Copy;
   isRtl: boolean;
 }) {
-  const [attachments, setAttachments] =
-    useState<AttachmentFile[]>(DUMMY_ATTACHMENTS);
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [loadingAtts, setLoadingAtts] = useState(true);
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    setLoadingAtts(true);
+    fetch(apiUrl(`/transactions/${transactionId}/attachments`), {
+      credentials: "include",
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then((data: ApiAttachment[]) => {
+        setAttachments(data.map(attachmentFromApi));
+        onCountChange(data.length);
+      })
+      .catch(() => setError(t.errorLoading))
+      .finally(() => setLoadingAtts(false));
+  }, [transactionId]);
+
+  // ── Stage pending ─────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
@@ -1490,11 +1767,7 @@ function AttachmentsModal({
         : isPdf
           ? "pdf"
           : "other";
-      const preview = isImage
-        ? URL.createObjectURL(file)
-        : isPdf
-          ? "https://placehold.co/300x400/1e3a5f/ffffff?text=PDF"
-          : null;
+      const preview = isImage ? URL.createObjectURL(file) : isPdf ? null : null;
       setPending((prev) => [
         ...prev,
         {
@@ -1508,21 +1781,112 @@ function AttachmentsModal({
     });
   };
 
-  const confirmUpload = (p: PendingUpload) => {
-    setAttachments((prev) => [
-      ...prev,
-      {
-        id: `att-${Date.now()}`,
-        name: p.name || p.file.name,
-        originalName: p.file.name,
-        type: p.type,
-        preview: p.preview,
-        size: p.file.size,
-        uploadedAt: new Date().toISOString(),
-      },
-    ]);
-    setPending((prev) => prev.filter((x) => x.id !== p.id));
+  // ── Upload ────────────────────────────────────────────────────────────────
+
+  const confirmUpload = async (p: PendingUpload) => {
+    const fd = new FormData();
+    fd.append("files[]", p.file, p.file.name);
+    fd.append(
+      `names[${p.file.name}]`,
+      p.name || p.file.name.replace(/\.[^.]+$/, ""),
+    );
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/attachments`),
+        {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        },
+      );
+      if (!r.ok) throw new Error();
+      const data: ApiAttachment[] = await r.json();
+      const newAtts = data.map(attachmentFromApi);
+      setAttachments((prev) => {
+        const merged = [...prev, ...newAtts];
+        onCountChange(merged.length);
+        return merged;
+      });
+      setPending((prev) => prev.filter((x) => x.id !== p.id));
+    } catch {
+      setError(t.errorUploading);
+    }
   };
+
+  // ── Rename (on blur / Enter) ──────────────────────────────────────────────
+
+  const commitRename = async (att: AttachmentFile) => {
+    setEditingId(null);
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/attachments/${att.id}`),
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: att.name }),
+        },
+      );
+      if (!r.ok) throw new Error();
+    } catch {
+      setError(t.errorSaving);
+    }
+  };
+
+  // ── Delete single ─────────────────────────────────────────────────────────
+
+  const deleteOne = async (id: string) => {
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/attachments/${id}`),
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+      if (!r.ok) throw new Error();
+      setAttachments((prev) => {
+        const next = prev.filter((a) => a.id !== id);
+        onCountChange(next.length);
+        return next;
+      });
+      setSelectedIds((p) => {
+        const n = new Set(p);
+        n.delete(id);
+        return n;
+      });
+    } catch {
+      setError(t.errorDeleting);
+    }
+  };
+
+  // ── Bulk delete ───────────────────────────────────────────────────────────
+
+  const deleteSelected = async () => {
+    const ids = [...selectedIds];
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/attachments`),
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        },
+      );
+      if (!r.ok) throw new Error();
+      setAttachments((prev) => {
+        const next = prev.filter((a) => !ids.includes(a.id));
+        onCountChange(next.length);
+        return next;
+      });
+      setSelectedIds(new Set());
+    } catch {
+      setError(t.errorDeleting);
+    }
+  };
+
+  // ── Selection ─────────────────────────────────────────────────────────────
 
   const toggleSel = (id: string) =>
     setSelectedIds((prev) => {
@@ -1534,10 +1898,6 @@ function AttachmentsModal({
     attachments.length > 0 && attachments.every((a) => selectedIds.has(a.id));
   const toggleSelAll = () =>
     setSelectedIds(allSel ? new Set() : new Set(attachments.map((a) => a.id)));
-  const deleteSelected = () => {
-    setAttachments((prev) => prev.filter((a) => !selectedIds.has(a.id)));
-    setSelectedIds(new Set());
-  };
 
   return (
     <div
@@ -1572,6 +1932,11 @@ function AttachmentsModal({
             </button>
           </div>
         </div>
+
+        {/* Error banner */}
+        {error && (
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
@@ -1697,13 +2062,17 @@ function AttachmentsModal({
 
           {/* Attachment grid */}
           <div className="px-6 pb-6">
-            {attachments.length === 0 ? (
+            {loadingAtts ? (
+              <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t.loading}
+              </div>
+            ) : attachments.length === 0 ? (
               <div className="flex h-32 items-center justify-center text-sm text-slate-400">
                 {t.noAttachments}
               </div>
             ) : (
               <>
-                {/* Bulk action bar */}
                 <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Checkbox
@@ -1723,13 +2092,6 @@ function AttachmentsModal({
                   {selectedIds.size > 0 && (
                     <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => {}}
-                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        {t.downloadSelected}
-                      </button>
-                      <button
                         onClick={deleteSelected}
                         className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                       >
@@ -1739,7 +2101,6 @@ function AttachmentsModal({
                     </div>
                   )}
                 </div>
-
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                   {attachments.map((att) => (
                     <div
@@ -1751,7 +2112,6 @@ function AttachmentsModal({
                           : "border-slate-200",
                       )}
                     >
-                      {/* Checkbox overlay */}
                       <div className="absolute start-2 top-2 z-10">
                         <Checkbox
                           checked={selectedIds.has(att.id)}
@@ -1759,39 +2119,45 @@ function AttachmentsModal({
                           className="h-4 w-4 border-white bg-white/80 data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600"
                         />
                       </div>
-                      {/* Preview */}
-                      <div className="relative aspect-[3/4] overflow-hidden bg-slate-100">
-                        {att.preview ? (
+                      <div
+                        className="relative aspect-[3/4] overflow-hidden bg-slate-100 cursor-pointer"
+                        onClick={() => {
+                          if (att.previewUrl)
+                            window.open(att.previewUrl, "_blank");
+                        }}
+                      >
+                        {att.type === "image" && att.previewUrl ? (
                           <img
-                            src={att.preview}
+                            src={att.previewUrl}
                             alt={att.name}
                             className="h-full w-full object-cover"
                           />
+                        ) : att.type === "pdf" ? (
+                          <PdfThumbnail
+                            url={att.previewUrl!}
+                            className="h-full w-full"
+                          />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center">
+                          <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50">
                             <File className="h-8 w-8 text-slate-300" />
+                            <span className="text-[10px] text-slate-400">
+                              {isRtl ? "ملف" : "File"}
+                            </span>
                           </div>
                         )}
                         <span className="absolute end-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
                           {att.type}
                         </span>
                         <button
-                          onClick={() => {
-                            setAttachments((prev) =>
-                              prev.filter((a) => a.id !== att.id),
-                            );
-                            setSelectedIds((p) => {
-                              const n = new Set(p);
-                              n.delete(att.id);
-                              return n;
-                            });
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteOne(att.id);
                           }}
                           className="absolute bottom-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                      {/* Name */}
                       <div className="p-2">
                         {editingId === att.id ? (
                           <input
@@ -1807,9 +2173,9 @@ function AttachmentsModal({
                                 ),
                               )
                             }
-                            onBlur={() => setEditingId(null)}
+                            onBlur={() => commitRename(att)}
                             onKeyDown={(e) =>
-                              e.key === "Enter" && setEditingId(null)
+                              e.key === "Enter" && commitRename(att)
                             }
                             className="w-full rounded border border-cyan-300 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-cyan-200"
                           />
@@ -1851,9 +2217,8 @@ function AttachmentsModal({
   );
 }
 
-// ─── Notes Modal ──────────────────────────────────────────────────────────────
-
 function NotesModal({
+  transactionId,
   requester,
   onClose,
   t,
@@ -1865,48 +2230,97 @@ function NotesModal({
   t: Copy;
   isRtl: boolean;
 }) {
-  const [notes, setNotes] = useState<NoteMessage[]>(DUMMY_NOTES);
+  const [notes, setNotes] = useState<NoteMessage[]>([]);
+  const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<NoteMessage | null>(null);
   const [showParticipants, setShowParticipants] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Load ────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(apiUrl(`/transactions/${transactionId}/notes`), {
+      credentials: "include",
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
+      .then((data) => setNotes(data))
+      .catch(() => setError(t.errorLoading))
+      .finally(() => setLoading(false));
+  }, [transactionId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [notes]);
 
-  const send = () => {
+  // ── Send ─────────────────────────────────────────────────────────────────────
+
+  const send = async () => {
     const content = input.trim();
-    if (!content) return;
-    setNotes((prev) => [
-      ...prev,
-      {
-        id: `n-${Date.now()}`,
-        author: ME,
-        content,
-        timestamp: new Date().toISOString(),
-        isPinned: false,
-        replyTo: replyTo
-          ? {
-              id: replyTo.id,
-              content: replyTo.content,
-              authorName: replyTo.author.name,
-            }
-          : undefined,
-      },
-    ]);
-    setInput("");
-    setReplyTo(null);
+    if (!content || sending) return;
+    setSending(true);
+    try {
+      const r = await fetch(apiUrl(`/transactions/${transactionId}/notes`), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          authorId: ME.id,
+          authorName: ME.name,
+          authorRole: ME.role,
+          authorColor: ME.color,
+          content,
+          replyToId: replyTo?.id,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      const note: NoteMessage = await r.json();
+      setNotes((prev) => [...prev, note]);
+      setInput("");
+      setReplyTo(null);
+    } catch {
+      setError(t.errorSaving);
+    } finally {
+      setSending(false);
+    }
   };
 
-  const togglePin = (id: string) =>
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isPinned: !n.isPinned } : n)),
-    );
-  const pinnedNotes = notes.filter((n) => n.isPinned);
+  // ── Pin ──────────────────────────────────────────────────────────────────────
 
-  // Group by day
+  const togglePin = async (id: string) => {
+    try {
+      const r = await fetch(
+        apiUrl(`/transactions/${transactionId}/notes/${id}/pin`),
+        { method: "PATCH", credentials: "include" },
+      );
+      if (!r.ok) throw new Error();
+      const updated: NoteMessage = await r.json();
+      setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+    } catch {
+      setError(t.errorSaving);
+    }
+  };
+
+  // ── Derive participants from loaded notes ────────────────────────────────────
+
+  const participants = useMemo(() => {
+    const seen = new Map<string, NoteAuthor>();
+    notes.forEach((n) => {
+      if (!seen.has(n.author.id)) seen.set(n.author.id, n.author);
+    });
+    // Always include ME even before they've sent a note
+    if (!seen.has(ME.id)) seen.set(ME.id, ME);
+    return [...seen.values()];
+  }, [notes]);
+
+  const pinnedNotes = notes.filter((n) => n.isPinned);
   const grouped: { date: string; messages: NoteMessage[] }[] = [];
   notes.forEach((note) => {
     const d = formatDate(note.timestamp);
@@ -1924,7 +2338,6 @@ function NotesModal({
         className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
         onClick={onClose}
       />
-
       <div
         className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         style={{ height: "min(85vh, 700px)" }}
@@ -1954,7 +2367,7 @@ function NotesModal({
                 )}
               >
                 <div className="flex -space-x-1 rtl:space-x-reverse">
-                  {DUMMY_AUTHORS.map((a) => (
+                  {participants.slice(0, 3).map((a) => (
                     <div
                       key={a.id}
                       className={cn(
@@ -1967,7 +2380,7 @@ function NotesModal({
                   ))}
                 </div>
                 <span>
-                  {DUMMY_AUTHORS.length} {t.participants}
+                  {participants.length} {t.participants}
                 </span>
               </button>
               <button
@@ -1978,11 +2391,9 @@ function NotesModal({
               </button>
             </div>
           </div>
-
-          {/* Participants panel */}
           {showParticipants && (
             <div className="mt-3 flex flex-wrap gap-2 rounded-xl bg-slate-50 p-3">
-              {DUMMY_AUTHORS.map((author) => (
+              {participants.map((author) => (
                 <div
                   key={author.id}
                   className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm"
@@ -2005,7 +2416,7 @@ function NotesModal({
           )}
         </div>
 
-        {/* Pinned bar */}
+        {/* Pinned notes */}
         {pinnedNotes.length > 0 && (
           <div className="shrink-0 border-b border-amber-100 bg-amber-50/60 px-5 py-2.5">
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-600">
@@ -2026,9 +2437,19 @@ function NotesModal({
           </div>
         )}
 
+        {/* Error banner */}
+        {error && (
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
+        )}
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {notes.length === 0 ? (
+          {loading ? (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t.loading}
+            </div>
+          ) : notes.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               {t.noNotes}
             </div>
@@ -2036,7 +2457,6 @@ function NotesModal({
             <div className="space-y-6">
               {grouped.map((group) => (
                 <div key={group.date}>
-                  {/* Day divider */}
                   <div className="mb-4 flex items-center gap-3">
                     <div className="h-px flex-1 bg-slate-100" />
                     <span className="whitespace-nowrap text-[11px] font-semibold text-slate-400">
@@ -2067,7 +2487,6 @@ function NotesModal({
                                 {note.author.name} · {note.author.role}
                               </span>
                             )}
-                            {/* Reply preview */}
                             {note.replyTo && (
                               <div
                                 className={cn(
@@ -2085,7 +2504,6 @@ function NotesModal({
                                 </p>
                               </div>
                             )}
-                            {/* Bubble */}
                             <div
                               className={cn(
                                 "relative rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm",
@@ -2104,7 +2522,6 @@ function NotesModal({
                               )}
                               {note.content}
                             </div>
-                            {/* Time + hover actions */}
                             <div
                               className={cn(
                                 "flex items-center gap-2",
@@ -2151,7 +2568,7 @@ function NotesModal({
           )}
         </div>
 
-        {/* Reply strip */}
+        {/* Reply preview */}
         {replyTo && (
           <div className="shrink-0 flex items-center gap-3 border-t border-slate-100 bg-slate-50 px-5 py-2">
             <div
@@ -2176,7 +2593,7 @@ function NotesModal({
           </div>
         )}
 
-        {/* Composer */}
+        {/* Input */}
         <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
           <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 focus-within:border-cyan-300 focus-within:bg-white transition-colors">
             <textarea
@@ -2196,13 +2613,17 @@ function NotesModal({
             />
             <button
               onClick={send}
-              disabled={!input.trim()}
+              disabled={!input.trim() || sending}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-600 text-white transition-all hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Send
-                className="h-4 w-4"
-                style={{ transform: isRtl ? "scaleX(-1)" : undefined }}
-              />
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send
+                  className="h-4 w-4"
+                  style={{ transform: isRtl ? "scaleX(-1)" : undefined }}
+                />
+              )}
             </button>
           </div>
           <p className="mt-1.5 text-center text-[10px] text-slate-400">
@@ -2317,8 +2738,6 @@ function ValuationTableRow({
             className="h-4 w-4"
           />
         </div>
-
-        {/* Logo + priority */}
         <div className="flex w-14 shrink-0 flex-col items-center gap-1.5">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white">
             {row.clientLogo ? (
@@ -2333,8 +2752,6 @@ function ValuationTableRow({
           </div>
           <PriorityBadge priority={row.priority} t={t} />
         </div>
-
-        {/* Assignment */}
         <div className="w-44 min-w-0 shrink-0">
           <span className="truncate text-sm font-semibold text-slate-800">
             {row.assignment.requester}
@@ -2355,8 +2772,6 @@ function ValuationTableRow({
             </div>
           )}
         </div>
-
-        {/* Details */}
         <div className="w-48 min-w-0 shrink-0 space-y-0.5">
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <User className="h-3 w-3 shrink-0 text-slate-400" />
@@ -2379,8 +2794,6 @@ function ValuationTableRow({
             </div>
           )}
         </div>
-
-        {/* Inspector + timer */}
         <div className="w-32 shrink-0 space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <User className="h-3 w-3 shrink-0 text-slate-400" />
@@ -2406,8 +2819,6 @@ function ValuationTableRow({
             {row.elapsedLabel}
           </span>
         </div>
-
-        {/* Value */}
         <div className="w-28 shrink-0 text-center">
           <div
             className={cn(
@@ -2419,13 +2830,9 @@ function ValuationTableRow({
           </div>
           <div className="text-[10px] text-slate-400">{t.sar}</div>
         </div>
-
-        {/* Status */}
         <div className="flex w-24 shrink-0 items-center justify-center">
           <StatusBadge status={row.status} t={t} />
         </div>
-
-        {/* Actions — 4-column grid, wraps to 2 rows */}
         <div className="shrink-0">
           <div className="grid grid-cols-4 gap-0.5">
             <ActionButton
@@ -2650,6 +3057,7 @@ export function ValuationTable({
   const [rows, setRows] = useState<ValuationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [attachmentsModal, setAttachmentsModal] = useState<{
     open: boolean;
     row: ValuationRow | null;
@@ -2658,7 +3066,6 @@ export function ValuationTable({
     open: boolean;
     row: ValuationRow | null;
   }>({ open: false, row: null });
-  // NEW modal states
   const [imagesModal, setImagesModal] = useState<{
     open: boolean;
     row: ValuationRow | null;
@@ -2729,32 +3136,40 @@ export function ValuationTable({
     setCurrentPage(1);
   }, []);
 
-  // NEW: Handle save from edit modal — updates the row in local state
-  const handleSaveEdit = useCallback(
-    (data: EditableTransactionData) => {
-      if (!editModal.row) return;
+  // ── Edit saved: rebuild the row from the fresh ApiTransaction ─────────────
+
+  const handleSaved = useCallback((updated: ApiTransaction) => {
+    setRows((prev) =>
+      prev.map((r) => (r.id === updated.id ? mapToRow(updated) : r)),
+    );
+    // Keep the modal's row reference current so re-opening it sees fresh data
+    setEditModal((prev) =>
+      prev.row?.id === updated.id ? { ...prev, row: mapToRow(updated) } : prev,
+    );
+  }, []);
+
+  // ── Attachment/image count changes reflected in the table badges ──────────
+
+  const handleAttachmentCountChange = useCallback(
+    (transactionId: string, count: number) => {
       setRows((prev) =>
-        prev.map((r) => {
-          if (r.id !== editModal.row!.id) return r;
-          return {
-            ...r,
-            priority: data.priority as Priority,
-            status: data.status as ValuationStatus,
-            assignment: {
-              ...r.assignment,
-              assignmentNumber:
-                data.assignmentNumber || r.assignment.assignmentNumber,
-              assignmentDate:
-                data.assignmentDate || r.assignment.assignmentDate,
-              authorizationNumber:
-                data.authorizationNumber || r.assignment.authorizationNumber,
-            },
-            rawData: { ...(r.rawData ?? {}), ...data },
-          };
-        }),
+        prev.map((r) =>
+          r.id === transactionId ? { ...r, attachmentsCount: count } : r,
+        ),
       );
     },
-    [editModal.row],
+    [],
+  );
+
+  const handleImageCountChange = useCallback(
+    (transactionId: string, count: number) => {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === transactionId ? { ...r, imagesCount: count } : r,
+        ),
+      );
+    },
+    [],
   );
 
   return (
@@ -2805,10 +3220,10 @@ export function ValuationTable({
                 <ColumnHeader label={t.actions} />
               </div>
             </div>
-
             {/* Rows */}
             {loading ? (
-              <div className="flex h-40 items-center justify-center text-sm text-slate-400">
+              <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
                 {t.loading}
               </div>
             ) : error ? (
@@ -2843,7 +3258,6 @@ export function ValuationTable({
             )}
           </div>
         </div>
-
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
@@ -2855,12 +3269,14 @@ export function ValuationTable({
         />
       </div>
 
-      {/* Existing modals */}
       {attachmentsModal.open && attachmentsModal.row && (
         <AttachmentsModal
           transactionId={attachmentsModal.row.id}
           requester={attachmentsModal.row.assignment.requester}
           onClose={() => setAttachmentsModal({ open: false, row: null })}
+          onCountChange={(count) =>
+            handleAttachmentCountChange(attachmentsModal.row!.id, count)
+          }
           t={t}
           isRtl={isArabic}
         />
@@ -2874,24 +3290,23 @@ export function ValuationTable({
           isRtl={isArabic}
         />
       )}
-
-      {/* NEW: Images modal */}
       {imagesModal.open && imagesModal.row && (
         <ImagesModal
           transactionId={imagesModal.row.id}
           requester={imagesModal.row.assignment.requester}
           onClose={() => setImagesModal({ open: false, row: null })}
+          onCountChange={(count) =>
+            handleImageCountChange(imagesModal.row!.id, count)
+          }
           t={t}
           isRtl={isArabic}
         />
       )}
-
-      {/* NEW: Edit transaction modal */}
       {editModal.open && editModal.row && (
         <EditTransactionModal
           row={editModal.row}
           onClose={() => setEditModal({ open: false, row: null })}
-          onSave={handleSaveEdit}
+          onSaved={handleSaved}
           t={t}
           isRtl={isArabic}
         />

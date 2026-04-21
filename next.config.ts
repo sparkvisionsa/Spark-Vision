@@ -1,11 +1,11 @@
-import type {NextConfig} from 'next';
+import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
   experimental: {
-    optimizePackageImports: ['lucide-react', 'recharts'],
+    optimizePackageImports: ["lucide-react", "recharts"],
   },
   onDemandEntries: {
     // Keep recently visited routes in memory during dev for faster back/forward navigation
@@ -20,7 +20,6 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Server-side proxy target (must match where Nest runs). Prefer BACKEND_URL in .env.local
     const backendBaseUrl =
       process.env.BACKEND_URL?.replace(/\/+$/, "") ??
       process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??
@@ -30,33 +29,37 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${backendBaseUrl}/api/:path*`,
       },
+      {
+        source: "/uploads/:path*",
+        destination: `${backendBaseUrl}/uploads/:path*`,
+      },
     ];
   },
   images: {
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'placehold.co',
-        port: '',
-        pathname: '/**',
+        protocol: "https",
+        hostname: "placehold.co",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
-        port: '',
-        pathname: '/**',
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol: 'https',
-        hostname: 'picsum.photos',
-        port: '',
-        pathname: '/**',
+        protocol: "https",
+        hostname: "picsum.photos",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol: 'https',
-        hostname: 'images.pexels.com',
-        port: '',
-        pathname: '/**',
+        protocol: "https",
+        hostname: "images.pexels.com",
+        port: "",
+        pathname: "/**",
       },
     ],
   },
