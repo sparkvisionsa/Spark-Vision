@@ -2101,14 +2101,38 @@ export function TransactionEvaluationPage({
             t.btnEdit,
             t.btnNearComps,
             t.btnCopyComps,
-            t.btnView,
-            t.btnPdf,
-            t.btnMessages,
           ].map((btn) => (
             <button key={btn} type="button" style={styles.actionBtn}>
               {btn}
             </button>
           ))}
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() =>
+              window.open(
+                toApiUrl(`/api/transactions/${transactionId}/pdf`),
+                "_blank",
+              )
+            }
+          >
+            {t.btnView}
+          </button>
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = toApiUrl(`/api/transactions/${transactionId}/pdf`);
+              a.download = `valuation-${transactionId}.pdf`;
+              a.click();
+            }}
+          >
+            {t.btnPdf}
+          </button>
+          <button key={t.btnMessages} type="button" style={styles.actionBtn}>
+            {t.btnMessages}
+          </button>
         </div>
       </div>
 

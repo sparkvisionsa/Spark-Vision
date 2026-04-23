@@ -1,4 +1,7 @@
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, "");
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(
+  /\/+$/,
+  "",
+);
 
 /**
  * Builds the URL for Spark Vision API calls.
@@ -14,6 +17,8 @@ export function toApiUrl(path: string) {
   if (/^https?:\/\//i.test(path)) {
     return path;
   }
+
+  console.log(API_BASE_URL);
 
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 

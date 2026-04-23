@@ -12,6 +12,7 @@ const MapPickerComponent = dynamic(() => import("./MapPickerComponent"), {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ComparisonRow = {
+  inReport?: boolean; // ← NEW: controls whether this comparison participates in settlements
   evalDate: string;
   propertyTypeId: string;
   comparisonKind: string;
@@ -78,8 +79,10 @@ const SC = {
     roundingHint: "مثال: 1,234 مع تقريب 5 يصبح 1,235",
     noRounding: "بدون تقريب",
     nearest: (n: number) => `أقرب ${n}`,
+    includeInReport: "تضمين في التقرير والتسويات",
     // Comparison table headers
     colSerial: "م",
+    colInclude: "تضمين",
     colDate: "التاريخ",
     colType: "النوع",
     colKind: "نوع المقارنة",
@@ -159,8 +162,10 @@ const SC = {
     roundingHint: "E.g., 1,234 rounded to 5 becomes 1,235",
     noRounding: "No rounding",
     nearest: (n: number) => `Nearest ${n}`,
+    includeInReport: "Include in report & adjustments",
     // Comparison table headers
     colSerial: "#",
+    colInclude: "Include",
     colDate: "Date",
     colType: "Type",
     colKind: "Comparison Kind",
@@ -310,6 +315,7 @@ const DEFAULT_SECTION2_TITLES: Record<Lang, string[]> = {
 
 export function emptyComparisonRow(): ComparisonRow {
   return {
+    inReport: true,
     evalDate: "",
     propertyTypeId: "",
     comparisonKind: "تنفيذ",
@@ -344,7 +350,7 @@ function fmt(n: number, decimals = 2): string {
 }
 function parseNum(v: string | undefined): number {
   if (!v) return 0;
-  return parseFloat(v.replace(/,/g, "")) || 0;
+  return parseFloat(String(v).replace(/,/g, "")) || 0;
 }
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -406,15 +412,50 @@ const thBase: React.CSSProperties = {
   color: DT.text,
 };
 
+// ─── Column-removal helper ─────────────────────────────────────────────────────
+/**
+ * Removes column `colIndex` from every row's `cols` and `colAdj` arrays.
+ * Also trims the `bases` and `weights` arrays at the same index.
+ */
+function removeColumnFromSettlementData(
+  colIndex: number,
+  section1Rows: any[],
+  section2Rows: any[],
+  bases: string[],
+  weights: string[],
+) {
+  const removeCol = (arr: string[]) => arr.filter((_, i) => i !== colIndex);
+
+  const newSection1 = section1Rows.map((r) => ({
+    ...r,
+    cols: removeCol(r.cols ?? []),
+    colAdj: removeCol(r.colAdj ?? []),
+  }));
+
+  const newSection2 = section2Rows.map((r) => ({
+    ...r,
+    cols: removeCol(r.cols ?? []),
+    colAdj: removeCol(r.colAdj ?? []),
+  }));
+
+  const newBases = removeCol(bases);
+  const newWeights = removeCol(weights);
+
+  return { newSection1, newSection2, newBases, newWeights };
+}
+
 // ─── Comparison Properties Table ──────────────────────────────────────────────
 
 function ComparisonPropertiesTable({
   rows,
   onChange,
+  onDeleteRow,
   lang,
 }: {
   rows: ComparisonRow[];
   onChange: (rows: ComparisonRow[]) => void;
+  /** Called when a row is deleted — passes the index so parent can clean settlement columns */
+  onDeleteRow: (index: number) => void;
   lang: Lang;
 }) {
   const t = SC[lang];
@@ -422,7 +463,13 @@ function ComparisonPropertiesTable({
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
 
   const addRow = () => onChange([...rows, emptyComparisonRow()]);
-  const removeRow = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+
+  const removeRow = (i: number) => {
+    // Notify parent FIRST so it can clean up settlement columns by original index
+    onDeleteRow(i);
+    // Then remove the row itself
+    onChange(rows.filter((_, idx) => idx !== i));
+  };
 
   const openMapPicker = (index: number) => {
     setActiveRowIndex(index);
@@ -438,7 +485,7 @@ function ComparisonPropertiesTable({
   };
 
   const updateRow = useCallback(
-    (i: number, field: keyof ComparisonRow, val: string) => {
+    (i: number, field: keyof ComparisonRow, val: any) => {
       onChange(
         rows.map((r, idx) => {
           if (idx !== i) return r;
@@ -457,6 +504,7 @@ function ComparisonPropertiesTable({
 
   const headers = [
     t.colSerial,
+    t.colInclude,
     t.colDate,
     t.colType,
     t.colKind,
@@ -504,186 +552,226 @@ function ComparisonPropertiesTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, i) => (
-              <tr
-                key={i}
-                style={{ background: i % 2 === 0 ? DT.surface : DT.surfaceAlt }}
-              >
-                <td
+            {rows.map((row, i) => {
+              const isIncluded = row.inReport !== false;
+              return (
+                <tr
+                  key={i}
                   style={{
-                    ...cellBase,
-                    textAlign: "center",
-                    color: DT.textMuted,
-                    fontWeight: 600,
-                    fontSize: 11,
-                    width: 28,
+                    background: !isIncluded
+                      ? "#fafafa"
+                      : i % 2 === 0
+                        ? DT.surface
+                        : DT.surfaceAlt,
+                    opacity: isIncluded ? 1 : 0.6,
                   }}
                 >
-                  {i + 1}
-                </td>
-                <td style={cellBase}>
-                  <input
-                    type="date"
-                    value={row.evalDate}
-                    onChange={(e) => updateRow(i, "evalDate", e.target.value)}
-                    style={{ ...inputBase, minWidth: 120 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <select
-                    value={row.propertyTypeId}
-                    onChange={(e) =>
-                      updateRow(i, "propertyTypeId", e.target.value)
-                    }
-                    style={{ ...inputBase, minWidth: 100 }}
+                  <td
+                    style={{
+                      ...cellBase,
+                      textAlign: "center",
+                      color: DT.textMuted,
+                      fontWeight: 600,
+                      fontSize: 11,
+                      width: 28,
+                    }}
                   >
-                    <option value="" disabled>
-                      {t.placeholderKind}
-                    </option>
-                    {Object.entries(PROPERTY_TYPES[lang]).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td style={cellBase}>
-                  <select
-                    value={row.comparisonKind}
-                    onChange={(e) =>
-                      updateRow(i, "comparisonKind", e.target.value)
-                    }
-                    style={{ ...inputBase, minWidth: 80 }}
-                  >
-                    {COMPARISON_KINDS[lang].map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td style={cellBase}>
-                  <input
-                    dir="ltr"
-                    type="number"
-                    value={row.landSpace}
-                    onChange={(e) => updateRow(i, "landSpace", e.target.value)}
-                    style={{ ...inputBase, minWidth: 80 }}
-                    placeholder={t.placeholderZero}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    dir="ltr"
-                    type="number"
-                    value={row.price}
-                    onChange={(e) => updateRow(i, "price", e.target.value)}
-                    style={{ ...inputBase, minWidth: 80 }}
-                    placeholder={t.placeholderZero}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    dir="ltr"
-                    readOnly
-                    value={row.total}
-                    style={{ ...readonlyInput, minWidth: 100 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    value={row.description}
-                    onChange={(e) =>
-                      updateRow(i, "description", e.target.value)
-                    }
-                    style={{ ...inputBase, minWidth: 80 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    type="number"
-                    value={row.roads}
-                    onChange={(e) => updateRow(i, "roads", e.target.value)}
-                    style={{ ...inputBase, minWidth: 50 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    type="number"
-                    value={row.street}
-                    onChange={(e) => updateRow(i, "street", e.target.value)}
-                    style={{ ...inputBase, minWidth: 50 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <input
-                    list={`src-list-${i}`}
-                    value={row.source}
-                    onChange={(e) => updateRow(i, "source", e.target.value)}
-                    style={{ ...inputBase, minWidth: 120 }}
-                  />
-                  <datalist id={`src-list-${i}`}>
-                    {SOURCES[lang].map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
-                </td>
-                <td style={cellBase}>
-                  <input
-                    value={row.notes}
-                    onChange={(e) => updateRow(i, "notes", e.target.value)}
-                    style={{ ...inputBase, minWidth: 80 }}
-                  />
-                </td>
-                <td style={cellBase}>
-                  <div
-                    style={{ display: "flex", gap: 4, alignItems: "center" }}
-                  >
+                    {i + 1}
+                  </td>
+                  {/* Include checkbox */}
+                  <td style={{ ...cellBase, textAlign: "center", width: 52 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 2,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isIncluded}
+                        onChange={(e) =>
+                          updateRow(i, "inReport", e.target.checked)
+                        }
+                        style={{ accentColor: DT.blue, width: 15, height: 15 }}
+                        title={t.includeInReport}
+                      />
+                      {isIncluded ? (
+                        <span style={{ fontSize: 9, color: DT.green }}>✓</span>
+                      ) : (
+                        <span style={{ fontSize: 9, color: DT.textLight }}>
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td style={cellBase}>
                     <input
-                      placeholder={t.placeholderCoords}
-                      value={row.coords}
-                      onChange={(e) => updateRow(i, "coords", e.target.value)}
-                      style={{ ...inputBase, minWidth: 110, flex: 1 }}
-                      dir="ltr"
+                      type="date"
+                      value={row.evalDate}
+                      onChange={(e) => updateRow(i, "evalDate", e.target.value)}
+                      style={{ ...inputBase, minWidth: 120 }}
                     />
+                  </td>
+                  <td style={cellBase}>
+                    <select
+                      value={row.propertyTypeId}
+                      onChange={(e) =>
+                        updateRow(i, "propertyTypeId", e.target.value)
+                      }
+                      style={{ ...inputBase, minWidth: 100 }}
+                    >
+                      <option value="" disabled>
+                        {t.placeholderKind}
+                      </option>
+                      {Object.entries(PROPERTY_TYPES[lang]).map(([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={cellBase}>
+                    <select
+                      value={row.comparisonKind}
+                      onChange={(e) =>
+                        updateRow(i, "comparisonKind", e.target.value)
+                      }
+                      style={{ ...inputBase, minWidth: 80 }}
+                    >
+                      {COMPARISON_KINDS[lang].map((k) => (
+                        <option key={k} value={k}>
+                          {k}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      dir="ltr"
+                      type="number"
+                      value={row.landSpace}
+                      onChange={(e) =>
+                        updateRow(i, "landSpace", e.target.value)
+                      }
+                      style={{ ...inputBase, minWidth: 80 }}
+                      placeholder={t.placeholderZero}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      dir="ltr"
+                      type="number"
+                      value={row.price}
+                      onChange={(e) => updateRow(i, "price", e.target.value)}
+                      style={{ ...inputBase, minWidth: 80 }}
+                      placeholder={t.placeholderZero}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      dir="ltr"
+                      readOnly
+                      value={row.total}
+                      style={{ ...readonlyInput, minWidth: 100 }}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      value={row.description}
+                      onChange={(e) =>
+                        updateRow(i, "description", e.target.value)
+                      }
+                      style={{ ...inputBase, minWidth: 80 }}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      type="number"
+                      value={row.roads}
+                      onChange={(e) => updateRow(i, "roads", e.target.value)}
+                      style={{ ...inputBase, minWidth: 50 }}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      type="number"
+                      value={row.street}
+                      onChange={(e) => updateRow(i, "street", e.target.value)}
+                      style={{ ...inputBase, minWidth: 50 }}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      list={`src-list-${i}`}
+                      value={row.source}
+                      onChange={(e) => updateRow(i, "source", e.target.value)}
+                      style={{ ...inputBase, minWidth: 120 }}
+                    />
+                    <datalist id={`src-list-${i}`}>
+                      {SOURCES[lang].map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                  </td>
+                  <td style={cellBase}>
+                    <input
+                      value={row.notes}
+                      onChange={(e) => updateRow(i, "notes", e.target.value)}
+                      style={{ ...inputBase, minWidth: 80 }}
+                    />
+                  </td>
+                  <td style={cellBase}>
+                    <div
+                      style={{ display: "flex", gap: 4, alignItems: "center" }}
+                    >
+                      <input
+                        placeholder={t.placeholderCoords}
+                        value={row.coords}
+                        onChange={(e) => updateRow(i, "coords", e.target.value)}
+                        style={{ ...inputBase, minWidth: 110, flex: 1 }}
+                        dir="ltr"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => openMapPicker(i)}
+                        style={{
+                          background: DT.blueLight,
+                          border: `1px solid ${DT.blueMid}`,
+                          borderRadius: 4,
+                          padding: "4px 8px",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          whiteSpace: "nowrap",
+                        }}
+                        title={t.mapBtnTitle}
+                      >
+                        {t.mapBtn}
+                      </button>
+                    </div>
+                  </td>
+                  <td style={{ ...cellBase, textAlign: "center", width: 32 }}>
                     <button
                       type="button"
-                      onClick={() => openMapPicker(i)}
+                      onClick={() => removeRow(i)}
                       style={{
-                        background: DT.blueLight,
-                        border: `1px solid ${DT.blueMid}`,
-                        borderRadius: 4,
-                        padding: "4px 8px",
+                        background: "none",
+                        border: "none",
                         cursor: "pointer",
-                        fontSize: 12,
-                        whiteSpace: "nowrap",
+                        color: DT.red,
+                        fontSize: 14,
+                        padding: "2px 4px",
+                        borderRadius: 4,
                       }}
-                      title={t.mapBtnTitle}
+                      title={t.deleteBtnTitle}
                     >
-                      {t.mapBtn}
+                      {t.deleteBtn}
                     </button>
-                  </div>
-                </td>
-                <td style={{ ...cellBase, textAlign: "center", width: 32 }}>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(i)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      color: DT.red,
-                      fontSize: 14,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                    }}
-                    title={t.deleteBtnTitle}
-                  >
-                    {t.deleteBtn}
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              );
+            })}
             {rows.length === 0 && (
               <tr>
                 <td
@@ -775,7 +863,12 @@ function SettlementAdjustmentsTable({
   lang: Lang;
 }) {
   const t = SC[lang];
-  const n = Math.max(comparisonRows.length, 1);
+
+  // Only show columns for rows that are checked (inReport !== false)
+  const activeComps = comparisonRows
+    .map((r, i) => ({ row: r, originalIndex: i }))
+    .filter(({ row }) => row.inReport !== false);
+  const n = activeComps.length;
 
   const [scaleFactor, setScaleFactor] = useState<string>("100");
   const [roundTo, setRoundTo] = useState<string>("0");
@@ -786,30 +879,37 @@ function SettlementAdjustmentsTable({
     return Math.round(value / roundBase) * roundBase;
   };
 
-  const effectiveBases = useMemo(
-    () =>
-      Array.from({ length: n }, (_, c) =>
-        bases[c] !== undefined && bases[c] !== ""
-          ? bases[c]
-          : (comparisonRows[c]?.price ?? ""),
-      ),
-    [n, bases, comparisonRows],
-  );
+  // Map settlement column index → original comparison row index
+  // so data lookup always goes to the right column
+  const getBase = (settleColIdx: number): string => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    const stored = bases[origIdx];
+    return stored !== undefined && stored !== ""
+      ? stored
+      : (comparisonRows[origIdx]?.price ?? "");
+  };
 
-  const updateBase = (c: number, val: string) => {
+  const updateBase = (settleColIdx: number, val: string) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
     const nb = [...bases];
-    while (nb.length < n) nb.push("");
-    nb[c] = val;
+    while (nb.length <= origIdx) nb.push("");
+    nb[origIdx] = val;
     onBasesChange(nb);
   };
 
-  const updateS1Adj = (i: number, c: number, val: string) => {
+  const getS1Adj = (row: SettlementSection1Row, settleColIdx: number) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return (row.colAdj ?? [])[origIdx] ?? "";
+  };
+
+  const updateS1Adj = (rowIdx: number, settleColIdx: number, val: string) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
     onSection1Change(
       section1Rows.map((r, ri) => {
-        if (ri !== i) return r;
+        if (ri !== rowIdx) return r;
         const arr = [...(r.colAdj || [])];
-        while (arr.length < n) arr.push("");
-        arr[c] = val;
+        while (arr.length <= origIdx) arr.push("");
+        arr[origIdx] = val;
         return { ...r, colAdj: arr };
       }),
     );
@@ -825,16 +925,32 @@ function SettlementAdjustmentsTable({
       section1Rows.map((r, ri) => (ri === i ? { ...r, valueM: val } : r)),
     );
 
-  const updateS1Col = (i: number, c: number, val: string) =>
+  const getS1Col = (row: SettlementSection1Row, settleColIdx: number) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return ((row as any).cols ?? [])[origIdx] ?? "";
+  };
+
+  const updateS1Col = (rowIdx: number, settleColIdx: number, val: string) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
     onSection1Change(
       section1Rows.map((r, ri) => {
-        if (ri !== i) return r;
+        if (ri !== rowIdx) return r;
         const cols = [...((r as any).cols || [])];
-        while (cols.length < n) cols.push("");
-        cols[c] = val;
+        while (cols.length <= origIdx) cols.push("");
+        cols[origIdx] = val;
         return { ...r, cols };
       }),
     );
+  };
+
+  const getS2Col = (
+    row: SettlementSection2Row,
+    settleColIdx: number,
+    field: "cols" | "colAdj",
+  ) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return (row[field] ?? [])[origIdx] ?? "";
+  };
 
   const updateS2 = (i: number, field: keyof SettlementSection2Row, val: any) =>
     onSection2Change(
@@ -843,19 +959,21 @@ function SettlementAdjustmentsTable({
 
   const updateS2Col = (
     i: number,
-    c: number,
+    settleColIdx: number,
     field: "cols" | "colAdj",
     val: string,
-  ) =>
+  ) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
     onSection2Change(
       section2Rows.map((r, ri) => {
         if (ri !== i) return r;
         const arr = [...(r[field] || [])];
-        while (arr.length < n) arr.push("");
-        arr[c] = val;
+        while (arr.length <= origIdx) arr.push("");
+        arr[origIdx] = val;
         return { ...r, [field]: arr };
       }),
     );
+  };
 
   const addS2Row = () =>
     onSection2Change([
@@ -864,26 +982,45 @@ function SettlementAdjustmentsTable({
         inReport: true,
         title: "",
         valueM: "",
-        cols: Array(n).fill(""),
-        colAdj: Array(n).fill(""),
+        cols: Array(Math.max(comparisonRows.length, 1)).fill(""),
+        colAdj: Array(Math.max(comparisonRows.length, 1)).fill(""),
       },
     ]);
 
   const removeS2Row = (i: number) =>
     onSection2Change(section2Rows.filter((_, ri) => ri !== i));
 
-  const pctAdj = (base: number, pct: string) => base * (parseNum(pct) / 100);
+  const getWeight = (settleColIdx: number) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return weights[origIdx] ?? "";
+  };
+
+  const updateWeight = (settleColIdx: number, val: string) => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    const w = [...weights];
+    while (w.length <= origIdx) w.push("");
+    w[origIdx] = val;
+    onWeightsChange(w);
+  };
+
+  // ── Calculations (only over active/checked comparisons) ───────────────────
+  const effectiveBases = useMemo(
+    () => Array.from({ length: n }, (_, c) => getBase(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [n, bases, comparisonRows, activeComps],
+  );
 
   const s1AdjAmounts = useMemo(
     () =>
       Array.from({ length: n }, (_, c) => {
         const base = parseNum(effectiveBases[c]);
         return section1Rows.reduce(
-          (sum, r) => sum + pctAdj(base, (r.colAdj || [])[c]),
+          (sum, r) => sum + base * (parseNum(getS1Adj(r, c)) / 100),
           0,
         );
       }),
-    [section1Rows, effectiveBases, n],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [section1Rows, effectiveBases, n, activeComps],
   );
 
   const priceAfterS1 = useMemo(
@@ -899,12 +1036,15 @@ function SettlementAdjustmentsTable({
     () =>
       Array.from({ length: n }, (_, c) => {
         const base = priceAfterS1[c];
-        return section2Rows.reduce(
-          (sum, r) => sum + pctAdj(base, (r.colAdj || [])[c]),
-          0,
-        );
+        return section2Rows
+          .filter((r) => r.inReport !== false)
+          .reduce(
+            (sum, r) => sum + base * (parseNum(getS2Col(r, c, "colAdj")) / 100),
+            0,
+          );
       }),
-    [section2Rows, priceAfterS1, n],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [section2Rows, priceAfterS1, n, activeComps],
   );
 
   const priceAfterAll = useMemo(
@@ -914,8 +1054,13 @@ function SettlementAdjustmentsTable({
   );
 
   const totalWeight = useMemo(
-    () => weights.slice(0, n).reduce((s, w) => s + parseNum(w), 0),
-    [weights, n],
+    () =>
+      Array.from({ length: n }, (_, c) => parseNum(getWeight(c))).reduce(
+        (s, v) => s + v,
+        0,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [weights, n, activeComps],
   );
 
   const weightError = totalWeight > 0 && Math.abs(totalWeight - 100) > 0.01;
@@ -925,9 +1070,10 @@ function SettlementAdjustmentsTable({
     () =>
       Array.from({ length: n }, (_, c) => {
         if (!totalWeight) return 0;
-        return priceAfterAll[c] * (parseNum(weights[c]) / 100);
+        return priceAfterAll[c] * (parseNum(getWeight(c)) / 100);
       }),
-    [priceAfterAll, weights, n],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [priceAfterAll, weights, n, totalWeight, activeComps],
   );
 
   const netPricePerMeterRaw = useMemo(
@@ -981,6 +1127,25 @@ function SettlementAdjustmentsTable({
 
   const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
 
+  if (n === 0) {
+    return (
+      <div
+        style={{
+          padding: 20,
+          textAlign: "center",
+          color: DT.textMuted,
+          background: DT.surfaceAlt,
+          borderRadius: 8,
+          border: `1px solid ${DT.border}`,
+        }}
+      >
+        {lang === "ar"
+          ? "لا توجد مقارنات مُفعّلة. فعّل مقارنة واحدة على الأقل لعرض جدول التسويات."
+          : "No active comparisons. Enable at least one comparison to show the adjustments table."}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div
@@ -1001,8 +1166,8 @@ function SettlementAdjustmentsTable({
               {Array.from({ length: n }, (_, c) => (
                 <th key={c} colSpan={2} style={colSpanStyle(c)}>
                   {t.settlColComp(c + 1)}
-                  {comparisonRows[c]?.description
-                    ? ` — ${comparisonRows[c].description}`
+                  {activeComps[c]?.row.description
+                    ? ` — ${activeComps[c].row.description}`
                     : ""}
                 </th>
               ))}
@@ -1095,7 +1260,7 @@ function SettlementAdjustmentsTable({
                   <React.Fragment key={c}>
                     <td style={cellBase}>
                       <input
-                        value={((row as any).cols || [])[c] ?? ""}
+                        value={getS1Col(row, c)}
                         onChange={(e) => updateS1Col(i, c, e.target.value)}
                         style={{ ...inputBase, minWidth: 60 }}
                         placeholder={t.placeholderDesc}
@@ -1105,7 +1270,7 @@ function SettlementAdjustmentsTable({
                       <input
                         dir="ltr"
                         type="number"
-                        value={(row.colAdj || [])[c] ?? ""}
+                        value={getS1Adj(row, c)}
                         onChange={(e) => updateS1Adj(i, c, e.target.value)}
                         style={inputBase}
                         placeholder={t.placeholderZero}
@@ -1126,7 +1291,7 @@ function SettlementAdjustmentsTable({
               <td style={{ ...cellBase, background: "#e0edff" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
                 const sumPercentages = section1Rows.reduce(
-                  (sum, row) => sum + parseNum((row.colAdj || [])[c]),
+                  (sum, row) => sum + parseNum(getS1Adj(row, c)),
                   0,
                 );
                 return (
@@ -1253,7 +1418,7 @@ function SettlementAdjustmentsTable({
                   <React.Fragment key={c}>
                     <td style={cellBase}>
                       <input
-                        value={(row.cols || [])[c] ?? ""}
+                        value={getS2Col(row, c, "cols")}
                         onChange={(e) =>
                           updateS2Col(i, c, "cols", e.target.value)
                         }
@@ -1265,7 +1430,7 @@ function SettlementAdjustmentsTable({
                       <input
                         dir="ltr"
                         type="number"
-                        value={(row.colAdj || [])[c] ?? ""}
+                        value={getS2Col(row, c, "colAdj")}
                         onChange={(e) =>
                           updateS2Col(i, c, "colAdj", e.target.value)
                         }
@@ -1287,10 +1452,12 @@ function SettlementAdjustmentsTable({
               </td>
               <td style={{ ...cellBase, background: "#dcfce7" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
-                const sumPercentages = section2Rows.reduce(
-                  (sum, row) => sum + parseNum((row.colAdj || [])[c]),
-                  0,
-                );
+                const sumPercentages = section2Rows
+                  .filter((r) => r.inReport !== false)
+                  .reduce(
+                    (sum, row) => sum + parseNum(getS2Col(row, c, "colAdj")),
+                    0,
+                  );
                 return (
                   <td
                     key={c}
@@ -1381,13 +1548,8 @@ function SettlementAdjustmentsTable({
                     type="number"
                     min="0"
                     max="100"
-                    value={weights[c] ?? ""}
-                    onChange={(e) => {
-                      const w = [...weights];
-                      while (w.length < n) w.push("");
-                      w[c] = e.target.value;
-                      onWeightsChange(w);
-                    }}
+                    value={getWeight(c)}
+                    onChange={(e) => updateWeight(c, e.target.value)}
                     style={{
                       ...inputBase,
                       background: "#fef9c3",
@@ -1598,6 +1760,8 @@ function SettlementAdjustmentsTable({
   );
 }
 
+const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
+
 function KpiCard({
   label,
   value,
@@ -1727,6 +1891,40 @@ export function SettlementComparison({
     }));
   })();
 
+  /**
+   * When a comparison row is deleted at `deletedIndex`,
+   * we also remove that column from all settlement data.
+   */
+  const handleComparisonDeleteRow = useCallback(
+    (deletedIndex: number) => {
+      const { newSection1, newSection2, newBases, newWeights } =
+        removeColumnFromSettlementData(
+          deletedIndex,
+          section1Rows,
+          section2Rows,
+          settlementBases,
+          weights,
+        );
+
+      handleSection1Change(newSection1);
+      onSettlementRowsChange(newSection2 as unknown as SettlementRow[]);
+      onSettlementBasesChange(newBases);
+      handleWeightsChange(newWeights);
+    },
+    [
+      section1Rows,
+      section2Rows,
+      settlementBases,
+      weights,
+      handleSection1Change,
+      onSettlementRowsChange,
+      onSettlementBasesChange,
+      handleWeightsChange,
+    ],
+  );
+
+  const activeCount = comparisonRows.filter((r) => r.inReport !== false).length;
+
   return (
     <div
       dir={isRtl ? "rtl" : "ltr"}
@@ -1750,7 +1948,7 @@ export function SettlementComparison({
           <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
             {t.headerSubtitle(
               resolvedUseLabel,
-              comparisonRows.length,
+              activeCount,
               subjectArea || undefined,
             )}
           </div>
@@ -1764,6 +1962,7 @@ export function SettlementComparison({
         <ComparisonPropertiesTable
           rows={comparisonRows}
           onChange={onComparisonRowsChange}
+          onDeleteRow={handleComparisonDeleteRow}
           lang={lang}
         />
       </div>
