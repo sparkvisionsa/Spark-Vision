@@ -655,6 +655,10 @@ const copy = {
 
 type Copy = (typeof copy)[keyof typeof copy];
 
+export const AR_COPY = copy.ar;
+export const EN_COPY = copy.en;
+export type { Copy };
+
 // ─── status config ────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<
