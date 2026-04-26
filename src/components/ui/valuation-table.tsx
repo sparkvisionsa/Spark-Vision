@@ -1,5 +1,4 @@
 "use client";
-
 import {
   useContext,
   useState,
@@ -80,7 +79,7 @@ type ValuationStatus =
   | "cancelled"
   | "pending";
 
-type ApiTransaction = {
+export type ApiTransaction = {
   id: string;
   assignmentNumber: string;
   authorizationNumber?: string;
@@ -157,7 +156,7 @@ type ValuationRow = {
   rawData?: Partial<ApiTransaction>;
 };
 
-// ─── API attachment/image types (from backend) ────────────────────────────────
+// ─── API attachment/image types ───────────────────────────────────────────────
 
 type ApiAttachment = {
   id: string;
@@ -183,14 +182,12 @@ type ApiImage = {
   uploadedAt: string;
 };
 
-// ─── Frontend-only types ──────────────────────────────────────────────────────
-
 type AttachmentFile = {
   id: string;
   name: string;
   originalName: string;
   type: "pdf" | "image" | "other";
-  previewUrl: string | null; // derived from filePath or blob
+  previewUrl: string | null;
   size: number;
   uploadedAt: string;
 };
@@ -207,7 +204,7 @@ type ImageFile = {
   id: string;
   name: string;
   originalName: string;
-  previewUrl: string; // derived from filePath or blob
+  previewUrl: string;
   size: number;
   uploadedAt: string;
   sortIndex: number;
@@ -251,7 +248,6 @@ function apiUrl(path: string) {
   return toApiUrl(`/api${path}`);
 }
 
-/** Convert a server filePath (e.g. "uploads/abc.jpg") to a usable preview URL */
 function filePreviewUrl(filePath: string): string {
   return `/${filePath}`;
 }
@@ -374,7 +370,7 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
     },
     value:
       parseFloat(String(ed.finalAssetValue ?? tx.finalAssetValue ?? 0)) || 0,
-    status: (ed.status || tx.status || "new") as ValuationStatus,
+    status: (tx.status || ed.status || "new") as ValuationStatus,
     timerValue: elapsed.timer,
     isOverdue: elapsed.isOverdue,
     elapsedLabel: elapsed.label,
@@ -387,6 +383,65 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
     lastUpdateBy: "—",
     rawData: tx,
   };
+}
+
+// ─── PDF helpers ──────────────────────────────────────────────────────────────
+
+/** Opens the PDF in a new tab (view / print) */
+function viewPdf(transactionId: string) {
+  window.open(toApiUrl(`/api/transactions/${transactionId}/pdf`), "_blank");
+}
+
+/** Triggers a browser download of the PDF */
+function downloadPdf(transactionId: string) {
+  const a = document.createElement("a");
+  a.href = toApiUrl(`/api/transactions/${transactionId}/pdf`);
+  a.download = `valuation-${transactionId}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ─── Duplicate transaction ────────────────────────────────────────────────────
+
+async function duplicateTransaction(
+  row: ValuationRow,
+): Promise<ApiTransaction> {
+  const raw = row.rawData ?? {};
+
+  // Build a FormData body identical to what NewTransactionPage sends on POST.
+  // We omit id / createdAt / updatedAt / attachmentsCount / imagesCount so the
+  // server treats this as a brand-new document.
+  const fd = new FormData();
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+  fd.append("assignmentNumber", str(raw.assignmentNumber));
+  fd.append("authorizationNumber", str(raw.authorizationNumber));
+  fd.append("assignmentDate", str(raw.assignmentDate));
+  fd.append("valuationPurpose", str(raw.valuationPurpose));
+  fd.append("intendedUse", str(raw.intendedUse));
+  fd.append("valuationBasis", str(raw.valuationBasis));
+  fd.append("ownershipType", str(raw.ownershipType));
+  fd.append("valuationHypothesis", str(raw.valuationHypothesis));
+  fd.append("clientId", str(raw.clientId));
+  fd.append("branch", str(raw.branch));
+  fd.append("priority", str(raw.priority) || "normal");
+  if (raw.templateId) fd.append("templateId", raw.templateId);
+
+  // Re-attach template field values keyed by field-id
+  if (raw.templateFieldValues) {
+    for (const [fieldId, entry] of Object.entries(raw.templateFieldValues)) {
+      fd.append(`templateFieldValues[${fieldId}]`, entry.value ?? "");
+    }
+  }
+
+  const r = await fetch(toApiUrl("/api/transactions"), {
+    method: "POST",
+    credentials: "include",
+    body: fd,
+  });
+  if (!r.ok) throw new Error(`Duplicate failed: ${r.status}`);
+  return r.json();
 }
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
@@ -406,6 +461,10 @@ const copy = {
     authNo: "Authorization #",
     deedNo: "Deed #",
     plotNo: "Plot #",
+    unsavedChanges: "Unsaved changes",
+    coreFieldsNote:
+      "These are the core transaction fields. Template-specific evaluation data is edited from within the transaction itself.",
+    enterPrefix: "Enter",
     clientName: "Client",
     ownerName: "Owner",
     propertyType: "Property Type",
@@ -486,6 +545,9 @@ const copy = {
     errorDeleting: "Failed to delete.",
     errorUploading: "Failed to upload.",
     errorReordering: "Failed to reorder.",
+    duplicating: "Duplicating...",
+    duplicateSuccess: "Transaction duplicated.",
+    duplicateError: "Failed to duplicate transaction.",
   },
   ar: {
     assignment: "التكليف",
@@ -495,6 +557,10 @@ const copy = {
     actions: "الإجراءات",
     requester: "طالب التقييم",
     template: "النموذج",
+    unsavedChanges: "تغييرات غير محفوظة",
+    coreFieldsNote:
+      "هذه البيانات الأساسية للمعاملة. البيانات الإضافية المرتبطة بنموذج التقييم تُعدَّل من داخل المعاملة.",
+    enterPrefix: "أدخل",
     refNumber: "الرقم المرجعي",
     assignmentNo: "رقم التكليف",
     assignmentDate: "تاريخ التكليف",
@@ -581,6 +647,9 @@ const copy = {
     errorDeleting: "فشل الحذف.",
     errorUploading: "فشل الرفع.",
     errorReordering: "فشل إعادة الترتيب.",
+    duplicating: "جاري التكرار...",
+    duplicateSuccess: "تم تكرار المعاملة.",
+    duplicateError: "فشل تكرار المعاملة.",
   },
 } as const;
 
@@ -606,7 +675,7 @@ const STATUS_CONFIG: Record<
   pending: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-400" },
 };
 
-// ─── dummy note data (notes not wired to backend yet) ─────────────────────────
+// ─── dummy note data ──────────────────────────────────────────────────────────
 
 const DUMMY_AUTHORS: NoteAuthor[] = [
   { id: "u1", name: "أحمد الزهراني", role: "مقيّم", color: "bg-cyan-500" },
@@ -614,49 +683,6 @@ const DUMMY_AUTHORS: NoteAuthor[] = [
   { id: "u3", name: "خالد العتيبي", role: "مدقق", color: "bg-emerald-500" },
 ];
 const ME = DUMMY_AUTHORS[0];
-
-const DUMMY_NOTES: NoteMessage[] = [
-  {
-    id: "n1",
-    author: DUMMY_AUTHORS[1],
-    content:
-      "تم الانتهاء من مراجعة وثائق الصك، يرجى التحقق من رقم القطعة المدوّن في العقد.",
-    timestamp: "2025-04-10T09:15:00",
-    isPinned: true,
-  },
-  {
-    id: "n2",
-    author: DUMMY_AUTHORS[0],
-    content:
-      "تم التحقق، رقم القطعة صحيح ومطابق للمخطط. سأرفع التقرير اليوم بعد الظهر.",
-    timestamp: "2025-04-10T10:30:00",
-    isPinned: false,
-    replyTo: {
-      id: "n1",
-      content: "تم الانتهاء من مراجعة وثائق الصك...",
-      authorName: "سارة المالكي",
-    },
-  },
-  {
-    id: "n3",
-    author: DUMMY_AUTHORS[2],
-    content: "لاحظت أن صورة الواجهة الشمالية غير واضحة، هل يمكن إعادة التصوير؟",
-    timestamp: "2025-04-11T08:00:00",
-    isPinned: false,
-  },
-  {
-    id: "n4",
-    author: DUMMY_AUTHORS[0],
-    content: "سأزور الموقع غداً الصباح وأرفع صوراً جديدة.",
-    timestamp: "2025-04-11T08:45:00",
-    isPinned: false,
-    replyTo: {
-      id: "n3",
-      content: "لاحظت أن صورة الواجهة الشمالية غير واضحة...",
-      authorName: "خالد العتيبي",
-    },
-  },
-];
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -713,7 +739,7 @@ function ErrorBanner({
 
 // ─── Images Modal ─────────────────────────────────────────────────────────────
 
-function ImagesModal({
+export function ImagesModal({
   transactionId,
   requester,
   onClose,
@@ -736,22 +762,15 @@ function ImagesModal({
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [lightboxImg, setLightboxImg] = useState<ImageFile | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Drag-to-reorder state
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-
-  // Debounce timer for reorder calls after index input editing
   const reorderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sortedImages = useMemo(
     () => [...images].sort((a, b) => a.sortIndex - b.sortIndex),
     [images],
   );
-
-  // ── Load ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     setLoadingImages(true);
@@ -769,8 +788,6 @@ function ImagesModal({
       .catch(() => setError(t.errorLoading))
       .finally(() => setLoadingImages(false));
   }, [transactionId]);
-
-  // ── Reorder helper (calls API with current image state) ───────────────────
 
   const pushReorder = useCallback(
     (imgs: ImageFile[]) => {
@@ -795,8 +812,6 @@ function ImagesModal({
     },
     [transactionId, t],
   );
-
-  // ── Upload ────────────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
@@ -842,8 +857,6 @@ function ImagesModal({
     }
   };
 
-  // ── Rename (on blur / Enter) ──────────────────────────────────────────────
-
   const commitRename = async (img: ImageFile) => {
     setEditingNameId(null);
     try {
@@ -862,16 +875,11 @@ function ImagesModal({
     }
   };
 
-  // ── Delete single ─────────────────────────────────────────────────────────
-
   const deleteOne = async (id: string) => {
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/images/${id}`),
-        {
-          method: "DELETE",
-          credentials: "include",
-        },
+        { method: "DELETE", credentials: "include" },
       );
       if (!r.ok) throw new Error();
       setImages((prev) => {
@@ -890,8 +898,6 @@ function ImagesModal({
       setError(t.errorDeleting);
     }
   };
-
-  // ── Bulk delete ───────────────────────────────────────────────────────────
 
   const deleteSelected = async () => {
     const ids = [...selectedIds];
@@ -916,8 +922,6 @@ function ImagesModal({
     }
   };
 
-  // ── Index editing with debounced reorder ──────────────────────────────────
-
   const setImageIndex = (id: string, newIndex: number) => {
     if (newIndex < 1) return;
     setImages((prev) => {
@@ -928,14 +932,11 @@ function ImagesModal({
       const others = sorted.filter((img) => img.id !== id);
       others.splice(clamped - 1, 0, moving);
       const reindexed = others.map((img, i) => ({ ...img, sortIndex: i + 1 }));
-      // Debounce the API call so rapid typing doesn't spam
       if (reorderTimer.current) clearTimeout(reorderTimer.current);
       reorderTimer.current = setTimeout(() => pushReorder(reindexed), 600);
       return reindexed;
     });
   };
-
-  // ── Drag-to-reorder ───────────────────────────────────────────────────────
 
   const handleDragStart = (id: string) => setDraggedId(id);
   const handleDragOver = (e: React.DragEvent, id: string) => {
@@ -967,8 +968,6 @@ function ImagesModal({
     setDragOverId(null);
   };
 
-  // ── Selection ─────────────────────────────────────────────────────────────
-
   const toggleSel = (id: string) =>
     setSelectedIds((prev) => {
       const n = new Set(prev);
@@ -994,7 +993,6 @@ function ImagesModal({
           className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
           style={{ maxHeight: "90vh" }}
         >
-          {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50">
@@ -1020,14 +1018,11 @@ function ImagesModal({
             </div>
           </div>
 
-          {/* Error banner */}
           {error && (
             <ErrorBanner message={error} onDismiss={() => setError(null)} />
           )}
 
-          {/* Body */}
           <div className="flex-1 overflow-y-auto">
-            {/* Upload zone */}
             <div className="px-6 pt-5 pb-4">
               <div
                 onDragOver={(e) => {
@@ -1080,7 +1075,6 @@ function ImagesModal({
               />
             </div>
 
-            {/* Pending queue */}
             {pending.length > 0 && (
               <div className="px-6 pb-4">
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -1143,7 +1137,6 @@ function ImagesModal({
               </div>
             )}
 
-            {/* Images grid */}
             <div className="px-6 pb-6">
               {loadingImages ? (
                 <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
@@ -1301,7 +1294,6 @@ function ImagesModal({
             </div>
           </div>
 
-          {/* Footer */}
           <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/50 px-6 py-3">
             <p className="text-xs text-slate-400">
               {images.length} {isRtl ? "صورة" : "images"}
@@ -1316,7 +1308,6 @@ function ImagesModal({
         </div>
       </div>
 
-      {/* Lightbox */}
       {lightboxImg && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
@@ -1380,44 +1371,100 @@ const STATUS_OPTIONS: ValuationStatus[] = [
 ];
 const PRIORITY_OPTIONS: Priority[] = ["normal", "urgent"];
 
-function EditTransactionModal({
+export function EditTransactionModal({
   row,
+  transactionId: txIdProp,
+  requester: requesterProp,
   onClose,
   onSaved,
   t,
   isRtl,
 }: {
-  row: ValuationRow;
+  row?: ValuationRow;
+  transactionId?: string;
+  requester?: string;
   onClose: () => void;
-  /** Called with the full updated ApiTransaction returned by the server */
   onSaved: (updated: ApiTransaction) => void;
   t: Copy;
   isRtl: boolean;
 }) {
-  const raw = row.rawData ?? {};
+  const [fetchedRow, setFetchedRow] = useState<ValuationRow | null>(
+    row ?? null,
+  );
   const [form, setForm] = useState<EditableTransactionData>({
-    assignmentNumber:
-      raw.assignmentNumber ?? row.assignment.assignmentNumber ?? "",
-    authorizationNumber:
-      raw.authorizationNumber ?? row.assignment.authorizationNumber ?? "",
-    assignmentDate: raw.assignmentDate ?? row.assignment.assignmentDate ?? "",
-    valuationPurpose: raw.valuationPurpose ?? "",
-    intendedUse: raw.intendedUse ?? "",
-    valuationBasis: raw.valuationBasis ?? "",
-    ownershipType: raw.ownershipType ?? "",
-    valuationHypothesis: raw.valuationHypothesis ?? "",
-    clientId: raw.clientId ?? "",
-    branch: raw.branch ?? "",
-    priority: raw.priority ?? row.priority ?? "normal",
-    status: (raw.evalData?.status ??
-      raw.status ??
-      row.status ??
-      "new") as string,
+    assignmentNumber: "",
+    authorizationNumber: "",
+    assignmentDate: "",
+    valuationPurpose: "",
+    intendedUse: "",
+    valuationBasis: "",
+    ownershipType: "",
+    valuationHypothesis: "",
+    clientId: "",
+    branch: "",
+    priority: "normal",
+    status: "new",
   });
-
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch the transaction when no row is passed in (opened from evaluation page)
+  useEffect(() => {
+    if (row || !txIdProp) return;
+    fetch(apiUrl(`/transactions/${txIdProp}`), { credentials: "include" })
+      .then((r) => r.json())
+      .then((tx: ApiTransaction) => setFetchedRow(mapToRow(tx)));
+  }, [txIdProp, row]);
+
+  // Populate form once we have the row data
+  useEffect(() => {
+    const activeRow = fetchedRow;
+    if (!activeRow) return;
+    const raw = activeRow.rawData ?? {};
+    setForm({
+      assignmentNumber:
+        raw.assignmentNumber ?? activeRow.assignment.assignmentNumber ?? "",
+      authorizationNumber:
+        raw.authorizationNumber ??
+        activeRow.assignment.authorizationNumber ??
+        "",
+      assignmentDate:
+        raw.assignmentDate ?? activeRow.assignment.assignmentDate ?? "",
+      valuationPurpose: raw.valuationPurpose ?? "",
+      intendedUse: raw.intendedUse ?? "",
+      valuationBasis: raw.valuationBasis ?? "",
+      ownershipType: raw.ownershipType ?? "",
+      valuationHypothesis: raw.valuationHypothesis ?? "",
+      clientId: raw.clientId ?? "",
+      branch: raw.branch ?? "",
+      priority: raw.priority ?? activeRow.priority ?? "normal",
+      status: (raw.evalData?.status ??
+        raw.status ??
+        activeRow.status ??
+        "new") as string,
+    });
+  }, [fetchedRow]);
+
+  const activeRow = fetchedRow;
+
+  // NOW it's safe to return null — all hooks have already been called above
+  if (!activeRow) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        dir={isRtl ? "rtl" : "ltr"}
+      >
+        <div
+          className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          onClick={onClose}
+        />
+        <div className="relative flex h-32 w-full max-w-2xl items-center justify-center rounded-2xl bg-white shadow-2xl">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        </div>
+      </div>
+    );
+  }
 
   const update = (key: keyof EditableTransactionData, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1428,16 +1475,15 @@ function EditTransactionModal({
     setSaving(true);
     setError(null);
     try {
-      const r = await fetch(apiUrl(`/transactions/${row.id}/core`), {
+      const id = activeRow.id;
+      const r = await fetch(apiUrl(`/transactions/${id}/core`), {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
       if (!r.ok) throw new Error();
-      // The service returns the full TransactionDoc serialised — we refetch to
-      // get the complete up-to-date object including evalData.
-      const full = await fetch(apiUrl(`/transactions/${row.id}`), {
+      const full = await fetch(apiUrl(`/transactions/${id}`), {
         credentials: "include",
       });
       if (!full.ok) throw new Error();
@@ -1450,7 +1496,6 @@ function EditTransactionModal({
       setSaving(false);
     }
   };
-
   const fields: {
     key: keyof EditableTransactionData;
     labelKey: keyof Copy;
@@ -1513,7 +1558,6 @@ function EditTransactionModal({
         className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         style={{ maxHeight: "92vh" }}
       >
-        {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
@@ -1524,9 +1568,9 @@ function EditTransactionModal({
                 {t.editTransactionModal}
               </h2>
               <p className="text-xs text-slate-400">
-                {row.assignment.requester} ·{" "}
+                {activeRow.assignment.requester} ·{" "}
                 <span className="font-mono text-slate-500">
-                  #{row.assignment.referenceNumber}
+                  #{activeRow.assignment.referenceNumber}
                 </span>
               </p>
             </div>
@@ -1534,7 +1578,7 @@ function EditTransactionModal({
           <div className="flex items-center gap-2">
             {isDirty && (
               <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-600 ring-1 ring-amber-200">
-                {isRtl ? "تغييرات غير محفوظة" : "Unsaved changes"}
+                {t.unsavedChanges}
               </span>
             )}
             <button
@@ -1546,12 +1590,10 @@ function EditTransactionModal({
           </div>
         </div>
 
-        {/* Error banner */}
         {error && (
           <ErrorBanner message={error} onDismiss={() => setError(null)} />
         )}
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {fields.map(({ key, labelKey, type, options, optionLabels }) => {
@@ -1581,7 +1623,7 @@ function EditTransactionModal({
                       value={form[key]}
                       onChange={(e) => update(key, e.target.value)}
                       className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-100 transition-colors"
-                      placeholder={`${isRtl ? "أدخل" : "Enter"} ${label}...`}
+                      placeholder={`${t.enterPrefix} ${label}...`}
                     />
                   )}
                 </div>
@@ -1591,14 +1633,11 @@ function EditTransactionModal({
           <div className="mt-5 flex items-start gap-2.5 rounded-xl bg-slate-50 p-3.5">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
             <p className="text-xs text-slate-500 leading-relaxed">
-              {isRtl
-                ? "هذه البيانات الأساسية للمعاملة. البيانات الإضافية المرتبطة بنموذج التقييم تُعدَّل من داخل المعاملة."
-                : "These are the core transaction fields. Template-specific evaluation data is edited from within the transaction itself."}
+              {t.coreFieldsNote}
             </p>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
           <button
             onClick={onClose}
@@ -1622,16 +1661,14 @@ function EditTransactionModal({
       </div>
     </div>
   );
-}
-
-// ─── Load pdf.js once via script tag ─────────────────────────────────────────
+} // ← this closing brace ends EditTransactionModal
+// ─── PDF.js thumbnail ─────────────────────────────────────────────────────────
 
 let pdfjsLoadPromise: Promise<any> | null = null;
 
 function loadPdfJs(): Promise<any> {
   if (pdfjsLoadPromise) return pdfjsLoadPromise;
   pdfjsLoadPromise = new Promise((resolve, reject) => {
-    // Already loaded
     if ((window as any).pdfjsLib) {
       resolve((window as any).pdfjsLib);
       return;
@@ -1650,8 +1687,6 @@ function loadPdfJs(): Promise<any> {
   });
   return pdfjsLoadPromise;
 }
-
-// ─── PDF Thumbnail ────────────────────────────────────────────────────────────
 
 function PdfThumbnail({ url, className }: { url: string; className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1677,7 +1712,6 @@ function PdfThumbnail({ url, className }: { url: string; className?: string }) {
           viewport: scaled,
         }).promise;
       } catch (e) {
-        console.error("PDF ERROR: ", e);
         if (!cancelled) setFailed(true);
       }
     }
@@ -1712,7 +1746,9 @@ function PdfThumbnail({ url, className }: { url: string; className?: string }) {
   );
 }
 
-function AttachmentsModal({
+// ─── Attachments Modal ────────────────────────────────────────────────────────
+
+export function AttachmentsModal({
   transactionId,
   requester,
   onClose,
@@ -1736,8 +1772,6 @@ function AttachmentsModal({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Load ──────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     setLoadingAtts(true);
     fetch(apiUrl(`/transactions/${transactionId}/attachments`), {
@@ -1755,8 +1789,6 @@ function AttachmentsModal({
       .finally(() => setLoadingAtts(false));
   }, [transactionId]);
 
-  // ── Stage pending ─────────────────────────────────────────────────────────
-
   const handleFiles = (files: FileList | null) => {
     if (!files) return;
     Array.from(files).forEach((file) => {
@@ -1767,7 +1799,7 @@ function AttachmentsModal({
         : isPdf
           ? "pdf"
           : "other";
-      const preview = isImage ? URL.createObjectURL(file) : isPdf ? null : null;
+      const preview = isImage ? URL.createObjectURL(file) : null;
       setPending((prev) => [
         ...prev,
         {
@@ -1781,8 +1813,6 @@ function AttachmentsModal({
     });
   };
 
-  // ── Upload ────────────────────────────────────────────────────────────────
-
   const confirmUpload = async (p: PendingUpload) => {
     const fd = new FormData();
     fd.append("files[]", p.file, p.file.name);
@@ -1793,11 +1823,7 @@ function AttachmentsModal({
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/attachments`),
-        {
-          method: "POST",
-          credentials: "include",
-          body: fd,
-        },
+        { method: "POST", credentials: "include", body: fd },
       );
       if (!r.ok) throw new Error();
       const data: ApiAttachment[] = await r.json();
@@ -1812,8 +1838,6 @@ function AttachmentsModal({
       setError(t.errorUploading);
     }
   };
-
-  // ── Rename (on blur / Enter) ──────────────────────────────────────────────
 
   const commitRename = async (att: AttachmentFile) => {
     setEditingId(null);
@@ -1833,16 +1857,11 @@ function AttachmentsModal({
     }
   };
 
-  // ── Delete single ─────────────────────────────────────────────────────────
-
   const deleteOne = async (id: string) => {
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/attachments/${id}`),
-        {
-          method: "DELETE",
-          credentials: "include",
-        },
+        { method: "DELETE", credentials: "include" },
       );
       if (!r.ok) throw new Error();
       setAttachments((prev) => {
@@ -1859,8 +1878,6 @@ function AttachmentsModal({
       setError(t.errorDeleting);
     }
   };
-
-  // ── Bulk delete ───────────────────────────────────────────────────────────
 
   const deleteSelected = async () => {
     const ids = [...selectedIds];
@@ -1886,8 +1903,6 @@ function AttachmentsModal({
     }
   };
 
-  // ── Selection ─────────────────────────────────────────────────────────────
-
   const toggleSel = (id: string) =>
     setSelectedIds((prev) => {
       const n = new Set(prev);
@@ -1912,7 +1927,6 @@ function AttachmentsModal({
         className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         style={{ maxHeight: "90vh" }}
       >
-        {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h2 className="text-base font-bold text-slate-800">
@@ -1933,14 +1947,11 @@ function AttachmentsModal({
           </div>
         </div>
 
-        {/* Error banner */}
         {error && (
           <ErrorBanner message={error} onDismiss={() => setError(null)} />
         )}
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto">
-          {/* Upload zone */}
           <div className="px-6 pt-5 pb-4">
             <div
               onDragOver={(e) => {
@@ -1991,7 +2002,6 @@ function AttachmentsModal({
             />
           </div>
 
-          {/* Pending queue */}
           {pending.length > 0 && (
             <div className="px-6 pb-4">
               <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -2060,7 +2070,6 @@ function AttachmentsModal({
             </div>
           )}
 
-          {/* Attachment grid */}
           <div className="px-6 pb-6">
             {loadingAtts ? (
               <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
@@ -2200,7 +2209,6 @@ function AttachmentsModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/50 px-6 py-3">
           <p className="text-xs text-slate-400">
             {attachments.length} {t.attachments}
@@ -2217,7 +2225,9 @@ function AttachmentsModal({
   );
 }
 
-function NotesModal({
+// ─── Notes Modal ──────────────────────────────────────────────────────────────
+
+export function NotesModal({
   transactionId,
   requester,
   onClose,
@@ -2240,8 +2250,6 @@ function NotesModal({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── Load ────────────────────────────────────────────────────────────────────
-
   useEffect(() => {
     setLoading(true);
     fetch(apiUrl(`/transactions/${transactionId}/notes`), {
@@ -2259,8 +2267,6 @@ function NotesModal({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [notes]);
-
-  // ── Send ─────────────────────────────────────────────────────────────────────
 
   const send = async () => {
     const content = input.trim();
@@ -2292,8 +2298,6 @@ function NotesModal({
     }
   };
 
-  // ── Pin ──────────────────────────────────────────────────────────────────────
-
   const togglePin = async (id: string) => {
     try {
       const r = await fetch(
@@ -2308,14 +2312,11 @@ function NotesModal({
     }
   };
 
-  // ── Derive participants from loaded notes ────────────────────────────────────
-
   const participants = useMemo(() => {
     const seen = new Map<string, NoteAuthor>();
     notes.forEach((n) => {
       if (!seen.has(n.author.id)) seen.set(n.author.id, n.author);
     });
-    // Always include ME even before they've sent a note
     if (!seen.has(ME.id)) seen.set(ME.id, ME);
     return [...seen.values()];
   }, [notes]);
@@ -2342,7 +2343,6 @@ function NotesModal({
         className="relative flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         style={{ height: "min(85vh, 700px)" }}
       >
-        {/* Header */}
         <div className="shrink-0 border-b border-slate-100 bg-white px-5 py-3.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -2416,7 +2416,6 @@ function NotesModal({
           )}
         </div>
 
-        {/* Pinned notes */}
         {pinnedNotes.length > 0 && (
           <div className="shrink-0 border-b border-amber-100 bg-amber-50/60 px-5 py-2.5">
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-600">
@@ -2437,12 +2436,10 @@ function NotesModal({
           </div>
         )}
 
-        {/* Error banner */}
         {error && (
           <ErrorBanner message={error} onDismiss={() => setError(null)} />
         )}
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-slate-400">
@@ -2568,7 +2565,6 @@ function NotesModal({
           )}
         </div>
 
-        {/* Reply preview */}
         {replyTo && (
           <div className="shrink-0 flex items-center gap-3 border-t border-slate-100 bg-slate-50 px-5 py-2">
             <div
@@ -2593,7 +2589,6 @@ function NotesModal({
           </div>
         )}
 
-        {/* Input */}
         <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
           <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 focus-within:border-cyan-300 focus-within:bg-white transition-colors">
             <textarea
@@ -2711,6 +2706,7 @@ function ValuationTableRow({
   onOpenNotes,
   onOpenImages,
   onEditTransaction,
+  onDuplicate,
   t,
 }: {
   row: ValuationRow;
@@ -2721,6 +2717,7 @@ function ValuationTableRow({
   onOpenNotes: (row: ValuationRow) => void;
   onOpenImages: (row: ValuationRow) => void;
   onEditTransaction: (row: ValuationRow) => void;
+  onDuplicate: (row: ValuationRow) => void;
   t: Copy;
 }) {
   return (
@@ -2835,18 +2832,31 @@ function ValuationTableRow({
         </div>
         <div className="shrink-0">
           <div className="grid grid-cols-4 gap-0.5">
+            {/* Open transaction */}
             <ActionButton
               tooltip={t.openTransaction}
               onClick={() => onOpen(row.id)}
             >
               <Eye className="h-4 w-4" />
             </ActionButton>
-            <ActionButton tooltip={t.viewReport}>
+
+            {/* View Report — opens in new tab */}
+            <ActionButton
+              tooltip={t.viewReport}
+              onClick={() => viewPdf(row.id)}
+            >
               <Printer className="h-4 w-4" />
             </ActionButton>
-            <ActionButton tooltip={t.downloadPdf}>
+
+            {/* Download PDF — triggers browser download */}
+            <ActionButton
+              tooltip={t.downloadPdf}
+              onClick={() => downloadPdf(row.id)}
+            >
               <FileDown className="h-4 w-4" />
             </ActionButton>
+
+            {/* Attachments */}
             <ActionButton
               tooltip={`${t.attachments} (${row.attachmentsCount})`}
               className="relative"
@@ -2859,6 +2869,8 @@ function ValuationTableRow({
                 </span>
               )}
             </ActionButton>
+
+            {/* Notes */}
             <ActionButton
               tooltip={t.followUpNotes}
               className="relative"
@@ -2869,6 +2881,8 @@ function ValuationTableRow({
                 <span className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
               )}
             </ActionButton>
+
+            {/* Images */}
             <ActionButton
               tooltip={`${t.images} (${row.imagesCount})`}
               className="relative"
@@ -2881,12 +2895,16 @@ function ValuationTableRow({
                 </span>
               )}
             </ActionButton>
+
+            {/* Edit */}
             <ActionButton
               tooltip={t.editTransaction}
               onClick={() => onEditTransaction(row)}
             >
               <Pencil className="h-4 w-4" />
             </ActionButton>
+
+            {/* More */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
@@ -2898,7 +2916,10 @@ function ValuationTableRow({
                   <History className="h-4 w-4" />
                   {t.editLog}
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2 text-sm">
+                <DropdownMenuItem
+                  className="gap-2 text-sm"
+                  onClick={() => onDuplicate(row)}
+                >
                   <Copy className="h-4 w-4" />
                   {t.duplicate}
                 </DropdownMenuItem>
@@ -3043,11 +3064,26 @@ function ColumnHeader({
 type ValuationTableProps = {
   className?: string;
   onOpenTransaction?: (id: string) => void;
+  onTransactionMutated?: () => void;
+  onOpenAttachments?: (transactionId: string, requester: string) => void;
+  onOpenNotes?: (transactionId: string, requester: string) => void;
+  onOpenImages?: (transactionId: string, requester: string) => void;
+  // CHANGE: pass the full row back so parent can call handleSaved
+  onOpenEdit?: (
+    transactionId: string,
+    requester: string,
+    onSaved: (tx: ApiTransaction) => void,
+  ) => void;
 };
 
 export function ValuationTable({
   className,
   onOpenTransaction,
+  onTransactionMutated,
+  onOpenAttachments: externalOpenAttachments,
+  onOpenNotes: externalOpenNotes,
+  onOpenImages: externalOpenImages,
+  onOpenEdit: externalOpenEdit,
 }: ValuationTableProps) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
@@ -3056,6 +3092,10 @@ export function ValuationTable({
 
   const [rows, setRows] = useState<ValuationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editTarget, setEditTarget] = useState<{
+    transactionId: string;
+    requester: string;
+  } | null>(null); // Changed from {} to null
   const [error, setError] = useState<string | null>(null);
 
   const [attachmentsModal, setAttachmentsModal] = useState<{
@@ -3075,9 +3115,73 @@ export function ValuationTable({
     row: ValuationRow | null;
   }>({ open: false, row: null });
 
+  // Duplicate feedback
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [duplicateMsg, setDuplicateMsg] = useState<{
+    type: "ok" | "error";
+    text: string;
+  } | null>(null);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  const fetchTransactions = useCallback(() => {
+    fetch(toApiUrl("/api/transactions"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .catch(() => {
+        // silently ignore — strip shows zeros
+      });
+  }, []);
+
+  const handleOpenAttachments = (row: any) => {
+    if (externalOpenAttachments) {
+      externalOpenAttachments(row.id, row.assignment.requester);
+    } else {
+      setAttachmentsModal({ open: true, row });
+    }
+  };
+
+  const handleOpenNotes = (row: any) => {
+    if (externalOpenNotes) {
+      externalOpenNotes(row.id, row.assignment.requester);
+    } else {
+      setNotesModal({ open: true, row });
+    }
+  };
+
+  const handleOpenImages = (row: any) => {
+    if (externalOpenImages) {
+      externalOpenImages(row.id, row.assignment.requester);
+    } else {
+      setImagesModal({ open: true, row });
+    }
+  };
+
+  const handleOpenEdit = (row: any) => {
+    if (externalOpenEdit) {
+      externalOpenEdit(row.id, row.assignment.requester, handleSaved); // pass handleSaved
+    } else {
+      setEditModal({ open: true, row });
+    }
+  };
+
+  const savedCallbackRef = useRef<((tx: ApiTransaction) => void) | null>(null);
+
+  const openEdit = useCallback(
+    (
+      transactionId: string,
+      requester: string,
+      onSaved: (tx: ApiTransaction) => void,
+    ) => {
+      savedCallbackRef.current = onSaved;
+      setEditTarget({ transactionId, requester });
+    },
+    [],
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -3136,19 +3240,14 @@ export function ValuationTable({
     setCurrentPage(1);
   }, []);
 
-  // ── Edit saved: rebuild the row from the fresh ApiTransaction ─────────────
-
   const handleSaved = useCallback((updated: ApiTransaction) => {
-    setRows((prev) =>
-      prev.map((r) => (r.id === updated.id ? mapToRow(updated) : r)),
-    );
-    // Keep the modal's row reference current so re-opening it sees fresh data
+    const updatedRow = mapToRow(updated);
+    setRows((prev) => prev.map((r) => (r.id === updated.id ? updatedRow : r)));
+    // Sync modal row so status badge reflects new value before close
     setEditModal((prev) =>
-      prev.row?.id === updated.id ? { ...prev, row: mapToRow(updated) } : prev,
+      prev.row?.id === updated.id ? { ...prev, row: updatedRow } : prev,
     );
   }, []);
-
-  // ── Attachment/image count changes reflected in the table badges ──────────
 
   const handleAttachmentCountChange = useCallback(
     (transactionId: string, count: number) => {
@@ -3172,6 +3271,29 @@ export function ValuationTable({
     [],
   );
 
+  // ── Duplicate ─────────────────────────────────────────────────────────────
+
+  const handleDuplicate = useCallback(
+    async (row: ValuationRow) => {
+      setDuplicatingId(row.id);
+      setDuplicateMsg(null);
+      try {
+        const created: ApiTransaction = await duplicateTransaction(row);
+        const newRow = mapToRow(created);
+        setRows((prev) => [newRow, ...prev]);
+        setDuplicateMsg({ type: "ok", text: t.duplicateSuccess });
+        onTransactionMutated?.();
+      } catch {
+        setDuplicateMsg({ type: "error", text: t.duplicateError });
+      } finally {
+        setDuplicatingId(null);
+        // Auto-clear after 3 s
+        setTimeout(() => setDuplicateMsg(null), 3000);
+      }
+    },
+    [t, onTransactionMutated],
+  );
+
   return (
     <TooltipProvider delayDuration={200}>
       <div
@@ -3181,6 +3303,33 @@ export function ValuationTable({
           className,
         )}
       >
+        {/* Duplicate feedback banner */}
+        {duplicateMsg && (
+          <div
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 text-xs font-semibold",
+              duplicateMsg.type === "ok"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-red-50 text-red-700",
+            )}
+          >
+            {duplicatingId ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : duplicateMsg.type === "ok" ? (
+              <CheckCircle2 className="h-3.5 w-3.5" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5" />
+            )}
+            {duplicateMsg.text}
+          </div>
+        )}
+        {duplicatingId && !duplicateMsg && (
+          <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t.duplicating}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <div className="min-w-[1100px]">
             {/* Header */}
@@ -3220,6 +3369,7 @@ export function ValuationTable({
                 <ColumnHeader label={t.actions} />
               </div>
             </div>
+
             {/* Rows */}
             {loading ? (
               <div className="flex h-40 items-center justify-center gap-2 text-sm text-slate-400">
@@ -3239,14 +3389,11 @@ export function ValuationTable({
                     isSelected={selected.has(row.id)}
                     onToggleSelect={() => toggleSelect(row.id)}
                     onOpen={(id) => onOpenTransaction?.(id)}
-                    onOpenAttachments={(r) =>
-                      setAttachmentsModal({ open: true, row: r })
-                    }
-                    onOpenNotes={(r) => setNotesModal({ open: true, row: r })}
-                    onOpenImages={(r) => setImagesModal({ open: true, row: r })}
-                    onEditTransaction={(r) =>
-                      setEditModal({ open: true, row: r })
-                    }
+                    onOpenAttachments={handleOpenAttachments}
+                    onOpenNotes={handleOpenNotes}
+                    onOpenImages={handleOpenImages}
+                    onEditTransaction={handleOpenEdit}
+                    onDuplicate={handleDuplicate}
                     t={t}
                   />
                 ))}
@@ -3258,6 +3405,7 @@ export function ValuationTable({
             )}
           </div>
         </div>
+
         <Pagination
           currentPage={currentPage}
           totalPages={totalPages}
@@ -3269,19 +3417,21 @@ export function ValuationTable({
         />
       </div>
 
-      {attachmentsModal.open && attachmentsModal.row && (
-        <AttachmentsModal
-          transactionId={attachmentsModal.row.id}
-          requester={attachmentsModal.row.assignment.requester}
-          onClose={() => setAttachmentsModal({ open: false, row: null })}
-          onCountChange={(count) =>
-            handleAttachmentCountChange(attachmentsModal.row!.id, count)
-          }
-          t={t}
-          isRtl={isArabic}
-        />
-      )}
-      {notesModal.open && notesModal.row && (
+      {!externalOpenAttachments &&
+        attachmentsModal.open &&
+        attachmentsModal.row && (
+          <AttachmentsModal
+            transactionId={attachmentsModal.row.id}
+            requester={attachmentsModal.row.assignment.requester}
+            onClose={() => setAttachmentsModal({ open: false, row: null })}
+            onCountChange={(count) =>
+              handleAttachmentCountChange(attachmentsModal.row!.id, count)
+            }
+            t={t}
+            isRtl={isArabic}
+          />
+        )}
+      {!externalOpenNotes && notesModal.open && notesModal.row && (
         <NotesModal
           transactionId={notesModal.row.id}
           requester={notesModal.row.assignment.requester}
@@ -3290,7 +3440,7 @@ export function ValuationTable({
           isRtl={isArabic}
         />
       )}
-      {imagesModal.open && imagesModal.row && (
+      {!externalOpenImages && imagesModal.open && imagesModal.row && (
         <ImagesModal
           transactionId={imagesModal.row.id}
           requester={imagesModal.row.assignment.requester}
@@ -3302,13 +3452,18 @@ export function ValuationTable({
           isRtl={isArabic}
         />
       )}
-      {editModal.open && editModal.row && (
+      {editTarget && (
         <EditTransactionModal
-          row={editModal.row}
-          onClose={() => setEditModal({ open: false, row: null })}
-          onSaved={handleSaved}
+          transactionId={editTarget.transactionId}
+          requester={editTarget.requester}
+          onClose={() => setEditTarget(null)}
+          onSaved={(updated) => {
+            savedCallbackRef.current?.(updated);
+            onTransactionMutated?.(); // Add this if fetchTransactions is needed
+            setEditTarget(null);
+          }}
           t={t}
-          isRtl={isArabic}
+          isRtl={isArabic} // Changed from isRtl to isArabic
         />
       )}
     </TooltipProvider>

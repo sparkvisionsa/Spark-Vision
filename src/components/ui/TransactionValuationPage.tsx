@@ -1627,9 +1627,19 @@ function emptyEval() {
 export function TransactionEvaluationPage({
   transactionId,
   onBack,
+  onOpenAttachments,
+  onOpenNotes,
+  onOpenImages,
+  onOpenEdit,
+  onStatusSaved,
 }: {
   transactionId: string;
   onBack: () => void;
+  onOpenAttachments?: (transactionId: string, requester: string) => void;
+  onOpenNotes?: (transactionId: string, requester: string) => void;
+  onOpenImages?: (transactionId: string, requester: string) => void;
+  onOpenEdit?: (transactionId: string, requester: string) => void;
+  onStatusSaved?: () => void;
 }) {
   // ── language ──────────────────────────────────────────────────────────────
   const langContext = useContext(LanguageContext);
@@ -1686,6 +1696,7 @@ export function TransactionEvaluationPage({
       },
     }));
 
+  const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
   useEffect(() => {
     if (!tx) return;
     const e: Record<string, any> = tx.evalData ?? {};
@@ -1865,6 +1876,7 @@ export function TransactionEvaluationPage({
       const updated = await res.json();
       setTx(updated);
       setStatusMsg({ type: "ok", text: t.savedOk });
+      onStatusSaved?.();
     } catch {
       setStatusMsg({ type: "error", text: t.saveError });
     } finally {
@@ -2095,48 +2107,80 @@ export function TransactionEvaluationPage({
         <div
           style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}
         >
-          {[
-            t.btnImages,
-            t.btnAttachments,
-            t.btnEdit,
-            t.btnNearComps,
-            t.btnCopyComps,
-          ].map((btn) => (
-            <button key={btn} type="button" style={styles.actionBtn}>
-              {btn}
-            </button>
-          ))}
+          {/* Images */}
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() => onOpenImages?.(transactionId, requester)}
+          >
+            {t.btnImages}
+          </button>
+
+          {/* Attachments */}
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() => onOpenAttachments?.(transactionId, requester)}
+          >
+            {t.btnAttachments}
+          </button>
+
+          {/* Edit */}
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() => onOpenEdit?.(transactionId, requester)}
+          >
+            {t.btnEdit}
+          </button>
+
+          {/* Nearby Comparisons — no modal yet, keep as-is */}
+          <button type="button" style={styles.actionBtn}>
+            {t.btnNearComps}
+          </button>
+
+          {/* Copy Comparisons — no modal yet, keep as-is */}
+          <button type="button" style={styles.actionBtn}>
+            {t.btnCopyComps}
+          </button>
+
+          {/* View PDF */}
           <button
             type="button"
             style={styles.actionBtn}
             onClick={() =>
-              window.open(
-                toApiUrl(`/api/transactions/${transactionId}/pdf`),
-                "_blank",
-              )
+              window.open(`/api/transactions/${transactionId}/pdf`, "_blank")
             }
           >
             {t.btnView}
           </button>
+
+          {/* Download PDF */}
           <button
             type="button"
             style={styles.actionBtn}
             onClick={() => {
               const a = document.createElement("a");
-              a.href = toApiUrl(`/api/transactions/${transactionId}/pdf`);
+              a.href = `/api/transactions/${transactionId}/pdf`;
               a.download = `valuation-${transactionId}.pdf`;
               a.click();
             }}
           >
             {t.btnPdf}
           </button>
-          <button key={t.btnMessages} type="button" style={styles.actionBtn}>
+
+          {/* Notes */}
+          <button
+            type="button"
+            style={styles.actionBtn}
+            onClick={() => onOpenNotes?.(transactionId, requester)}
+          >
             {t.btnMessages}
           </button>
         </div>
       </div>
-
       {/* معلومات الأصل */}
+
       <SectionCard title={t.secAssetInfo}>
         <ReadOnlyGrid>
           <ReadOnlyItem label={t.address} value={bl["العنوان"]} full />
