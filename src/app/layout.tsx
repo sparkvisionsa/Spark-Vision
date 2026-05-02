@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import LayoutProvider from "@/components/layout-provider";
 import AuthTrackingProvider from "@/components/auth-tracking-provider";
+import PasswordGate from "@/components/password-gate";
 import RoutePrefetcher from "@/components/route-prefetcher";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -30,13 +31,15 @@ export default function RootLayout({
         />
       </head> */}
       <body className="font-body antialiased">
-        <LayoutProvider>
-          <AuthTrackingProvider>
-            {children}
-            <RoutePrefetcher />
-            <Toaster />
-          </AuthTrackingProvider>
-        </LayoutProvider>
+        <PasswordGate>
+          <LayoutProvider>
+            <AuthTrackingProvider>
+              {children}
+              <RoutePrefetcher />
+              <Toaster />
+            </AuthTrackingProvider>
+          </LayoutProvider>
+        </PasswordGate>
       </body>
     </html>
   );
