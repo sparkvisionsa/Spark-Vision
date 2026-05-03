@@ -7,6 +7,10 @@ import { NewTransactionPage } from "@/components/ui/new-transaction-page";
 import { TransactionEvaluationPage } from "@/components/ui/TransactionValuationPage";
 import { ValuationTable } from "@/components/ui/valuation-table";
 import { LanguageContext } from "@/components/layout-provider";
+import type { RealEstateSearchValues } from "@/components/ui/real-estate-search";
+
+// Inside RealEstateValuationSection, add state:
+
 import type { ApiTransaction } from "@/components/ui/valuation-table";
 import {
   AttachmentsModal,
@@ -51,6 +55,14 @@ const RealEstateValuationSection = () => {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
+
+  const [searchValues, setSearchValues] =
+    useState<RealEstateSearchValues | null>(null);
+
+  // Replace the onSearch handler:
+  const handleSearch = useCallback((values: RealEstateSearchValues) => {
+    setSearchValues(values);
+  }, []);
 
   // ── Modal state (shared between table rows and evaluation page) ────────────
   const [attachmentsTarget, setAttachmentsTarget] =
@@ -234,10 +246,7 @@ const RealEstateValuationSection = () => {
   return (
     <>
       <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
-        <RealEstateSearch
-          onSearch={(v) => console.log("search:", v)}
-          className="mb-6"
-        />
+        <RealEstateSearch onSearch={handleSearch} className="mb-6" />
         <ValuationStatusStrip counts={statusCounts} className="mb-4" />
         <NewTransactionButton onClick={goNew} className="mb-6" />
       </div>
@@ -245,7 +254,7 @@ const RealEstateValuationSection = () => {
       <ValuationTable
         className="mt-4"
         onOpenTransaction={goEvaluation}
-        // Pass shared modal openers so table rows use them too
+        filterValues={searchValues}
         onOpenAttachments={openAttachments}
         onOpenNotes={openNotes}
         onOpenImages={openImages}

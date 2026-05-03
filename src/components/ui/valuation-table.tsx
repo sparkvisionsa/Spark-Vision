@@ -53,6 +53,8 @@ import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
 import { toApiUrl } from "@/lib/api-url";
 import { Checkbox } from "@/components/ui/checkbox";
+import type { RealEstateSearchValues } from "@/components/ui/real-estate-search";
+
 import {
   Tooltip,
   TooltipContent,
@@ -383,6 +385,162 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
     lastUpdateBy: "—",
     rawData: tx,
   };
+}
+
+function applyFilters(
+  rows: ValuationRow[],
+  f: RealEstateSearchValues | null | undefined,
+): ValuationRow[] {
+  if (!f) return rows;
+
+  return rows.filter((row) => {
+    // ── Text query ────────────────────────────────────────────────────────────
+    if (f.query) {
+      const q = f.query.toLowerCase();
+      const searchable = [
+        row.assignment.referenceNumber,
+        row.assignment.assignmentNumber,
+        row.details.deedNumber ?? "",
+        row.assignment.requester,
+        row.details.ownerName,
+        row.details.clientName,
+        row.details.address,
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!searchable.includes(q)) return false;
+    }
+
+    // ── Date range ────────────────────────────────────────────────────────────
+    if (f.dateFrom || f.dateTo) {
+      // Use assignmentDate for "created", updatedAt for "complete"
+      const rawDate =
+        f.dateType === "complete"
+          ? row.lastUpdate // already locale-formatted — we stored it from updatedAt
+          : row.assignment.assignmentDate;
+
+      const rowDate = rawDate ? new Date(rawDate).getTime() : NaN;
+
+      if (!isNaN(rowDate)) {
+        if (f.dateFrom) {
+          const from = new Date(f.dateFrom).getTime();
+          if (rowDate < from) return false;
+        }
+        if (f.dateTo) {
+          // Include the full "to" day
+          const to = new Date(f.dateTo).getTime() + 86_399_999;
+          if (rowDate > to) return false;
+        }
+      }
+    }
+
+    // ── Status ────────────────────────────────────────────────────────────────
+    // "-1" = all, "-2" = active (everything except cancelled/sent)
+    if (f.status === "-2") {
+      if (row.status === "cancelled" || row.status === "sent") return false;
+    } else if (f.status !== "-1") {
+      // Numeric string → status name map
+      const STATUS_MAP: Record<string, ValuationStatus> = {
+        "1": "new",
+        "2": "inspection",
+        "3": "review",
+        "4": "audit",
+        "5": "approved",
+        "6": "sent",
+        "7": "cancelled",
+        "8": "pending",
+      };
+      const expected = STATUS_MAP[f.status];
+      if (expected && row.status !== expected) return false;
+    }
+
+    // ── Region — stored in raw templateFieldValues or evalData; skip if "-1" ─
+    // Region is not directly mapped to a row field, so we skip server-side
+    // region filtering here (would need city→region lookup table). The city/
+    // neighborhood text fields below cover geographic narrowing in practice.
+
+    // ── City (text match) ─────────────────────────────────────────────────────
+    if (f.city) {
+      const city = f.city.toLowerCase();
+      if (!row.details.address.toLowerCase().includes(city)) return false;
+    }
+
+    // ── Neighborhood (text match) ─────────────────────────────────────────────
+    if (f.neighborhood) {
+      const hood = f.neighborhood.toLowerCase();
+      if (!row.details.address.toLowerCase().includes(hood)) return false;
+    }
+
+    // ── Property type (text match against propertyType field) ─────────────────
+    if (f.propertyType) {
+      const pt = f.propertyType.toLowerCase();
+      if (!row.details.propertyType.toLowerCase().includes(pt)) return false;
+    }
+
+    // ── Property category (1=lands, 2=buildings) ──────────────────────────────
+    // We don't have a direct category field on ValuationRow, so we do a loose
+    // keyword match on propertyType.
+    if (f.propertyCategory !== "-1" && f.propertyCategory !== "-2") {
+      const cat = f.propertyCategory;
+      const pt = row.details.propertyType.toLowerCase();
+      if (cat === "1") {
+        // Lands
+        const landKeywords = ["أرض", "land", "قطعة", "plot"];
+        if (!landKeywords.some((kw) => pt.includes(kw))) return false;
+      } else if (cat === "2") {
+        // Buildings
+        const buildingKeywords = [
+          "مبنى",
+          "عمارة",
+          "شقة",
+          "فيلا",
+          "building",
+          "villa",
+          "apartment",
+        ];
+        if (!buildingKeywords.some((kw) => pt.includes(kw))) return false;
+      }
+    }
+
+    // ── Valuation purpose ──────────────────────────────────────────────────────
+    // Stored in rawData.valuationPurpose (numeric string from API)
+    if (f.valuationPurpose !== "-1") {
+      const raw = row.rawData?.valuationPurpose ?? "";
+      if (String(raw) !== f.valuationPurpose) return false;
+    }
+
+    // ── Valuation basis ────────────────────────────────────────────────────────
+    if (f.valuationBasis !== "-1") {
+      const raw = row.rawData?.valuationBasis ?? "";
+      if (String(raw) !== f.valuationBasis) return false;
+    }
+
+    // ── Ownership type ─────────────────────────────────────────────────────────
+    if (f.ownershipType !== "-1") {
+      const raw = row.rawData?.ownershipType ?? "";
+      if (String(raw) !== f.ownershipType) return false;
+    }
+
+    // ── Valuation hypothesis ───────────────────────────────────────────────────
+    if (f.valuationHypothesis !== "-1") {
+      const raw = row.rawData?.valuationHypothesis ?? "";
+      if (String(raw) !== f.valuationHypothesis) return false;
+    }
+
+    // ── Draft ─────────────────────────────────────────────────────────────────
+    if (f.isDraft !== "-1") {
+      const wantDraft = f.isDraft === "1";
+      if (row.isDraft !== wantDraft) return false;
+    }
+
+    // ── Branch ────────────────────────────────────────────────────────────────
+    if (f.branch !== "-1") {
+      const raw = row.rawData?.branch ?? "";
+      if (String(raw) !== f.branch) return false;
+    }
+
+    return true;
+  });
 }
 
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
@@ -3067,12 +3225,12 @@ function ColumnHeader({
 
 type ValuationTableProps = {
   className?: string;
+  filterValues?: RealEstateSearchValues | null; // ← add
   onOpenTransaction?: (id: string) => void;
   onTransactionMutated?: () => void;
   onOpenAttachments?: (transactionId: string, requester: string) => void;
   onOpenNotes?: (transactionId: string, requester: string) => void;
   onOpenImages?: (transactionId: string, requester: string) => void;
-  // CHANGE: pass the full row back so parent can call handleSaved
   onOpenEdit?: (
     transactionId: string,
     requester: string,
@@ -3083,6 +3241,7 @@ type ValuationTableProps = {
 export function ValuationTable({
   className,
   onOpenTransaction,
+  filterValues,
   onTransactionMutated,
   onOpenAttachments: externalOpenAttachments,
   onOpenNotes: externalOpenNotes,
@@ -3207,10 +3366,21 @@ export function ValuationTable({
       .finally(() => setLoading(false));
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const filteredRows = useMemo(
+    () => applyFilters(rows, filterValues),
+    [rows, filterValues],
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterValues]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const paginatedData = useMemo(
-    () => rows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [rows, currentPage, pageSize],
+    () =>
+      filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredRows, currentPage, pageSize],
   );
   const allSelected =
     paginatedData.length > 0 && paginatedData.every((r) => selected.has(r.id));
@@ -3414,7 +3584,7 @@ export function ValuationTable({
           currentPage={currentPage}
           totalPages={totalPages}
           pageSize={pageSize}
-          totalItems={rows.length}
+          totalItems={filteredRows.length}
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
           t={t}

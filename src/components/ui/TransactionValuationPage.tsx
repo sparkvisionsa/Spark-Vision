@@ -53,9 +53,9 @@ const T = {
     notes: "ملاحظات",
     // asset info labels
     address: "العنوان",
-    assetType: "نوع الأصل",
-    assetArea: "مساحة الأصل",
-    usage: "الاستخدام",
+    propertyType: "نوع الأصل",
+    propertyArea: "مساحة الأصل",
+    landUse: "الاستخدام",
     inspector: "المعاين",
     contactNo: "رقم التواصل",
     reviewer: "المراجع",
@@ -262,9 +262,9 @@ const T = {
     notes: "Notes",
     // asset info labels
     address: "Address",
-    assetType: "Asset Type",
-    assetArea: "Asset Area",
-    usage: "Usage",
+    propertyType: "Property Type",
+    propertyArea: "Property Area",
+    landUse: "Land Use",
     inspector: "Inspector",
     contactNo: "Contact Number",
     reviewer: "Reviewer",
@@ -990,7 +990,7 @@ function emptyComparisonRow() {
     evalDate: "",
     propertyTypeId: "",
     comparisonKind: "حد",
-    landSpace: "",
+    propertyArea: "",
     price: "",
     total: "",
     description: "",
@@ -1000,196 +1000,6 @@ function emptyComparisonRow() {
     notes: "",
     coords: "",
   };
-}
-
-function ComparisonTable({
-  rows,
-  onChange,
-  lang,
-}: {
-  rows: any[];
-  onChange: (rows: any[]) => void;
-  lang: Lang;
-}) {
-  const t = T[lang];
-  const addRow = () => onChange([...rows, emptyComparisonRow()]);
-  const removeRow = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
-  const updateRow = (i: number, field: string, val: string) => {
-    onChange(
-      rows.map((r, idx) => {
-        if (idx !== i) return r;
-        const updated = { ...r, [field]: val };
-        if (field === "landSpace" || field === "price") {
-          const area =
-            parseFloat(field === "landSpace" ? val : r.landSpace) || 0;
-          const price = parseFloat(field === "price" ? val : r.price) || 0;
-          updated.total =
-            area && price ? (area * price).toLocaleString("ar-SA") : "";
-        }
-        return updated;
-      }),
-    );
-  };
-
-  return (
-    <div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              {[
-                t.compDate,
-                t.compType,
-                t.compKind,
-                t.compArea,
-                t.compMeterPrice,
-                t.compTotalPrice,
-                t.compBaad,
-                t.compRoads,
-                t.compStreet,
-                t.compSource,
-                t.compNotes,
-                t.compCoords,
-                t.compDelete,
-              ].map((h) => (
-                <th key={h} style={styles.th}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i}>
-                <td style={styles.td}>
-                  <input
-                    type="date"
-                    value={row.evalDate}
-                    onChange={(e) => updateRow(i, "evalDate", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <select
-                    value={row.propertyTypeId}
-                    onChange={(e) =>
-                      updateRow(i, "propertyTypeId", e.target.value)
-                    }
-                    style={styles.cellInput}
-                  >
-                    <option value="" disabled>
-                      {lang === "ar" ? "نوع" : "Type"}
-                    </option>
-                    {PROPERTY_TYPES_OPTIONS[lang].map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td style={styles.td}>
-                  <select
-                    value={row.comparisonKind}
-                    onChange={(e) =>
-                      updateRow(i, "comparisonKind", e.target.value)
-                    }
-                    style={styles.cellInput}
-                  >
-                    {COMPARISON_KINDS[lang].map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td style={styles.td}>
-                  <input
-                    dir="ltr"
-                    value={row.landSpace}
-                    onChange={(e) => updateRow(i, "landSpace", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    dir="ltr"
-                    value={row.price}
-                    onChange={(e) => updateRow(i, "price", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    dir="ltr"
-                    value={row.total}
-                    readOnly
-                    style={{ ...styles.cellInput, background: "#f0f0f0" }}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    value={row.description}
-                    onChange={(e) =>
-                      updateRow(i, "description", e.target.value)
-                    }
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    value={row.roads}
-                    onChange={(e) => updateRow(i, "roads", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    value={row.street}
-                    onChange={(e) => updateRow(i, "street", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    value={row.notes}
-                    onChange={(e) => updateRow(i, "notes", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    value={row.services}
-                    onChange={(e) => updateRow(i, "services", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <input
-                    placeholder="lat,lng"
-                    value={row.coords}
-                    onChange={(e) => updateRow(i, "coords", e.target.value)}
-                    style={styles.cellInput}
-                  />
-                </td>
-                <td style={styles.td}>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(i)}
-                    style={styles.iconBtn}
-                  >
-                    🗑
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <button type="button" onClick={addRow} style={styles.linkBtn}>
-        {t.addComparison}
-      </button>
-    </div>
-  );
 }
 
 // ─── settlement table ─────────────────────────────────────────────────────────
@@ -1516,6 +1326,19 @@ function ReplacementTable({
 function emptyEval() {
   return {
     status: "new",
+    // ── assetInfo uses canonical field names matching the DB model ──────────
+    // propertyType  (was: assetType)
+    // propertyArea  (was: assetArea / landSpace)
+    // landUse       (was: usage)
+    assetInfo: {
+      address: "",
+      propertyType: "",
+      propertyArea: "",
+      landUse: "",
+      inspector: "",
+      contactNo: "",
+      reviewer: "",
+    },
     location: {
       regionId: "",
       cityName: "",
@@ -1601,7 +1424,6 @@ function emptyEval() {
       emptyReplacementLine(),
     ],
     meterPriceLand: "",
-    landSpace: "",
     replacementFields: {
       managementPct: "",
       professionalPct: "",
@@ -1697,6 +1519,7 @@ export function TransactionEvaluationPage({
     }));
 
   const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
+
   useEffect(() => {
     if (!tx) return;
     const e: Record<string, any> = tx.evalData ?? {};
@@ -1722,6 +1545,26 @@ export function TransactionEvaluationPage({
         neighborhoodName: pick(e.neighborhoodName, bl["الحي"]),
         assetCategoryId: pick(e.assetCategoryId),
         propertyTypeId: pick(e.propertyTypeId),
+      },
+      // ── canonical field names — OCR source of truth ──────────────────────
+      // propertyType : was stored as e.propertyType (OCR field name)
+      // propertyArea : was stored as e.propertyArea (OCR field name);
+      //                legacy docs may also have e.landSpace or e.assetArea
+      // landUse      : was stored as e.landUse (OCR field name);
+      //                legacy docs may also have e.usage
+      assetInfo: {
+        address: pick(e.address, bl["العنوان"]),
+        propertyType: pick(e.propertyType, bl["نوع الأصل"]),
+        propertyArea: pick(
+          e.propertyArea,
+          e.landSpace,
+          e.assetArea,
+          bl["مساحة الأصل"],
+        ),
+        landUse: pick(e.landUse, e.usage, bl["الاستخدام"]),
+        inspector: pick(e.inspector, bl["المعاين"]),
+        contactNo: pick(e.contactNo, bl["رقم التواصل"]),
+        reviewer: pick(e.reviewer, bl["المراجع"]),
       },
       basic: {
         propertyCode: pick(e.propertyCode, bl["رمز العقار"]),
@@ -1813,7 +1656,6 @@ export function TransactionEvaluationPage({
             emptyReplacementLine(),
           ],
       meterPriceLand: pick(e.meterPriceLand),
-      landSpace: pick(e.landSpace, bl["مساحة الأصل"]),
       replacementFields: {
         managementPct: pick(e.managementPct),
         professionalPct: pick(e.professionalPct),
@@ -1834,18 +1676,24 @@ export function TransactionEvaluationPage({
     });
   }, [tx]);
 
+  // propertyArea lives in assetInfo — use it for the land value calculation
   const landValue = (
-    (parseFloat(ev.meterPriceLand) || 0) * (parseFloat(ev.landSpace) || 0)
+    (parseFloat(ev.meterPriceLand) || 0) *
+    (parseFloat(ev.assetInfo.propertyArea) || 0)
   ).toFixed(2);
 
   const handleSave = async () => {
     setSaving(true);
     setStatusMsg({ type: "info", text: t.saving });
     try {
+      // Spread ev.assetInfo last so its canonical keys (propertyType,
+      // propertyArea, landUse) overwrite any legacy aliases that may exist
+      // on other sections.
       const evalData = {
         status: ev.status,
         ...ev.location,
         ...ev.basic,
+        ...ev.assetInfo, // emits: propertyType, propertyArea, landUse
         ...ev.boundaries,
         ...ev.finishing,
         ...ev.services,
@@ -1863,7 +1711,6 @@ export function TransactionEvaluationPage({
         settlementWeights: ev.settlementWeights,
         replacementLines: ev.replacementLines,
         meterPriceLand: ev.meterPriceLand,
-        landSpace: ev.landSpace,
         ...ev.replacementFields,
       };
       const res = await fetch(toApiUrl(`/api/transactions/${transactionId}`), {
@@ -2107,7 +1954,6 @@ export function TransactionEvaluationPage({
         <div
           style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}
         >
-          {/* Images */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2115,8 +1961,6 @@ export function TransactionEvaluationPage({
           >
             {t.btnImages}
           </button>
-
-          {/* Attachments */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2124,8 +1968,6 @@ export function TransactionEvaluationPage({
           >
             {t.btnAttachments}
           </button>
-
-          {/* Edit */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2133,18 +1975,12 @@ export function TransactionEvaluationPage({
           >
             {t.btnEdit}
           </button>
-
-          {/* Nearby Comparisons — no modal yet, keep as-is */}
           <button type="button" style={styles.actionBtn}>
             {t.btnNearComps}
           </button>
-
-          {/* Copy Comparisons — no modal yet, keep as-is */}
           <button type="button" style={styles.actionBtn}>
             {t.btnCopyComps}
           </button>
-
-          {/* View PDF */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2154,8 +1990,6 @@ export function TransactionEvaluationPage({
           >
             {t.btnView}
           </button>
-
-          {/* Download PDF */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2168,8 +2002,6 @@ export function TransactionEvaluationPage({
           >
             {t.btnPdf}
           </button>
-
-          {/* Notes */}
           <button
             type="button"
             style={styles.actionBtn}
@@ -2179,17 +2011,23 @@ export function TransactionEvaluationPage({
           </button>
         </div>
       </div>
-      {/* معلومات الأصل */}
 
+      {/* معلومات الأصل — read-only summary using canonical field names */}
       <SectionCard title={t.secAssetInfo}>
         <ReadOnlyGrid>
-          <ReadOnlyItem label={t.address} value={bl["العنوان"]} full />
-          <ReadOnlyItem label={t.assetType} value={bl["نوع الأصل"]} />
-          <ReadOnlyItem label={t.assetArea} value={bl["مساحة الأصل"]} />
-          <ReadOnlyItem label={t.usage} value={bl["الاستخدام"]} />
-          <ReadOnlyItem label={t.inspector} value={bl["المعاين"]} />
-          <ReadOnlyItem label={t.contactNo} value={bl["رقم التواصل"]} />
-          <ReadOnlyItem label={t.reviewer} value={bl["المراجع"]} />
+          <ReadOnlyItem label={t.address} value={ev.assetInfo.address} full />
+          <ReadOnlyItem
+            label={t.propertyType}
+            value={ev.assetInfo.propertyType}
+          />
+          <ReadOnlyItem
+            label={t.propertyArea}
+            value={ev.assetInfo.propertyArea}
+          />
+          <ReadOnlyItem label={t.landUse} value={ev.assetInfo.landUse} />
+          <ReadOnlyItem label={t.inspector} value={ev.assetInfo.inspector} />
+          <ReadOnlyItem label={t.contactNo} value={ev.assetInfo.contactNo} />
+          <ReadOnlyItem label={t.reviewer} value={ev.assetInfo.reviewer} />
         </ReadOnlyGrid>
       </SectionCard>
 
@@ -2241,7 +2079,7 @@ export function TransactionEvaluationPage({
               <option value="2">{t.buildings}</option>
             </Select>
           </Field>
-          <Field label={t.assetType}>
+          <Field label={t.propertyType}>
             <Select
               value={ev.location.propertyTypeId}
               onChange={(e) =>
@@ -2429,7 +2267,7 @@ export function TransactionEvaluationPage({
             USE_LABELS[lang][ev.location.assetCategoryId] ??
             (lang === "ar" ? "عام" : "General")
           }
-          subjectArea={ev.landSpace}
+          subjectArea={ev.assetInfo.propertyArea}
           settlementWeights={ev.settlementWeights}
           onSettlementWeightsChange={(w) =>
             setEv((p) => ({ ...p, settlementWeights: w }))
@@ -2467,12 +2305,16 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
+          {/* Land area — bound to assetInfo.propertyArea (canonical field) */}
           <Field label={t.landSpace}>
             <Input
               dir="ltr"
-              value={ev.landSpace}
+              value={ev.assetInfo.propertyArea}
               onChange={(e) =>
-                setEv((p) => ({ ...p, landSpace: e.target.value }))
+                setEv((p) => ({
+                  ...p,
+                  assetInfo: { ...p.assetInfo, propertyArea: e.target.value },
+                }))
               }
             />
           </Field>
