@@ -50,6 +50,7 @@ const copy = {
     valuationPurposePlaceholder: "Please select purpose",
     intendedUse: "Intended Use",
     intendedUsePlaceholder: "Intended use",
+    newTransactionLawyer: "New Transaction", // same label for now
     valuationBasis: "Value Basis",
     ownershipType: "Ownership Type",
     valuationHypothesis: "Valuation Hypothesis",
@@ -133,6 +134,7 @@ const copy = {
     authorizationNumberPlaceholder: "رقم التعميد",
     assignmentDate: "تاريخ التكليف",
     valuationPurpose: "الغرض من التقييم",
+    newTransactionLawyer: "معاملة جديدة",
     valuationPurposePlaceholder: "الرجاء اختيار الغرض",
     intendedUse: "الاستخدام المقصود",
     intendedUsePlaceholder: "الاستخدام المقصود",
@@ -521,6 +523,35 @@ export function NewTransactionModal({ open, onClose, onSubmit }: ModalProps) {
 }
 
 // ─── trigger button ───────────────────────────────────────────────────────────
+type LawyerButtonProps = {
+  onClick?: () => void;
+  className?: string;
+};
+
+export function NewTransactionLawyerButton({
+  onClick,
+  className,
+}: LawyerButtonProps) {
+  const langContext = useContext(LanguageContext);
+  const language = langContext?.language ?? "en";
+  const isArabic = language === "ar";
+
+  return (
+    <div dir={isArabic ? "rtl" : "ltr"} className={cn("flex", className)}>
+      <button
+        onClick={onClick}
+        className="flex items-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 active:scale-[0.98]"
+      >
+        <Plus className="h-4 w-4" />
+        {isArabic ? "معاملة جديدة" : "New Transaction"}
+        {/* small pill to distinguish it */}
+        <span className="rounded-full bg-violet-500 px-1.5 py-0.5 text-[10px] font-bold tracking-wide">
+          {isArabic ? "محامي" : "Legal"}
+        </span>
+      </button>
+    </div>
+  );
+}
 
 type ButtonProps = {
   onClick: () => void;

@@ -1341,7 +1341,10 @@ function emptyEval() {
     },
     location: {
       regionId: "",
+      regionName: "",
+      cityId: "",
       cityName: "",
+      neighborhoodId: "",
       neighborhoodName: "",
       assetCategoryId: "",
       propertyTypeId: "",
@@ -1473,6 +1476,88 @@ export function TransactionEvaluationPage({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  function InlineSelectField({
+    displayValue,
+    selectValue,
+    onSelectChange,
+    placeholder,
+    children,
+    hint,
+  }: {
+    displayValue: string;
+    selectValue: string;
+    onSelectChange: (val: string) => void;
+    placeholder: string;
+    children: React.ReactNode;
+    hint?: string;
+  }) {
+    const [open, setOpen] = useState(false);
+
+    return (
+      <div>
+        {displayValue && !open ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ ...styles.input, background: "#f8f9fa", flex: 1 }}>
+              {displayValue}
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              style={{
+                fontSize: 11,
+                color: "#0066cc",
+                background: "none",
+                border: "1px solid #ccc",
+                borderRadius: 4,
+                padding: "4px 8px",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              تغيير
+            </button>
+          </div>
+        ) : (
+          <div>
+            <select
+              value={selectValue}
+              onChange={(e) => {
+                onSelectChange(e.target.value);
+                setOpen(false);
+              }}
+              style={styles.input}
+              autoFocus={open}
+            >
+              <option value="" disabled>
+                {placeholder}
+              </option>
+              {children}
+            </select>
+            {displayValue && (
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                style={{
+                  fontSize: 11,
+                  color: "#888",
+                  background: "none",
+                  border: "none",
+                  padding: "2px 0",
+                  cursor: "pointer",
+                }}
+              >
+                إلغاء
+              </button>
+            )}
+          </div>
+        )}
+        {hint && (
+          <p style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>{hint}</p>
+        )}
+      </div>
+    );
+  }
+
   useEffect(() => {
     if (!transactionId) {
       setLoading(false);
@@ -1520,6 +1605,44 @@ export function TransactionEvaluationPage({
 
   const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
 
+  const [regions, setRegions] = useState<
+    { id: string; titleAr: string; titleEn: string }[]
+  >([]);
+  const [cities, setCities] = useState<
+    { id: string; titleAr: string; titleEn: string; regionId: string }[]
+  >([]);
+  const [neighborhoods, setNeighborhoods] = useState<
+    { id: string; titleAr: string; titleEn: string; cityId: string }[]
+  >([]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(toApiUrl("/api/locations/regions"), {
+        credentials: "include",
+      }).then((r) => r.json()),
+      fetch(toApiUrl("/api/locations/cities"), { credentials: "include" }).then(
+        (r) => r.json(),
+      ),
+      fetch(toApiUrl("/api/locations/neighborhoods"), {
+        credentials: "include",
+      }).then((r) => r.json()),
+    ])
+      .then(([regs, cts, nbs]) => {
+        setRegions(regs);
+        setCities(cts);
+        setNeighborhoods(nbs);
+      })
+      .catch(console.error);
+  }, []);
+
+  const citiesForRegion = ev.location.regionId
+    ? cities.filter((c) => c.regionId === ev.location.regionId)
+    : cities;
+
+  const neighborhoodsForCity = ev.location.cityId
+    ? neighborhoods.filter((n) => n.cityId === ev.location.cityId)
+    : neighborhoods;
+
   useEffect(() => {
     if (!tx) return;
     const e: Record<string, any> = tx.evalData ?? {};
@@ -1540,8 +1663,11 @@ export function TransactionEvaluationPage({
         ? e.settlementWeights
         : ["", "", ""],
       location: {
-        regionId: pick(e.regionId, resolveRegionId(bl["المنطقة"] ?? "", lang)),
+        regionId: pick(e.regionId),
+        regionName: pick(e.regionName),
+        cityId: pick(e.cityId),
         cityName: pick(e.cityName, bl["المدينة"]),
+        neighborhoodId: pick(e.neighborhoodId),
         neighborhoodName: pick(e.neighborhoodName, bl["الحي"]),
         assetCategoryId: pick(e.assetCategoryId),
         propertyTypeId: pick(e.propertyTypeId),
@@ -2032,39 +2158,97 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* الموقع وتصنيف الأصل */}
+      {/* الموقع وتصنيف الأصل */}
       <SectionCard title={t.secLocation}>
         <GridFields>
           <Field label={t.region}>
-            <Select
-              value={ev.location.regionId}
-              onChange={(e) => setField("location", "regionId", e.target.value)}
+            <InlineSelectField
+              displayValue={
+                ev.location.regionId
+                  ? (regions.find((r) => r.id === ev.location.regionId)?.[
+                      isRtl ? "titleAr" : "titleEn"
+                    ] ?? ev.location.regionName)
+                  : ev.location.regionName
+              }
+              selectValue={ev.location.regionId}
+              onSelectChange={(val) => {
+                setField("location", "regionId", val);
+                setField("location", "cityId", "");
+                setField("location", "neighborhoodId", "");
+              }}
+              placeholder={t.selectRegion}
+              hint={
+                ev.location.regionName && ev.location.regionId
+                  ? `${isRtl ? "من الصك:" : "From deed:"} ${ev.location.regionName}`
+                  : undefined
+              }
             >
-              <option value="" disabled>
-                {t.selectRegion}
-              </option>
-              {REGIONS[lang].map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {isRtl ? r.titleAr : r.titleEn}
                 </option>
               ))}
-            </Select>
+            </InlineSelectField>
           </Field>
+
           <Field label={t.city}>
-            <Input
-              value={ev.location.cityName}
-              onChange={(e) => setField("location", "cityName", e.target.value)}
+            <InlineSelectField
+              displayValue={
+                ev.location.cityId
+                  ? (cities.find((c) => c.id === ev.location.cityId)?.[
+                      isRtl ? "titleAr" : "titleEn"
+                    ] ?? ev.location.cityName)
+                  : ev.location.cityName
+              }
+              selectValue={ev.location.cityId}
+              onSelectChange={(val) => {
+                setField("location", "cityId", val);
+                setField("location", "neighborhoodId", "");
+              }}
               placeholder={t.enterCity}
-            />
+              hint={
+                ev.location.cityName && ev.location.cityId
+                  ? `${isRtl ? "من الصك:" : "From deed:"} ${ev.location.cityName}`
+                  : undefined
+              }
+            >
+              {citiesForRegion.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {isRtl ? c.titleAr : c.titleEn}
+                </option>
+              ))}
+            </InlineSelectField>
           </Field>
+
           <Field label={t.neighborhood}>
-            <Input
-              value={ev.location.neighborhoodName}
-              onChange={(e) =>
-                setField("location", "neighborhoodName", e.target.value)
+            <InlineSelectField
+              displayValue={
+                ev.location.neighborhoodId
+                  ? (neighborhoods.find(
+                      (n) => n.id === ev.location.neighborhoodId,
+                    )?.[isRtl ? "titleAr" : "titleEn"] ??
+                    ev.location.neighborhoodName)
+                  : ev.location.neighborhoodName
+              }
+              selectValue={ev.location.neighborhoodId}
+              onSelectChange={(val) =>
+                setField("location", "neighborhoodId", val)
               }
               placeholder={t.enterNeighborhood}
-            />
+              hint={
+                ev.location.neighborhoodName && ev.location.neighborhoodId
+                  ? `${isRtl ? "من الصك:" : "From deed:"} ${ev.location.neighborhoodName}`
+                  : undefined
+              }
+            >
+              {neighborhoodsForCity.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {isRtl ? n.titleAr : n.titleEn}
+                </option>
+              ))}
+            </InlineSelectField>
           </Field>
+
           <Field label={t.assetCategory}>
             <Select
               value={ev.location.assetCategoryId}
@@ -2079,22 +2263,33 @@ export function TransactionEvaluationPage({
               <option value="2">{t.buildings}</option>
             </Select>
           </Field>
+
           <Field label={t.propertyType}>
-            <Select
-              value={ev.location.propertyTypeId}
-              onChange={(e) =>
-                setField("location", "propertyTypeId", e.target.value)
+            <InlineSelectField
+              displayValue={
+                ev.location.propertyTypeId
+                  ? (PROPERTY_TYPES_OPTIONS[lang].find(
+                      (o) => o.value === ev.location.propertyTypeId,
+                    )?.label ?? ev.assetInfo.propertyType)
+                  : ev.assetInfo.propertyType // ← use OCR text as fallback
+              }
+              selectValue={ev.location.propertyTypeId}
+              onSelectChange={(val) =>
+                setField("location", "propertyTypeId", val)
+              }
+              placeholder={t.selectPropertyType}
+              hint={
+                ev.assetInfo.propertyType && ev.location.propertyTypeId
+                  ? `${isRtl ? "من الصك:" : "From deed:"} ${ev.assetInfo.propertyType}`
+                  : undefined
               }
             >
-              <option value="" disabled>
-                {t.selectPropertyType}
-              </option>
               {PROPERTY_TYPES_OPTIONS[lang].map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
               ))}
-            </Select>
+            </InlineSelectField>
           </Field>
         </GridFields>
       </SectionCard>

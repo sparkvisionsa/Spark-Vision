@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,6 +69,45 @@ import {
   Users,
 } from "lucide-react";
 
+interface LocationItem {
+  id: string;
+  titleAr: string;
+  titleEn: string;
+  regionId?: string;
+  cityId?: string;
+  active?: boolean;
+}
+
+async function fetchJson<T>(path: string): Promise<T> {
+  const res = await fetch(toApiUrl(path), {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export function useLocations() {
+  const [regions, setRegions] = useState<LocationItem[]>([]);
+  const [cities, setCities] = useState<LocationItem[]>([]);
+  const [neighborhoods, setNeighborhoods] = useState<LocationItem[]>([]);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    void Promise.all([
+      fetchJson<LocationItem[]>("/api/locations/regions").then(setRegions),
+      fetchJson<LocationItem[]>("/api/locations/cities").then(setCities),
+      fetchJson<LocationItem[]>("/api/locations/neighborhoods").then(
+        setNeighborhoods,
+      ),
+    ]);
+  }, []);
+
+  return { regions, cities, neighborhoods };
+}
+
 const FIELD_TYPE_OPTIONS: { value: TemplateFieldType; label: string }[] = [
   { value: "text", label: "نص قصير" },
   { value: "textarea", label: "نص طويل" },
@@ -77,7 +116,11 @@ const FIELD_TYPE_OPTIONS: { value: TemplateFieldType; label: string }[] = [
   { value: "email", label: "بريد إلكتروني" },
   { value: "tel", label: "هاتف" },
   { value: "select", label: "قائمة منسدلة" },
-  { value: "file", label: "ملف" }, // ← added
+  { value: "file", label: "ملف" },
+  // ↓ NEW location field types
+  { value: "region", label: "منطقة" },
+  { value: "city", label: "مدينة" },
+  { value: "neighborhood", label: "حي" },
 ];
 
 /** سطر لكل خيار؛ تُزال التكرارات مع الحفاظ على الترتيب */
@@ -138,6 +181,177 @@ function emptyRow(): BuilderRow {
   };
 }
 
+interface LocationFieldInputsProps {
+  fieldType: "region" | "city" | "neighborhood";
+  /** Current value stored as JSON: e.g. '{"regionId":"abc","cityId":"def","neighborhoodId":"ghi"}' */
+  value: string;
+  onChange: (val: string) => void;
+  regions: LocationItem[];
+  cities: LocationItem[];
+  neighborhoods: LocationItem[];
+  isRtl?: boolean;
+}
+
+function parseLocationValue(val: string): {
+  regionId: string;
+  cityId: string;
+  neighborhoodId: string;
+} {
+  try {
+    const p = JSON.parse(val) as Record<string, string>;
+    return {
+      regionId: p.regionId ?? "",
+      cityId: p.cityId ?? "",
+      neighborhoodId: p.neighborhoodId ?? "",
+    };
+  } catch {
+    return { regionId: "", cityId: "", neighborhoodId: "" };
+  }
+}
+
+export function LocationFieldInputs({
+  fieldType,
+  value,
+  onChange,
+  regions,
+  cities,
+  neighborhoods,
+  isRtl,
+}: LocationFieldInputsProps) {
+  const parsed = parseLocationValue(value);
+
+  const update = useCallback(
+    (patch: Partial<typeof parsed>) => {
+      onChange(JSON.stringify({ ...parsed, ...patch }));
+    },
+    [parsed, onChange],
+  );
+
+  const filteredCities = parsed.regionId
+    ? cities.filter((c) => c.regionId === parsed.regionId && c.active !== false)
+    : cities.filter((c) => c.active !== false);
+
+  const filteredNeighborhoods = parsed.cityId
+    ? neighborhoods.filter(
+        (n) => n.cityId === parsed.cityId && n.active !== false,
+      )
+    : parsed.regionId
+      ? neighborhoods.filter(
+          (n) => n.regionId === parsed.regionId && n.active !== false,
+        )
+      : neighborhoods.filter((n) => n.active !== false);
+
+  const selectCls =
+    "w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-800 focus:border-sky-400 focus:outline-none transition appearance-none cursor-pointer h-7";
+
+  const label = (item: LocationItem) => (isRtl ? item.titleAr : item.titleEn);
+
+  return (
+    <div className="flex flex-col gap-1">
+      {/* Always show region selector */}
+      <div className="relative">
+        <select
+          className={selectCls}
+          value={parsed.regionId}
+          onChange={(e) =>
+            update({ regionId: e.target.value, cityId: "", neighborhoodId: "" })
+          }
+        >
+          <option value="">{isRtl ? "اختر المنطقة" : "Select Region"}</option>
+          {regions
+            .filter((r) => r.active !== false)
+            .map((r) => (
+              <option key={r.id} value={r.id}>
+                {label(r)}
+              </option>
+            ))}
+        </select>
+        <svg
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 ${isRtl ? "left-1.5" : "right-1.5"}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </div>
+
+      {/* Show city if fieldType is city or neighborhood */}
+      {(fieldType === "city" || fieldType === "neighborhood") && (
+        <div className="relative">
+          <select
+            className={selectCls}
+            value={parsed.cityId}
+            onChange={(e) =>
+              update({ cityId: e.target.value, neighborhoodId: "" })
+            }
+            disabled={!parsed.regionId}
+          >
+            <option value="">{isRtl ? "اختر المدينة" : "Select City"}</option>
+            {filteredCities.map((c) => (
+              <option key={c.id} value={c.id}>
+                {label(c)}
+              </option>
+            ))}
+          </select>
+          <svg
+            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 ${isRtl ? "left-1.5" : "right-1.5"}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </div>
+      )}
+
+      {/* Show neighborhood if fieldType is neighborhood */}
+      {fieldType === "neighborhood" && (
+        <div className="relative">
+          <select
+            className={selectCls}
+            value={parsed.neighborhoodId}
+            onChange={(e) => update({ neighborhoodId: e.target.value })}
+            disabled={!parsed.cityId}
+          >
+            <option value="">
+              {isRtl ? "اختر الحي" : "Select Neighborhood"}
+            </option>
+            {filteredNeighborhoods.map((n) => (
+              <option key={n.id} value={n.id}>
+                {label(n)}
+              </option>
+            ))}
+          </select>
+          <svg
+            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400 ${isRtl ? "left-1.5" : "right-1.5"}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClientsPage() {
   const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>([]);
@@ -181,6 +395,8 @@ export default function ClientsPage() {
 
   const [savingClient, setSavingClient] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
+
+  const { regions, cities, neighborhoods } = useLocations();
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -487,6 +703,43 @@ export default function ClientsPage() {
 
     const inputCls = "h-7 text-[12px]";
     switch (f.fieldType) {
+      case "region":
+        return (
+          <LocationFieldInputs
+            fieldType="region"
+            value={v}
+            onChange={onChange}
+            regions={regions}
+            cities={cities}
+            neighborhoods={neighborhoods}
+            isRtl={true} // or pass isRtl from your language context
+          />
+        );
+      case "city":
+        return (
+          <LocationFieldInputs
+            fieldType="city"
+            value={v}
+            onChange={onChange}
+            regions={regions}
+            cities={cities}
+            neighborhoods={neighborhoods}
+            isRtl={true}
+          />
+        );
+      case "neighborhood":
+        return (
+          <LocationFieldInputs
+            fieldType="neighborhood"
+            value={v}
+            onChange={onChange}
+            regions={regions}
+            cities={cities}
+            neighborhoods={neighborhoods}
+            isRtl={true}
+          />
+        );
+
       case "file":
         return (
           <div className="flex h-7 items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 text-[11px] text-slate-400">

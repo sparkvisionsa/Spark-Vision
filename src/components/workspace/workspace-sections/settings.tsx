@@ -1,188 +1,64 @@
 "use client";
 
-import { useState, useContext, useEffect } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { LanguageContext } from "@/components/layout-provider";
+import { toApiUrl } from "@/lib/api-url";
+import { toast } from "@/hooks/use-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type SubView = "hub" | "regions" | "cities" | "neighborhoods";
 
 interface Region {
-  id: number;
+  id: string;
   titleAr: string;
   titleEn: string;
 }
 
 interface City {
-  id: number;
+  id: string;
   titleAr: string;
   titleEn: string;
-  descriptionAr?: string;
-  descriptionEn?: string;
-  regionId: number;
+  descriptionAr: string;
+  descriptionEn: string;
+  regionId: string;
   active: boolean;
 }
 
 interface Neighborhood {
-  id: number;
+  id: string;
   titleAr: string;
   titleEn: string;
-  descriptionAr?: string;
-  descriptionEn?: string;
-  regionId: number;
-  cityId: number;
+  descriptionAr: string;
+  descriptionEn: string;
+  regionId: string;
+  cityId: string;
   active: boolean;
 }
 
-// ─── Static seed data (mirrors the HTML samples) ─────────────────────────────
+// ─── API helper ───────────────────────────────────────────────────────────────
 
-const REGIONS: Region[] = [
-  { id: 1, titleAr: "منطقة الرياض", titleEn: "Riyadh" },
-  { id: 2, titleAr: "منطقة مكة المكرمة", titleEn: "Makkah" },
-  { id: 3, titleAr: "منطقة المدينة المنورة", titleEn: "Madinah" },
-  { id: 4, titleAr: "منطقة القصيم", titleEn: "Qassim" },
-  { id: 5, titleAr: "المنطقة الشرقية", titleEn: "Eastern Province" },
-  { id: 6, titleAr: "منطقة عسير", titleEn: "Asir" },
-  { id: 7, titleAr: "منطقة تبوك", titleEn: "Tabuk" },
-  { id: 8, titleAr: "منطقة حائل", titleEn: "Hail" },
-  { id: 9, titleAr: "منطقة الحدود الشمالية", titleEn: "Northern Borders" },
-  { id: 10, titleAr: "منطقة جازان", titleEn: "Jazan" },
-  { id: 11, titleAr: "منطقة نجران", titleEn: "Najran" },
-  { id: 12, titleAr: "منطقة الباحة", titleEn: "Bahah" },
-  { id: 13, titleAr: "منطقة الجوف", titleEn: "Jawf" },
-];
-
-const CITIES: City[] = [
-  { id: 1, titleAr: "الرياض", titleEn: "Riyadh", regionId: 1, active: true },
-  {
-    id: 2,
-    titleAr: "المجمعة",
-    titleEn: "Al Majma'ah",
-    regionId: 1,
-    active: true,
-  },
-  {
-    id: 3,
-    titleAr: "العيطلية",
-    titleEn: "Al 'Aytaliyah",
-    regionId: 1,
-    active: true,
-  },
-  {
-    id: 4,
-    titleAr: "حزوة / العمانية",
-    titleEn: "Hizwah (Al Umaniyah)",
-    regionId: 1,
-    active: true,
-  },
-  { id: 5, titleAr: "الافلاج", titleEn: "Al Aflaj", regionId: 1, active: true },
-  {
-    id: 6,
-    titleAr: "الوسيعة",
-    titleEn: "Al Wasi'ah",
-    regionId: 1,
-    active: true,
-  },
-  { id: 7, titleAr: "تمرية", titleEn: "Tamriyah", regionId: 1, active: true },
-  {
-    id: 8,
-    titleAr: "ابو خسيفاء",
-    titleEn: "Abu Khusayfa",
-    regionId: 1,
-    active: true,
-  },
-  { id: 9, titleAr: "النخيل", titleEn: "An Nakhil", regionId: 1, active: true },
-  {
-    id: 10,
-    titleAr: "السحيمي",
-    titleEn: "As Suhaymi",
-    regionId: 1,
-    active: true,
-  },
-];
-
-const NEIGHBORHOODS: Neighborhood[] = [
-  {
-    id: 1,
-    titleAr: "العمل",
-    titleEn: "Al Amal Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 2,
-    titleAr: "النموذجية",
-    titleEn: "Al Namudhajiyah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 3,
-    titleAr: "الجرادية",
-    titleEn: "Al Jarradiyah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 4,
-    titleAr: "الصناعية",
-    titleEn: "Al Sinaiyah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 5,
-    titleAr: "منفوحة الجديدة",
-    titleEn: "Manfuha Al Jadidah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 6,
-    titleAr: "الفاخرية",
-    titleEn: "Al Fakhiriyah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 7,
-    titleAr: "الديرة",
-    titleEn: "Al Dirah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 8,
-    titleAr: "ام الحمام الشرق",
-    titleEn: "East Umm Al Hamam Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 9,
-    titleAr: "الشرفية",
-    titleEn: "Al Sharafiyah Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-  {
-    id: 10,
-    titleAr: "الهدا",
-    titleEn: "Al Hada Dist.",
-    regionId: 1,
-    cityId: 1,
-    active: true,
-  },
-];
+async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(toApiUrl(path), {
+    ...init,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let msg = `خطأ ${res.status}`;
+    try {
+      const p = (await res.json()) as { message?: string | string[] };
+      if (p?.message)
+        msg = Array.isArray(p.message) ? p.message.join(" ") : p.message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
 
 // ─── Copy ─────────────────────────────────────────────────────────────────────
 
@@ -211,6 +87,10 @@ const COPY = {
     active: "فعّال",
     inactive: "غير فعّال",
     add: "إضافة",
+    save: "حفظ",
+    cancel: "إلغاء",
+    edit: "تعديل",
+    delete: "حذف",
     search: "بحث",
     searchPlaceholder: "ابحث...",
     selectRegion: "اختر المنطقة",
@@ -219,14 +99,14 @@ const COPY = {
     allCities: "كل المدن",
     required: "هذا الحقل مطلوب",
     back: "رجوع",
-    edit: "تعديل",
     noResults: "لا توجد نتائج",
     showing: "عرض",
     of: "من",
     records: "سجل",
     name: "الاسم",
     actions: "الإجراءات",
-    activateStatus: "تفعيل",
+    loading: "جاري التحميل...",
+    confirmDelete: "هل أنت متأكد من الحذف؟",
   },
   en: {
     settings: "Settings",
@@ -252,6 +132,10 @@ const COPY = {
     active: "Active",
     inactive: "Inactive",
     add: "Add",
+    save: "Save",
+    cancel: "Cancel",
+    edit: "Edit",
+    delete: "Delete",
     search: "Search",
     searchPlaceholder: "Search...",
     selectRegion: "Select Region",
@@ -260,14 +144,14 @@ const COPY = {
     allCities: "All Cities",
     required: "This field is required",
     back: "Back",
-    edit: "Edit",
     noResults: "No results found",
     showing: "Showing",
     of: "of",
     records: "records",
     name: "Name",
     actions: "Actions",
-    activateStatus: "Activate",
+    loading: "Loading...",
+    confirmDelete: "Are you sure you want to delete?",
   },
 };
 
@@ -367,36 +251,6 @@ function StatusBadge({ active, t }: { active: boolean; t: typeof COPY.ar }) {
   );
 }
 
-function EditButton({
-  onClick,
-  label,
-}: {
-  onClick?: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-emerald-300 hover:text-emerald-600 transition"
-    >
-      <svg
-        className="h-3.5 w-3.5"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-        />
-      </svg>
-      {label}
-    </button>
-  );
-}
-
 function Pagination({
   page,
   totalPages,
@@ -428,11 +282,7 @@ function Pagination({
         <button
           key={p}
           onClick={() => onPage(p)}
-          className={`flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-medium transition ${
-            p === page
-              ? "border-emerald-500 bg-emerald-500 text-white"
-              : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:text-emerald-600"
-          }`}
+          className={`flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-medium transition ${p === page ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:text-emerald-600"}`}
         >
           {p}
         </button>
@@ -454,16 +304,19 @@ function SettingsHub({
   t,
   isRtl,
   onNavigate,
+  counts,
 }: {
   t: typeof COPY.ar;
   isRtl: boolean;
   onNavigate: (v: SubView) => void;
+  counts: { regions: number; cities: number; neighborhoods: number };
 }) {
   const tiles = [
     {
       view: "regions" as SubView,
       label: t.regions,
       desc: t.regionsDesc,
+      count: counts.regions,
       icon: (
         <svg
           className="h-6 w-6"
@@ -479,12 +332,12 @@ function SettingsHub({
           />
         </svg>
       ),
-      count: REGIONS.length,
     },
     {
       view: "cities" as SubView,
       label: t.cities,
       desc: t.citiesDesc,
+      count: counts.cities,
       icon: (
         <svg
           className="h-6 w-6"
@@ -500,12 +353,12 @@ function SettingsHub({
           />
         </svg>
       ),
-      count: CITIES.length,
     },
     {
       view: "neighborhoods" as SubView,
       label: t.neighborhoods,
       desc: t.neighborhoodsDesc,
+      count: counts.neighborhoods,
       icon: (
         <svg
           className="h-6 w-6"
@@ -527,15 +380,12 @@ function SettingsHub({
           />
         </svg>
       ),
-      count: NEIGHBORHOODS.length,
     },
   ];
 
   return (
     <div dir={isRtl ? "rtl" : "ltr"}>
       <PageHeader title={t.settings} isRtl={isRtl} />
-
-      {/* Section header */}
       <div className={`mb-6 ${isRtl ? "text-right" : ""}`}>
         <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-100 px-4 py-1.5 mb-3">
           <svg
@@ -562,7 +412,6 @@ function SettingsHub({
           {t.citiesAndNeighborhoodsDesc}
         </p>
       </div>
-
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {tiles.map((tile) => (
           <button
@@ -570,9 +419,7 @@ function SettingsHub({
             onClick={() => onNavigate(tile.view)}
             className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left shadow-sm hover:border-emerald-300 hover:shadow-md transition-all duration-200"
           >
-            {/* Subtle gradient accent */}
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-50/0 to-emerald-50/0 group-hover:from-emerald-50/60 group-hover:to-transparent transition-all duration-300 rounded-2xl" />
-
             <div
               className={`relative flex items-start gap-4 ${isRtl ? "flex-row-reverse text-right" : ""}`}
             >
@@ -585,7 +432,7 @@ function SettingsHub({
                     {tile.label}
                   </p>
                   <span className="text-xs font-semibold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5 shrink-0">
-                    {tile.count}
+                    {tile.count.toLocaleString()}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
@@ -593,7 +440,6 @@ function SettingsHub({
                 </p>
               </div>
             </div>
-
             <div
               className={`relative mt-4 flex items-center gap-1 text-xs font-semibold text-emerald-600 ${isRtl ? "flex-row-reverse justify-end" : ""}`}
             >
@@ -630,13 +476,37 @@ function RegionsPage({
   isRtl: boolean;
   onBack: () => void;
 }) {
-  const [regions, setRegions] = useState<Region[]>(REGIONS);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [loading, setLoading] = useState(true);
   const [titleAr, setTitleAr] = useState("");
   const [titleEn, setTitleEn] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitleAr, setEditTitleAr] = useState("");
+  const [editTitleEn, setEditTitleEn] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [errors, setErrors] = useState<{ titleAr?: boolean }>({});
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiJson<Region[]>("/api/locations/regions");
+      setRegions(data);
+    } catch (e) {
+      toast({
+        title: "تعذر التحميل",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const filtered = regions.filter(
     (r) =>
@@ -646,18 +516,68 @@ function RegionsPage({
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!titleAr.trim()) {
       setErrors({ titleAr: true });
       return;
     }
-    setRegions((p) => [
-      { id: Date.now(), titleAr: titleAr.trim(), titleEn: titleEn.trim() },
-      ...p,
-    ]);
-    setTitleAr("");
-    setTitleEn("");
-    setErrors({});
+    try {
+      const created = await apiJson<Region>("/api/locations/regions", {
+        method: "POST",
+        body: JSON.stringify({
+          titleAr: titleAr.trim(),
+          titleEn: titleEn.trim(),
+        }),
+      });
+      setRegions((p) => [created, ...p]);
+      setTitleAr("");
+      setTitleEn("");
+      setErrors({});
+      toast({ title: isRtl ? "تمت الإضافة" : "Added" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdate = async (id: string) => {
+    if (!editTitleAr.trim()) return;
+    try {
+      const updated = await apiJson<Region>(`/api/locations/regions/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          titleAr: editTitleAr.trim(),
+          titleEn: editTitleEn.trim(),
+        }),
+      });
+      setRegions((p) => p.map((r) => (r.id === id ? updated : r)));
+      setEditingId(null);
+      toast({ title: isRtl ? "تم التحديث" : "Updated" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm(t.confirmDelete)) return;
+    try {
+      await apiJson(`/api/locations/regions/${id}`, { method: "DELETE" });
+      setRegions((p) => p.filter((r) => r.id !== id));
+      toast({ title: isRtl ? "تم الحذف" : "Deleted" });
+    } catch (e) {
+      toast({
+        title: "فشل الحذف",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -669,14 +589,13 @@ function RegionsPage({
         isRtl={isRtl}
       />
 
-      {/* Add form */}
       <Card className="mb-6">
         <CardHeader>{t.addRegion}</CardHeader>
         <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className={labelCls}>{t.titleAr} *</label>
             <input
-              className={`${inputCls} ${errors.titleAr ? "border-red-300 focus:border-red-400 focus:ring-red-100" : ""}`}
+              className={`${inputCls} ${errors.titleAr ? "border-red-300" : ""}`}
               placeholder={t.titleAr}
               value={titleAr}
               onChange={(e) => {
@@ -702,19 +621,17 @@ function RegionsPage({
         </div>
         <div className="border-t border-slate-100 px-6 py-4">
           <button
-            onClick={handleAdd}
-            className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 active:bg-emerald-700 transition"
+            onClick={() => void handleAdd()}
+            className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 transition"
           >
             {t.add}
           </button>
         </div>
       </Card>
 
-      {/* Table */}
       <Card>
         <CardHeader>{t.regions}</CardHeader>
         <div className="p-6">
-          {/* Search */}
           <div className="mb-4 max-w-sm">
             <div className="relative">
               <svg
@@ -742,62 +659,151 @@ function RegionsPage({
             </div>
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleAr}
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleEn}
-                  </th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
-                    {t.actions}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {paginated.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={3}
-                      className="px-4 py-8 text-center text-sm text-slate-400"
+          {loading ? (
+            <p className="py-8 text-center text-sm text-slate-400">
+              {t.loading}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
                     >
-                      {t.noResults}
-                    </td>
+                      {t.titleAr}
+                    </th>
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
+                    >
+                      {t.titleEn}
+                    </th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
+                      {t.actions}
+                    </th>
                   </tr>
-                ) : (
-                  paginated.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/60 transition">
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {paginated.length === 0 ? (
+                    <tr>
                       <td
-                        className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
-                        dir="rtl"
+                        colSpan={3}
+                        className="px-4 py-8 text-center text-sm text-slate-400"
                       >
-                        {r.titleAr}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
-                        dir="ltr"
-                      >
-                        {r.titleEn}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <EditButton label={t.edit} />
+                        {t.noResults}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ) : (
+                    paginated.map((r) => (
+                      <tr
+                        key={r.id}
+                        className="hover:bg-slate-50/60 transition"
+                      >
+                        {editingId === r.id ? (
+                          <>
+                            <td className="px-4 py-2">
+                              <input
+                                className={inputCls}
+                                value={editTitleAr}
+                                onChange={(e) => setEditTitleAr(e.target.value)}
+                                dir="rtl"
+                              />
+                            </td>
+                            <td className="px-4 py-2">
+                              <input
+                                className={inputCls}
+                                value={editTitleEn}
+                                onChange={(e) => setEditTitleEn(e.target.value)}
+                                dir="ltr"
+                              />
+                            </td>
+                            <td className="px-4 py-2 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => void handleUpdate(r.id)}
+                                  className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 transition"
+                                >
+                                  {t.save}
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                                >
+                                  {t.cancel}
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td
+                              className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
+                              dir="rtl"
+                            >
+                              {r.titleAr}
+                            </td>
+                            <td
+                              className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
+                              dir="ltr"
+                            >
+                              {r.titleEn}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    setEditingId(r.id);
+                                    setEditTitleAr(r.titleAr);
+                                    setEditTitleEn(r.titleEn);
+                                  }}
+                                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-emerald-300 hover:text-emerald-600 transition"
+                                >
+                                  <svg
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                    />
+                                  </svg>
+                                  {t.edit}
+                                </button>
+                                <button
+                                  onClick={() => void handleDelete(r.id)}
+                                  className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:border-red-300 hover:text-red-600 transition"
+                                >
+                                  <svg
+                                    className="h-3.5 w-3.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
+                                  </svg>
+                                  {t.delete}
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-          {/* Footer */}
           <div
             className={`mt-4 flex items-center justify-between gap-4 flex-wrap ${isRtl ? "flex-row-reverse" : ""}`}
           >
@@ -831,7 +837,9 @@ function CitiesPage({
   isRtl: boolean;
   onBack: () => void;
 }) {
-  const [cities, setCities] = useState<City[]>(CITIES);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     titleAr: "",
     titleEn: "",
@@ -844,22 +852,53 @@ function CitiesPage({
     titleAr?: boolean;
     regionId?: boolean;
   }>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    titleAr: "",
+    titleEn: "",
+    regionId: "",
+    active: true,
+  });
   const [searchQ, setSearchQ] = useState("");
   const [filterRegion, setFilterRegion] = useState("");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [regs, cts] = await Promise.all([
+        apiJson<Region[]>("/api/locations/regions"),
+        apiJson<City[]>("/api/locations/cities"),
+      ]);
+      setRegions(regs);
+      setCities(cts);
+    } catch (e) {
+      toast({
+        title: "تعذر التحميل",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   const filtered = cities.filter((c) => {
     const matchSearch =
       c.titleAr.includes(searchQ) ||
       c.titleEn.toLowerCase().includes(searchQ.toLowerCase());
-    const matchRegion = !filterRegion || c.regionId === Number(filterRegion);
+    const matchRegion = !filterRegion || c.regionId === filterRegion;
     return matchSearch && matchRegion;
   });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const newErrors: typeof errors = {};
     if (!form.titleAr.trim()) newErrors.titleAr = true;
     if (!form.regionId) newErrors.regionId = true;
@@ -867,19 +906,92 @@ function CitiesPage({
       setErrors(newErrors);
       return;
     }
-    setCities((p) => [
-      { id: Date.now(), ...form, regionId: Number(form.regionId) },
-      ...p,
-    ]);
-    setForm({
-      titleAr: "",
-      titleEn: "",
-      descriptionAr: "",
-      descriptionEn: "",
-      regionId: "",
-      active: true,
-    });
-    setErrors({});
+    try {
+      const created = await apiJson<City>("/api/locations/cities", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          titleAr: form.titleAr.trim(),
+          titleEn: form.titleEn.trim(),
+        }),
+      });
+      setCities((p) => [created, ...p]);
+      setForm({
+        titleAr: "",
+        titleEn: "",
+        descriptionAr: "",
+        descriptionEn: "",
+        regionId: "",
+        active: true,
+      });
+      setErrors({});
+      toast({ title: isRtl ? "تمت الإضافة" : "Added" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdate = async (id: string) => {
+    try {
+      const updated = await apiJson<City>(`/api/locations/cities/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          titleAr: editForm.titleAr,
+          titleEn: editForm.titleEn,
+          regionId: editForm.regionId,
+          active: editForm.active,
+        }),
+      });
+      setCities((p) => p.map((c) => (c.id === id ? updated : c)));
+      setEditingId(null);
+      toast({ title: isRtl ? "تم التحديث" : "Updated" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm(t.confirmDelete)) return;
+    try {
+      await apiJson(`/api/locations/cities/${id}`, { method: "DELETE" });
+      setCities((p) => p.filter((c) => c.id !== id));
+      toast({ title: isRtl ? "تم الحذف" : "Deleted" });
+    } catch (e) {
+      toast({
+        title: "فشل الحذف",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleActive = async (c: City) => {
+    try {
+      const updated = await apiJson<City>(`/api/locations/cities/${c.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          titleAr: c.titleAr,
+          titleEn: c.titleEn,
+          regionId: c.regionId,
+          active: !c.active,
+        }),
+      });
+      setCities((p) => p.map((x) => (x.id === c.id ? updated : x)));
+    } catch (e) {
+      toast({
+        title: "فشل",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -891,7 +1003,6 @@ function CitiesPage({
         isRtl={isRtl}
       />
 
-      {/* Add form */}
       <Card className="mb-6">
         <CardHeader>{t.addCity}</CardHeader>
         <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -924,32 +1035,6 @@ function CitiesPage({
             />
           </div>
           <div>
-            <label className={labelCls}>{t.descriptionAr}</label>
-            <textarea
-              className={inputCls}
-              rows={3}
-              placeholder={t.descriptionAr}
-              value={form.descriptionAr}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, descriptionAr: e.target.value }))
-              }
-              dir="rtl"
-            />
-          </div>
-          <div>
-            <label className={labelCls}>{t.descriptionEn}</label>
-            <textarea
-              className={inputCls}
-              rows={3}
-              placeholder={t.descriptionEn}
-              value={form.descriptionEn}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, descriptionEn: e.target.value }))
-              }
-              dir="ltr"
-            />
-          </div>
-          <div>
             <label className={labelCls}>{t.region} *</label>
             <div className="relative">
               <select
@@ -961,7 +1046,7 @@ function CitiesPage({
                 }}
               >
                 <option value="">{t.selectRegion}</option>
-                {REGIONS.map((r) => (
+                {regions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {isRtl ? r.titleAr : r.titleEn}
                   </option>
@@ -1004,7 +1089,7 @@ function CitiesPage({
         </div>
         <div className="border-t border-slate-100 px-6 py-4">
           <button
-            onClick={handleAdd}
+            onClick={() => void handleAdd()}
             className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 transition"
           >
             {t.add}
@@ -1012,7 +1097,6 @@ function CitiesPage({
         </div>
       </Card>
 
-      {/* Search */}
       <Card className="mb-6">
         <CardHeader>{t.search}</CardHeader>
         <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1040,7 +1124,7 @@ function CitiesPage({
                 }}
               >
                 <option value="">{t.allRegions}</option>
-                {REGIONS.map((r) => (
+                {regions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {isRtl ? r.titleAr : r.titleEn}
                   </option>
@@ -1064,97 +1148,222 @@ function CitiesPage({
         </div>
       </Card>
 
-      {/* Table */}
       <Card>
         <CardHeader>{t.cities}</CardHeader>
         <div className="p-6">
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    #
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleAr}
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleEn}
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.region}
-                  </th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
-                    {t.status}
-                  </th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
-                    {t.actions}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {paginated.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-8 text-center text-sm text-slate-400"
+          {loading ? (
+            <p className="py-8 text-center text-sm text-slate-400">
+              {t.loading}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
                     >
-                      {t.noResults}
-                    </td>
+                      {t.titleAr}
+                    </th>
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
+                    >
+                      {t.titleEn}
+                    </th>
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
+                    >
+                      {t.region}
+                    </th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
+                      {t.status}
+                    </th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
+                      {t.actions}
+                    </th>
                   </tr>
-                ) : (
-                  paginated.map((c) => {
-                    const region = REGIONS.find((r) => r.id === c.regionId);
-                    return (
-                      <tr
-                        key={c.id}
-                        className="hover:bg-slate-50/60 transition"
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {paginated.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-4 py-8 text-center text-sm text-slate-400"
                       >
-                        <td className="px-4 py-3 text-slate-400 text-xs">
-                          {c.id}
-                        </td>
-                        <td
-                          className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
-                          dir="rtl"
+                        {t.noResults}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginated.map((c) => {
+                      const region = regions.find((r) => r.id === c.regionId);
+                      return editingId === c.id ? (
+                        <tr key={c.id} className="bg-emerald-50/30">
+                          <td className="px-4 py-2">
+                            <input
+                              className={inputCls}
+                              value={editForm.titleAr}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  titleAr: e.target.value,
+                                }))
+                              }
+                              dir="rtl"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              className={inputCls}
+                              value={editForm.titleEn}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  titleEn: e.target.value,
+                                }))
+                              }
+                              dir="ltr"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              className={selectCls}
+                              value={editForm.regionId}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  regionId: e.target.value,
+                                }))
+                              }
+                            >
+                              {regions.map((r) => (
+                                <option key={r.id} value={r.id}>
+                                  {isRtl ? r.titleAr : r.titleEn}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <label className="relative inline-flex cursor-pointer items-center justify-center">
+                              <input
+                                type="checkbox"
+                                className="sr-only peer"
+                                checked={editForm.active}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    active: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <div className="peer h-5 w-9 rounded-full bg-slate-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:bg-emerald-500 peer-checked:after:translate-x-4" />
+                            </label>
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => void handleUpdate(c.id)}
+                                className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 transition"
+                              >
+                                {t.save}
+                              </button>
+                              <button
+                                onClick={() => setEditingId(null)}
+                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                              >
+                                {t.cancel}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr
+                          key={c.id}
+                          className="hover:bg-slate-50/60 transition"
                         >
-                          {c.titleAr}
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
-                          dir="ltr"
-                        >
-                          {c.titleEn}
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
-                        >
-                          {region
-                            ? isRtl
-                              ? region.titleAr
-                              : region.titleEn
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <StatusBadge active={c.active} t={t} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <EditButton label={t.edit} />
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          <td
+                            className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
+                            dir="rtl"
+                          >
+                            {c.titleAr}
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
+                            dir="ltr"
+                          >
+                            {c.titleEn}
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
+                          >
+                            {region
+                              ? isRtl
+                                ? region.titleAr
+                                : region.titleEn
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button onClick={() => void toggleActive(c)}>
+                              <StatusBadge active={c.active} t={t} />
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingId(c.id);
+                                  setEditForm({
+                                    titleAr: c.titleAr,
+                                    titleEn: c.titleEn,
+                                    regionId: c.regionId,
+                                    active: c.active,
+                                  });
+                                }}
+                                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-emerald-300 hover:text-emerald-600 transition"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                  />
+                                </svg>
+                                {t.edit}
+                              </button>
+                              <button
+                                onClick={() => void handleDelete(c.id)}
+                                className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:border-red-300 hover:text-red-600 transition"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                                {t.delete}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div
             className={`mt-4 flex items-center justify-between gap-4 flex-wrap ${isRtl ? "flex-row-reverse" : ""}`}
           >
@@ -1188,13 +1397,13 @@ function NeighborhoodsPage({
   isRtl: boolean;
   onBack: () => void;
 }) {
-  const [neighborhoods, setNeighborhoods] =
-    useState<Neighborhood[]>(NEIGHBORHOODS);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
+  const [neighborhoods, setNeighborhoods] = useState<Neighborhood[]>([]);
+  const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     titleAr: "",
     titleEn: "",
-    descriptionAr: "",
-    descriptionEn: "",
     regionId: "",
     cityId: "",
     active: true,
@@ -1204,32 +1413,69 @@ function NeighborhoodsPage({
     regionId?: boolean;
     cityId?: boolean;
   }>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    titleAr: "",
+    titleEn: "",
+    regionId: "",
+    cityId: "",
+    active: true,
+  });
   const [searchQ, setSearchQ] = useState("");
   const [filterRegion, setFilterRegion] = useState("");
   const [filterCity, setFilterCity] = useState("");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
-  const citiesForRegion = form.regionId
-    ? CITIES.filter((c) => c.regionId === Number(form.regionId))
-    : CITIES;
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [regs, cts, nbs] = await Promise.all([
+        apiJson<Region[]>("/api/locations/regions"),
+        apiJson<City[]>("/api/locations/cities"),
+        apiJson<Neighborhood[]>("/api/locations/neighborhoods"),
+      ]);
+      setRegions(regs);
+      setCities(cts);
+      console.log("nbs", nbs);
+      setNeighborhoods(nbs);
+    } catch (e) {
+      toast({
+        title: "تعذر التحميل",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filterCitiesForSearch = filterRegion
-    ? CITIES.filter((c) => c.regionId === Number(filterRegion))
-    : CITIES;
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const citiesForRegion = form.regionId
+    ? cities.filter((c) => c.regionId === form.regionId)
+    : cities;
+  const citiesForFilter = filterRegion
+    ? cities.filter((c) => c.regionId === filterRegion)
+    : cities;
+  const citiesForEdit = editForm.regionId
+    ? cities.filter((c) => c.regionId === editForm.regionId)
+    : cities;
 
   const filtered = neighborhoods.filter((n) => {
     const matchSearch =
       n.titleAr.includes(searchQ) ||
       n.titleEn.toLowerCase().includes(searchQ.toLowerCase());
-    const matchRegion = !filterRegion || n.regionId === Number(filterRegion);
-    const matchCity = !filterCity || n.cityId === Number(filterCity);
+    const matchRegion = !filterRegion || n.regionId === filterRegion;
+    const matchCity = !filterCity || n.cityId === filterCity;
     return matchSearch && matchRegion && matchCity;
   });
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const newErrors: typeof errors = {};
     if (!form.titleAr.trim()) newErrors.titleAr = true;
     if (!form.regionId) newErrors.regionId = true;
@@ -1238,25 +1484,104 @@ function NeighborhoodsPage({
       setErrors(newErrors);
       return;
     }
-    setNeighborhoods((p) => [
-      {
-        id: Date.now(),
-        ...form,
-        regionId: Number(form.regionId),
-        cityId: Number(form.cityId),
-      },
-      ...p,
-    ]);
-    setForm({
-      titleAr: "",
-      titleEn: "",
-      descriptionAr: "",
-      descriptionEn: "",
-      regionId: "",
-      cityId: "",
-      active: true,
-    });
-    setErrors({});
+    try {
+      const created = await apiJson<Neighborhood>(
+        "/api/locations/neighborhoods",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            titleAr: form.titleAr.trim(),
+            titleEn: form.titleEn.trim(),
+            regionId: form.regionId,
+            cityId: form.cityId,
+            active: form.active,
+          }),
+        },
+      );
+      setNeighborhoods((p) => [created, ...p]);
+      setForm({
+        titleAr: "",
+        titleEn: "",
+        regionId: "",
+        cityId: "",
+        active: true,
+      });
+      setErrors({});
+      toast({ title: isRtl ? "تمت الإضافة" : "Added" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdate = async (id: string) => {
+    try {
+      const updated = await apiJson<Neighborhood>(
+        `/api/locations/neighborhoods/${id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            titleAr: editForm.titleAr,
+            titleEn: editForm.titleEn,
+            regionId: editForm.regionId,
+            cityId: editForm.cityId,
+            active: editForm.active,
+          }),
+        },
+      );
+      setNeighborhoods((p) => p.map((n) => (n.id === id ? updated : n)));
+      setEditingId(null);
+      toast({ title: isRtl ? "تم التحديث" : "Updated" });
+    } catch (e) {
+      toast({
+        title: "فشل الحفظ",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm(t.confirmDelete)) return;
+    try {
+      await apiJson(`/api/locations/neighborhoods/${id}`, { method: "DELETE" });
+      setNeighborhoods((p) => p.filter((n) => n.id !== id));
+      toast({ title: isRtl ? "تم الحذف" : "Deleted" });
+    } catch (e) {
+      toast({
+        title: "فشل الحذف",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleActive = async (n: Neighborhood) => {
+    try {
+      const updated = await apiJson<Neighborhood>(
+        `/api/locations/neighborhoods/${n.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            titleAr: n.titleAr,
+            titleEn: n.titleEn,
+            regionId: n.regionId,
+            cityId: n.cityId,
+            active: !n.active,
+          }),
+        },
+      );
+      setNeighborhoods((p) => p.map((x) => (x.id === n.id ? updated : x)));
+    } catch (e) {
+      toast({
+        title: "فشل",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -1268,7 +1593,6 @@ function NeighborhoodsPage({
         isRtl={isRtl}
       />
 
-      {/* Add form */}
       <Card className="mb-6">
         <CardHeader>{t.addNeighborhood}</CardHeader>
         <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1301,32 +1625,6 @@ function NeighborhoodsPage({
             />
           </div>
           <div>
-            <label className={labelCls}>{t.descriptionAr}</label>
-            <textarea
-              className={inputCls}
-              rows={3}
-              placeholder={t.descriptionAr}
-              value={form.descriptionAr}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, descriptionAr: e.target.value }))
-              }
-              dir="rtl"
-            />
-          </div>
-          <div>
-            <label className={labelCls}>{t.descriptionEn}</label>
-            <textarea
-              className={inputCls}
-              rows={3}
-              placeholder={t.descriptionEn}
-              value={form.descriptionEn}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, descriptionEn: e.target.value }))
-              }
-              dir="ltr"
-            />
-          </div>
-          <div>
             <label className={labelCls}>{t.region} *</label>
             <div className="relative">
               <select
@@ -1342,7 +1640,7 @@ function NeighborhoodsPage({
                 }}
               >
                 <option value="">{t.selectRegion}</option>
-                {REGIONS.map((r) => (
+                {regions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {isRtl ? r.titleAr : r.titleEn}
                   </option>
@@ -1421,7 +1719,7 @@ function NeighborhoodsPage({
         </div>
         <div className="border-t border-slate-100 px-6 py-4">
           <button
-            onClick={handleAdd}
+            onClick={() => void handleAdd()}
             className="rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 transition"
           >
             {t.add}
@@ -1429,7 +1727,6 @@ function NeighborhoodsPage({
         </div>
       </Card>
 
-      {/* Search */}
       <Card className="mb-6">
         <CardHeader>{t.search}</CardHeader>
         <div className="p-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -1458,7 +1755,7 @@ function NeighborhoodsPage({
                 }}
               >
                 <option value="">{t.allRegions}</option>
-                {REGIONS.map((r) => (
+                {regions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {isRtl ? r.titleAr : r.titleEn}
                   </option>
@@ -1491,7 +1788,7 @@ function NeighborhoodsPage({
                 }}
               >
                 <option value="">{t.allCities}</option>
-                {filterCitiesForSearch.map((c) => (
+                {citiesForFilter.map((c) => (
                   <option key={c.id} value={c.id}>
                     {isRtl ? c.titleAr : c.titleEn}
                   </option>
@@ -1515,93 +1812,219 @@ function NeighborhoodsPage({
         </div>
       </Card>
 
-      {/* Table */}
       <Card>
         <CardHeader>{t.neighborhoods}</CardHeader>
         <div className="p-6">
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    #
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleAr}
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.titleEn}
-                  </th>
-                  <th
-                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
-                  >
-                    {t.city}
-                  </th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
-                    {t.status}
-                  </th>
-                  <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
-                    {t.actions}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {paginated.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-4 py-8 text-center text-sm text-slate-400"
+          {loading ? (
+            <p className="py-8 text-center text-sm text-slate-400">
+              {t.loading}
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
                     >
-                      {t.noResults}
-                    </td>
+                      {t.titleAr}
+                    </th>
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
+                    >
+                      {t.titleEn}
+                    </th>
+                    <th
+                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 ${isRtl ? "text-right" : "text-left"}`}
+                    >
+                      {t.city}
+                    </th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
+                      {t.status}
+                    </th>
+                    <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-center">
+                      {t.actions}
+                    </th>
                   </tr>
-                ) : (
-                  paginated.map((n) => {
-                    const city = CITIES.find((c) => c.id === n.cityId);
-                    return (
-                      <tr
-                        key={n.id}
-                        className="hover:bg-slate-50/60 transition"
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {paginated.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-4 py-8 text-center text-sm text-slate-400"
                       >
-                        <td className="px-4 py-3 text-slate-400 text-xs">
-                          {n.id}
-                        </td>
-                        <td
-                          className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
-                          dir="rtl"
+                        {t.noResults}
+                      </td>
+                    </tr>
+                  ) : (
+                    paginated.map((n) => {
+                      const city = cities.find((c) => c.id === n.cityId);
+                      return editingId === n.id ? (
+                        <tr key={n.id} className="bg-emerald-50/30">
+                          <td className="px-4 py-2">
+                            <input
+                              className={inputCls}
+                              value={editForm.titleAr}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  titleAr: e.target.value,
+                                }))
+                              }
+                              dir="rtl"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              className={inputCls}
+                              value={editForm.titleEn}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  titleEn: e.target.value,
+                                }))
+                              }
+                              dir="ltr"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              className={selectCls}
+                              value={editForm.cityId}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  cityId: e.target.value,
+                                }))
+                              }
+                            >
+                              {citiesForEdit.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {isRtl ? c.titleAr : c.titleEn}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <label className="relative inline-flex cursor-pointer items-center justify-center">
+                              <input
+                                type="checkbox"
+                                className="sr-only peer"
+                                checked={editForm.active}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    active: e.target.checked,
+                                  }))
+                                }
+                              />
+                              <div className="peer h-5 w-9 rounded-full bg-slate-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-all peer-checked:bg-emerald-500 peer-checked:after:translate-x-4" />
+                            </label>
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => void handleUpdate(n.id)}
+                                className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 transition"
+                              >
+                                {t.save}
+                              </button>
+                              <button
+                                onClick={() => setEditingId(null)}
+                                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                              >
+                                {t.cancel}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr
+                          key={n.id}
+                          className="hover:bg-slate-50/60 transition"
                         >
-                          {n.titleAr}
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
-                          dir="ltr"
-                        >
-                          {n.titleEn}
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
-                        >
-                          {city ? (isRtl ? city.titleAr : city.titleEn) : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <StatusBadge active={n.active} t={t} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <EditButton label={t.edit} />
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          <td
+                            className={`px-4 py-3 font-medium text-slate-800 ${isRtl ? "text-right" : ""}`}
+                            dir="rtl"
+                          >
+                            {n.titleAr}
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
+                            dir="ltr"
+                          >
+                            {n.titleEn}
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-slate-600 ${isRtl ? "text-right" : ""}`}
+                          >
+                            {city ? (isRtl ? city.titleAr : city.titleEn) : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button onClick={() => void toggleActive(n)}>
+                              <StatusBadge active={n.active} t={t} />
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingId(n.id);
+                                  setEditForm({
+                                    titleAr: n.titleAr,
+                                    titleEn: n.titleEn,
+                                    regionId: n.regionId,
+                                    cityId: n.cityId,
+                                    active: n.active,
+                                  });
+                                }}
+                                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-emerald-300 hover:text-emerald-600 transition"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                  />
+                                </svg>
+                                {t.edit}
+                              </button>
+                              <button
+                                onClick={() => void handleDelete(n.id)}
+                                className="flex items-center gap-1.5 rounded-lg border border-red-100 bg-white px-3 py-1.5 text-xs font-medium text-red-500 shadow-sm hover:border-red-300 hover:text-red-600 transition"
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                                {t.delete}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div
             className={`mt-4 flex items-center justify-between gap-4 flex-wrap ${isRtl ? "flex-row-reverse" : ""}`}
           >
@@ -1628,40 +2051,66 @@ function NeighborhoodsPage({
 
 export default function SettingsSection() {
   const [subView, setSubView] = useState<SubView>("hub");
+  const [counts, setCounts] = useState({
+    regions: 0,
+    cities: 0,
+    neighborhoods: 0,
+  });
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const isRtl = language === "ar";
   const t = language === "ar" ? COPY.ar : COPY.en;
 
+  // Load counts for hub display
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [regs, cts, nbs] = await Promise.all([
+          apiJson<unknown[]>("/api/locations/regions"),
+          apiJson<unknown[]>("/api/locations/cities"),
+          apiJson<unknown[]>("/api/locations/neighborhoods"),
+        ]);
+        setCounts({
+          regions: regs.length,
+          cities: cts.length,
+          neighborhoods: nbs.length,
+        });
+      } catch {
+        /* silently ignore */
+      }
+    };
+    void load();
+  }, [subView]); // refresh counts when navigating back to hub
+
   const goHub = () => setSubView("hub");
 
-  if (subView === "regions") {
+  if (subView === "regions")
     return (
       <div className="px-4 py-6 sm:px-6">
         <RegionsPage t={t} isRtl={isRtl} onBack={goHub} />
       </div>
     );
-  }
-
-  if (subView === "cities") {
+  if (subView === "cities")
     return (
       <div className="px-4 py-6 sm:px-6">
         <CitiesPage t={t} isRtl={isRtl} onBack={goHub} />
       </div>
     );
-  }
-
-  if (subView === "neighborhoods") {
+  if (subView === "neighborhoods")
     return (
       <div className="px-4 py-6 sm:px-6">
         <NeighborhoodsPage t={t} isRtl={isRtl} onBack={goHub} />
       </div>
     );
-  }
 
   return (
     <div className="px-4 py-6 sm:px-6">
-      <SettingsHub t={t} isRtl={isRtl} onNavigate={setSubView} />
+      <SettingsHub
+        t={t}
+        isRtl={isRtl}
+        onNavigate={setSubView}
+        counts={counts}
+      />
     </div>
   );
 }

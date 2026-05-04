@@ -2,7 +2,10 @@
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { ValuationStatusStrip } from "@/components/ui/realEstateStatusCards";
 import { RealEstateSearch } from "@/components/ui/real-estate-search";
-import { NewTransactionButton } from "@/components/ui/new-transaction-modal";
+import {
+  NewTransactionButton,
+  NewTransactionLawyerButton,
+} from "@/components/ui/new-transaction-modal";
 import { NewTransactionPage } from "@/components/ui/new-transaction-page";
 import { TransactionEvaluationPage } from "@/components/ui/TransactionValuationPage";
 import { ValuationTable } from "@/components/ui/valuation-table";
@@ -248,7 +251,11 @@ const RealEstateValuationSection = () => {
       <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
         <RealEstateSearch onSearch={handleSearch} className="mb-6" />
         <ValuationStatusStrip counts={statusCounts} className="mb-4" />
-        <NewTransactionButton onClick={goNew} className="mb-6" />
+        <div className="mb-6 flex flex-wrap gap-3">
+          <NewTransactionButton onClick={goNew} />
+          <NewTransactionLawyerButton />{" "}
+          {/* no onClick — does nothing for now */}
+        </div>
       </div>
 
       <ValuationTable

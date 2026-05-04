@@ -147,6 +147,7 @@ const OCR_TO_EVAL_DATA: Record<
   parcelNumber: null,
   cityName: "cityName",
   neighborhoodName: "neighborhoodName",
+  regionName: "regionName",
   planNumber: null,
   plotNumber: null,
   ownershipStatus: null,
@@ -976,7 +977,7 @@ function StepScan({
   onSkip,
 }: {
   t: (typeof copy)["ar"];
-  onScanned: (result: OcrResult) => void;
+  onScanned: (result: OcrResult, file?: File) => void;
   onSkip: () => void;
 }) {
   const [state, setState] = useState<OcrScanState>({ phase: "idle" });
@@ -1041,7 +1042,6 @@ function StepScan({
         <h2 className="text-lg font-bold text-slate-800">{t.ocrStepTitle}</h2>
         <p className="mt-0.5 text-sm text-slate-500">{t.ocrStepSubtitle}</p>
       </div>
-
       {(state.phase === "idle" || state.phase === "error") && (
         <>
           <div
@@ -1083,7 +1083,6 @@ function StepScan({
           )}
         </>
       )}
-
       {state.phase === "selected" && (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="relative">
@@ -1115,7 +1114,6 @@ function StepScan({
           </div>
         </div>
       )}
-
       {state.phase === "scanning" && (
         <div className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white py-16 shadow-sm">
           <div className="relative">
@@ -1125,36 +1123,18 @@ function StepScan({
           <p className="text-sm font-medium text-slate-500">{t.ocrScanning}</p>
         </div>
       )}
-
       {state.phase === "done" && (
         <div className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
-          <div className="flex items-start gap-4 border-b border-slate-100 p-5">
-            <img
-              src={state.preview}
-              alt="deed"
-              className="h-20 w-20 shrink-0 rounded-xl bg-slate-100 object-cover"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold text-emerald-700">
-                  {t.ocrSuccess}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
-                <span className="font-semibold text-slate-700">
-                  {extractedCount}
-                </span>{" "}
-                {t.ocrFieldsFound}
+          <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50 px-5 py-4">
+            <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">
+                {t.ocrSuccess}
+              </p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                {extractedCount} {t.ocrFieldsFound}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
           <div className="flex items-center justify-end gap-2 p-4">
             <button
@@ -1166,15 +1146,14 @@ function StepScan({
             </button>
             <button
               type="button"
-              onClick={() => onScanned(state.result)}
+              onClick={() => onScanned(state.result, state.file)}
               className="rounded-lg bg-cyan-600 px-5 py-2 text-xs font-semibold text-white transition hover:bg-cyan-700"
             >
               {t.ocrContinue}
             </button>
           </div>
         </div>
-      )}
-
+      )}{" "}
       <div className="flex justify-center">
         <button
           type="button"
@@ -1628,6 +1607,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
   const t = copy[language];
 
   const [step, setStep] = useState<Step>("basic");
+  const [scannedDeedFile, setScannedDeedFile] = useState<File | null>(null);
   const [values, setValues] = useState<NewTransactionValues>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -1734,8 +1714,13 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
     else if (step === "review") setStep("scan");
   };
 
-  const handleScanned = (result: OcrResult) => {
+  const handleScanned = (result: OcrResult, file?: File) => {
     setOcrResult(result);
+
+    // Store the scanned deed file for later upload
+    if (file) {
+      setScannedDeedFile(file);
+    }
 
     if (isGeneralTemplate) {
       const filledKeys = new Set<string>();
@@ -1772,7 +1757,6 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
 
     setStep("review");
   };
-
   const handleSkipScan = () => setStep("review");
 
   const handleSubmit = async () => {
@@ -1790,10 +1774,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
       fd.append("branch", values.branch);
       if (values.template) fd.append("templateId", values.template);
 
-      // Attach verified deed image from SREM portal
-      if (deedAttachment) {
-        fd.append("deedAttachment", deedAttachment, deedAttachment.name);
-      }
+      // Don't append files to main form data
 
       if (isGeneralTemplate) {
         fd.append("__evalData__", JSON.stringify(evalDataFields));
@@ -1807,6 +1788,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
         }
       }
 
+      // Create the transaction first
       const res = await fetch(toApiUrl("/api/transactions"), {
         method: "POST",
         credentials: "include",
@@ -1820,6 +1802,54 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
 
       const created = await res.json();
 
+      // After transaction is created, upload attachments
+      const uploadPromises = [];
+
+      // Upload scanned deed document (from OCR)
+      if (scannedDeedFile) {
+        const deedFormData = new FormData();
+        deedFormData.append("files[]", scannedDeedFile, scannedDeedFile.name);
+        deedFormData.append(`names[${scannedDeedFile.name}]`, "وثيقة الملكية");
+
+        uploadPromises.push(
+          fetch(toApiUrl(`/api/transactions/${created.id}/attachments`), {
+            method: "POST",
+            credentials: "include",
+            body: deedFormData,
+          }).catch((err) =>
+            console.error("Failed to upload deed document:", err),
+          ),
+        );
+      }
+
+      // Upload verification image (from SREM portal or manual upload)
+      if (deedAttachment) {
+        const verificationFormData = new FormData();
+        verificationFormData.append(
+          "files[]",
+          deedAttachment,
+          deedAttachment.name,
+        );
+        verificationFormData.append(
+          `names[${deedAttachment.name}]`,
+          "صورة التحقق",
+        );
+
+        uploadPromises.push(
+          fetch(toApiUrl(`/api/transactions/${created.id}/attachments`), {
+            method: "POST",
+            credentials: "include",
+            body: verificationFormData,
+          }).catch((err) =>
+            console.error("Failed to upload verification image:", err),
+          ),
+        );
+      }
+
+      // Wait for all uploads to complete
+      await Promise.all(uploadPromises);
+
+      // Update evalData if needed (for general template)
       if (
         isGeneralTemplate &&
         Object.keys(evalDataFields).length > 0 &&
@@ -1835,30 +1865,30 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
         );
       }
 
-      // Reset
+      // Reset all state
       setValues(EMPTY);
       setTemplateFieldValues({});
       setEvalDataFields({});
       setOcrFilledKeys(new Set());
       setOcrResult(null);
       setDeedAttachment(null);
+      setScannedDeedFile(null); // Clear the scanned deed file
       setStep("basic");
       onSubmit?.(created);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save");
     }
   };
-
   const handleCancel = () => {
     setValues(EMPTY);
     setEvalDataFields({});
     setOcrFilledKeys(new Set());
     setOcrResult(null);
     setDeedAttachment(null);
+    setScannedDeedFile(null); // Add this line
     setStep("basic");
     onBack();
   };
-
   const isLastStep = step === "review";
 
   return (
