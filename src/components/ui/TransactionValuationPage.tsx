@@ -990,7 +990,7 @@ function emptyComparisonRow() {
     evalDate: "",
     propertyTypeId: "",
     comparisonKind: "حد",
-    propertyArea: "",
+    landSpace: "",
     price: "",
     total: "",
     description: "",
@@ -1768,7 +1768,10 @@ export function TransactionEvaluationPage({
         author4Title: pick(e.author4Title),
       },
       comparisonRows: e.comparisonRows?.length
-        ? e.comparisonRows
+        ? e.comparisonRows.map((r: any) => ({
+            ...r,
+            landSpace: r.landSpace ?? r.propertyArea ?? "", // handle legacy data
+          }))
         : [emptyComparisonRow(), emptyComparisonRow()],
       settlementRows: e.settlementRows?.length ? e.settlementRows : [],
       settlementBases: e.settlementBases?.length
