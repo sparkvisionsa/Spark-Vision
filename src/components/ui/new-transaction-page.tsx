@@ -71,6 +71,7 @@ type OcrResult = {
   ownerName?: string;
   ownerNationality?: string;
   ownershipPercentage?: string;
+  regionName?: string;
   propertyType?: string;
   propertyArea?: string;
   landUse?: string;
@@ -106,6 +107,7 @@ const OCR_TO_TEMPLATE_LABEL: Record<
   ownerId: null,
   ownerName: "اسم المالك",
   ownerNationality: null,
+  regionName: null,
   ownershipPercentage: null,
   propertyType: "نوع الأصل",
   propertyArea: "مساحة الأصل",
@@ -593,7 +595,7 @@ function StepIndicator({
   t,
 }: {
   current: Step;
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
 }) {
   const currentIdx = STEPS.indexOf(current);
 
@@ -669,7 +671,7 @@ function StepBasic({
     k: K,
     v: NewTransactionValues[K],
   ) => void;
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
   errors: Record<string, string>;
   clearError: (k: string) => void;
 }) {
@@ -823,7 +825,7 @@ function StepTemplate({
   clients: ClientOption[];
   templates: TemplateOption[];
   loadingClients: boolean;
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
   errors: Record<string, string>;
   clearError: (k: string) => void;
   isArabic: boolean;
@@ -976,7 +978,7 @@ function StepScan({
   onScanned,
   onSkip,
 }: {
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
   onScanned: (result: OcrResult, file?: File) => void;
   onSkip: () => void;
 }) {
@@ -1175,7 +1177,7 @@ function DeedVerificationPanel({
   deedAttachment,
   setDeedAttachment,
 }: {
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
   isArabic: boolean;
   deedAttachment: File | null;
   setDeedAttachment: (f: File | null) => void;
@@ -1328,7 +1330,7 @@ function StepReview({
     React.SetStateAction<Record<string, string | File>>
   >;
   ocrFilledKeys: Set<string>;
-  t: (typeof copy)["ar"];
+  t: (typeof copy)[keyof typeof copy];
   isArabic: boolean;
   isGeneralTemplate: boolean;
   onGoBackToScan: () => void;
