@@ -35,6 +35,7 @@ export type NewTransactionValues = {
   intendedUse: string;
   valuationBasis: string;
   ownershipType: string;
+  opponentStatements: string;
   valuationHypothesis: string;
   client: string;
   branch: string;
@@ -209,6 +210,7 @@ const SREM_DEED_INQUIRY_URL = "https://srem.moj.gov.sa/deed-inquiry";
 const EMPTY: NewTransactionValues = {
   assignmentNumber: "",
   authorizationNumber: "",
+  opponentStatements: "",
   assignmentDate: "",
   valuationPurpose: "",
   intendedUse: "",
@@ -226,6 +228,8 @@ const EMPTY: NewTransactionValues = {
 const copy = {
   en: {
     newTransaction: "New Transaction",
+    opponentStatements: "Opponent's Statements",
+    opponentStatementsPlaceholder: "Enter opponent's statements...",
     modalTitle: "New Transaction",
     assignmentNumber: "Assignment Number",
     assignmentNumberPlaceholder: "Assignment number",
@@ -363,6 +367,8 @@ const copy = {
     assignmentDate: "تاريخ التكليف",
     valuationPurpose: "الغرض من التقييم",
     valuationPurposePlaceholder: "الرجاء اختيار الغرض",
+    opponentStatements: "أقوال الخصم",
+    opponentStatementsPlaceholder: "أدخل أقوال الخصم...",
     intendedUse: "الاستخدام المقصود",
     intendedUsePlaceholder: "الاستخدام المقصود",
     valuationBasis: "أساس القيمة",
@@ -665,6 +671,7 @@ function StepBasic({
   t,
   errors,
   clearError,
+  isLawyer = false,
 }: {
   values: NewTransactionValues;
   set: <K extends keyof NewTransactionValues>(
@@ -798,6 +805,18 @@ function StepBasic({
               <option value="3">{t.machineryValuation}</option>
             </SelectField>
           </div>
+          {isLawyer && (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <FieldLabel>{t.opponentStatements}</FieldLabel>
+              <textarea
+                value={values.opponentStatements}
+                onChange={(e) => set("opponentStatements", e.target.value)}
+                placeholder={t.opponentStatementsPlaceholder}
+                rows={4}
+                className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1600,9 +1619,14 @@ function StepReview({
 type PageProps = {
   onBack: () => void;
   onSubmit?: (values: NewTransactionValues) => void;
+  isLawyer?: boolean;
 };
 
-export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
+export function NewTransactionPage({
+  onBack,
+  onSubmit,
+  isLawyer = false,
+}: PageProps) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "en";
   const isArabic = language === "ar";
@@ -1766,6 +1790,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
       const fd = new FormData();
       fd.append("assignmentNumber", values.assignmentNumber);
       fd.append("authorizationNumber", values.authorizationNumber);
+      fd.append("opponentStatements", values.opponentStatements);
       fd.append("assignmentDate", values.assignmentDate);
       fd.append("valuationPurpose", values.valuationPurpose);
       fd.append("intendedUse", values.intendedUse);
@@ -1927,6 +1952,7 @@ export function NewTransactionPage({ onBack, onSubmit }: PageProps) {
             t={t}
             errors={errors}
             clearError={clearError}
+            isLawyer={isLawyer}
           />
         )}
 

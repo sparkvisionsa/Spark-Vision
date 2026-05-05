@@ -30,7 +30,7 @@ import { toApiUrl } from "@/lib/api-url";
 
 type View =
   | { name: "list" }
-  | { name: "new" }
+  | { name: "new"; isLawyer?: boolean }
   | { name: "evaluation"; transactionId: string };
 
 type ModalTarget = {
@@ -66,6 +66,11 @@ const RealEstateValuationSection = () => {
   const handleSearch = useCallback((values: RealEstateSearchValues) => {
     setSearchValues(values);
   }, []);
+
+  const goNewLawyer = useCallback(
+    () => setView({ name: "new", isLawyer: true }),
+    [],
+  );
 
   // ── Modal state (shared between table rows and evaluation page) ────────────
   const [attachmentsTarget, setAttachmentsTarget] =
@@ -160,8 +165,9 @@ const RealEstateValuationSection = () => {
     return (
       <NewTransactionPage
         onBack={goList}
-        onSubmit={(created: { _id?: string; id?: string }) => {
-          fetchTransactions(); // refresh counts after creation
+        isLawyer={view.isLawyer ?? false} // ← pass it through
+        onSubmit={(created) => {
+          fetchTransactions();
           goEvaluation((created._id ?? created.id) as string);
         }}
       />
@@ -253,7 +259,7 @@ const RealEstateValuationSection = () => {
         <ValuationStatusStrip counts={statusCounts} className="mb-4" />
         <div className="mb-6 flex flex-wrap gap-3">
           <NewTransactionButton onClick={goNew} />
-          <NewTransactionLawyerButton />{" "}
+          <NewTransactionLawyerButton onClick={goNewLawyer} />
           {/* no onClick — does nothing for now */}
         </div>
       </div>
