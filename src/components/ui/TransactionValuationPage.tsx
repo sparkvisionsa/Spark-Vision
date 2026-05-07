@@ -7,6 +7,11 @@ import { SettlementComparison } from "./SettlementComparison";
 import React from "react";
 import { DEFAULT_SECTION1_TITLES } from "./SettlementComparison";
 import { LanguageContext } from "@/components/layout-provider";
+import {
+  ReplacementCostSection,
+  type ReplacementFields,
+  type ReplacementLine,
+} from "./ReplacementCostSection";
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
@@ -781,24 +786,24 @@ function ReadOnlyItem({
     <div style={{ gridColumn: full ? "1 / -1" : undefined }}>
       <div
         style={{
-          fontSize: 11,
-          color: "#888",
-          fontWeight: 600,
+          fontSize: 10,
+          color: "#94a3b8",
+          fontWeight: 700,
           textTransform: "uppercase",
-          letterSpacing: 0.6,
-          marginBottom: 4,
+          letterSpacing: "0.07em",
+          marginBottom: 5,
         }}
       >
         {label}
       </div>
       <div
         style={{
-          fontSize: 14,
-          color: value ? "#1a1a1a" : "#bbb",
+          fontSize: 13,
+          color: value ? "#1e293b" : "#cbd5e1",
           fontWeight: value ? 500 : 400,
-          lineHeight: 1.4,
-          paddingBottom: 8,
-          borderBottom: "1px solid #eee",
+          lineHeight: 1.5,
+          paddingBottom: 10,
+          borderBottom: "1px solid #f1f5f9",
         }}
       >
         {value || "—"}
@@ -821,21 +826,34 @@ function SectionCard({
   accentColor?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const headBg = accentColor ?? "#fafbfc";
-  const headColor = accentColor ? "#fff" : "#222";
+  const hasAccent = !!accentColor;
   return (
     <div style={styles.sectionCard}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        style={{ ...styles.sectionHead, background: headBg, color: headColor }}
+        style={{
+          ...styles.sectionHead,
+          background: hasAccent ? accentColor : "#f8fafc",
+          color: hasAccent ? "#fff" : "#334155",
+          borderBottom: open ? "1px solid #e2e8f0" : "none",
+        }}
       >
         <span>{title}</span>
         <span
           style={{
             transition: "transform 0.2s",
-            display: "inline-block",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 22,
+            height: 22,
+            borderRadius: 6,
+            background: hasAccent ? "rgba(255,255,255,0.18)" : "#e2e8f0",
             transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            fontSize: 10,
+            color: hasAccent ? "#fff" : "#64748b",
+            flexShrink: 0,
           }}
         >
           ▼
@@ -1442,7 +1460,13 @@ function emptyEval() {
       careerPct: "",
       maintenancePrice: "",
       finishesPrice: "",
+      maintenanceDesc: "", // ← new
+      finishesDesc: "", // ← new
+      landTitle: "", // ← ADD
+      landSpace: "",
+      meterPriceLand: "", // ← MOVE from ev.meterPriceLand
       completionPct: "",
+      replacementNotes: "", // ← new
     },
   };
 }
@@ -1790,7 +1814,20 @@ export function TransactionEvaluationPage({
         professionalPct: pick(e.professionalPct),
         utilityNetworkPct: pick(e.utilityNetworkPct),
         emergencyPct: pick(e.emergencyPct),
+        maintenanceDesc: pick(e.maintenanceDesc),
+        finishesDesc: pick(e.finishesDesc),
+        replacementNotes: pick(e.replacementNotes),
         financePct: pick(e.financePct),
+        landTitle: pick(e.landTitle, e.address), // ← ADD
+        landSpace: pick(
+          // ← This should use propertyArea from assetInfo
+          e.propertyArea, // ← This comes from the asset info section
+          e.replacementLandSpace,
+          e.landSpace,
+          e.assetArea,
+          bl["مساحة الأصل"],
+        ),
+        meterPriceLand: pick(e.meterPriceLand), // already existed at top level
         yearDev: pick(e.yearDev),
         earningsRate: pick(e.earningsRate),
         buildAge: pick(e.buildAge),
@@ -1807,8 +1844,8 @@ export function TransactionEvaluationPage({
 
   // propertyArea lives in assetInfo — use it for the land value calculation
   const landValue = (
-    (parseFloat(ev.meterPriceLand) || 0) *
-    (parseFloat(ev.assetInfo.propertyArea) || 0)
+    (parseFloat(ev.replacementFields.meterPriceLand) || 0) *
+    (parseFloat(ev.replacementFields.landSpace) || 0)
   ).toFixed(2);
 
   const handleSave = async () => {
@@ -1952,47 +1989,70 @@ export function TransactionEvaluationPage({
   ];
 
   return (
-    <div dir={isRtl ? "rtl" : "ltr"} style={styles.shell}>
-      {/* ── Sticky save bar ──────────────────────────────────────────────── */}
-      <div style={styles.stickyBar}>
-        <button type="button" onClick={onBack} style={styles.btnSecondary}>
-          {t.back}
-        </button>
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}
-        >
-          <Select
-            value={ev.status}
-            onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
-          >
-            {WORKFLOW_STATUSES[lang].map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-          {statusMsg.text && (
-            <StatusMsg type={statusMsg.type}>{statusMsg.text}</StatusMsg>
-          )}
-        </div>
+    <div
+      dir={isRtl ? "rtl" : "ltr"}
+      style={{ ...styles.shell, width: "100%", boxSizing: "border-box" }}
+    >
+      {/* ── Page header: back button + title + status pill ── */}
+      {/* ── Page header: back button + title + status pill ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginBottom: 20,
+        }}
+      >
         <button
           type="button"
-          onClick={handleSave}
-          disabled={saving}
+          onClick={onBack}
           style={{
-            ...styles.btnPrimary,
-            opacity: saving ? 0.7 : 1,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 38,
+            height: 38,
+            background: "#fff",
+            border: "1px solid #e2e8f0",
+            borderRadius: 10,
+            fontSize: 18,
+            color: "#475569",
+            cursor: "pointer",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+            flexShrink: 0,
+          }}
+          title={t.back}
+        >
+          {isRtl ? "→" : "←"}
+        </button>
+        <div style={{ flex: 1 }}>
+          <h1 style={styles.pageTitle}>{t.pageTitle}</h1>
+        </div>
+        <select
+          value={ev.status}
+          onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
+          style={{
+            appearance: "none" as const,
+            padding: "7px 28px 7px 14px",
+            borderRadius: 999,
+            border: "1.5px solid #e2e8f0",
+            background: "#f8fafc",
+            color: "#334155",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            outline: "none",
             minWidth: 130,
           }}
         >
-          {saving ? t.saving : t.save}
-        </button>
-        <button type="button" style={styles.btnSecondary}>
-          {t.download}
-        </button>
+          {WORKFLOW_STATUSES[lang].map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
       </div>
-
-      <h1 style={{ ...styles.pageTitle, marginTop: 8 }}>{t.pageTitle}</h1>
 
       {/* معلومات الطلب */}
       <SectionCard title={t.secRequest} defaultOpen={true}>
@@ -2036,7 +2096,7 @@ export function TransactionEvaluationPage({
         </ReadOnlyGrid>
       </SectionCard>
 
-      {/* important links */}
+      {/* Important links */}
       <details style={styles.sectionCard}>
         <summary
           style={{
@@ -2050,98 +2110,149 @@ export function TransactionEvaluationPage({
           {t.secLinks}
         </summary>
         <div style={styles.sectionBody}>
-          <ul
+          <div
             style={{
-              margin: 0,
-              padding: 0,
-              listStyle: "none",
-              columns: 2,
-              gap: 8,
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+              gap: "8px 12px",
             }}
           >
             {IMPORTANT_LINKS.map((l) => (
-              <li key={l.href} style={{ marginBottom: 6 }}>
-                <a
-                  href={l.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#0066cc", fontSize: 13 }}
-                >
-                  {lang === "ar" ? l.labelAr : l.labelEn}
-                </a>
-              </li>
+              <a
+                key={l.href}
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #e2e8f0",
+                  background: "#fff",
+                  color: "#0891b2",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  textDecoration: "none",
+                }}
+              >
+                🔗 {lang === "ar" ? l.labelAr : l.labelEn}
+              </a>
             ))}
-          </ul>
+          </div>
         </div>
       </details>
 
-      {/* asset details header + action buttons */}
-      <div style={{ marginBottom: 8, marginTop: 16 }}>
-        <h2 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 8px" }}>
-          {t.secAssetDetails}
-        </h2>
-        <div
-          style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}
+      {/* Asset details card with action buttons — icon-only */}
+      <div
+        style={{
+          background: "#fff",
+          border: "1px solid #e2e8f0",
+          borderRadius: 16,
+          marginBottom: 10,
+          padding: "14px 20px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+        }}
+      >
+        <p
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: "0.07em",
+            margin: "0 0 12px",
+          }}
         >
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() => onOpenImages?.(transactionId, requester)}
-          >
-            {t.btnImages}
-          </button>
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() => onOpenAttachments?.(transactionId, requester)}
-          >
-            {t.btnAttachments}
-          </button>
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() => onOpenEdit?.(transactionId, requester)}
-          >
-            {t.btnEdit}
-          </button>
-          <button type="button" style={styles.actionBtn}>
-            {t.btnNearComps}
-          </button>
-          <button type="button" style={styles.actionBtn}>
-            {t.btnCopyComps}
-          </button>
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() =>
-              window.open(`/api/transactions/${transactionId}/pdf`, "_blank")
-            }
-          >
-            {t.btnView}
-          </button>
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() => {
-              const a = document.createElement("a");
-              a.href = `/api/transactions/${transactionId}/pdf`;
-              a.download = `valuation-${transactionId}.pdf`;
-              a.click();
-            }}
-          >
-            {t.btnPdf}
-          </button>
-          <button
-            type="button"
-            style={styles.actionBtn}
-            onClick={() => onOpenNotes?.(transactionId, requester)}
-          >
-            {t.btnMessages}
-          </button>
+          {t.secAssetDetails}
+        </p>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            {
+              icon: "📷",
+              tooltip: t.btnImages,
+              accent: "#7c3aed",
+              action: () => onOpenImages?.(transactionId, requester),
+            },
+            {
+              icon: "📎",
+              tooltip: t.btnAttachments,
+              accent: "#0891b2",
+              action: () => onOpenAttachments?.(transactionId, requester),
+            },
+            {
+              icon: "✏️",
+              tooltip: t.btnEdit,
+              accent: "#d97706",
+              action: () => onOpenEdit?.(transactionId, requester),
+            },
+            {
+              icon: "🗺",
+              tooltip: t.btnNearComps,
+              accent: undefined,
+              action: undefined,
+            },
+            {
+              icon: "📌",
+              tooltip: t.btnCopyComps,
+              accent: undefined,
+              action: undefined,
+            },
+            {
+              icon: "🖨",
+              tooltip: t.btnView,
+              accent: undefined,
+              action: () =>
+                window.open(`/api/transactions/${transactionId}/pdf`, "_blank"),
+            },
+            {
+              icon: "📄",
+              tooltip: t.btnPdf,
+              accent: undefined,
+              action: () => {
+                const a = document.createElement("a");
+                a.href = `/api/transactions/${transactionId}/pdf`;
+                a.download = `valuation-${transactionId}.pdf`;
+                a.click();
+              },
+            },
+            {
+              icon: "💬",
+              tooltip: t.btnMessages,
+              accent: "#0891b2",
+              action: () => onOpenNotes?.(transactionId, requester),
+            },
+          ].map(({ icon, tooltip, accent, action }) => (
+            <button
+              key={tooltip}
+              type="button"
+              onClick={action}
+              title={tooltip}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 38,
+                height: 38,
+                border: `1px solid ${accent ? accent + "40" : "#e2e8f0"}`,
+                borderRadius: 10,
+                background: accent ? accent + "0d" : "#f8fafc",
+                color: accent ?? "#475569",
+                fontSize: 17,
+                cursor: action ? "pointer" : "default",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                transition: "all 0.15s",
+                opacity: action ? 1 : 0.5,
+              }}
+            >
+              {icon}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* معلومات الأصل — read-only summary using canonical field names */}
+      {/* معلومات الأصل */}
       <SectionCard title={t.secAssetInfo}>
         <ReadOnlyGrid>
           <ReadOnlyItem label={t.address} value={ev.assetInfo.address} full />
@@ -2160,7 +2271,6 @@ export function TransactionEvaluationPage({
         </ReadOnlyGrid>
       </SectionCard>
 
-      {/* الموقع وتصنيف الأصل */}
       {/* الموقع وتصنيف الأصل */}
       <SectionCard title={t.secLocation}>
         <GridFields>
@@ -2193,7 +2303,6 @@ export function TransactionEvaluationPage({
               ))}
             </InlineSelectField>
           </Field>
-
           <Field label={t.city}>
             <InlineSelectField
               displayValue={
@@ -2222,7 +2331,6 @@ export function TransactionEvaluationPage({
               ))}
             </InlineSelectField>
           </Field>
-
           <Field label={t.neighborhood}>
             <InlineSelectField
               displayValue={
@@ -2251,7 +2359,6 @@ export function TransactionEvaluationPage({
               ))}
             </InlineSelectField>
           </Field>
-
           <Field label={t.assetCategory}>
             <Select
               value={ev.location.assetCategoryId}
@@ -2266,7 +2373,6 @@ export function TransactionEvaluationPage({
               <option value="2">{t.buildings}</option>
             </Select>
           </Field>
-
           <Field label={t.propertyType}>
             <InlineSelectField
               displayValue={
@@ -2274,7 +2380,7 @@ export function TransactionEvaluationPage({
                   ? (PROPERTY_TYPES_OPTIONS[lang].find(
                       (o) => o.value === ev.location.propertyTypeId,
                     )?.label ?? ev.assetInfo.propertyType)
-                  : ev.assetInfo.propertyType // ← use OCR text as fallback
+                  : ev.assetInfo.propertyType
               }
               selectValue={ev.location.propertyTypeId}
               onSelectChange={(val) =>
@@ -2433,10 +2539,30 @@ export function TransactionEvaluationPage({
           {serviceCheckboxes.map(({ key, labelKey }) => (
             <div
               key={key}
-              style={{ display: "flex", alignItems: "center", gap: 8 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 12px",
+                border: "1px solid #e2e8f0",
+                borderRadius: 8,
+                background: "#f8fafc",
+              }}
             >
-              <input type="checkbox" id={`svc-${key}`} />
-              <label htmlFor={`svc-${key}`} style={{ fontSize: 13 }}>
+              <input
+                type="checkbox"
+                id={`svc-${key}`}
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label
+                htmlFor={`svc-${key}`}
+                style={{
+                  fontSize: 13,
+                  cursor: "pointer",
+                  color: "#475569",
+                  fontWeight: 500,
+                }}
+              >
                 {t[labelKey] as string}
               </label>
             </div>
@@ -2459,7 +2585,7 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* المقارنة */}
-      <SectionCard title={t.secComparison} accentColor="#1a6fc4">
+      <SectionCard title={t.secComparison} accentColor="#0e7490">
         <SettlementComparison
           useLabel={
             USE_LABELS[lang][ev.location.assetCategoryId] ??
@@ -2492,66 +2618,18 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* تكلفة الإحلال */}
-      <SectionCard title={t.secReplacement} accentColor="#1a6fc4">
-        <GridFields tight>
-          <Field label={t.meterPriceLand}>
-            <Input
-              dir="ltr"
-              value={ev.meterPriceLand}
-              onChange={(e) =>
-                setEv((p) => ({ ...p, meterPriceLand: e.target.value }))
-              }
-            />
-          </Field>
-          {/* Land area — bound to assetInfo.propertyArea (canonical field) */}
-          <Field label={t.landSpace}>
-            <Input
-              dir="ltr"
-              value={ev.assetInfo.propertyArea}
-              onChange={(e) =>
-                setEv((p) => ({
-                  ...p,
-                  assetInfo: { ...p.assetInfo, propertyArea: e.target.value },
-                }))
-              }
-            />
-          </Field>
-          <Field label={t.landValueCalc}>
-            <Input dir="ltr" value={landValue} readOnly />
-          </Field>
-        </GridFields>
-        <div style={{ marginTop: 12 }}>
-          <ReplacementTable
-            lines={ev.replacementLines}
-            onChange={(lines) =>
-              setEv((p) => ({ ...p, replacementLines: lines }))
-            }
-            lang={lang}
-          />
-        </div>
-        <GridFields tight>
-          {(
-            Object.keys(ev.replacementFields) as Array<
-              keyof typeof ev.replacementFields
-            >
-          ).map((f) => (
-            <Field key={f} label={t[replacementFieldLabels[f]] as string}>
-              <Input
-                dir="ltr"
-                value={ev.replacementFields[f]}
-                onChange={(e) =>
-                  setEv((p) => ({
-                    ...p,
-                    replacementFields: {
-                      ...p.replacementFields,
-                      [f]: e.target.value,
-                    },
-                  }))
-                }
-              />
-            </Field>
-          ))}
-        </GridFields>
+      <SectionCard title={t.secReplacement} accentColor="#0e7490">
+        <ReplacementCostSection
+          lang={lang}
+          lines={ev.replacementLines}
+          onLinesChange={(lines) =>
+            setEv((p) => ({ ...p, replacementLines: lines }))
+          }
+          fields={ev.replacementFields as ReplacementFields}
+          onFieldsChange={(fields) =>
+            setEv((p) => ({ ...p, replacementFields: fields }))
+          }
+        />
       </SectionCard>
 
       {/* طرق التقييم */}
@@ -2559,8 +2637,8 @@ export function TransactionEvaluationPage({
         <div
           style={{
             display: "flex",
-            gap: 4,
-            marginBottom: 12,
+            gap: 6,
+            marginBottom: 16,
             flexWrap: "wrap",
           }}
         >
@@ -2688,7 +2766,21 @@ export function TransactionEvaluationPage({
         {(activeVmTab === "vm-r" ||
           activeVmTab === "vm-d" ||
           activeVmTab === "vm-e") && (
-          <p style={{ color: "#888", fontSize: 13 }}>{t.comingSoon}</p>
+          <div
+            style={{
+              padding: "24px",
+              textAlign: "center",
+              color: "#94a3b8",
+              background: "#f8fafc",
+              borderRadius: 10,
+              border: "1px dashed #e2e8f0",
+            }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🚧</div>
+            <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>
+              {t.comingSoon}
+            </p>
+          </div>
         )}
       </SectionCard>
 
@@ -2816,23 +2908,70 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* side rail */}
-      <div style={styles.sideRail}>
+      {/* ── Floating Save FAB ── */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 28,
+          [isRtl ? "left" : "right"]: 28,
+          zIndex: 400,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: isRtl ? "flex-start" : "flex-end",
+          gap: 10,
+        }}
+      >
+        {statusMsg.text && (
+          <div
+            style={{
+              padding: "8px 16px",
+              borderRadius: 10,
+              fontSize: 12,
+              fontWeight: 600,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              background:
+                statusMsg.type === "ok"
+                  ? "#059669"
+                  : statusMsg.type === "error"
+                    ? "#dc2626"
+                    : "#0891b2",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              whiteSpace: "nowrap" as const,
+            }}
+          >
+            {statusMsg.type === "ok"
+              ? "✓"
+              : statusMsg.type === "error"
+                ? "✗"
+                : "⟳"}{" "}
+            {statusMsg.text}
+          </div>
+        )}
         <button
           type="button"
-          onClick={() => setDrawerOpen((o) => !o)}
-          style={styles.railBtn}
-          title={lang === "ar" ? "الملخص المالي" : "Financial Summary"}
+          onClick={handleSave}
+          disabled={saving}
+          title={t.save}
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: saving ? "#64748b" : "#0891b2",
+            color: "#fff",
+            border: "none",
+            cursor: saving ? "not-allowed" : "pointer",
+            fontSize: 22,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 4px 20px rgba(8,145,178,0.45)",
+            transition: "all 0.2s",
+          }}
         >
-          💰
-        </button>
-        <button
-          type="button"
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          style={styles.railBtn}
-          title={lang === "ar" ? "للأعلى" : "To top"}
-        >
-          ↑
+          {saving ? "⟳" : "💾"}
         </button>
       </div>
     </div>
@@ -2843,182 +2982,181 @@ export function TransactionEvaluationPage({
 
 const styles: Record<string, React.CSSProperties> = {
   shell: {
-    fontFamily: "'Segoe UI',Tahoma,Arial,sans-serif",
+    fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
     fontSize: 14,
-    color: "#222",
-    background: "#f4f6f9",
+    color: "#1e293b",
+    background: "#f1f5f9",
     minHeight: "100vh",
-    padding: "16px",
-    paddingTop: 68,
+    padding: "20px 20px 100px",
     position: "relative",
+    width: "100%", // ← was maxWidth: 1280 + margin: "0 auto"
+    boxSizing: "border-box" as const, // ← ensures padding doesn't cause overflow
   },
-  stickyBar: {
-    position: "fixed",
-    top: 0,
-    right: 0,
-    left: 0,
-    zIndex: 300,
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "8px 16px",
-    background: "#fff",
-    borderBottom: "1px solid #dde",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-    flexWrap: "wrap",
-  },
-  pageTitle: { fontSize: 20, fontWeight: 700, margin: "0 0 14px" },
   sectionCard: {
     background: "#fff",
-    border: "1px solid #dde",
-    borderRadius: 6,
+    border: "1px solid #e2e8f0",
+    borderRadius: 16,
     marginBottom: 10,
     overflow: "hidden",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
   },
   sectionHead: {
     width: "100%",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "10px 14px",
-    background: "#fafbfc",
+    padding: "13px 20px",
+    background: "#f8fafc",
     border: "none",
-    borderBottom: "1px solid #eee",
+    borderBottom: "1px solid #e2e8f0",
     cursor: "pointer",
     fontWeight: 600,
-    fontSize: 14,
-    color: "#222",
+    fontSize: 13,
+    color: "#334155",
     textAlign: "right",
+    letterSpacing: "0.01em",
   },
-  sectionBody: { padding: "14px 16px" },
+  sectionBody: { padding: "18px 20px" },
   gridFields: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))",
+    gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))",
     gap: 14,
   },
   fieldLabel: {
     display: "block",
-    fontSize: 12,
-    color: "#555",
-    marginBottom: 4,
-    fontWeight: 500,
+    fontSize: 11,
+    color: "#64748b",
+    marginBottom: 5,
+    fontWeight: 600,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
   },
   input: {
     width: "100%",
-    padding: "6px 8px",
-    border: "1px solid #ccc",
-    borderRadius: 4,
+    padding: "8px 11px",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
     fontSize: 13,
-    color: "#222",
+    color: "#1e293b",
     background: "#fff",
-    boxSizing: "border-box",
+    boxSizing: "border-box" as const,
     fontFamily: "inherit",
+    outline: "none",
   },
   table: {
     width: "100%",
-    borderCollapse: "collapse",
+    borderCollapse: "collapse" as const,
     fontSize: 12,
     marginBottom: 8,
   },
   th: {
-    background: "#f0f4f8",
-    border: "1px solid #ddd",
-    padding: "6px 8px",
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-    textAlign: "center",
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    padding: "8px 10px",
+    fontWeight: 700,
+    whiteSpace: "nowrap" as const,
+    textAlign: "center" as const,
+    fontSize: 10,
+    color: "#64748b",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.05em",
   },
-  td: { border: "1px solid #ddd", padding: "4px", verticalAlign: "middle" },
+  td: {
+    border: "1px solid #e2e8f0",
+    padding: "5px",
+    verticalAlign: "middle" as const,
+  },
   cellInput: {
     width: "100%",
-    padding: "4px 6px",
-    border: "1px solid #ddd",
-    borderRadius: 3,
+    padding: "5px 8px",
+    border: "1px solid #e2e8f0",
+    borderRadius: 6,
     fontSize: 12,
     background: "#fff",
-    boxSizing: "border-box",
+    boxSizing: "border-box" as const,
     fontFamily: "inherit",
+    color: "#1e293b",
   },
   linkBtn: {
     background: "none",
     border: "none",
-    color: "#0066cc",
+    color: "#0891b2",
     cursor: "pointer",
-    fontSize: 13,
-    padding: "4px 0",
-    textDecoration: "underline",
+    fontSize: 12,
+    padding: "6px 0",
+    fontWeight: 700,
+    fontFamily: "inherit",
   },
   iconBtn: {
     background: "none",
     border: "none",
     cursor: "pointer",
     fontSize: 14,
-    padding: "2px 4px",
-    color: "#c00",
+    padding: "3px 6px",
+    color: "#ef4444",
+    borderRadius: 6,
   },
   btnPrimary: {
-    background: "#1a6fc4",
+    background: "#0891b2",
     color: "#fff",
     border: "none",
-    borderRadius: 4,
-    padding: "8px 16px",
+    borderRadius: 8,
+    padding: "8px 18px",
     cursor: "pointer",
     fontSize: 13,
     fontFamily: "inherit",
-    whiteSpace: "nowrap",
+    fontWeight: 600,
+    whiteSpace: "nowrap" as const,
   },
   btnSecondary: {
     background: "#fff",
-    color: "#444",
-    border: "1px solid #ccc",
-    borderRadius: 4,
+    color: "#475569",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
     padding: "8px 16px",
     cursor: "pointer",
     fontSize: 13,
     fontFamily: "inherit",
-    whiteSpace: "nowrap",
+    fontWeight: 500,
+    whiteSpace: "nowrap" as const,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
   },
   actionBtn: {
     background: "#fff",
-    border: "1px solid #ccc",
-    borderRadius: 4,
-    padding: "5px 10px",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
+    padding: "7px 13px",
     cursor: "pointer",
     fontSize: 12,
     fontFamily: "inherit",
+    fontWeight: 500,
+    color: "#475569",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
   },
   vmTab: {
-    padding: "6px 14px",
-    border: "1px solid #ccc",
-    borderRadius: 4,
+    padding: "7px 16px",
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
     background: "#fff",
     cursor: "pointer",
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "inherit",
-    color: "#444",
+    color: "#64748b",
+    fontWeight: 500,
   },
-  vmTabActive: { background: "#1a6fc4", color: "#fff", borderColor: "#1a6fc4" },
-  sideRail: {
-    position: "fixed",
-    left: 0,
-    top: "50%",
-    transform: "translateY(-50%)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-    zIndex: 201,
-  },
-  railBtn: {
-    width: 36,
-    height: 36,
-    background: "#1a6fc4",
+  vmTabActive: {
+    background: "#0891b2",
     color: "#fff",
-    border: "none",
-    borderRadius: "0 4px 4px 0",
-    cursor: "pointer",
-    fontSize: 16,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+    borderColor: "#0891b2",
+    boxShadow: "0 2px 8px rgba(8,145,178,0.3)",
+  },
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: 700,
+    margin: 0,
+    color: "#0f172a",
+    letterSpacing: "-0.3px",
   },
 };

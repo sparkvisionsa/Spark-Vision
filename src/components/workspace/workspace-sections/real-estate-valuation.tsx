@@ -12,8 +12,6 @@ import { ValuationTable } from "@/components/ui/valuation-table";
 import { LanguageContext } from "@/components/layout-provider";
 import type { RealEstateSearchValues } from "@/components/ui/real-estate-search";
 
-// Inside RealEstateValuationSection, add state:
-
 import type { ApiTransaction } from "@/components/ui/valuation-table";
 import {
   AttachmentsModal,
@@ -22,11 +20,8 @@ import {
   AR_COPY,
   EN_COPY,
   EditTransactionModal,
-} from "@/components/ui/valuation-table"; // see note below *
+} from "@/components/ui/valuation-table";
 import { toApiUrl } from "@/lib/api-url";
-
-// * If the modals aren't exported from valuation-table yet, see the
-//   valuation-table patch further below — we export them there.
 
 type View =
   | { name: "list" }
@@ -51,6 +46,19 @@ function deriveStatusCounts(
   return counts;
 }
 
+// ─── STATUS_MAP — maps status key → search filter value string ────────────────
+// This is the reverse of the STATUS_MAP inside valuation-table's applyFilters.
+const STATUS_KEY_TO_FILTER: Record<string, string> = {
+  new: "1",
+  inspection: "2",
+  review: "3",
+  audit: "4",
+  approved: "5",
+  sent: "6",
+  cancelled: "7",
+  pending: "8",
+};
+
 // ─── Main section ─────────────────────────────────────────────────────────────
 
 const RealEstateValuationSection = () => {
@@ -62,9 +70,46 @@ const RealEstateValuationSection = () => {
   const [searchValues, setSearchValues] =
     useState<RealEstateSearchValues | null>(null);
 
-  // Replace the onSearch handler:
+  // Active status card filter (null = show all)
+  const [activeStatusCard, setActiveStatusCard] = useState<string | null>(null);
+
   const handleSearch = useCallback((values: RealEstateSearchValues) => {
     setSearchValues(values);
+    // If the user explicitly searches, clear the card filter so they're not
+    // fighting each other. The card filter is re-applied on top of search values
+    // via mergedFilterValues below.
+    setActiveStatusCard(null);
+  }, []);
+
+  // Merge card-based status filter on top of the search form values.
+  // The card takes precedence over whatever status the search form has selected.
+  const mergedFilterValues: RealEstateSearchValues | null =
+    activeStatusCard != null
+      ? {
+          ...(searchValues ?? {
+            query: "",
+            dateType: "created",
+            dateFrom: "",
+            dateTo: "",
+            status: "-1",
+            region: "-1",
+            city: "",
+            neighborhood: "",
+            propertyCategory: "-1",
+            propertyType: "",
+            valuationPurpose: "-1",
+            valuationBasis: "-1",
+            ownershipType: "-1",
+            valuationHypothesis: "-1",
+            isDraft: "-1",
+            branch: "-1",
+          }),
+          status: STATUS_KEY_TO_FILTER[activeStatusCard] ?? "-1",
+        }
+      : searchValues;
+
+  const handleStatusCardClick = useCallback((status: string | null) => {
+    setActiveStatusCard(status);
   }, []);
 
   const goNewLawyer = useCallback(
@@ -72,7 +117,7 @@ const RealEstateValuationSection = () => {
     [],
   );
 
-  // ── Modal state (shared between table rows and evaluation page) ────────────
+  // ── Modal state ────────────────────────────────────────────────────────────
   const [attachmentsTarget, setAttachmentsTarget] =
     useState<ModalTarget | null>(null);
   const [notesTarget, setNotesTarget] = useState<ModalTarget | null>(null);
@@ -83,7 +128,6 @@ const RealEstateValuationSection = () => {
     onSaved?: (tx: ApiTransaction) => void;
   } | null>(null);
 
-  // ── Row counts (kept in sync when modals mutate attachment/image counts) ───
   const [attachmentCounts, setAttachmentCounts] = useState<
     Record<string, number>
   >({});
@@ -103,12 +147,9 @@ const RealEstateValuationSection = () => {
           : (data.data ?? data.transactions ?? data.items ?? []);
         setStatusCounts(deriveStatusCounts(arr));
       })
-      .catch(() => {
-        // silently ignore — strip shows zeros
-      });
+      .catch(() => {});
   }, []);
 
-  // Initial fetch + 30-second polling for real-time updates
   useEffect(() => {
     fetchTransactions();
     const id = setInterval(fetchTransactions, 30_000);
@@ -123,7 +164,7 @@ const RealEstateValuationSection = () => {
     setView({ name: "evaluation", transactionId });
   }, []);
 
-  // ─── Modal openers (passed down to both table and evaluation page) ─────────
+  // ─── Modal openers ─────────────────────────────────────────────────────────
 
   const openAttachments = useCallback(
     (transactionId: string, requester: string) =>
@@ -151,11 +192,6 @@ const RealEstateValuationSection = () => {
     [],
   );
 
-  // ─── Shared copy (modals need a language object) ───────────────────────────
-  // We expose language so the lifted modals can use the right copy.
-  // The LanguageContext is consumed inside ValuationTable already; here we
-  // just default to Arabic (same as the table default).
-
   const t = language === "ar" ? AR_COPY : EN_COPY;
   const isRtl = language === "ar";
 
@@ -165,7 +201,7 @@ const RealEstateValuationSection = () => {
     return (
       <NewTransactionPage
         onBack={goList}
-        isLawyer={view.isLawyer ?? false} // ← pass it through
+        isLawyer={view.isLawyer ?? false}
         onSubmit={(created) => {
           fetchTransactions();
           goEvaluation((created._id ?? created.id) as string);
@@ -180,16 +216,13 @@ const RealEstateValuationSection = () => {
         <TransactionEvaluationPage
           transactionId={view.transactionId}
           onBack={goList}
-          // Pass modal openers so the action buttons inside the page work
           onOpenAttachments={openAttachments}
           onOpenNotes={openNotes}
           onOpenImages={openImages}
           onOpenEdit={openEdit}
-          // Notify on status save so the strip refreshes
           onStatusSaved={fetchTransactions}
         />
 
-        {/* Shared modals rendered at this level */}
         {attachmentsTarget && (
           <AttachmentsModal
             transactionId={attachmentsTarget.transactionId}
@@ -235,11 +268,7 @@ const RealEstateValuationSection = () => {
             requester={editTarget.requester}
             onClose={() => setEditTarget(null)}
             onSaved={(updated) => {
-              // Call the stored onSaved callback from ValuationTable first
-              if (editTarget.onSaved) {
-                editTarget.onSaved(updated);
-              }
-              // Then refresh our local data
+              if (editTarget.onSaved) editTarget.onSaved(updated);
               fetchTransactions();
               setEditTarget(null);
             }}
@@ -256,18 +285,22 @@ const RealEstateValuationSection = () => {
     <>
       <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
         <RealEstateSearch onSearch={handleSearch} className="mb-6" />
-        <ValuationStatusStrip counts={statusCounts} className="mb-4" />
+        <ValuationStatusStrip
+          counts={statusCounts}
+          activeStatus={activeStatusCard}
+          onStatusClick={handleStatusCardClick}
+          className="mb-4"
+        />
         <div className="mb-6 flex flex-wrap gap-3">
           <NewTransactionButton onClick={goNew} />
           <NewTransactionLawyerButton onClick={goNewLawyer} />
-          {/* no onClick — does nothing for now */}
         </div>
       </div>
 
       <ValuationTable
         className="mt-4"
         onOpenTransaction={goEvaluation}
-        filterValues={searchValues}
+        filterValues={mergedFilterValues}
         onOpenAttachments={openAttachments}
         onOpenNotes={openNotes}
         onOpenImages={openImages}
@@ -275,7 +308,6 @@ const RealEstateValuationSection = () => {
         onTransactionMutated={fetchTransactions}
       />
 
-      {/* Shared modals — also available from the list view */}
       {attachmentsTarget && (
         <AttachmentsModal
           transactionId={attachmentsTarget.transactionId}
@@ -321,9 +353,7 @@ const RealEstateValuationSection = () => {
           requester={editTarget.requester}
           onClose={() => setEditTarget(null)}
           onSaved={(updated) => {
-            if (editTarget.onSaved) {
-              editTarget.onSaved(updated);
-            }
+            if (editTarget.onSaved) editTarget.onSaved(updated);
             fetchTransactions();
             setEditTarget(null);
           }}
@@ -336,6 +366,3 @@ const RealEstateValuationSection = () => {
 };
 
 export default RealEstateValuationSection;
-
-// ─── Minimal copy objects for the lifted modals ───────────────────────────────
-// These mirror the relevant keys from valuation-table's `copy` constant.

@@ -57,17 +57,17 @@ const SC = {
       "سعر المتر يُملأ تلقائياً من بيانات المقارنة أعلاه ويمكن تعديله يدوياً. القسم الأول يشمل تسويات ظروف السوق، والقسم الثاني يشمل خصائص العقار. الخانات المظللة تُحسب تلقائياً.",
     section1Header: "القسم الأول: تعديلات ظروف السوق والتمويل",
     section2Header: "القسم الثاني: تعديلات خصائص العقار",
-    meterPriceRow: "💰 سعر المتر (ريال/م²)",
-    section1Total: "∑ إجمالي تسويات القسم الأول (%)",
-    priceAfterS1: "📊 السعر بعد تسويات القسم الأول",
-    section2Total: "∑ إجمالي تسويات القسم الثاني (%)",
-    finalPrice: "✅ السعر النهائي بعد جميع التسويات",
-    weightRow: "⚖️ الوزن النسبي %",
+    meterPriceRow: " سعر المتر (ريال/م²)",
+    section1Total: " إجمالي تسويات القسم الأول (%)",
+    priceAfterS1: " السعر بعد تسويات القسم الأول",
+    section2Total: " إجمالي تسويات القسم الثاني (%)",
+    finalPrice: "السعر النهائي بعد جميع التسويات",
+    weightRow: "الوزن النسبي %",
     weightsMustBe100: "يجب أن يساوي 100%",
     weightsSum: (n: number) => `المجموع: ${n}%`,
     weightOk: "✓",
     weightError: "✗ يجب أن يكون 100",
-    contribution: "📐 مساهمة المقارن (مرجح)",
+    contribution: "مساهمة المقارن (مرجح)",
     netMeterPrice: "صافي سعر المتر بعد جميع التسويات",
     totalWeight: "إجمالي الوزن النسبي",
     totalPropertyValue: "إجمالي قيمة العقار",
@@ -140,17 +140,17 @@ const SC = {
       "Meter price is auto-filled from the comparables table above and can be overridden. Section 1 covers market condition adjustments; Section 2 covers property characteristics. Shaded cells are auto-calculated.",
     section1Header: "Section 1: Market Conditions & Financing Adjustments",
     section2Header: "Section 2: Property Characteristics Adjustments",
-    meterPriceRow: "💰 Meter Price (SAR/m²)",
-    section1Total: "∑ Section 1 Total Adjustments (%)",
-    priceAfterS1: "📊 Price After Section 1 Adjustments",
-    section2Total: "∑ Section 2 Total Adjustments (%)",
-    finalPrice: "✅ Final Price After All Adjustments",
-    weightRow: "⚖️ Relative Weight %",
+    meterPriceRow: " Meter Price (SAR/m²)",
+    section1Total: "Section 1 Total Adjustments (%)",
+    priceAfterS1: " Price After Section 1 Adjustments",
+    section2Total: "Section 2 Total Adjustments (%)",
+    finalPrice: "Final Price After All Adjustments",
+    weightRow: "Relative Weight %",
     weightsMustBe100: "Must equal 100%",
     weightsSum: (n: number) => `Total: ${n}%`,
     weightOk: "✓",
     weightError: "✗ Must equal 100",
-    contribution: "📐 Comparable Contribution (weighted)",
+    contribution: "Comparable Contribution (weighted)",
     netMeterPrice: "Net Meter Price After All Adjustments",
     totalWeight: "Total Relative Weight",
     totalPropertyValue: "Total Property Value",
@@ -356,9 +356,9 @@ function parseNum(v: string | undefined): number {
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const DT = {
-  blue: "#1a6fc4",
-  blueLight: "#e8f3fb",
-  blueMid: "#c5dff6",
+  blue: "#0e7490", // was #0891b2
+  blueLight: "#f0f9ff", // was #e0f2fe
+  blueMid: "#e2e8f0", // was #bae6fd
   surface: "#ffffff",
   surfaceAlt: "#f8fafc",
   border: "#e2e8f0",
@@ -366,25 +366,24 @@ const DT = {
   text: "#1e293b",
   textMuted: "#64748b",
   textLight: "#94a3b8",
-  green: "#16a34a",
+  green: "#059669",
   greenLight: "#f0fdf4",
   amber: "#d97706",
   amberLight: "#fffbeb",
   red: "#dc2626",
-  shadow: "0 1px 3px rgba(0,0,0,0.06)",
+  shadow: "0 1px 3px rgba(0,0,0,0.05)",
 };
-
 const cellBase: React.CSSProperties = {
   border: `1px solid ${DT.border}`,
-  padding: "4px 6px",
+  padding: "5px 7px",
   verticalAlign: "middle",
 };
 
 const inputBase: React.CSSProperties = {
   width: "100%",
-  padding: "4px 6px",
+  padding: "5px 8px",
   border: `1px solid ${DT.border}`,
-  borderRadius: 4,
+  borderRadius: 6,
   fontSize: 12,
   background: DT.surface,
   boxSizing: "border-box" as const,
@@ -405,11 +404,13 @@ const thBase: React.CSSProperties = {
   background: DT.surfaceAlt,
   border: `1px solid ${DT.border}`,
   padding: "8px 10px",
-  fontWeight: 600,
-  fontSize: 12,
+  fontWeight: 700,
+  fontSize: 11,
   whiteSpace: "nowrap" as const,
   textAlign: "center" as const,
-  color: DT.text,
+  color: DT.textMuted,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.04em",
 };
 
 // ─── Column-removal helper ─────────────────────────────────────────────────────
@@ -536,16 +537,7 @@ function ComparisonPropertiesTable({
           <thead>
             <tr>
               {headers.map((h, i) => (
-                <th
-                  key={i}
-                  style={{
-                    ...thBase,
-                    background: DT.blue,
-                    color: "#fff",
-                    border: `1px solid rgba(255,255,255,0.15)`,
-                    padding: "10px 8px",
-                  }}
-                >
+                <th key={i} style={thBase}>
                   {h}
                 </th>
               ))}
@@ -1104,17 +1096,17 @@ function SettlementAdjustmentsTable({
     "#1d4ed8",
     "#9d174d",
   ];
-  const colSpanStyle = (c: number): React.CSSProperties => ({
-    background: colColors[c % colColors.length],
-    border: `1px solid rgba(255,255,255,0.2)`,
-    color: "#fff",
+  // Remove colColors array entirely. Replace colSpanStyle:
+  const colSpanStyle = (_c: number): React.CSSProperties => ({
+    background: "#f8fafc",
+    border: `1px solid #e2e8f0`,
+    color: "#334155",
     padding: "8px 6px",
     fontWeight: 600,
     fontSize: 12,
     textAlign: "center",
     whiteSpace: "nowrap",
   });
-
   const labelCell: React.CSSProperties = {
     ...cellBase,
     fontWeight: 500,
@@ -1189,18 +1181,22 @@ function SettlementAdjustmentsTable({
           </thead>
           <tbody>
             {/* Base price row */}
-            <tr style={{ background: "#e8f3fb" }}>
+            <tr style={{ background: DT.surfaceAlt }}>
               <td
-                style={{ ...labelCell, background: "#dbeafe", color: DT.blue }}
+                style={{
+                  ...labelCell,
+                  background: DT.surfaceAlt,
+                  color: DT.text,
+                }}
               >
                 {t.meterPriceRow}
               </td>
-              <td style={{ ...cellBase, background: "#dbeafe" }}>—</td>
+              <td style={{ ...cellBase, background: DT.surfaceAlt }}>—</td>
               {Array.from({ length: n }, (_, c) => (
                 <td
                   key={c}
                   colSpan={2}
-                  style={{ ...cellBase, background: "#dbeafe" }}
+                  style={{ ...cellBase, background: DT.surfaceAlt }}
                 >
                   <input
                     dir="ltr"
@@ -1223,12 +1219,15 @@ function SettlementAdjustmentsTable({
               <td
                 colSpan={2 + n * 2}
                 style={{
-                  background: "#1e3a5f",
-                  color: "#fff",
-                  padding: "7px 12px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: 0.4,
+                  background: "#f1f5f9",
+                  color: "#475569",
+                  padding: "7px 14px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  borderTop: "1px solid #e2e8f0",
+                  borderBottom: "1px solid #e2e8f0",
                 }}
               >
                 {t.section1Header}
@@ -1282,13 +1281,17 @@ function SettlementAdjustmentsTable({
             ))}
 
             {/* Section 1 total */}
-            <tr style={{ background: "#e0edff", fontWeight: 600 }}>
+            <tr style={{ background: "#f1f5f9", fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#e0edff", color: DT.blue }}
+                style={{
+                  ...labelCell,
+                  background: "#f1f5f9",
+                  color: DT.textMuted,
+                }}
               >
                 {t.section1Total}
               </td>
-              <td style={{ ...cellBase, background: "#e0edff" }}>—</td>
+              <td style={{ ...cellBase, background: "#f1f5f9" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
                 const sumPercentages = section1Rows.reduce(
                   (sum, row) => sum + parseNum(getS1Adj(row, c)),
@@ -1298,7 +1301,7 @@ function SettlementAdjustmentsTable({
                   <td
                     key={c}
                     colSpan={2}
-                    style={{ ...cellBase, background: "#e0edff" }}
+                    style={{ ...cellBase, background: "#f1f5f9" }}
                   >
                     <input
                       dir="ltr"
@@ -1306,8 +1309,9 @@ function SettlementAdjustmentsTable({
                       value={fmt(sumPercentages, 0)}
                       style={{
                         ...readonlyInput,
+                        background: "#f1f5f9",
                         fontWeight: 600,
-                        color: sumPercentages < 0 ? DT.red : DT.green,
+                        color: sumPercentages < 0 ? DT.red : DT.textMuted,
                       }}
                     />
                   </td>
@@ -1318,16 +1322,16 @@ function SettlementAdjustmentsTable({
             {/* Price after S1 */}
             <tr style={{ fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#cfe3ff", color: DT.blue }}
+                style={{ ...labelCell, background: "#f8fafc", color: DT.text }}
               >
                 {t.priceAfterS1}
               </td>
-              <td style={{ ...cellBase, background: "#cfe3ff" }}>—</td>
+              <td style={{ ...cellBase, background: "#f8fafc" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
                 <td
                   key={c}
                   colSpan={2}
-                  style={{ ...cellBase, background: "#cfe3ff" }}
+                  style={{ ...cellBase, background: "#f8fafc" }}
                 >
                   <input
                     dir="ltr"
@@ -1335,9 +1339,9 @@ function SettlementAdjustmentsTable({
                     value={priceAfterS1[c] ? fmt(priceAfterS1[c]) : "—"}
                     style={{
                       ...readonlyInput,
-                      background: "#cfe3ff",
+                      background: "#f8fafc",
                       fontWeight: 700,
-                      color: DT.blue,
+                      color: DT.text,
                     }}
                   />
                 </td>
@@ -1349,12 +1353,15 @@ function SettlementAdjustmentsTable({
               <td
                 colSpan={2 + n * 2}
                 style={{
-                  background: "#1e3a5f",
-                  color: "#fff",
-                  padding: "7px 12px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: 0.4,
+                  background: "#f1f5f9",
+                  color: "#475569",
+                  padding: "7px 14px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  borderTop: "1px solid #e2e8f0",
+                  borderBottom: "1px solid #e2e8f0",
                 }}
               >
                 {t.section2Header}
@@ -1444,13 +1451,17 @@ function SettlementAdjustmentsTable({
             ))}
 
             {/* Section 2 total */}
-            <tr style={{ background: "#dcfce7", fontWeight: 600 }}>
+            <tr style={{ background: "#f1f5f9", fontWeight: 600 }}>
               <td
-                style={{ ...labelCell, background: "#dcfce7", color: DT.green }}
+                style={{
+                  ...labelCell,
+                  background: "#f1f5f9",
+                  color: DT.textMuted,
+                }}
               >
                 {t.section2Total}
               </td>
-              <td style={{ ...cellBase, background: "#dcfce7" }}>—</td>
+              <td style={{ ...cellBase, background: "#f1f5f9" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
                 const sumPercentages = section2Rows
                   .filter((r) => r.inReport !== false)
@@ -1462,7 +1473,7 @@ function SettlementAdjustmentsTable({
                   <td
                     key={c}
                     colSpan={2}
-                    style={{ ...cellBase, background: "#dcfce7" }}
+                    style={{ ...cellBase, background: "#f1f5f9" }}
                   >
                     <input
                       dir="ltr"
@@ -1470,8 +1481,9 @@ function SettlementAdjustmentsTable({
                       value={fmt(sumPercentages, 0)}
                       style={{
                         ...readonlyInput,
+                        background: "#f1f5f9",
                         fontWeight: 600,
-                        color: sumPercentages < 0 ? DT.red : DT.green,
+                        color: sumPercentages < 0 ? DT.red : DT.textMuted,
                       }}
                     />
                   </td>
@@ -1482,20 +1494,16 @@ function SettlementAdjustmentsTable({
             {/* Final price */}
             <tr>
               <td
-                style={{
-                  ...labelCell,
-                  background: "#bbf7d0",
-                  color: "#065f46",
-                }}
+                style={{ ...labelCell, background: "#f1f5f9", color: DT.text }}
               >
                 {t.finalPrice}
               </td>
-              <td style={{ ...cellBase, background: "#bbf7d0" }}>—</td>
+              <td style={{ ...cellBase, background: "#f1f5f9" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
                 <td
                   key={c}
                   colSpan={2}
-                  style={{ ...cellBase, background: "#bbf7d0" }}
+                  style={{ ...cellBase, background: "#f1f5f9" }}
                 >
                   <input
                     dir="ltr"
@@ -1503,9 +1511,9 @@ function SettlementAdjustmentsTable({
                     value={priceAfterAll[c] ? fmt(priceAfterAll[c]) : "—"}
                     style={{
                       ...readonlyInput,
-                      background: "#bbf7d0",
+                      background: "#f1f5f9",
                       fontWeight: 700,
-                      color: "#065f46",
+                      color: DT.text,
                     }}
                   />
                 </td>
@@ -1513,8 +1521,8 @@ function SettlementAdjustmentsTable({
             </tr>
 
             {/* Weights row */}
-            <tr style={{ background: "#fef9c3" }}>
-              <td style={{ ...labelCell, background: "#fef9c3" }}>
+            <tr style={{ background: "#fafafa" }}>
+              <td style={{ ...labelCell, background: "#fafafa" }}>
                 <div
                   style={{ display: "flex", flexDirection: "column", gap: 2 }}
                 >
@@ -1536,12 +1544,12 @@ function SettlementAdjustmentsTable({
                   </span>
                 </div>
               </td>
-              <td style={{ ...cellBase, background: "#fef9c3" }}>—</td>
+              <td style={{ ...cellBase, background: "#fafafa" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
                 <td
                   key={c}
                   colSpan={2}
-                  style={{ ...cellBase, background: "#fef9c3" }}
+                  style={{ ...cellBase, background: "#fafafa" }}
                 >
                   <input
                     dir="ltr"
@@ -1552,7 +1560,7 @@ function SettlementAdjustmentsTable({
                     onChange={(e) => updateWeight(c, e.target.value)}
                     style={{
                       ...inputBase,
-                      background: "#fef9c3",
+                      background: "#fafafa",
                       borderColor: weightError
                         ? DT.red
                         : weightOk
@@ -1566,16 +1574,22 @@ function SettlementAdjustmentsTable({
             </tr>
 
             {/* Contributions */}
-            <tr style={{ background: "#fef3c7" }}>
-              <td style={{ ...labelCell, background: "#fde68a" }}>
+            <tr style={{ background: "#f8fafc" }}>
+              <td
+                style={{
+                  ...labelCell,
+                  background: "#f8fafc",
+                  color: DT.textMuted,
+                }}
+              >
                 {t.contribution}
               </td>
-              <td style={{ ...cellBase, background: "#fde68a" }}>—</td>
+              <td style={{ ...cellBase, background: "#f8fafc" }}>—</td>
               {Array.from({ length: n }, (_, c) => (
                 <td
                   key={c}
                   colSpan={2}
-                  style={{ ...cellBase, background: "#fde68a" }}
+                  style={{ ...cellBase, background: "#f8fafc" }}
                 >
                   <input
                     dir="ltr"
@@ -1583,9 +1597,9 @@ function SettlementAdjustmentsTable({
                     value={contributions[c] ? fmt(contributions[c]) : "—"}
                     style={{
                       ...readonlyInput,
-                      background: "#fde68a",
+                      background: "#f8fafc",
                       fontWeight: 600,
-                      color: DT.amber,
+                      color: DT.textMuted,
                     }}
                   />
                 </td>
@@ -1620,12 +1634,7 @@ function SettlementAdjustmentsTable({
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
           gap: 12,
-          marginTop: 20,
-          marginBottom: 20,
-          padding: "16px",
-          background: DT.surfaceAlt,
-          borderRadius: 10,
-          border: `1px solid ${DT.border}`,
+          marginTop: 16,
         }}
       >
         <div
@@ -1646,7 +1655,6 @@ function SettlementAdjustmentsTable({
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>⚙️</span>
             {t.scaleFactor}
           </div>
           <input
@@ -1685,7 +1693,6 @@ function SettlementAdjustmentsTable({
               gap: 6,
             }}
           >
-            <span style={{ fontSize: 14 }}>🔄</span>
             {t.roundTo}
           </div>
           <select
@@ -1717,10 +1724,7 @@ function SettlementAdjustmentsTable({
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
           gap: 12,
-          padding: "16px",
-          background: DT.surfaceAlt,
-          borderRadius: 10,
-          border: `1px solid ${DT.border}`,
+          marginTop: 16,
         }}
       >
         <KpiCard
@@ -1733,7 +1737,6 @@ function SettlementAdjustmentsTable({
                 : "—"
           }
           accent={DT.blue}
-          icon="📊"
         />
         <KpiCard
           label={t.totalWeight}
@@ -1743,7 +1746,6 @@ function SettlementAdjustmentsTable({
               : "—"
           }
           accent={weightOk ? DT.green : weightError ? DT.red : "#7c3aed"}
-          icon="⚖️"
         />
         <KpiCard
           label={t.totalPropertyValue}
@@ -1753,7 +1755,6 @@ function SettlementAdjustmentsTable({
               : t.enterAreaFirst
           }
           accent={DT.green}
-          icon="🏠"
         />
       </div>
     </div>
@@ -1762,46 +1763,37 @@ function SettlementAdjustmentsTable({
 
 const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
 
-function KpiCard({
-  label,
-  value,
-  accent,
-  icon,
-}: {
-  label: string;
-  value: string;
-  accent: string;
-  icon: string;
-}) {
+function KpiCard({ label, value, accent }) {
   return (
     <div
       style={{
-        background: DT.surface,
-        borderRadius: 8,
-        padding: "12px 16px",
-        border: `1px solid ${DT.border}`,
-        borderRightWidth: 4,
-        borderRightColor: accent,
+        background: "#fff",
+        borderRadius: 12,
+        padding: "14px 16px",
+        border: "1px solid #e2e8f0",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
       }}
     >
       <div
         style={{
-          fontSize: 11,
-          color: DT.textMuted,
+          fontSize: 10,
+          color: "#94a3b8",
           marginBottom: 6,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 5,
         }}
       >
-        <span style={{ fontSize: 14 }}>{icon}</span>
         {label}
       </div>
       <div
         style={{
-          fontSize: 18,
-          fontWeight: 600,
-          color: accent,
+          fontSize: 17,
+          fontWeight: 700,
+          color: "#1e293b",
           direction: "ltr",
           textAlign: "right",
         }}
@@ -1937,15 +1929,18 @@ export function SettlementComparison({
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: 16,
-          padding: "10px 14px",
-          background: `linear-gradient(135deg, ${DT.blue} 0%, #1558a0 100%)`,
-          borderRadius: 8,
-          color: "#fff",
+          padding: "12px 16px",
+          background: "#fff",
+          borderRadius: 12,
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
         }}
       >
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>{t.headerTitle}</div>
-          <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
+            {t.headerTitle}
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
             {t.headerSubtitle(
               resolvedUseLabel,
               activeCount,
@@ -1953,7 +1948,7 @@ export function SettlementComparison({
             )}
           </div>
         </div>
-        <div style={{ fontSize: 24, opacity: 0.7 }}>🏘</div>
+        <div style={{ fontSize: 20, color: "#94a3b8" }}>🏘</div>
       </div>
 
       {/* Part 1 */}
@@ -2045,22 +2040,30 @@ function SectionLabel({ number, title }: { number: string; title: string }) {
     >
       <div
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: "50%",
-          background: DT.blue,
-          color: "#fff",
+          width: 26,
+          height: 26,
+          borderRadius: 8,
+          background: "#e0f2fe",
+          color: "#0891b2",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontSize: 14,
-          fontWeight: 700,
+          fontSize: 12,
+          fontWeight: 800,
           flexShrink: 0,
         }}
       >
         {number}
       </div>
-      <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: DT.text }}>
+      <h4
+        style={{
+          margin: 0,
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#334155",
+          letterSpacing: "0.01em",
+        }}
+      >
         {title}
       </h4>
     </div>
