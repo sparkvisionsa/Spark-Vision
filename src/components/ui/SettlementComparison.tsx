@@ -1763,7 +1763,13 @@ function SettlementAdjustmentsTable({
 
 const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
 
-function KpiCard({ label, value, accent }) {
+type KpiCardProps = {
+  label: string;
+  value: string | number;
+  accent?: string;
+};
+
+function KpiCard({ label, value, accent }: KpiCardProps) {
   return (
     <div
       style={{
