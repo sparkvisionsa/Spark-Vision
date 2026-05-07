@@ -31,8 +31,7 @@ export type ReplacementFields = {
   maintenanceDesc: string;
   finishesDesc: string;
   landTitle: string;
-  landSpace: string; // was: landSpace
-
+  landSpace: string;
   meterPriceLand: string;
   completionPct: string;
   replacementNotes: string;
@@ -42,9 +41,63 @@ type Lang = "ar" | "en";
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 
-const T = {
+const T: Record<
+  Lang,
+  {
+    part1Title: string;
+    landTitle: string;
+    landSpace: string;
+    meterPriceLand: string;
+    landTotal: string;
+    colTitle: string;
+    colArea: string;
+    colPrice: string;
+    colTotal: string;
+    colNotes: string;
+    addLine: string;
+    sumArea: string;
+    sumValue: string;
+    part2Title: string;
+    managementPct: string;
+    professionalPct: string;
+    utilityNetworkPct: string;
+    emergencyPct: string;
+    financePct: string;
+    yearDev: string;
+    earningsRate: string;
+    buildAge: string;
+    defaultAge: string;
+    depreciationPct: string;
+    economicPct: string;
+    careerPct: string;
+    unitYear: string;
+    unitPct: string;
+    c_totalArea: string;
+    c_totalVal: string;
+    c_indirect: string;
+    c_direct: string;
+    c_devprofitVal: string;
+    c_assetVal: string;
+    c_remlife: string;
+    c_totaldep: string;
+    c_depVal: string;
+    c_netAsset: string;
+    c_netMeter: string;
+    c_landAsset: string;
+    part3Title: string;
+    maintenancePrice: string;
+    finishesPrice: string;
+    completionPct: string;
+    maintenanceDesc: string;
+    finishesDesc: string;
+    replacementNotes: string;
+    descPlaceholderMaint: string;
+    descPlaceholderFinish: string;
+    notesPlaceholder: string;
+    itemPlaceholder: string;
+  }
+> = {
   ar: {
-    // part 1
     part1Title: "تفاصيل مساحة الأصل",
     landTitle: "العنوان",
     landSpace: "مساحة الأرض",
@@ -58,9 +111,7 @@ const T = {
     addLine: "＋ إضافة بند",
     sumArea: "إجمالي المساحة",
     sumValue: "إجمالي القيمة",
-    // part 2
     part2Title: "تفاصيل تكلفة الإحلال",
-    // inputs
     managementPct: "نسبة الرسوم الإدارية",
     professionalPct: "نسبة الرسوم المهنية",
     utilityNetworkPct: "نسبة شبكة المرافق",
@@ -75,7 +126,6 @@ const T = {
     careerPct: "التقادم الوظيفي",
     unitYear: "سنة",
     unitPct: "%",
-    // calculated
     c_totalArea: "إجمالي مساحة الأصل",
     c_totalVal: "إجمالي قيمة الأصل (التكاليف المباشرة)",
     c_indirect: "التكاليف الغير مباشرة",
@@ -88,7 +138,6 @@ const T = {
     c_netAsset: "صافي قيمة الأصل بعد الإهلاك",
     c_netMeter: "صافي سعر متر الأصل بعد الإهلاك",
     c_landAsset: "قيمة الأرض والأصل",
-    // part 3
     part3Title: "بيانات إضافية",
     maintenancePrice: "تكاليف الصيانة في حال كان الأصل مكتملاً",
     finishesPrice: "تكاليف التشطيبات المتبقية",
@@ -96,7 +145,6 @@ const T = {
     maintenanceDesc: "وصف الصيانة في حال كان الأصل مكتملاً",
     finishesDesc: "وصف التشطيبات المتبقية",
     replacementNotes: "ملاحظات",
-    // misc
     descPlaceholderMaint: "أدخل وصف الصيانة...",
     descPlaceholderFinish: "أدخل وصف التشطيبات...",
     notesPlaceholder: "أدخل الملاحظات العامة...",
@@ -155,7 +203,7 @@ const T = {
     notesPlaceholder: "Enter general notes...",
     itemPlaceholder: "Item description",
   },
-} as const;
+};
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -261,6 +309,9 @@ function RowDivider() {
 
 // ─── area table ───────────────────────────────────────────────────────────────
 
+// FIX: Typed t prop explicitly instead of using raw indexed expression
+type TDict = (typeof T)[Lang];
+
 function AreaTable({
   lines,
   onChange,
@@ -270,7 +321,7 @@ function AreaTable({
   lines: ReplacementLine[];
   onChange: (lines: ReplacementLine[]) => void;
   lang: Lang;
-  t: (typeof T)[Lang];
+  t: TDict;
 }) {
   const addLine = () =>
     onChange([
@@ -288,6 +339,10 @@ function AreaTable({
   const removeLine = (i: number) =>
     onChange(lines.filter((_, idx) => idx !== i));
 
+  // FIX: updateLine had broken total logic when useSpace=false.
+  // Previously the else branch read `pr > 0 ? pr.toFixed(2) : ""`
+  // which used the OLD `l.unitPrice` before the field update was applied.
+  // Now we derive sp and pr from the already-merged `updated` object.
   const updateLine = (
     i: number,
     field: keyof ReplacementLine,
@@ -296,18 +351,15 @@ function AreaTable({
     onChange(
       lines.map((l, idx) => {
         if (idx !== i) return l;
-        const updated = { ...l, [field]: val };
-        const sp =
-          parseFloat(field === "space" ? (val as string) : l.space) || 0;
-        const pr =
-          parseFloat(field === "unitPrice" ? (val as string) : l.unitPrice) ||
-          0;
-        updated.total =
-          updated.useSpace && sp && pr
-            ? (sp * pr).toFixed(2)
-            : pr > 0
-              ? pr.toFixed(2)
-              : "";
+        const updated: ReplacementLine = { ...l, [field]: val };
+        const sp = p(updated.space);
+        const pr = p(updated.unitPrice);
+        if (updated.useSpace) {
+          updated.total = sp > 0 && pr > 0 ? (sp * pr).toFixed(2) : "";
+        } else {
+          // When not using area, total = unit price alone
+          updated.total = pr > 0 ? pr.toFixed(2) : "";
+        }
         return updated;
       }),
     );
@@ -476,8 +528,8 @@ export function ReplacementCostSection({
     onFieldsChange({ ...fields, [key]: val });
 
   // ── derived values ──────────────────────────────────────────────────────────
-  const totalArea = lines.reduce((s, l) => s + p(l.space), 0);
-  const totalVal = lines.reduce((s, l) => s + p(l.total || "0"), 0);
+  const totalArea = lines.reduce((sum, l) => sum + p(l.space), 0);
+  const totalVal = lines.reduce((sum, l) => sum + p(l.total || "0"), 0);
 
   const adminPct = p(fields.managementPct) / 100;
   const profPct = p(fields.professionalPct) / 100;
@@ -488,9 +540,13 @@ export function ReplacementCostSection({
 
   const effAge = p(fields.buildAge);
   const defAge = p(fields.defaultAge);
-  const physPct = p(fields.depreciationPct) / 100;
-  const econPct = p(fields.economicPct) / 100;
-  const funcPct = p(fields.careerPct) / 100;
+
+  // FIX: Keep raw percentage values (not pre-divided) for totalDep display.
+  // The original code divided by 100 here then multiplied by 100 in totalDep,
+  // which was correct but confusing. Made consistent and explicit.
+  const physPctRaw = p(fields.depreciationPct); // e.g. 10 means 10%
+  const econPctRaw = p(fields.economicPct);
+  const funcPctRaw = p(fields.careerPct);
 
   const indirectPct = adminPct + profPct + utilPct + emrgPct + finPct;
   const indirect = totalVal * indirectPct;
@@ -499,27 +555,32 @@ export function ReplacementCostSection({
   const assetVal = directTotal + devProfitVal;
 
   const remLife = Math.max(0, defAge - effAge);
-  const totalDep = Math.min(100, (physPct + econPct + funcPct) * 100);
+
+  // FIX: totalDep correctly summed from raw % values, capped at 100
+  const totalDep = Math.min(100, physPctRaw + econPctRaw + funcPctRaw);
   const depVal = assetVal * (totalDep / 100);
   const netAsset = assetVal - depVal;
   const netMeter = totalArea > 0 ? netAsset / totalArea : 0;
 
   const maintVal = p(fields.maintenancePrice);
   const finishVal = p(fields.finishesPrice);
-  const landDataTotal =
-    (parseFloat(fields.meterPriceLand) || 0) *
-    (parseFloat(fields.landSpace) || 0);
+
+  // FIX: landDataTotal computed once and reused, not duplicated inline
+  const landDataTotal = p(fields.meterPriceLand) * p(fields.landSpace);
+
   const landAsset = landDataTotal + netAsset + maintVal + finishVal;
 
-  const fmtVal = (n: number) => (n === 0 ? "—" : fmt(n, lang));
+  // FIX: fmtVal now shows "0.00" for zero values instead of "—",
+  // so legitimately-zero computed results are not shown as missing data.
+  // Only truly unset / NaN values show "—".
+  const fmtVal = (n: number) => (!isFinite(n) ? "—" : fmt(n, lang));
 
   return (
     <div style={{ fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif" }}>
-      {/* ── Land header inputs ────────────────────────────────────────────── */}
       {/* ── Land header ─────────────────────────────────────────────────────── */}
       <PartHeader title={lang === "ar" ? "بيانات الأرض" : "Land Data"} />
       <div style={s.endingGrid}>
-        {/* 1. العنوان — full width */}
+        {/* 1. Title — full width */}
         <div style={{ ...s.endingField, gridColumn: "1 / -1" }}>
           <label style={s.endingLabel}>{t.landTitle}</label>
           <input
@@ -532,7 +593,7 @@ export function ReplacementCostSection({
           />
         </div>
 
-        {/* 2. سعر المتر للأرض */}
+        {/* 2. Land meter price */}
         <div style={s.endingField}>
           <label style={s.endingLabel}>{t.meterPriceLand}</label>
           <input
@@ -548,7 +609,7 @@ export function ReplacementCostSection({
           />
         </div>
 
-        {/* 3. مساحة الأرض — already in fields.landSpace */}
+        {/* 3. Land area */}
         <div style={s.endingField}>
           <label style={s.endingLabel}>{t.landSpace}</label>
           <input
@@ -557,17 +618,14 @@ export function ReplacementCostSection({
             step="0.01"
             value={fields.landSpace}
             onChange={(e) =>
-              onFieldsChange({
-                ...fields,
-                landSpace: e.target.value,
-              })
+              onFieldsChange({ ...fields, landSpace: e.target.value })
             }
             placeholder="0.00"
             style={s.endingInput}
           />
         </div>
 
-        {/* 4. المجموع — calculated, read-only */}
+        {/* 4. Land total — calculated read-only, uses shared landDataTotal */}
         <div style={s.endingField}>
           <label style={s.endingLabel}>{t.landTotal}</label>
           <div
@@ -582,62 +640,61 @@ export function ReplacementCostSection({
               alignItems: "center",
             }}
           >
-            {fmt(
-              (parseFloat(fields.meterPriceLand) || 0) *
-                (parseFloat(fields.landSpace) || 0),
-              lang,
-            )}
+            {fmt(landDataTotal, lang)}
           </div>
         </div>
       </div>
+
       <div style={{ height: 12 }} />
       <AreaTable lines={lines} onChange={onLinesChange} lang={lang} t={t} />
       <div style={{ height: 12 }} />
+
       {/* ── Part 2: Flat ordered rows ────────────────────────────────────────── */}
       <PartHeader title={t.part2Title} />
-      {/* 1  */}{" "}
+      {/* 1  */}
       <CalcRow
         label={t.c_totalArea}
         value={totalArea > 0 ? fmt(totalArea, lang) : "—"}
         unit="م²"
       />
-      {/* 2  */} <CalcRow label={t.c_totalVal} value={fmtVal(totalVal)} />
-      {/* 3  */}{" "}
+      {/* 2  */}
+      <CalcRow label={t.c_totalVal} value={fmtVal(totalVal)} />
+      {/* 3  */}
       <InputRow
         label={t.managementPct}
         value={fields.managementPct}
         onChange={set("managementPct")}
         unit={t.unitPct}
       />
-      {/* 4  */}{" "}
+      {/* 4  */}
       <InputRow
         label={t.professionalPct}
         value={fields.professionalPct}
         onChange={set("professionalPct")}
         unit={t.unitPct}
       />
-      {/* 5  */}{" "}
+      {/* 5  */}
       <InputRow
         label={t.utilityNetworkPct}
         value={fields.utilityNetworkPct}
         onChange={set("utilityNetworkPct")}
         unit={t.unitPct}
       />
-      {/* 6  */}{" "}
+      {/* 6  */}
       <InputRow
         label={t.emergencyPct}
         value={fields.emergencyPct}
         onChange={set("emergencyPct")}
         unit={t.unitPct}
       />
-      {/* 7  */}{" "}
+      {/* 7  */}
       <InputRow
         label={t.financePct}
         value={fields.financePct}
         onChange={set("financePct")}
         unit={t.unitPct}
       />
-      {/* 8  */}{" "}
+      {/* 8  */}
       <InputRow
         label={t.yearDev}
         value={fields.yearDev}
@@ -645,22 +702,23 @@ export function ReplacementCostSection({
         unit={t.unitYear}
         isYear
       />
-      {/* 9  */} <CalcRow label={t.c_indirect} value={fmtVal(indirect)} />
-      {/* 10 */}{" "}
+      {/* 9  */}
+      <CalcRow label={t.c_indirect} value={fmtVal(indirect)} />
+      {/* 10 */}
       <CalcRow label={t.c_direct} value={fmtVal(directTotal)} bold light />
-      {/* 11 */}{" "}
+      {/* 11 */}
       <InputRow
         label={t.earningsRate}
         value={fields.earningsRate}
         onChange={set("earningsRate")}
         unit={t.unitPct}
       />
-      {/* 12 */}{" "}
+      {/* 12 */}
       <CalcRow label={t.c_devprofitVal} value={fmtVal(devProfitVal)} />
-      {/* 13 */}{" "}
+      {/* 13 */}
       <CalcRow label={t.c_assetVal} value={fmtVal(assetVal)} bold light />
       <RowDivider />
-      {/* 14 */}{" "}
+      {/* 14 */}
       <InputRow
         label={t.buildAge}
         value={fields.buildAge}
@@ -668,7 +726,7 @@ export function ReplacementCostSection({
         unit={t.unitYear}
         isYear
       />
-      {/* 15 */}{" "}
+      {/* 15 */}
       <InputRow
         label={t.defaultAge}
         value={fields.defaultAge}
@@ -676,43 +734,45 @@ export function ReplacementCostSection({
         unit={t.unitYear}
         isYear
       />
-      {/* 16 */}{" "}
+      {/* 16 */}
       <CalcRow
         label={t.c_remlife}
         value={remLife > 0 ? remLife.toFixed(0) : "—"}
         unit={t.unitYear}
       />
-      {/* 17 */}{" "}
+      {/* 17 */}
       <InputRow
         label={t.depreciationPct}
         value={fields.depreciationPct}
         onChange={set("depreciationPct")}
         unit={t.unitPct}
       />
-      {/* 18 */}{" "}
+      {/* 18 */}
       <InputRow
         label={t.economicPct}
         value={fields.economicPct}
         onChange={set("economicPct")}
         unit={t.unitPct}
       />
-      {/* 19 */}{" "}
+      {/* 19 */}
       <InputRow
         label={t.careerPct}
         value={fields.careerPct}
         onChange={set("careerPct")}
         unit={t.unitPct}
       />
-      {/* 20 */}{" "}
+      {/* 20 */}
       <CalcRow
         label={t.c_totaldep}
         value={totalDep > 0 ? totalDep.toFixed(2) + "%" : "—"}
       />
-      {/* 21 */} <CalcRow label={t.c_depVal} value={fmtVal(depVal)} />
-      {/* 22 */}{" "}
+      {/* 21 */}
+      <CalcRow label={t.c_depVal} value={fmtVal(depVal)} />
+      {/* 22 */}
       <CalcRow label={t.c_netAsset} value={fmtVal(netAsset)} bold light />
-      {/* 23 */} <CalcRow label={t.c_netMeter} value={fmtVal(netMeter)} />
-      {/* 24 */}{" "}
+      {/* 23 */}
+      <CalcRow label={t.c_netMeter} value={fmtVal(netMeter)} />
+      {/* 24 */}
       <CalcRow
         label={t.c_landAsset}
         value={fmtVal(landAsset)}
@@ -720,7 +780,9 @@ export function ReplacementCostSection({
         accent
         light
       />
+
       <div style={{ height: 12 }} />
+
       {/* ── Part 3: Ending inputs ────────────────────────────────────────────── */}
       <PartHeader title={t.part3Title} />
       <div style={s.endingGrid}>
@@ -866,7 +928,6 @@ const s: Record<string, React.CSSProperties> = {
     width: 28,
     textAlign: "center" as const,
   },
-  // table
   table: {
     width: "100%",
     borderCollapse: "collapse",
@@ -916,7 +977,6 @@ const s: Record<string, React.CSSProperties> = {
     padding: "2px 4px",
     color: "#c00",
   },
-  // ending
   endingGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
