@@ -681,6 +681,7 @@ function StepBasic({
   t: (typeof copy)[keyof typeof copy];
   errors: Record<string, string>;
   clearError: (k: string) => void;
+  isLawyer: boolean;
 }) {
   return (
     <div className="space-y-6">
