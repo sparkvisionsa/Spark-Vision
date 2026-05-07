@@ -1876,7 +1876,6 @@ export function TransactionEvaluationPage({
         settlementBases: ev.settlementBases,
         settlementWeights: ev.settlementWeights,
         replacementLines: ev.replacementLines,
-        meterPriceLand: ev.meterPriceLand,
         ...ev.replacementFields,
       };
       const res = await fetch(toApiUrl(`/api/transactions/${transactionId}`), {
