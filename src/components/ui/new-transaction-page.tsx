@@ -10,14 +10,14 @@ import {
   Loader2,
   X,
   FileImage,
-  Building2,
   ClipboardList,
-  Camera,
   Send,
   ExternalLink,
   Upload,
   ShieldCheck,
   Paperclip,
+  Copy,
+  Check,
 } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
@@ -62,28 +62,38 @@ type FormFieldDef = {
 
 type TemplateOption = { id: string; name: string; fields: FormFieldDef[] };
 
-// OCR extracted data shape
+// OCR extracted data shape — must match ExtractedPropertyData from the service
 type OcrResult = {
+  // Document
   deedNumber?: string;
   deedDate?: string;
+  previousDeedNumber?: string;
   previousDeedDate?: string;
   operationType?: string;
+  propertyStatus?: string;
+  restrictions?: string;
+  // Owner
   ownerId?: string;
   ownerName?: string;
   ownerNationality?: string;
   ownershipPercentage?: string;
-  regionName?: string;
+  // Property
+  propertyId?: string;
   propertyType?: string;
   propertyArea?: string;
   landUse?: string;
   parcelNumber?: string;
+  blockNumber?: string;
+  districtPart?: string;
+  propertyModel?: string;
+  // Location
   cityName?: string;
   neighborhoodName?: string;
   planNumber?: string;
   plotNumber?: string;
-  ownershipStatus?: string;
-  propertyModel?: string;
   locationDescription?: string;
+  regionName?: string;
+  // Boundaries
   northBoundary?: string;
   northLength?: string;
   southBoundary?: string;
@@ -92,8 +102,58 @@ type OcrResult = {
   eastLength?: string;
   westBoundary?: string;
   westLength?: string;
+  // Legacy / misc
+  ownershipStatus?: string;
   confidence?: Record<string, number>;
   rawText?: string;
+};
+
+// Maps OCR field → evalData key (for القالب العام)
+// null means "don't map to evalData directly"
+const OCR_TO_EVAL_DATA: Record<
+  keyof Omit<OcrResult, "confidence" | "rawText">,
+  string | null
+> = {
+  // Document
+  deedNumber: "deedNumber",
+  deedDate: "deedDate",
+  previousDeedNumber: "previousDeedNumber",
+  previousDeedDate: "previousDeedDate",
+  operationType: "operationType",
+  propertyStatus: "propertyStatus",
+  restrictions: "restrictions",
+  // Owner
+  ownerId: "ownerId",
+  ownerName: "ownerName",
+  ownerNationality: "ownerNationality",
+  ownershipPercentage: "ownershipPercentage",
+  // Property
+  propertyId: "propertyId",
+  propertyType: "propertyType",
+  propertyArea: "propertyArea",
+  landUse: "landUse",
+  parcelNumber: "parcelNumber",
+  blockNumber: "blockNumber",
+  districtPart: "districtPart",
+  propertyModel: "propertyModel",
+  // Location
+  cityName: "cityName",
+  neighborhoodName: "neighborhoodName",
+  planNumber: "planNumber",
+  plotNumber: null, // duplicate of parcelNumber
+  locationDescription: "address",
+  regionName: "regionName",
+  // Boundaries
+  northBoundary: "northBoundary",
+  northLength: "northLength",
+  southBoundary: "southBoundary",
+  southLength: "southLength",
+  eastBoundary: "eastBoundary",
+  eastLength: "eastLength",
+  westBoundary: "westBoundary",
+  westLength: "westLength",
+  // Legacy
+  ownershipStatus: null,
 };
 
 // Maps OCR field → template field label (for non-general templates)
@@ -103,24 +163,29 @@ const OCR_TO_TEMPLATE_LABEL: Record<
 > = {
   deedNumber: "رقم الصك",
   deedDate: "تاريخ الصك",
+  previousDeedNumber: null,
   previousDeedDate: null,
   operationType: null,
+  propertyStatus: null,
+  restrictions: null,
   ownerId: null,
   ownerName: "اسم المالك",
   ownerNationality: null,
-  regionName: null,
   ownershipPercentage: null,
+  propertyId: null,
   propertyType: "نوع الأصل",
   propertyArea: "مساحة الأصل",
   landUse: "الاستخدام",
   parcelNumber: "رقم القطعة",
+  blockNumber: null,
+  districtPart: null,
+  propertyModel: null,
   cityName: "المدينة",
   neighborhoodName: "الحي",
   planNumber: "رقم المخطط",
   plotNumber: "رقم البلوك",
-  ownershipStatus: null,
-  propertyModel: null,
   locationDescription: "العنوان",
+  regionName: null,
   northBoundary: "الحد الشمالي",
   northLength: "طول الحد الشمالي",
   southBoundary: "الحد الجنوبي",
@@ -129,41 +194,7 @@ const OCR_TO_TEMPLATE_LABEL: Record<
   eastLength: "طول الحد الشرقي",
   westBoundary: "الحد الغربي",
   westLength: "طول الحد الغربي",
-};
-
-// Maps OCR field → evalData field key (for قالب عام)
-const OCR_TO_EVAL_DATA: Record<
-  keyof Omit<OcrResult, "confidence" | "rawText">,
-  string | null
-> = {
-  deedNumber: "deedNumber",
-  deedDate: "deedDate",
-  previousDeedDate: null,
-  operationType: null,
-  ownerId: null,
-  ownerName: "ownerName",
-  ownerNationality: null,
-  ownershipPercentage: null,
-  propertyType: "propertyType",
-  propertyArea: "propertyArea",
-  landUse: "landUse",
-  parcelNumber: null,
-  cityName: "cityName",
-  neighborhoodName: "neighborhoodName",
-  regionName: "regionName",
-  planNumber: null,
-  plotNumber: null,
   ownershipStatus: null,
-  propertyModel: null,
-  locationDescription: "address",
-  northBoundary: "northBoundary",
-  northLength: "northLength",
-  southBoundary: "southBoundary",
-  southLength: "southLength",
-  eastBoundary: "eastBoundary",
-  eastLength: "eastLength",
-  westBoundary: "westBoundary",
-  westLength: "westLength",
 };
 
 const LABEL_TO_EVAL_KEY: Record<string, string> = {
@@ -214,11 +245,11 @@ const EMPTY: NewTransactionValues = {
   assignmentDate: "",
   valuationPurpose: "",
   intendedUse: "",
-  valuationBasis: "1",
-  ownershipType: "1",
-  valuationHypothesis: "1",
+  valuationBasis: "",
+  ownershipType: "",
+  valuationHypothesis: "",
   client: "",
-  branch: "1",
+  branch: "",
   template: "",
   templateFieldValues: {},
 };
@@ -253,13 +284,9 @@ const copy = {
     submit: "Create Transaction",
     realEstateValuation: "Real Estate Valuation",
     machineryValuation: "Machinery & Equipment Valuation",
-    stepBasic: "Basic Info",
-    stepTemplate: "Template",
-    stepScan: "Deed Scan",
+    stepSetup: "Setup",
     stepReview: "Review & Submit",
-    stepBasicDesc: "Fill in the core assignment details",
-    stepTemplateDesc: "Select the evaluation template",
-    stepScanDesc: "Scan the property deed (optional)",
+    stepSetupDesc: "Fill in assignment details, select template & scan deed",
     stepReviewDesc: "Review extracted data and submit",
     next: "Next →",
     back: "← Back",
@@ -274,8 +301,8 @@ const copy = {
     ocrScanning: "Scanning deed...",
     ocrSuccess: "Data extracted successfully",
     ocrError: "Scan failed",
-    ocrRetry: "Try another image",
-    ocrContinue: "Continue with extracted data",
+    ocrRetry: "Scan another image",
+    ocrClear: "Clear scan",
     ocrFieldsFound: "fields extracted",
     ocrConfidence: "confidence",
     reviewTitle: "Review & Fill Fields",
@@ -285,16 +312,29 @@ const copy = {
     generalTemplateNote:
       "Using General Template — all values will be saved directly to the evaluation data.",
     ocrBadge: "OCR",
+    valuationBasisPlaceholder: "Select value basis",
+    ownershipTypePlaceholder: "Select ownership type",
+    valuationHypothesisPlaceholder: "Select hypothesis",
+    branchPlaceholder: "Select branch",
     errAssignmentNumber: "Assignment number is required",
+    errAssignmentDate: "Assignment date is required",
+    errValuationPurpose: "Valuation purpose is required",
+    errValuationBasis: "Value basis is required",
+    errOwnershipType: "Ownership type is required",
+    errValuationHypothesis: "Valuation hypothesis is required",
+    errBranch: "Valuation branch is required",
     errClient: "Client is required",
     errTemplate: "Template is required",
-    // Deed verification section
     deedVerificationTitle: "Deed Verification",
     deedVerificationDesc:
       "Verify the property deed on the Ministry of Justice portal, then upload the verified deed image here as an attachment.",
     deedVerificationBtn: "Open Deed Inquiry Portal",
     deedVerificationNote:
       "You will be redirected to srem.moj.gov.sa. After verifying your deed number and downloading the official deed image, return here to upload it.",
+    ownerIdLabel: "Owner ID (from deed scan)",
+    ownerIdCopy: "Copy",
+    ownerIdCopied: "Copied!",
+    ownerIdHint: "Paste this into the SREM portal to look up the deed.",
     deedAttachmentTitle: "Upload Verified Deed Image",
     deedAttachmentDesc:
       "After verifying on the SREM portal, upload the deed image here.",
@@ -304,6 +344,9 @@ const copy = {
     deedAttachmentUploaded: "Deed image attached",
     deedAttachmentRemove: "Remove",
     deedAttachmentOptional: "Optional — you can also submit and attach later.",
+    sectionBasic: "Basic Information",
+    sectionTemplate: "Template",
+    sectionScan: "Deed Scan",
     valuationPurposes: [
       { value: "1", label: "Financing" },
       { value: "2", label: "Purchase" },
@@ -384,13 +427,9 @@ const copy = {
     submit: "إنشاء المعاملة",
     realEstateValuation: "تقييم العقارات",
     machineryValuation: "تقييم الآلات والمعدات",
-    stepBasic: "البيانات الأساسية",
-    stepTemplate: "النموذج",
-    stepScan: "مسح الصك",
+    stepSetup: "الإعداد",
     stepReview: "المراجعة والإرسال",
-    stepBasicDesc: "أدخل بيانات التكليف الأساسية",
-    stepTemplateDesc: "اختر نموذج التقييم",
-    stepScanDesc: "ارفع صورة الصك (اختياري)",
+    stepSetupDesc: "أدخل بيانات التكليف واختر النموذج ومسح الصك",
     stepReviewDesc: "راجع البيانات المستخرجة وأرسل",
     next: "التالي ←",
     back: "→ السابق",
@@ -405,8 +444,8 @@ const copy = {
     ocrScanning: "جاري المسح...",
     ocrSuccess: "تم استخراج البيانات بنجاح",
     ocrError: "فشل المسح",
-    ocrRetry: "جرّب صورة أخرى",
-    ocrContinue: "المتابعة بالبيانات المستخرجة",
+    ocrRetry: "مسح صورة أخرى",
+    ocrClear: "مسح نتيجة المسح",
     ocrFieldsFound: "حقول مستخرجة",
     ocrConfidence: "دقة الاستخراج",
     reviewTitle: "مراجعة الحقول وإكمالها",
@@ -416,16 +455,29 @@ const copy = {
     generalTemplateNote:
       "القالب العام — جميع القيم ستُحفظ مباشرةً في بيانات التقييم.",
     ocrBadge: "صك",
+    valuationBasisPlaceholder: "اختر أساس القيمة",
+    ownershipTypePlaceholder: "اختر نوع الملكية",
+    valuationHypothesisPlaceholder: "اختر فرضية التقييم",
+    branchPlaceholder: "اختر فرع التقييم",
     errAssignmentNumber: "رقم التكليف مطلوب",
+    errAssignmentDate: "تاريخ التكليف مطلوب",
+    errValuationPurpose: "الغرض من التقييم مطلوب",
+    errValuationBasis: "أساس القيمة مطلوب",
+    errOwnershipType: "نوع الملكية مطلوب",
+    errValuationHypothesis: "فرضية التقييم مطلوبة",
+    errBranch: "فرع التقييم مطلوب",
     errClient: "العميل مطلوب",
     errTemplate: "النموذج مطلوب",
-    // Deed verification section
     deedVerificationTitle: "التحقق من الصك",
     deedVerificationDesc:
       "تحقق من صك العقار عبر بوابة وزارة العدل، ثم ارفع صورة الصك الموثق هنا كمرفق.",
     deedVerificationBtn: "فتح بوابة الاستعلام عن الصكوك",
     deedVerificationNote:
       "سيتم توجيهك إلى srem.moj.gov.sa. بعد التحقق من رقم صكك وتنزيل صورة الصك الرسمية، عُد إلى هنا لرفعها.",
+    ownerIdLabel: "رقم هوية المالك (من مسح الصك)",
+    ownerIdCopy: "نسخ",
+    ownerIdCopied: "تم النسخ!",
+    ownerIdHint: "الصق هذا الرقم في بوابة SREM للبحث عن الصك.",
     deedAttachmentTitle: "رفع صورة الصك الموثق",
     deedAttachmentDesc: "بعد التحقق من بوابة SREM، ارفع صورة الصك هنا.",
     deedAttachmentDrop: "أسقط صورة الصك الموثق هنا",
@@ -434,6 +486,9 @@ const copy = {
     deedAttachmentUploaded: "تم إرفاق صورة الصك",
     deedAttachmentRemove: "إزالة",
     deedAttachmentOptional: "اختياري — يمكنك الإرسال وإرفاق الصك لاحقاً.",
+    sectionBasic: "البيانات الأساسية",
+    sectionTemplate: "النموذج",
+    sectionScan: "مسح الصك",
     valuationPurposes: [
       { value: "1", label: "التمويل" },
       { value: "2", label: "الشراء" },
@@ -489,17 +544,8 @@ const copy = {
   },
 } as const;
 
-// ─── Step definitions ─────────────────────────────────────────────────────────
-
-type Step = "basic" | "template" | "scan" | "review";
-const STEPS: Step[] = ["basic", "template", "scan", "review"];
-
-const STEP_ICONS = {
-  basic: ClipboardList,
-  template: Building2,
-  scan: Camera,
-  review: Send,
-};
+type Step = "setup" | "review";
+const STEPS: Step[] = ["setup", "review"];
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -521,6 +567,17 @@ function FieldLabel({
       {children}
       {required && <span className="ms-1 text-red-400">*</span>}
     </label>
+  );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-4">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+        {children}
+      </span>
+      <div className="flex-1 h-px bg-slate-100" />
+    </div>
   );
 }
 
@@ -604,24 +661,17 @@ function StepIndicator({
   t: (typeof copy)[keyof typeof copy];
 }) {
   const currentIdx = STEPS.indexOf(current);
-
+  const steps = [
+    { key: "setup" as Step, label: t.stepSetup, icon: ClipboardList },
+    { key: "review" as Step, label: t.stepReview, icon: Send },
+  ];
   return (
     <div className="flex items-center gap-0">
-      {STEPS.map((step, idx) => {
-        const Icon = STEP_ICONS[step];
+      {steps.map(({ key, label, icon: Icon }, idx) => {
         const isDone = idx < currentIdx;
         const isActive = idx === currentIdx;
-        const label =
-          step === "basic"
-            ? t.stepBasic
-            : step === "template"
-              ? t.stepTemplate
-              : step === "scan"
-                ? t.stepScan
-                : t.stepReview;
-
         return (
-          <div key={step} className="flex items-center">
+          <div key={key} className="flex items-center">
             <div className="flex flex-col items-center gap-1">
               <div
                 className={cn(
@@ -648,10 +698,10 @@ function StepIndicator({
                 {label}
               </span>
             </div>
-            {idx < STEPS.length - 1 && (
+            {idx < steps.length - 1 && (
               <div
                 className={cn(
-                  "mx-2 mb-4 h-px w-10 transition-colors duration-300 sm:w-16",
+                  "mx-2 mb-4 h-px w-16 transition-colors duration-300 sm:w-24",
                   idx < currentIdx ? "bg-emerald-400" : "bg-slate-200",
                 )}
               />
@@ -663,337 +713,24 @@ function StepIndicator({
   );
 }
 
-// ─── Step 1: Basic Info ───────────────────────────────────────────────────────
-
-function StepBasic({
-  values,
-  set,
-  t,
-  errors,
-  clearError,
-  isLawyer = false,
-}: {
-  values: NewTransactionValues;
-  set: <K extends keyof NewTransactionValues>(
-    k: K,
-    v: NewTransactionValues[K],
-  ) => void;
-  t: (typeof copy)[keyof typeof copy];
-  errors: Record<string, string>;
-  clearError: (k: string) => void;
-  isLawyer: boolean;
-}) {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">{t.stepBasic}</h2>
-        <p className="mt-0.5 text-sm text-slate-500">{t.stepBasicDesc}</p>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <FieldLabel required>{t.assignmentNumber}</FieldLabel>
-            <TextField
-              value={values.assignmentNumber}
-              onChange={(v) => {
-                set("assignmentNumber", v);
-                clearError("assignmentNumber");
-              }}
-              placeholder={t.assignmentNumberPlaceholder}
-              error={!!errors.assignmentNumber}
-            />
-            {errors.assignmentNumber && (
-              <p className="mt-1 text-xs text-red-500">
-                {errors.assignmentNumber}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <FieldLabel>{t.authorizationNumber}</FieldLabel>
-            <TextField
-              value={values.authorizationNumber}
-              onChange={(v) => set("authorizationNumber", v)}
-              placeholder={t.authorizationNumberPlaceholder}
-            />
-          </div>
-
-          <div>
-            <FieldLabel required>{t.assignmentDate}</FieldLabel>
-            <TextField
-              type="date"
-              value={values.assignmentDate}
-              onChange={(v) => set("assignmentDate", v)}
-            />
-          </div>
-
-          <div>
-            <FieldLabel required>{t.valuationPurpose}</FieldLabel>
-            <SelectField
-              value={values.valuationPurpose}
-              onChange={(v) => set("valuationPurpose", v)}
-            >
-              <option value="" disabled>
-                {t.valuationPurposePlaceholder}
-              </option>
-              {t.valuationPurposes.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <FieldLabel>{t.intendedUse}</FieldLabel>
-            <TextField
-              value={values.intendedUse}
-              onChange={(v) => set("intendedUse", v)}
-              placeholder={t.intendedUsePlaceholder}
-            />
-          </div>
-
-          <div>
-            <FieldLabel required>{t.valuationBasis}</FieldLabel>
-            <SelectField
-              value={values.valuationBasis}
-              onChange={(v) => set("valuationBasis", v)}
-            >
-              {t.valuationBases.map((b) => (
-                <option key={b.value} value={b.value}>
-                  {b.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <FieldLabel required>{t.ownershipType}</FieldLabel>
-            <SelectField
-              value={values.ownershipType}
-              onChange={(v) => set("ownershipType", v)}
-            >
-              {t.ownershipTypes.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <FieldLabel required>{t.valuationHypothesis}</FieldLabel>
-            <SelectField
-              value={values.valuationHypothesis}
-              onChange={(v) => set("valuationHypothesis", v)}
-            >
-              {t.valuationHypotheses.map((h) => (
-                <option key={h.value} value={h.value}>
-                  {h.label}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div>
-            <FieldLabel required>{t.branch}</FieldLabel>
-            <SelectField
-              value={values.branch}
-              onChange={(v) => set("branch", v)}
-            >
-              <option value="1">{t.realEstateValuation}</option>
-              <option value="3">{t.machineryValuation}</option>
-            </SelectField>
-          </div>
-          {isLawyer && (
-            <div className="sm:col-span-2 lg:col-span-3">
-              <FieldLabel>{t.opponentStatements}</FieldLabel>
-              <textarea
-                value={values.opponentStatements}
-                onChange={(e) => set("opponentStatements", e.target.value)}
-                placeholder={t.opponentStatementsPlaceholder}
-                rows={4}
-                className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Step 2: Template Selection ───────────────────────────────────────────────
-
-function StepTemplate({
-  values,
-  set,
-  clients,
-  templates,
-  loadingClients,
-  t,
-  errors,
-  clearError,
-  isArabic,
-}: {
-  values: NewTransactionValues;
-  set: <K extends keyof NewTransactionValues>(
-    k: K,
-    v: NewTransactionValues[K],
-  ) => void;
-  clients: ClientOption[];
-  templates: TemplateOption[];
-  loadingClients: boolean;
-  t: (typeof copy)[keyof typeof copy];
-  errors: Record<string, string>;
-  clearError: (k: string) => void;
-  isArabic: boolean;
-}) {
-  const selectedTemplate =
-    templates.find((tp) => tp.id === values.template) ?? null;
-  const isGeneral = selectedTemplate?.name === GENERAL_TEMPLATE_NAME_AR;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">{t.stepTemplate}</h2>
-        <p className="mt-0.5 text-sm text-slate-500">{t.stepTemplateDesc}</p>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <div>
-            <FieldLabel required>{t.client}</FieldLabel>
-            <SelectField
-              value={values.client}
-              onChange={(v) => {
-                set("client", v);
-                set("template", "");
-                clearError("client");
-              }}
-              disabled={loadingClients}
-              error={!!errors.client}
-            >
-              <option value="" disabled>
-                {loadingClients ? "…" : t.clientPlaceholder}
-              </option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </SelectField>
-            {errors.client && (
-              <p className="mt-1 text-xs text-red-500">{errors.client}</p>
-            )}
-          </div>
-
-          <div>
-            <FieldLabel required>{t.template}</FieldLabel>
-            <SelectField
-              value={values.template}
-              onChange={(v) => {
-                set("template", v);
-                clearError("template");
-              }}
-              disabled={!values.client || templates.length === 0}
-              error={!!errors.template}
-            >
-              <option value="" disabled>
-                {t.templatePlaceholder}
-              </option>
-              {templates.map((tp) => (
-                <option key={tp.id} value={tp.id}>
-                  {tp.name}
-                </option>
-              ))}
-            </SelectField>
-            {errors.template && (
-              <p className="mt-1 text-xs text-red-500">{errors.template}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {selectedTemplate && (
-        <div
-          className={cn(
-            "rounded-2xl border p-5",
-            isGeneral
-              ? "border-amber-200 bg-amber-50"
-              : "border-cyan-100 bg-cyan-50",
-          )}
-        >
-          <div className="flex items-start gap-3">
-            <div
-              className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm",
-                isGeneral
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-cyan-100 text-cyan-700",
-              )}
-            >
-              {isGeneral ? "⚡" : "📋"}
-            </div>
-            <div>
-              <p
-                className={cn(
-                  "font-semibold",
-                  isGeneral ? "text-amber-800" : "text-cyan-800",
-                )}
-              >
-                {selectedTemplate.name}
-              </p>
-              {isGeneral ? (
-                <p className="mt-0.5 text-xs text-amber-700">
-                  {isArabic
-                    ? "القالب العام — جميع القيم ستُحفظ مباشرةً في بيانات التقييم."
-                    : "General Template — all values will be saved directly to evalData."}
-                </p>
-              ) : (
-                <p className="mt-0.5 text-xs text-cyan-700">
-                  {isArabic
-                    ? `${selectedTemplate.fields.length} حقول في النموذج`
-                    : `${selectedTemplate.fields.length} template fields`}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {!isGeneral && selectedTemplate.fields.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {selectedTemplate.fields.slice(0, 10).map((f) => (
-                <span
-                  key={f.id}
-                  className="rounded-md border border-cyan-200 bg-white px-2 py-0.5 text-[10px] font-medium text-cyan-700"
-                >
-                  {f.label}
-                </span>
-              ))}
-              {selectedTemplate.fields.length > 10 && (
-                <span className="rounded-md border border-cyan-200 bg-white px-2 py-0.5 text-[10px] text-cyan-500">
-                  +{selectedTemplate.fields.length - 10}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Step 3: OCR Scan ─────────────────────────────────────────────────────────
+// ─── OCR Scanner ─────────────────────────────────────────────────────────────
+// FIX 2: Scanning immediately calls onScanned — no "Continue" button needed.
+// The success state just shows a summary + options to scan another or clear.
 
 type OcrScanState =
   | { phase: "idle" }
   | { phase: "selected"; file: File; preview: string }
   | { phase: "scanning" }
-  | { phase: "done"; result: OcrResult; file: File; preview: string }
+  | {
+      phase: "done";
+      result: OcrResult;
+      file: File;
+      preview: string;
+      count: number;
+    }
   | { phase: "error"; message: string };
 
-function StepScan({
+function OcrScanner({
   t,
   onScanned,
   onSkip,
@@ -1022,6 +759,8 @@ function StepScan({
       URL.revokeObjectURL((state as any).preview);
     }
     setState({ phase: "idle" });
+    // Also notify parent to clear
+    onSkip();
   };
 
   const handleScan = async () => {
@@ -1042,7 +781,15 @@ function StepScan({
         throw new Error(err?.message ?? `Error ${res.status}`);
       }
       const result: OcrResult = await res.json();
-      setState({ phase: "done", result, file, preview });
+
+      const count = Object.entries(result)
+        .filter(([k]) => k !== "confidence" && k !== "rawText")
+        .filter(([, v]) => v && String(v).trim() !== "").length;
+
+      setState({ phase: "done", result, file, preview, count });
+
+      // FIX 2: Immediately notify parent — no "continue" click needed
+      onScanned(result, file);
     } catch (e) {
       setState({
         phase: "error",
@@ -1051,29 +798,21 @@ function StepScan({
     }
   };
 
-  const extractedCount =
-    state.phase === "done"
-      ? Object.entries(state.result)
-          .filter(([k]) => k !== "confidence" && k !== "rawText")
-          .filter(([, v]) => v && String(v).trim() !== "").length
-      : 0;
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-800">{t.ocrStepTitle}</h2>
-        <p className="mt-0.5 text-sm text-slate-500">{t.ocrStepSubtitle}</p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">{t.ocrStepSubtitle}</p>
+
+      {/* Idle / Error: show drop zone */}
       {(state.phase === "idle" || state.phase === "error") && (
         <>
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="group flex cursor-pointer flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-8 py-16 text-center transition hover:border-cyan-300 hover:bg-cyan-50"
+            className="group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-8 py-10 text-center transition hover:border-cyan-300 hover:bg-cyan-50"
           >
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm transition group-hover:shadow-md">
-              <FileImage className="h-8 w-8 text-slate-300 transition group-hover:text-cyan-400" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm transition group-hover:shadow-md">
+              <FileImage className="h-6 w-6 text-slate-300 transition group-hover:text-cyan-400" />
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-600">
@@ -1081,7 +820,7 @@ function StepScan({
               </p>
               <p className="mt-0.5 text-xs text-slate-400">{t.ocrDropSub}</p>
             </div>
-            <span className="rounded-lg border border-slate-200 bg-white px-5 py-2 text-xs font-semibold text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700">
+            <span className="rounded-lg border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-600 shadow-sm transition group-hover:border-cyan-200 group-hover:text-cyan-700">
               {t.ocrBrowse}
             </span>
             <input
@@ -1103,15 +842,27 @@ function StepScan({
               </span>
             </div>
           )}
+
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="text-xs font-medium text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
+            >
+              {t.skipScan}
+            </button>
+          </div>
         </>
       )}
+
+      {/* Selected: preview + scan button */}
       {state.phase === "selected" && (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="relative">
             <img
               src={state.preview}
               alt="deed preview"
-              className="max-h-72 w-full bg-slate-100 object-contain"
+              className="max-h-56 w-full bg-slate-100 object-contain"
             />
             <button
               type="button"
@@ -1128,7 +879,7 @@ function StepScan({
             <button
               type="button"
               onClick={handleScan}
-              className="flex shrink-0 items-center gap-2 rounded-lg bg-cyan-600 px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-cyan-700"
+              className="flex shrink-0 items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-cyan-700"
             >
               <Scan className="h-3.5 w-3.5" />
               {t.ocrScanBtn}
@@ -1136,55 +887,486 @@ function StepScan({
           </div>
         </div>
       )}
+
+      {/* Scanning: spinner */}
       {state.phase === "scanning" && (
-        <div className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white py-16 shadow-sm">
+        <div className="flex flex-col items-center gap-4 rounded-xl border border-slate-200 bg-white py-12 shadow-sm">
           <div className="relative">
-            <div className="h-16 w-16 rounded-full border-4 border-cyan-100" />
-            <Loader2 className="absolute inset-0 m-auto h-8 w-8 animate-spin text-cyan-500" />
+            <div className="h-14 w-14 rounded-full border-4 border-cyan-100" />
+            <Loader2 className="absolute inset-0 m-auto h-7 w-7 animate-spin text-cyan-500" />
           </div>
           <p className="text-sm font-medium text-slate-500">{t.ocrScanning}</p>
         </div>
       )}
+
+      {/* Done: success banner with scan-another / clear options */}
+      {/* FIX 2: No "Continue" button — data already sent to parent on scan completion */}
       {state.phase === "done" && (
-        <div className="overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-sm">
-          <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50 px-5 py-4">
-            <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500" />
-            <div>
+        <div className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+          <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50 px-5 py-3">
+            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
+            <div className="flex-1">
               <p className="text-sm font-semibold text-emerald-800">
                 {t.ocrSuccess}
               </p>
               <p className="text-xs text-emerald-600 mt-0.5">
-                {extractedCount} {t.ocrFieldsFound}
+                {state.count} {t.ocrFieldsFound}
               </p>
             </div>
           </div>
           <div className="flex items-center justify-end gap-2 p-4">
+            {/* Scan another image (keeps flow going but with fresh image) */}
             <button
               type="button"
-              onClick={handleReset}
+              onClick={() => {
+                URL.revokeObjectURL(state.preview);
+                setState({ phase: "idle" });
+                // Don't call onSkip — parent already has data; a new scan will overwrite
+              }}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:border-slate-300"
             >
               {t.ocrRetry}
             </button>
+            {/* Clear scan entirely */}
             <button
               type="button"
-              onClick={() => onScanned(state.result, state.file)}
-              className="rounded-lg bg-cyan-600 px-5 py-2 text-xs font-semibold text-white transition hover:bg-cyan-700"
+              onClick={handleReset}
+              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-xs font-semibold text-red-500 transition hover:bg-red-50"
             >
-              {t.ocrContinue}
+              {t.ocrClear}
             </button>
           </div>
         </div>
-      )}{" "}
-      <div className="flex justify-center">
+      )}
+    </div>
+  );
+}
+
+// ─── Step 1: Setup ────────────────────────────────────────────────────────────
+
+function StepSetup({
+  values,
+  set,
+  clients,
+  templates,
+  loadingClients,
+  t,
+  errors,
+  clearError,
+  isLawyer,
+  isArabic,
+  ocrScanned,
+  onScanned,
+  onSkipScan,
+}: {
+  values: NewTransactionValues;
+  set: <K extends keyof NewTransactionValues>(
+    k: K,
+    v: NewTransactionValues[K],
+  ) => void;
+  clients: ClientOption[];
+  templates: TemplateOption[];
+  loadingClients: boolean;
+  t: (typeof copy)[keyof typeof copy];
+  errors: Record<string, string>;
+  clearError: (k: string) => void;
+  isLawyer: boolean;
+  isArabic: boolean;
+  ocrScanned: boolean;
+  onScanned: (result: OcrResult, file?: File) => void;
+  onSkipScan: () => void;
+}) {
+  const selectedTemplate =
+    templates.find((tp) => tp.id === values.template) ?? null;
+  const isGeneral = selectedTemplate?.name === GENERAL_TEMPLATE_NAME_AR;
+  const showScan = !!values.template;
+
+  return (
+    <div className="space-y-8">
+      {/* Basic Information */}
+      <div>
+        <SectionHeading>{t.sectionBasic}</SectionHeading>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <FieldLabel required>{t.assignmentNumber}</FieldLabel>
+              <TextField
+                value={values.assignmentNumber}
+                onChange={(v) => {
+                  set("assignmentNumber", v);
+                  clearError("assignmentNumber");
+                }}
+                placeholder={t.assignmentNumberPlaceholder}
+                error={!!errors.assignmentNumber}
+              />
+              {errors.assignmentNumber && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.assignmentNumber}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel>{t.authorizationNumber}</FieldLabel>
+              <TextField
+                value={values.authorizationNumber}
+                onChange={(v) => set("authorizationNumber", v)}
+                placeholder={t.authorizationNumberPlaceholder}
+              />
+            </div>
+
+            <div>
+              <FieldLabel required>{t.assignmentDate}</FieldLabel>
+              <TextField
+                type="date"
+                value={values.assignmentDate}
+                onChange={(v) => {
+                  set("assignmentDate", v);
+                  clearError("assignmentDate");
+                }}
+                error={!!errors.assignmentDate}
+              />
+              {errors.assignmentDate && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.assignmentDate}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel required>{t.valuationPurpose}</FieldLabel>
+              <SelectField
+                value={values.valuationPurpose}
+                onChange={(v) => {
+                  set("valuationPurpose", v);
+                  clearError("valuationPurpose");
+                }}
+                error={!!errors.valuationPurpose}
+              >
+                <option value="" disabled>
+                  {t.valuationPurposePlaceholder}
+                </option>
+                {t.valuationPurposes.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.valuationPurpose && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.valuationPurpose}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel>{t.intendedUse}</FieldLabel>
+              <TextField
+                value={values.intendedUse}
+                onChange={(v) => set("intendedUse", v)}
+                placeholder={t.intendedUsePlaceholder}
+              />
+            </div>
+
+            <div>
+              <FieldLabel required>{t.valuationBasis}</FieldLabel>
+              <SelectField
+                value={values.valuationBasis}
+                onChange={(v) => {
+                  set("valuationBasis", v);
+                  clearError("valuationBasis");
+                }}
+                error={!!errors.valuationBasis}
+              >
+                <option value="" disabled>
+                  {t.valuationBasisPlaceholder}
+                </option>
+                {t.valuationBases.map((b) => (
+                  <option key={b.value} value={b.value}>
+                    {b.label}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.valuationBasis && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.valuationBasis}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel required>{t.ownershipType}</FieldLabel>
+              <SelectField
+                value={values.ownershipType}
+                onChange={(v) => {
+                  set("ownershipType", v);
+                  clearError("ownershipType");
+                }}
+                error={!!errors.ownershipType}
+              >
+                <option value="" disabled>
+                  {t.ownershipTypePlaceholder}
+                </option>
+                {t.ownershipTypes.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.ownershipType && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.ownershipType}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel required>{t.valuationHypothesis}</FieldLabel>
+              <SelectField
+                value={values.valuationHypothesis}
+                onChange={(v) => {
+                  set("valuationHypothesis", v);
+                  clearError("valuationHypothesis");
+                }}
+                error={!!errors.valuationHypothesis}
+              >
+                <option value="" disabled>
+                  {t.valuationHypothesisPlaceholder}
+                </option>
+                {t.valuationHypotheses.map((h) => (
+                  <option key={h.value} value={h.value}>
+                    {h.label}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.valuationHypothesis && (
+                <p className="mt-1 text-xs text-red-500">
+                  {errors.valuationHypothesis}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel required>{t.branch}</FieldLabel>
+              <SelectField
+                value={values.branch}
+                onChange={(v) => {
+                  set("branch", v);
+                  clearError("branch");
+                }}
+                error={!!errors.branch}
+              >
+                <option value="" disabled>
+                  {t.branchPlaceholder}
+                </option>
+                <option value="1">{t.realEstateValuation}</option>
+                <option value="3">{t.machineryValuation}</option>
+              </SelectField>
+              {errors.branch && (
+                <p className="mt-1 text-xs text-red-500">{errors.branch}</p>
+              )}
+            </div>
+
+            {isLawyer && (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <FieldLabel>{t.opponentStatements}</FieldLabel>
+                <textarea
+                  value={values.opponentStatements}
+                  onChange={(e) => set("opponentStatements", e.target.value)}
+                  placeholder={t.opponentStatementsPlaceholder}
+                  rows={4}
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Template Selection */}
+      <div>
+        <SectionHeading>{t.sectionTemplate}</SectionHeading>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div>
+              <FieldLabel required>{t.client}</FieldLabel>
+              <SelectField
+                value={values.client}
+                onChange={(v) => {
+                  set("client", v);
+                  set("template", "");
+                  clearError("client");
+                }}
+                disabled={loadingClients}
+                error={!!errors.client}
+              >
+                <option value="" disabled>
+                  {loadingClients ? "…" : t.clientPlaceholder}
+                </option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.client && (
+                <p className="mt-1 text-xs text-red-500">{errors.client}</p>
+              )}
+            </div>
+
+            <div>
+              <FieldLabel required>{t.template}</FieldLabel>
+              <SelectField
+                value={values.template}
+                onChange={(v) => {
+                  set("template", v);
+                  clearError("template");
+                }}
+                disabled={!values.client || templates.length === 0}
+                error={!!errors.template}
+              >
+                <option value="" disabled>
+                  {t.templatePlaceholder}
+                </option>
+                {templates.map((tp) => (
+                  <option key={tp.id} value={tp.id}>
+                    {tp.name}
+                  </option>
+                ))}
+              </SelectField>
+              {errors.template && (
+                <p className="mt-1 text-xs text-red-500">{errors.template}</p>
+              )}
+            </div>
+          </div>
+
+          {selectedTemplate && (
+            <div
+              className={cn(
+                "mt-4 rounded-xl border p-4",
+                isGeneral
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-cyan-100 bg-cyan-50",
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm",
+                    isGeneral
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-cyan-100 text-cyan-700",
+                  )}
+                >
+                  {isGeneral ? "⚡" : "📋"}
+                </div>
+                <div>
+                  <p
+                    className={cn(
+                      "text-sm font-semibold",
+                      isGeneral ? "text-amber-800" : "text-cyan-800",
+                    )}
+                  >
+                    {selectedTemplate.name}
+                  </p>
+                  {isGeneral ? (
+                    <p className="mt-0.5 text-xs text-amber-700">
+                      {isArabic
+                        ? "القالب العام — جميع القيم ستُحفظ مباشرةً في بيانات التقييم."
+                        : "General Template — all values will be saved directly to evalData."}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-cyan-700">
+                      {isArabic
+                        ? `${selectedTemplate.fields.length} حقول في النموذج`
+                        : `${selectedTemplate.fields.length} template fields`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Deed Scan */}
+      {showScan && (
+        <div>
+          <SectionHeading>{t.sectionScan}</SectionHeading>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <OcrScanner t={t} onScanned={onScanned} onSkip={onSkipScan} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Owner ID copy widget ─────────────────────────────────────────────────────
+// FIX 3: shown above the portal button so the user can one-click copy it
+
+function OwnerIdCopyWidget({
+  ownerId,
+  t,
+}: {
+  ownerId: string;
+  t: (typeof copy)[keyof typeof copy];
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(ownerId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const ta = document.createElement("textarea");
+      ta.value = ownerId;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-indigo-500">
+        {t.ownerIdLabel}
+      </p>
+      <div className="flex items-center gap-2">
+        <span className="flex-1 rounded-lg border border-indigo-200 bg-white px-3 py-2 font-mono text-sm font-semibold text-slate-800 tracking-wider">
+          {ownerId}
+        </span>
         <button
           type="button"
-          onClick={onSkip}
-          className="text-xs font-medium text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
+          onClick={handleCopy}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition",
+            copied
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-indigo-600 text-white hover:bg-indigo-700",
+          )}
         >
-          {t.skipScan}
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5" />
+              {t.ownerIdCopied}
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              {t.ownerIdCopy}
+            </>
+          )}
         </button>
       </div>
+      <p className="mt-1.5 text-[11px] text-indigo-400">{t.ownerIdHint}</p>
     </div>
   );
 }
@@ -1196,17 +1378,17 @@ function DeedVerificationPanel({
   isArabic,
   deedAttachment,
   setDeedAttachment,
+  ownerId, // FIX 3: receive ownerId from parent
 }: {
   t: (typeof copy)[keyof typeof copy];
   isArabic: boolean;
   deedAttachment: File | null;
   setDeedAttachment: (f: File | null) => void;
+  ownerId?: string;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
-    setDeedAttachment(file);
-  };
+  const handleFile = (file: File) => setDeedAttachment(file);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -1216,10 +1398,9 @@ function DeedVerificationPanel({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* Header row */}
       <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
-          <ShieldCheck className="h-4.5 w-4.5 text-indigo-600" />
+          <ShieldCheck className="h-4 w-4 text-indigo-600" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-800">
@@ -1232,7 +1413,11 @@ function DeedVerificationPanel({
       </div>
 
       <div className="space-y-5 p-5">
-        {/* Portal button + hint */}
+        {/* FIX 3: Owner ID copy widget, only shown when we have the value */}
+        {ownerId && ownerId.trim() !== "" && (
+          <OwnerIdCopyWidget ownerId={ownerId} t={t} />
+        )}
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <a
             href={SREM_DEED_INQUIRY_URL}
@@ -1248,7 +1433,6 @@ function DeedVerificationPanel({
           </p>
         </div>
 
-        {/* Divider */}
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-slate-100" />
           <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-300">
@@ -1257,7 +1441,6 @@ function DeedVerificationPanel({
           <div className="h-px flex-1 bg-slate-100" />
         </div>
 
-        {/* Upload zone or attached file */}
         {deedAttachment ? (
           <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
@@ -1322,7 +1505,7 @@ function DeedVerificationPanel({
   );
 }
 
-// ─── Step 4: Review & Submit ──────────────────────────────────────────────────
+// ─── Step 2: Review & Submit ──────────────────────────────────────────────────
 
 function StepReview({
   ocrResult,
@@ -1367,6 +1550,9 @@ function StepReview({
     setTemplateFieldValues((prev) => ({ ...prev, [fieldId]: val }));
   };
 
+  // FIX 3: Pass ownerId extracted from deed to the verification panel
+  const ownerId = ocrResult?.ownerId ?? "";
+
   return (
     <div className="space-y-6">
       <div>
@@ -1376,7 +1562,6 @@ function StepReview({
         </p>
       </div>
 
-      {/* OCR banner */}
       {hasOcr && (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
           <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
@@ -1402,7 +1587,7 @@ function StepReview({
         </div>
       )}
 
-      {/* ── General template fields ── */}
+      {/* General template fields */}
       {isGeneralTemplate && selectedTemplate && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
@@ -1417,7 +1602,6 @@ function StepReview({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {selectedTemplate.fields.map((f) => {
               if (f.fieldType === "file") return null;
-
               const evalKey = resolveEvalKey(f.label, f.id);
               const currentVal = evalDataFields[evalKey] ?? "";
               const isHighlighted = hasOcr && ocrFilledKeys.has(evalKey);
@@ -1439,7 +1623,6 @@ function StepReview({
                       </span>
                     )}
                   </div>
-
                   {isTextarea ? (
                     <textarea
                       value={currentVal}
@@ -1492,7 +1675,7 @@ function StepReview({
         </div>
       )}
 
-      {/* ── Non-general template fields ── */}
+      {/* Non-general template fields */}
       {!isGeneralTemplate &&
         selectedTemplate &&
         selectedTemplate.fields.length > 0 && (
@@ -1505,12 +1688,10 @@ function StepReview({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {selectedTemplate.fields.map((f) => {
                 if (f.fieldType === "file") return null;
-
                 const val =
                   typeof templateFieldValues[f.id] === "string"
                     ? (templateFieldValues[f.id] as string)
                     : "";
-
                 const ocrKey = Object.entries(OCR_TO_TEMPLATE_LABEL).find(
                   ([, label]) => label === f.label,
                 )?.[0];
@@ -1535,7 +1716,6 @@ function StepReview({
                         </span>
                       )}
                     </div>
-
                     {isTextarea ? (
                       <textarea
                         value={val}
@@ -1604,12 +1784,13 @@ function StepReview({
           </div>
         )}
 
-      {/* ── Deed Verification & Attachment ── always shown at the bottom of review ── */}
+      {/* Deed Verification — FIX 3: pass ownerId */}
       <DeedVerificationPanel
         t={t}
         isArabic={isArabic}
         deedAttachment={deedAttachment}
         setDeedAttachment={setDeedAttachment}
+        ownerId={ownerId}
       />
     </div>
   );
@@ -1633,10 +1814,11 @@ export function NewTransactionPage({
   const isArabic = language === "ar";
   const t = copy[language];
 
-  const [step, setStep] = useState<Step>("basic");
+  const [step, setStep] = useState<Step>("setup");
   const [scannedDeedFile, setScannedDeedFile] = useState<File | null>(null);
   const [values, setValues] = useState<NewTransactionValues>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [ocrScanned, setOcrScanned] = useState(false);
 
   const set = <K extends keyof NewTransactionValues>(
     key: K,
@@ -1662,13 +1844,22 @@ export function NewTransactionPage({
   const [templateFieldValues, setTemplateFieldValues] = useState<
     Record<string, string | File>
   >({});
-
-  // Deed attachment from SREM portal
   const [deedAttachment, setDeedAttachment] = useState<File | null>(null);
 
   const selectedTemplate =
     templates.find((tp) => tp.id === values.template) ?? null;
   const isGeneralTemplate = selectedTemplate?.name === GENERAL_TEMPLATE_NAME_AR;
+
+  useEffect(() => {
+    if (!values.client || templates.length === 0) return;
+    const individualTemplate = templates.find(
+      (tp) =>
+        tp.name === "قالب فردي" || tp.name.toLowerCase().includes("individual"),
+    );
+    const defaultTemplate = individualTemplate ?? templates[0];
+    if (defaultTemplate) set("template", defaultTemplate.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.client, templates]);
 
   useEffect(() => {
     setEvalDataFields({});
@@ -1707,52 +1898,37 @@ export function NewTransactionPage({
       .finally(() => setLoadingClients(false));
   }, []);
 
-  const validateBasic = (): boolean => {
+  // ── Validation ──────────────────────────────────────────────────────────────
+
+  const validateSetup = (): boolean => {
     const errs: Record<string, string> = {};
     if (!values.assignmentNumber.trim())
       errs.assignmentNumber = t.errAssignmentNumber;
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
-
-  const validateTemplate = (): boolean => {
-    const errs: Record<string, string> = {};
+    if (!values.assignmentDate) errs.assignmentDate = t.errAssignmentDate;
+    if (!values.valuationPurpose) errs.valuationPurpose = t.errValuationPurpose;
+    if (!values.valuationBasis) errs.valuationBasis = t.errValuationBasis; // ADD
+    if (!values.ownershipType) errs.ownershipType = t.errOwnershipType; // ADD
+    if (!values.valuationHypothesis)
+      // ADD
+      errs.valuationHypothesis = t.errValuationHypothesis;
+    if (!values.branch) errs.branch = t.errBranch; // ADD
     if (!values.client) errs.client = t.errClient;
     if (!values.template) errs.template = t.errTemplate;
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
-
-  const handleNext = () => {
-    if (step === "basic") {
-      if (!validateBasic()) return;
-      setStep("template");
-    } else if (step === "template") {
-      if (!validateTemplate()) return;
-      setStep("scan");
-    } else if (step === "scan") {
-      setStep("review");
-    }
-  };
-
-  const handleBack = () => {
-    if (step === "template") setStep("basic");
-    else if (step === "scan") setStep("template");
-    else if (step === "review") setStep("scan");
-  };
+  // ── OCR handlers ────────────────────────────────────────────────────────────
 
   const handleScanned = (result: OcrResult, file?: File) => {
     setOcrResult(result);
-
-    // Store the scanned deed file for later upload
-    if (file) {
-      setScannedDeedFile(file);
-    }
+    setOcrScanned(true);
+    if (file) setScannedDeedFile(file);
 
     if (isGeneralTemplate) {
       const filledKeys = new Set<string>();
       const newFields: Record<string, string> = {};
 
+      // FIX 1: Map ALL OCR fields (not just the subset that had non-null mappings before)
       for (const [ocrKey, evalKey] of Object.entries(OCR_TO_EVAL_DATA)) {
         if (!evalKey) continue;
         const val = result[ocrKey as keyof OcrResult];
@@ -1781,10 +1957,30 @@ export function NewTransactionPage({
       }
       setTemplateFieldValues((prev) => ({ ...prev, ...updates }));
     }
-
-    setStep("review");
   };
-  const handleSkipScan = () => setStep("review");
+
+  const handleSkipScan = () => {
+    setOcrScanned(false);
+    setOcrResult(null);
+    setScannedDeedFile(null);
+    setEvalDataFields({});
+    setOcrFilledKeys(new Set());
+  };
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
+  const handleNext = () => {
+    if (step === "setup") {
+      if (!validateSetup()) return;
+      setStep("review");
+    }
+  };
+
+  const handleBack = () => {
+    if (step === "review") setStep("setup");
+  };
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
     try {
@@ -1802,11 +1998,7 @@ export function NewTransactionPage({
       fd.append("branch", values.branch);
       if (values.template) fd.append("templateId", values.template);
 
-      // Don't append files to main form data
-
-      if (isGeneralTemplate) {
-        fd.append("__evalData__", JSON.stringify(evalDataFields));
-      } else {
+      if (!isGeneralTemplate) {
         for (const [fieldId, val] of Object.entries(templateFieldValues)) {
           if (val instanceof File) {
             fd.append(`file__${fieldId}`, val, val.name);
@@ -1816,7 +2008,6 @@ export function NewTransactionPage({
         }
       }
 
-      // Create the transaction first
       const res = await fetch(toApiUrl("/api/transactions"), {
         method: "POST",
         credentials: "include",
@@ -1830,15 +2021,13 @@ export function NewTransactionPage({
 
       const created = await res.json();
 
-      // After transaction is created, upload attachments
-      const uploadPromises = [];
+      const uploadPromises: Promise<any>[] = [];
 
-      // Upload scanned deed document (from OCR)
+      // Upload scanned deed as attachment
       if (scannedDeedFile) {
         const deedFormData = new FormData();
         deedFormData.append("files[]", scannedDeedFile, scannedDeedFile.name);
         deedFormData.append(`names[${scannedDeedFile.name}]`, "وثيقة الملكية");
-
         uploadPromises.push(
           fetch(toApiUrl(`/api/transactions/${created.id}/attachments`), {
             method: "POST",
@@ -1850,7 +2039,7 @@ export function NewTransactionPage({
         );
       }
 
-      // Upload verification image (from SREM portal or manual upload)
+      // Upload verified deed attachment
       if (deedAttachment) {
         const verificationFormData = new FormData();
         verificationFormData.append(
@@ -1862,7 +2051,6 @@ export function NewTransactionPage({
           `names[${deedAttachment.name}]`,
           "صورة التحقق",
         );
-
         uploadPromises.push(
           fetch(toApiUrl(`/api/transactions/${created.id}/attachments`), {
             method: "POST",
@@ -1874,50 +2062,61 @@ export function NewTransactionPage({
         );
       }
 
-      // Wait for all uploads to complete
       await Promise.all(uploadPromises);
 
-      // Update evalData if needed (for general template)
-      if (
-        isGeneralTemplate &&
-        Object.keys(evalDataFields).length > 0 &&
-        created.id
-      ) {
+      // FIX 1: Always PATCH evalData when we have OCR data (general template OR
+      // extra fields like ownerId, parcelNumber etc. that aren't in template fields)
+      const evalPayload: Record<string, string> = { ...evalDataFields };
+
+      // For non-general templates, still save the OCR-extracted evalData fields
+      // (deed number, owner id, boundaries, etc.) directly to evalData
+      if (!isGeneralTemplate && ocrResult) {
+        for (const [ocrKey, evalKey] of Object.entries(OCR_TO_EVAL_DATA)) {
+          if (!evalKey) continue;
+          if (evalPayload[evalKey]) continue; // don't overwrite if already set
+          const val = ocrResult[ocrKey as keyof OcrResult];
+          if (val && typeof val === "string" && val.trim()) {
+            evalPayload[evalKey] = val.trim();
+          }
+        }
+      }
+
+      if (Object.keys(evalPayload).length > 0 && created.id) {
         await fetch(toApiUrl(`/api/transactions/${created.id}`), {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ evalData: evalDataFields }),
-        }).catch(() =>
-          console.warn("Failed to patch evalData for general template"),
-        );
+          body: JSON.stringify({ evalData: evalPayload }),
+        }).catch(() => console.warn("Failed to patch evalData"));
       }
 
-      // Reset all state
+      // Reset
       setValues(EMPTY);
       setTemplateFieldValues({});
       setEvalDataFields({});
       setOcrFilledKeys(new Set());
       setOcrResult(null);
       setDeedAttachment(null);
-      setScannedDeedFile(null); // Clear the scanned deed file
-      setStep("basic");
+      setScannedDeedFile(null);
+      setOcrScanned(false);
+      setStep("setup");
       onSubmit?.(created);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save");
     }
   };
+
   const handleCancel = () => {
     setValues(EMPTY);
     setEvalDataFields({});
     setOcrFilledKeys(new Set());
     setOcrResult(null);
     setDeedAttachment(null);
-    setScannedDeedFile(null); // Add this line
-    setStep("basic");
+    setScannedDeedFile(null);
+    setOcrScanned(false);
+    setStep("setup");
     onBack();
   };
-  const isLastStep = step === "review";
 
   return (
     <div dir={isArabic ? "rtl" : "ltr"} className="min-h-screen bg-slate-50">
@@ -1933,11 +2132,9 @@ export function NewTransactionPage({
               style={{ transform: isArabic ? "scaleX(-1)" : undefined }}
             />
           </button>
-
           <h1 className="text-base font-semibold text-slate-800">
             {t.modalTitle}
           </h1>
-
           <div className="ms-auto">
             <StepIndicator current={step} t={t} />
           </div>
@@ -1946,19 +2143,8 @@ export function NewTransactionPage({
 
       {/* Content */}
       <div className="mx-auto max-w-4xl px-6 py-8">
-        {step === "basic" && (
-          <StepBasic
-            values={values}
-            set={set}
-            t={t}
-            errors={errors}
-            clearError={clearError}
-            isLawyer={isLawyer}
-          />
-        )}
-
-        {step === "template" && (
-          <StepTemplate
+        {step === "setup" && (
+          <StepSetup
             values={values}
             set={set}
             clients={clients}
@@ -1967,12 +2153,12 @@ export function NewTransactionPage({
             t={t}
             errors={errors}
             clearError={clearError}
+            isLawyer={isLawyer}
             isArabic={isArabic}
+            ocrScanned={ocrScanned}
+            onScanned={handleScanned}
+            onSkipScan={handleSkipScan}
           />
-        )}
-
-        {step === "scan" && (
-          <StepScan t={t} onScanned={handleScanned} onSkip={handleSkipScan} />
         )}
 
         {step === "review" && (
@@ -1987,16 +2173,16 @@ export function NewTransactionPage({
             t={t}
             isArabic={isArabic}
             isGeneralTemplate={isGeneralTemplate}
-            onGoBackToScan={() => setStep("scan")}
+            onGoBackToScan={() => setStep("setup")}
             deedAttachment={deedAttachment}
             setDeedAttachment={setDeedAttachment}
           />
         )}
 
-        {/* Footer navigation */}
+        {/* Footer */}
         <div className="mt-8 flex items-center justify-between gap-3">
           <div>
-            {step !== "basic" && (
+            {step === "review" && (
               <button
                 onClick={handleBack}
                 className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
@@ -2005,7 +2191,6 @@ export function NewTransactionPage({
               </button>
             )}
           </div>
-
           <div className="flex items-center gap-2">
             <button
               onClick={handleCancel}
@@ -2013,8 +2198,14 @@ export function NewTransactionPage({
             >
               {t.cancel}
             </button>
-
-            {isLastStep ? (
+            {step === "setup" ? (
+              <button
+                onClick={handleNext}
+                className="rounded-lg bg-cyan-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-700"
+              >
+                {t.next}
+              </button>
+            ) : (
               <button
                 onClick={handleSubmit}
                 className="flex items-center gap-2 rounded-lg bg-cyan-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-700"
@@ -2022,14 +2213,7 @@ export function NewTransactionPage({
                 <Send className="h-3.5 w-3.5" />
                 {t.submit}
               </button>
-            ) : step !== "scan" ? (
-              <button
-                onClick={handleNext}
-                className="rounded-lg bg-cyan-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-700"
-              >
-                {t.next}
-              </button>
-            ) : null}
+            )}
           </div>
         </div>
       </div>

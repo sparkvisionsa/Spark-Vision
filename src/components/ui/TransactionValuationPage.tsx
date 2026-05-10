@@ -22,6 +22,13 @@ const T = {
     noId: "لم يتم تحديد معرف المعاملة",
     back: "← العودة",
     saving: "جاري الحفظ...",
+    subDivisionRecordNumber: "رقم محضر التجزئة",
+    otherUsers: "المستخدمين الأخرين",
+    deedSource: "مصدر الصك",
+    buildingLicense: "رخصة البناء",
+    buildingLicenseDate: "تاريخ رخصة البناء",
+    elevation: "المنسوب",
+    inspectionBoundaries: "حدود المعاينة",
     save: "💾 حفظ في قاعدة البيانات",
     download: "⬇ تحميل",
     savedOk: "✓ تم الحفظ بنجاح",
@@ -108,6 +115,9 @@ const T = {
     finishLevel: "مستوى التشطيب",
     buildQuality: "حالة البناء",
     selectValue: "الرجاء اختيار قيمة",
+    parcelNumber: "رقم القطعة",
+    planNumber: "رقم المخطط",
+    blockNumber: "رقم البلوك",
     stateNew: "جديد",
     stateUsed: "مستخدم",
     stateUnderConstruction: "تحت الإنشاء",
@@ -233,6 +243,9 @@ const T = {
     saving: "Saving...",
     save: "💾 Save to Database",
     download: "⬇ Download",
+    parcelNumber: "Parcel Number",
+    planNumber: "Plan Number",
+    blockNumber: "Block Number",
     savedOk: "✓ Saved successfully",
     saveError: "✗ Save failed. Please try again.",
     pageTitle: "Transaction Details",
@@ -240,6 +253,13 @@ const T = {
     secRequest: "Request Information",
     secLinks: "🔗 Important Links (Queries & Maps)",
     secAssetDetails: "Asset Details",
+    subDivisionRecordNumber: "Sub-Division Record Number",
+    otherUsers: "Other Users",
+    deedSource: "Deed Source",
+    buildingLicense: "Building License",
+    buildingLicenseDate: "Building License Date",
+    elevation: "Elevation",
+    inspectionBoundaries: "Inspection Boundaries",
     secAssetInfo: "Asset Information",
     secLocation: "Location & Asset Classification",
     secBasic: "Basic Data",
@@ -1353,6 +1373,13 @@ function emptyEval() {
       propertyType: "",
       propertyArea: "",
       landUse: "",
+      subDivisionRecordNumber: "",
+      otherUsers: "",
+      deedSource: "",
+      buildingLicense: "",
+      buildingLicenseDate: "",
+      elevation: "",
+      inspectionBoundaries: "",
       inspector: "",
       contactNo: "",
       reviewer: "",
@@ -1373,6 +1400,16 @@ function emptyEval() {
       deedDate: "",
       ownerName: "",
       clientName: "",
+      subDivisionRecordNumber: "",
+      otherUsers: "",
+      deedSource: "",
+      buildingLicense: "",
+      buildingLicenseDate: "",
+      parcelNumber: "", // ← ADD
+      planNumber: "", // ← ADD
+      blockNumber: "", // ← ADD
+      elevation: "",
+      inspectionBoundaries: "",
       authorizedName: "",
     },
     boundaries: {
@@ -1627,6 +1664,21 @@ export function TransactionEvaluationPage({
       },
     }));
 
+  useEffect(() => {
+    const area = ev.assetInfo.propertyArea;
+    if (!area) return;
+    setEv((prev) => {
+      if (prev.replacementFields.landSpace === area) return prev;
+      return {
+        ...prev,
+        replacementFields: {
+          ...prev.replacementFields,
+          landSpace: area,
+        },
+      };
+    });
+  }, [ev.assetInfo.propertyArea]);
+
   const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
 
   const [regions, setRegions] = useState<
@@ -1674,6 +1726,13 @@ export function TransactionEvaluationPage({
     const pick = (...candidates: (string | undefined)[]): string =>
       candidates.find((v) => v !== undefined && v !== "") ?? "";
 
+    const resolvedPropertyArea = pick(
+      e.propertyArea,
+      e.landSpace,
+      e.assetArea,
+      bl["مساحة الأصل"],
+    );
+
     setEv({
       status: pick(e.status, "new"),
       section1Rows:
@@ -1705,12 +1764,7 @@ export function TransactionEvaluationPage({
       assetInfo: {
         address: pick(e.address, bl["العنوان"]),
         propertyType: pick(e.propertyType, bl["نوع الأصل"]),
-        propertyArea: pick(
-          e.propertyArea,
-          e.landSpace,
-          e.assetArea,
-          bl["مساحة الأصل"],
-        ),
+        propertyArea: resolvedPropertyArea,
         landUse: pick(e.landUse, e.usage, bl["الاستخدام"]),
         inspector: pick(e.inspector, bl["المعاين"]),
         contactNo: pick(e.contactNo, bl["رقم التواصل"]),
@@ -1720,6 +1774,16 @@ export function TransactionEvaluationPage({
         propertyCode: pick(e.propertyCode, bl["رمز العقار"]),
         deedNumber: pick(e.deedNumber, bl["رقم الصك"]),
         deedDate: pick(e.deedDate, bl["تاريخ الصك"]),
+        subDivisionRecordNumber: pick(e.subDivisionRecordNumber),
+        otherUsers: pick(e.otherUsers),
+        deedSource: pick(e.deedSource),
+        buildingLicense: pick(e.buildingLicense),
+        buildingLicenseDate: pick(e.buildingLicenseDate),
+        parcelNumber: pick(e.parcelNumber), // ← ADD
+        planNumber: pick(e.planNumber), // ← ADD
+        blockNumber: pick(e.blockNumber), // ← ADD
+        elevation: pick(e.elevation),
+        inspectionBoundaries: pick(e.inspectionBoundaries),
         ownerName: pick(e.ownerName, bl["اسم المالك"]),
         clientName: pick(e.clientName, bl["اسم العميل"]),
         authorizedName: pick(e.authorizedName, bl["اسم المفوض بطلب التقييم"]),
@@ -1820,12 +1884,8 @@ export function TransactionEvaluationPage({
         financePct: pick(e.financePct),
         landTitle: pick(e.landTitle, e.address), // ← ADD
         landSpace: pick(
-          // ← This should use propertyArea from assetInfo
-          e.propertyArea, // ← This comes from the asset info section
-          e.replacementLandSpace,
-          e.landSpace,
-          e.assetArea,
-          bl["مساحة الأصل"],
+          e.replacementLandSpace, // explicit saved override wins
+          resolvedPropertyArea, // auto-filled from asset area
         ),
         meterPriceLand: pick(e.meterPriceLand), // already existed at top level
         yearDev: pick(e.yearDev),
@@ -2413,6 +2473,14 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
+          <Field label={t.subDivisionRecordNumber}>
+            <Input
+              value={ev.basic.subDivisionRecordNumber}
+              onChange={(e) =>
+                setField("basic", "subDivisionRecordNumber", e.target.value)
+              }
+            />
+          </Field>
           <Field label={t.clientName}>
             <Input
               value={ev.basic.clientName}
@@ -2433,6 +2501,12 @@ export function TransactionEvaluationPage({
               onChange={(e) => setField("basic", "ownerName", e.target.value)}
             />
           </Field>
+          <Field label={t.otherUsers}>
+            <Input
+              value={ev.basic.otherUsers}
+              onChange={(e) => setField("basic", "otherUsers", e.target.value)}
+            />
+          </Field>
           <Field label={t.deedNumber}>
             <Input
               value={ev.basic.deedNumber}
@@ -2443,6 +2517,62 @@ export function TransactionEvaluationPage({
             <Input
               value={ev.basic.deedDate}
               onChange={(e) => setField("basic", "deedDate", e.target.value)}
+            />
+          </Field>
+          <Field label={t.deedSource}>
+            <Input
+              value={ev.basic.deedSource}
+              onChange={(e) => setField("basic", "deedSource", e.target.value)}
+            />
+          </Field>
+          <Field label={t.buildingLicense}>
+            <Input
+              value={ev.basic.buildingLicense}
+              onChange={(e) =>
+                setField("basic", "buildingLicense", e.target.value)
+              }
+            />
+          </Field>
+          <Field label={t.buildingLicenseDate}>
+            <Input
+              value={ev.basic.buildingLicenseDate}
+              onChange={(e) =>
+                setField("basic", "buildingLicenseDate", e.target.value)
+              }
+            />
+          </Field>
+          <Field label={t.parcelNumber}>
+            <Input
+              value={ev.basic.parcelNumber}
+              onChange={(e) =>
+                setField("basic", "parcelNumber", e.target.value)
+              }
+            />
+          </Field>
+          <Field label={t.planNumber}>
+            <Input
+              value={ev.basic.planNumber}
+              onChange={(e) => setField("basic", "planNumber", e.target.value)}
+            />
+          </Field>
+          <Field label={t.blockNumber}>
+            <Input
+              value={ev.basic.blockNumber}
+              onChange={(e) => setField("basic", "blockNumber", e.target.value)}
+            />
+          </Field>
+          <Field label={t.elevation}>
+            <Input
+              value={ev.basic.elevation}
+              onChange={(e) => setField("basic", "elevation", e.target.value)}
+            />
+          </Field>
+          <Field label={t.inspectionBoundaries} full>
+            <Input
+              value={ev.basic.inspectionBoundaries}
+              onChange={(e) =>
+                setField("basic", "inspectionBoundaries", e.target.value)
+              }
             />
           </Field>
         </GridFields>
@@ -2527,6 +2657,7 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* خدمات العقار */}
+      {/* خدمات العقار */}
       <SectionCard title={t.secServices}>
         <GridFields>
           <Field label={t.street}>
@@ -2535,6 +2666,16 @@ export function TransactionEvaluationPage({
               onChange={(e) => setField("services", "street", e.target.value)}
             />
           </Field>
+        </GridFields>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+            gap: "8px",
+            marginTop: 12,
+          }}
+        >
           {serviceCheckboxes.map(({ key, labelKey }) => (
             <div
               key={key}
@@ -2566,7 +2707,7 @@ export function TransactionEvaluationPage({
               </label>
             </div>
           ))}
-        </GridFields>
+        </div>
       </SectionCard>
 
       {/* الموقع على الخارطة */}
