@@ -12,7 +12,7 @@ const MapPickerComponent = dynamic(() => import("./MapPickerComponent"), {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ComparisonRow = {
-  inReport?: boolean; // ← NEW: controls whether this comparison participates in settlements
+  inReport?: boolean;
   evalDate: string;
   propertyTypeId: string;
   comparisonKind: string;
@@ -80,7 +80,6 @@ const SC = {
     noRounding: "بدون تقريب",
     nearest: (n: number) => `أقرب ${n}`,
     includeInReport: "تضمين في التقرير والتسويات",
-    // Comparison table headers
     colSerial: "م",
     colInclude: "تضمين",
     colDate: "التاريخ",
@@ -96,30 +95,25 @@ const SC = {
     colNotes: "ملاحظات",
     colCoords: "الإحداثيات",
     colDelete: "",
-    // Settlement table headers
     settlColItem: "البند",
     settlColSubject: "محل التقييم",
     settlColDesc: "وصف",
     settlColAdj: "تعديل %",
     settlColComp: (n: number) => `مقارنة ${n}`,
-    // Input placeholders
     placeholderItemName: "اسم البند",
     placeholderSubjectValue: "قيمة الأصل",
     placeholderDesc: "وصف",
     placeholderCoords: "lat,lng",
     placeholderZero: "0",
     placeholderKind: "النوع",
-    // Map button
     mapBtn: "🗺️ خريطة",
     mapBtnTitle: "اختر من الخريطة",
     deleteBtn: "✕",
     deleteBtnTitle: "حذف",
-    // Section labels
     sectionLabel1: "١",
     sectionLabel1Title: "العقارات المقارنة",
     sectionLabel2: "٢",
     sectionLabel2Title: "جدول التسويات والتعديلات",
-    // SAR unit
     sarUnit: "ريال/م²",
     sarTotal: "ريال",
   },
@@ -163,7 +157,6 @@ const SC = {
     noRounding: "No rounding",
     nearest: (n: number) => `Nearest ${n}`,
     includeInReport: "Include in report & adjustments",
-    // Comparison table headers
     colSerial: "#",
     colInclude: "Include",
     colDate: "Date",
@@ -179,30 +172,25 @@ const SC = {
     colNotes: "Notes",
     colCoords: "Coordinates",
     colDelete: "",
-    // Settlement table headers
     settlColItem: "Item",
     settlColSubject: "Subject Property",
     settlColDesc: "Description",
     settlColAdj: "Adjustment %",
     settlColComp: (n: number) => `Comparable ${n}`,
-    // Input placeholders
     placeholderItemName: "Item name",
     placeholderSubjectValue: "Subject value",
     placeholderDesc: "Description",
     placeholderCoords: "lat,lng",
     placeholderZero: "0",
     placeholderKind: "Kind",
-    // Map button
     mapBtn: "🗺️ Map",
     mapBtnTitle: "Pick from map",
     deleteBtn: "✕",
     deleteBtnTitle: "Delete",
-    // Section labels
     sectionLabel1: "1",
     sectionLabel1Title: "Comparable Properties",
     sectionLabel2: "2",
     sectionLabel2Title: "Settlement & Adjustments Table",
-    // SAR unit
     sarUnit: "SAR/m²",
     sarTotal: "SAR",
   },
@@ -275,13 +263,11 @@ const SOURCES: Record<Lang, string[]> = {
   ],
 };
 
-// Section 1: Market condition items
 export const DEFAULT_SECTION1_TITLES: Record<Lang, string[]> = {
   ar: ["ظروف السوق", "شروط التمويل", "عامل الوقت"],
   en: ["Market Conditions", "Financing Terms", "Time Factor"],
 };
 
-// Section 2: Property characteristic items
 const DEFAULT_SECTION2_TITLES: Record<Lang, string[]> = {
   ar: [
     "أفضلية الموقع",
@@ -310,6 +296,84 @@ const DEFAULT_SECTION2_TITLES: Record<Lang, string[]> = {
     "Other",
   ],
 };
+
+// ─── Auto-fill mapping ────────────────────────────────────────────────────────
+//
+// Maps a settlement row title (in both languages) to a function that extracts
+// the default description string from a ComparisonRow.
+// This is used to provide a fallback value when the description cell is empty.
+
+type AutoFillKey = keyof ComparisonRow;
+
+interface AutoFillRule {
+  titles: string[]; // all Arabic + English titles that trigger this rule
+  getValue: (
+    row: ComparisonRow,
+    lang: Lang,
+    propertyTypes: Record<Lang, Record<string, string>>,
+  ) => string;
+}
+
+const AUTO_FILL_RULES: AutoFillRule[] = [
+  {
+    // عامل الوقت / Time Factor → evalDate
+    titles: ["عامل الوقت", "Time Factor"],
+    getValue: (row) => row.evalDate || "",
+  },
+  {
+    // نوع المقارنة / Comparison Type → comparisonKind
+    titles: ["نوع المقارنة", "Comparison Type"],
+    getValue: (row) => row.comparisonKind || "",
+  },
+  {
+    // المساحة / Area → landSpace
+    titles: ["المساحة", "Area"],
+    getValue: (row) => row.landSpace || "",
+  },
+  {
+    // عرض الشارع / Street Width → street
+    titles: ["عرض الشارع", "Street Width"],
+    getValue: (row) => row.street || "",
+  },
+  {
+    // الواجهات / Frontages → roads (number of roads)
+    titles: ["الواجهات", "Frontages"],
+    getValue: (row) => row.roads || "",
+  },
+  {
+    // ظروف السوق / Market Conditions → description
+    titles: ["ظروف السوق", "Market Conditions"],
+    getValue: (row) => row.description || "",
+  },
+  {
+    // شروط التمويل / Financing Terms → source
+    titles: ["شروط التمويل", "Financing Terms"],
+    getValue: (row) => row.source || "",
+  },
+  {
+    // الإستخدام / Usage → property type label
+    titles: ["الإستخدام", "Usage"],
+    getValue: (row, lang, propertyTypes) =>
+      row.propertyTypeId ? (propertyTypes[lang][row.propertyTypeId] ?? "") : "",
+  },
+];
+
+/**
+ * Given a row title and a comparison row, returns the auto-fill value
+ * if a matching rule exists, otherwise returns "".
+ */
+function getAutoFillValue(
+  title: string,
+  compRow: ComparisonRow,
+  lang: Lang,
+  propertyTypes: Record<Lang, Record<string, string>>,
+): string {
+  const rule = AUTO_FILL_RULES.find((r) =>
+    r.titles.some((t) => t.trim().toLowerCase() === title.trim().toLowerCase()),
+  );
+  if (!rule) return "";
+  return rule.getValue(compRow, lang, propertyTypes);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -356,9 +420,9 @@ function parseNum(v: string | undefined): number {
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const DT = {
-  blue: "#0e7490", // was #0891b2
-  blueLight: "#f0f9ff", // was #e0f2fe
-  blueMid: "#e2e8f0", // was #bae6fd
+  blue: "#0e7490",
+  blueLight: "#f0f9ff",
+  blueMid: "#e2e8f0",
   surface: "#ffffff",
   surfaceAlt: "#f8fafc",
   border: "#e2e8f0",
@@ -373,6 +437,7 @@ const DT = {
   red: "#dc2626",
   shadow: "0 1px 3px rgba(0,0,0,0.05)",
 };
+
 const cellBase: React.CSSProperties = {
   border: `1px solid ${DT.border}`,
   padding: "5px 7px",
@@ -413,11 +478,8 @@ const thBase: React.CSSProperties = {
   letterSpacing: "0.04em",
 };
 
-// ─── Column-removal helper ─────────────────────────────────────────────────────
-/**
- * Removes column `colIndex` from every row's `cols` and `colAdj` arrays.
- * Also trims the `bases` and `weights` arrays at the same index.
- */
+// ─── Column-removal helper ────────────────────────────────────────────────────
+
 function removeColumnFromSettlementData(
   colIndex: number,
   section1Rows: any[],
@@ -455,7 +517,6 @@ function ComparisonPropertiesTable({
 }: {
   rows: ComparisonRow[];
   onChange: (rows: ComparisonRow[]) => void;
-  /** Called when a row is deleted — passes the index so parent can clean settlement columns */
   onDeleteRow: (index: number) => void;
   lang: Lang;
 }) {
@@ -466,9 +527,7 @@ function ComparisonPropertiesTable({
   const addRow = () => onChange([...rows, emptyComparisonRow()]);
 
   const removeRow = (i: number) => {
-    // Notify parent FIRST so it can clean up settlement columns by original index
     onDeleteRow(i);
-    // Then remove the row itself
     onChange(rows.filter((_, idx) => idx !== i));
   };
 
@@ -570,7 +629,6 @@ function ComparisonPropertiesTable({
                   >
                     {i + 1}
                   </td>
-                  {/* Include checkbox */}
                   <td style={{ ...cellBase, textAlign: "center", width: 52 }}>
                     <div
                       style={{
@@ -817,9 +875,9 @@ function ComparisonPropertiesTable({
 
 type SettlementSection1Row = {
   title: string;
+  valueM?: string;
   colAdj: string[];
   cols?: string[];
-  valueM?: string;
 };
 type SettlementSection2Row = {
   inReport: boolean;
@@ -856,7 +914,6 @@ function SettlementAdjustmentsTable({
 }) {
   const t = SC[lang];
 
-  // Only show columns for rows that are checked (inReport !== false)
   const activeComps = comparisonRows
     .map((r, i) => ({ row: r, originalIndex: i }))
     .filter(({ row }) => row.inReport !== false);
@@ -871,8 +928,22 @@ function SettlementAdjustmentsTable({
     return Math.round(value / roundBase) * roundBase;
   };
 
-  // Map settlement column index → original comparison row index
-  // so data lookup always goes to the right column
+  // ── Auto-fill helpers ───────────────────────────────────────────────────────
+  // For a given settlement column index and row title, return the stored value
+  // if non-empty, otherwise return the auto-fill derived from the comparison row.
+
+  const getAutoFill = useCallback(
+    (settleColIdx: number, rowTitle: string): string => {
+      const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+      const compRow = comparisonRows[origIdx];
+      if (!compRow) return "";
+      return getAutoFillValue(rowTitle, compRow, lang, PROPERTY_TYPES);
+    },
+    [activeComps, comparisonRows, lang],
+  );
+
+  // ── Base price ──────────────────────────────────────────────────────────────
+
   const getBase = (settleColIdx: number): string => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
     const stored = bases[origIdx];
@@ -888,6 +959,8 @@ function SettlementAdjustmentsTable({
     nb[origIdx] = val;
     onBasesChange(nb);
   };
+
+  // ── Section 1 ───────────────────────────────────────────────────────────────
 
   const getS1Adj = (row: SettlementSection1Row, settleColIdx: number) => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
@@ -917,9 +990,24 @@ function SettlementAdjustmentsTable({
       section1Rows.map((r, ri) => (ri === i ? { ...r, valueM: val } : r)),
     );
 
-  const getS1Col = (row: SettlementSection1Row, settleColIdx: number) => {
+  // Returns the stored description for a S1 cell, falling back to auto-fill.
+  const getS1Col = (
+    row: SettlementSection1Row,
+    settleColIdx: number,
+  ): string => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
-    return ((row as any).cols ?? [])[origIdx] ?? "";
+    const stored = ((row as any).cols ?? [])[origIdx] ?? "";
+    if (stored !== "") return stored;
+    return getAutoFill(settleColIdx, row.title);
+  };
+
+  // Whether the S1 description cell has a user-supplied value.
+  const isS1ColUserSet = (
+    row: SettlementSection1Row,
+    settleColIdx: number,
+  ): boolean => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return (((row as any).cols ?? [])[origIdx] ?? "") !== "";
   };
 
   const updateS1Col = (rowIdx: number, settleColIdx: number, val: string) => {
@@ -935,13 +1023,26 @@ function SettlementAdjustmentsTable({
     );
   };
 
+  // ── Section 2 ───────────────────────────────────────────────────────────────
+
+  // Returns stored value or auto-fill for section 2 description cells.
   const getS2Col = (
     row: SettlementSection2Row,
     settleColIdx: number,
     field: "cols" | "colAdj",
-  ) => {
+  ): string => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
-    return (row[field] ?? [])[origIdx] ?? "";
+    const stored = (row[field] ?? [])[origIdx] ?? "";
+    if (field === "colAdj" || stored !== "") return stored;
+    return getAutoFill(settleColIdx, row.title);
+  };
+
+  const isS2ColUserSet = (
+    row: SettlementSection2Row,
+    settleColIdx: number,
+  ): boolean => {
+    const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
+    return ((row.cols ?? [])[origIdx] ?? "") !== "";
   };
 
   const updateS2 = (i: number, field: keyof SettlementSection2Row, val: any) =>
@@ -995,7 +1096,8 @@ function SettlementAdjustmentsTable({
     onWeightsChange(w);
   };
 
-  // ── Calculations (only over active/checked comparisons) ───────────────────
+  // ── Calculations ────────────────────────────────────────────────────────────
+
   const effectiveBases = useMemo(
     () => Array.from({ length: n }, (_, c) => getBase(c)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1086,17 +1188,8 @@ function SettlementAdjustmentsTable({
     return roundValue(rawValue, roundTo);
   }, [netPricePerMeter, subjectArea, roundTo]);
 
-  const colColors = [
-    "#1a6fc4",
-    "#0f766e",
-    "#7c3aed",
-    "#b45309",
-    "#be185d",
-    "#047857",
-    "#1d4ed8",
-    "#9d174d",
-  ];
-  // Remove colColors array entirely. Replace colSpanStyle:
+  // ── Styles ──────────────────────────────────────────────────────────────────
+
   const colSpanStyle = (_c: number): React.CSSProperties => ({
     background: "#f8fafc",
     border: `1px solid #e2e8f0`,
@@ -1107,6 +1200,7 @@ function SettlementAdjustmentsTable({
     textAlign: "center",
     whiteSpace: "nowrap",
   });
+
   const labelCell: React.CSSProperties = {
     ...cellBase,
     fontWeight: 500,
@@ -1116,6 +1210,16 @@ function SettlementAdjustmentsTable({
     minWidth: 130,
     background: DT.surfaceAlt,
   };
+
+  // Auto-fill indicator style: slightly different background so user knows
+  // the value is derived, not manually entered.
+  const autoFilledInput = (isUserSet: boolean): React.CSSProperties => ({
+    ...inputBase,
+    minWidth: 60,
+    background: isUserSet ? "#fff" : "#f0f9ff",
+    color: isUserSet ? DT.text : "#0e7490",
+    fontStyle: isUserSet ? "normal" : "italic",
+  });
 
   const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
 
@@ -1255,28 +1359,39 @@ function SettlementAdjustmentsTable({
                     placeholder={t.placeholderSubjectValue}
                   />
                 </td>
-                {Array.from({ length: n }, (_, c) => (
-                  <React.Fragment key={c}>
-                    <td style={cellBase}>
-                      <input
-                        value={getS1Col(row, c)}
-                        onChange={(e) => updateS1Col(i, c, e.target.value)}
-                        style={{ ...inputBase, minWidth: 60 }}
-                        placeholder={t.placeholderDesc}
-                      />
-                    </td>
-                    <td style={cellBase}>
-                      <input
-                        dir="ltr"
-                        type="number"
-                        value={getS1Adj(row, c)}
-                        onChange={(e) => updateS1Adj(i, c, e.target.value)}
-                        style={inputBase}
-                        placeholder={t.placeholderZero}
-                      />
-                    </td>
-                  </React.Fragment>
-                ))}
+                {Array.from({ length: n }, (_, c) => {
+                  const userSet = isS1ColUserSet(row, c);
+                  const displayVal = getS1Col(row, c);
+                  return (
+                    <React.Fragment key={c}>
+                      <td style={cellBase}>
+                        <input
+                          value={displayVal}
+                          onChange={(e) => updateS1Col(i, c, e.target.value)}
+                          style={autoFilledInput(userSet)}
+                          placeholder={t.placeholderDesc}
+                          title={
+                            !userSet && displayVal
+                              ? lang === "ar"
+                                ? "قيمة تلقائية من بيانات المقارنة — اكتب لتعديلها"
+                                : "Auto-filled from comparison data — type to override"
+                              : undefined
+                          }
+                        />
+                      </td>
+                      <td style={cellBase}>
+                        <input
+                          dir="ltr"
+                          type="number"
+                          value={getS1Adj(row, c)}
+                          onChange={(e) => updateS1Adj(i, c, e.target.value)}
+                          style={inputBase}
+                          placeholder={t.placeholderZero}
+                        />
+                      </td>
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             ))}
 
@@ -1421,32 +1536,43 @@ function SettlementAdjustmentsTable({
                     placeholder={t.placeholderSubjectValue}
                   />
                 </td>
-                {Array.from({ length: n }, (_, c) => (
-                  <React.Fragment key={c}>
-                    <td style={cellBase}>
-                      <input
-                        value={getS2Col(row, c, "cols")}
-                        onChange={(e) =>
-                          updateS2Col(i, c, "cols", e.target.value)
-                        }
-                        style={{ ...inputBase, minWidth: 60 }}
-                        placeholder={t.placeholderDesc}
-                      />
-                    </td>
-                    <td style={cellBase}>
-                      <input
-                        dir="ltr"
-                        type="number"
-                        value={getS2Col(row, c, "colAdj")}
-                        onChange={(e) =>
-                          updateS2Col(i, c, "colAdj", e.target.value)
-                        }
-                        style={inputBase}
-                        placeholder={t.placeholderZero}
-                      />
-                    </td>
-                  </React.Fragment>
-                ))}
+                {Array.from({ length: n }, (_, c) => {
+                  const userSet = isS2ColUserSet(row, c);
+                  const displayVal = getS2Col(row, c, "cols");
+                  return (
+                    <React.Fragment key={c}>
+                      <td style={cellBase}>
+                        <input
+                          value={displayVal}
+                          onChange={(e) =>
+                            updateS2Col(i, c, "cols", e.target.value)
+                          }
+                          style={autoFilledInput(userSet)}
+                          placeholder={t.placeholderDesc}
+                          title={
+                            !userSet && displayVal
+                              ? lang === "ar"
+                                ? "قيمة تلقائية من بيانات المقارنة — اكتب لتعديلها"
+                                : "Auto-filled from comparison data — type to override"
+                              : undefined
+                          }
+                        />
+                      </td>
+                      <td style={cellBase}>
+                        <input
+                          dir="ltr"
+                          type="number"
+                          value={getS2Col(row, c, "colAdj")}
+                          onChange={(e) =>
+                            updateS2Col(i, c, "colAdj", e.target.value)
+                          }
+                          style={inputBase}
+                          placeholder={t.placeholderZero}
+                        />
+                      </td>
+                    </React.Fragment>
+                  );
+                })}
               </tr>
             ))}
 
@@ -1851,7 +1977,6 @@ export function SettlementComparison({
   settlementNotes = "",
   onSettlementNotesChange,
 }: SettlementComparisonProps) {
-  // ── language from context ──────────────────────────────────────────────────
   const langContext = useContext(LanguageContext);
   const lang: Lang = langContext?.language === "en" ? "en" : "ar";
   const isRtl = lang === "ar";
@@ -1859,7 +1984,6 @@ export function SettlementComparison({
 
   const n = Math.max(comparisonRows.length, 1);
 
-  // Default useLabel per language
   const resolvedUseLabel = useLabel ?? (lang === "ar" ? "عام" : "General");
 
   const [localWeights, setLocalWeights] = useState<string[]>([]);
@@ -1889,10 +2013,6 @@ export function SettlementComparison({
     }));
   })();
 
-  /**
-   * When a comparison row is deleted at `deletedIndex`,
-   * we also remove that column from all settlement data.
-   */
   const handleComparisonDeleteRow = useCallback(
     (deletedIndex: number) => {
       const { newSection1, newSection2, newBases, newWeights } =

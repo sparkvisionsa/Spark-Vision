@@ -1664,21 +1664,6 @@ export function TransactionEvaluationPage({
       },
     }));
 
-  useEffect(() => {
-    const area = ev.assetInfo.propertyArea;
-    if (!area) return;
-    setEv((prev) => {
-      if (prev.replacementFields.landSpace === area) return prev;
-      return {
-        ...prev,
-        replacementFields: {
-          ...prev.replacementFields,
-          landSpace: area,
-        },
-      };
-    });
-  }, [ev.assetInfo.propertyArea]);
-
   const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
 
   const [regions, setRegions] = useState<
@@ -1891,7 +1876,7 @@ export function TransactionEvaluationPage({
         financePct: pick(e.financePct),
         landTitle: pick(e.landTitle, e.address), // ← ADD
         landSpace: pick(
-          e.replacementLandSpace, // explicit saved override wins
+          e.landSpace, // explicit saved override wins
           resolvedPropertyArea, // auto-filled from asset area
         ),
         meterPriceLand: pick(e.meterPriceLand), // already existed at top level

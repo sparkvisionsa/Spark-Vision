@@ -129,7 +129,7 @@ const T: Record<
     c_totalArea: "إجمالي مساحة الأصل",
     c_totalVal: "إجمالي قيمة الأصل (التكاليف المباشرة)",
     c_indirect: "التكاليف الغير مباشرة",
-    c_direct: "التكاليف المباشرة + الغير مباشرة",
+    c_direct: "التكاليف المباشرة",
     c_devprofitVal: "قيمة هامش ربح المطور",
     c_assetVal: "قيمة الأصل (قبل الإهلاك)",
     c_remlife: "العمر المتبقي",
@@ -182,7 +182,7 @@ const T: Record<
     c_totalArea: "Total Asset Area",
     c_totalVal: "Total Asset Value (Direct Costs)",
     c_indirect: "Indirect Costs",
-    c_direct: "Direct + Indirect Costs",
+    c_direct: "Direct Costs",
     c_devprofitVal: "Developer Profit Value",
     c_assetVal: "Asset Value (Before Depreciation)",
     c_remlife: "Remaining Life",
@@ -209,12 +209,11 @@ const T: Record<
 
 function fmt(n: number, lang: Lang): string {
   if (!isFinite(n)) return "—";
-  return n.toLocaleString(lang === "ar" ? "ar-SA" : "en-US", {
+  return n.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
-
 function p(s: string): number {
   return parseFloat(s) || 0;
 }
@@ -548,7 +547,9 @@ export function ReplacementCostSection({
   const econPctRaw = p(fields.economicPct);
   const funcPctRaw = p(fields.careerPct);
 
-  const indirectPct = adminPct + profPct + utilPct + emrgPct + finPct;
+  const yearDevPct = p(fields.yearDev) / 100;
+  const indirectPct =
+    adminPct + profPct + utilPct + emrgPct + finPct + yearDevPct;
   const indirect = totalVal * indirectPct;
   const directTotal = totalVal + indirect;
   const devProfitVal = directTotal * devProfit;
@@ -568,7 +569,7 @@ export function ReplacementCostSection({
   // FIX: landDataTotal computed once and reused, not duplicated inline
   const landDataTotal = p(fields.meterPriceLand) * p(fields.landSpace);
 
-  const landAsset = landDataTotal + netAsset + maintVal + finishVal;
+  const landAsset = landDataTotal + netAsset;
 
   // FIX: fmtVal now shows "0.00" for zero values instead of "—",
   // so legitimately-zero computed results are not shown as missing data.
@@ -705,7 +706,7 @@ export function ReplacementCostSection({
       {/* 9  */}
       <CalcRow label={t.c_indirect} value={fmtVal(indirect)} />
       {/* 10 */}
-      <CalcRow label={t.c_direct} value={fmtVal(directTotal)} bold light />
+      <CalcRow label={t.c_direct} value={fmtVal(totalVal)} />
       {/* 11 */}
       <InputRow
         label={t.earningsRate}
