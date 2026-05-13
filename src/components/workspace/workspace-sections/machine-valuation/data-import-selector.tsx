@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils";
 
 const copy = {
   en: {
-    label: "Add Data",
-    importFile: "Import file (Excel / PDF / Word)",
-    createSheet: "New spreadsheet",
+    label: "Add Asset Data",
+    importFile: "Import data (Excel / PDF / Word / Image)",
+    createSheet: "Add data manually",
   },
   ar: {
     label: "إضافة بيانات",
@@ -27,15 +27,21 @@ const copy = {
 interface DataImportSelectorProps {
   onSelectImport: () => void;
   onSelectCreate: () => void;
+  labels?: Partial<{
+    label: string;
+    importFile: string;
+    createSheet: string;
+  }>;
 }
 
 export default function DataImportSelector({
   onSelectImport,
   onSelectCreate,
+  labels,
 }: DataImportSelectorProps) {
   const langCtx = useContext(LanguageContext);
   const isArabic = langCtx?.language === "ar";
-  const t = isArabic ? copy.ar : copy.en;
+  const t = { ...(isArabic ? copy.ar : copy.en), ...labels };
   const [open, setOpen] = useState(false);
 
   return (

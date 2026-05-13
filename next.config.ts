@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+import type {NextConfig} from 'next';
+import { mvBackendOriginForProxy } from './src/lib/mv-backend-origin';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -6,11 +7,17 @@ const nextConfig: NextConfig = {
   compress: true,
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts"],
+    /** Must match large MV uploads; default ~10MB truncates multipart when middleware exists. */
+    middlewareClientMaxBodySize: '160mb',
+    serverActions: {
+      bodySizeLimit: '160mb',
+    },
   },
   onDemandEntries: {
     // Keep recently visited routes in memory during dev for faster back/forward navigation
-    maxInactiveAge: 60 * 60 * 1000,
-    pagesBufferLength: 200,
+    // Lower values reduce memory/CPU pressure in very large apps during dev.
+    maxInactiveAge: 15 * 60 * 1000,
+    pagesBufferLength: 40,
   },
   typescript: {
     // Keep production builds blocked on type errors.
@@ -34,6 +41,16 @@ const nextConfig: NextConfig = {
         destination: `${backendBaseUrl}/uploads/:path*`,
       },
     ];
+    const origin = mvBackendOriginForProxy();
+    // fallback: only if no local app/api route matched (avoids proxying before Route Handlers).
+    return {
+      fallback: [
+        {
+          source: "/api/:path*",
+          destination: `${origin}/api/:path*`,
+        },
+      ],
+    };
   },
   images: {
     remotePatterns: [

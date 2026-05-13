@@ -424,6 +424,38 @@ export default function ClientsPage() {
     void loadAll();
   }, [loadAll]);
 
+  const openCreateTemplateCb = useCallback(() => {
+    setTemplateModalMode("create");
+    setEditingTemplateId(null);
+    setTemplateName("");
+    setBuilderRows([emptyRow()]);
+    setTemplateModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const syncHash = () => {
+      if (typeof window === "undefined") return;
+      const h = window.location.hash.replace(/^#/, "");
+      if (h === "create-template") {
+        openCreateTemplateCb();
+      }
+      if (h === "templates") {
+        setTemplatesBrowserOpen(true);
+      }
+    };
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [openCreateTemplateCb]);
+
+  function clearHashIfMatches(expected: string) {
+    if (typeof window === "undefined") return;
+    if (window.location.hash === `#${expected}`) {
+      const { pathname, search } = window.location;
+      window.history.replaceState(null, "", pathname + (search || ""));
+    }
+  }
+
   const selectedTemplate = useMemo(
     () => formTemplates.find((t) => t.id === formTemplateId) ?? null,
     [formTemplates, formTemplateId],
@@ -466,13 +498,7 @@ export default function ClientsPage() {
     if (!typeId && clientTypes.length) setTypeId(clientTypes[0].id);
   }, [clientTypes, typeId]);
 
-  const openCreateTemplate = () => {
-    setTemplateModalMode("create");
-    setEditingTemplateId(null);
-    setTemplateName("");
-    setBuilderRows([emptyRow()]);
-    setTemplateModalOpen(true);
-  };
+  const openCreateTemplate = openCreateTemplateCb;
 
   const openEditTemplate = (t: FormTemplate) => {
     setTemplateModalMode("edit");
@@ -1320,7 +1346,13 @@ export default function ClientsPage() {
       </Dialog>
 
       {/* Modal: create/edit template */}
-      <Dialog open={templateModalOpen} onOpenChange={setTemplateModalOpen}>
+      <Dialog
+        open={templateModalOpen}
+        onOpenChange={(open) => {
+          setTemplateModalOpen(open);
+          if (!open) clearHashIfMatches("create-template");
+        }}
+      >
         <DialogContent className="sm:max-w-lg max-h-[90vh] gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl flex flex-col">
           <div className="bg-gradient-to-br from-violet-500 to-sky-500 px-5 py-4 shrink-0">
             <div className="flex items-center gap-2.5">
@@ -1499,7 +1531,10 @@ export default function ClientsPage() {
       {/* Modal: browse templates */}
       <Dialog
         open={templatesBrowserOpen}
-        onOpenChange={setTemplatesBrowserOpen}
+        onOpenChange={(open) => {
+          setTemplatesBrowserOpen(open);
+          if (!open) clearHashIfMatches("templates");
+        }}
       >
         <DialogContent className="sm:max-w-md gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="bg-gradient-to-br from-slate-700 to-slate-900 px-5 py-4">

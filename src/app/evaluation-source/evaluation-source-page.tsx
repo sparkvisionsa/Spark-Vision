@@ -1180,7 +1180,6 @@ export default function EvaluationSourcePage({
   const [modalPriceCompare, setModalPriceCompare] =
     useState<EvaluationSourceItem["priceCompare"] | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<"login" | "register">("register");
   const [registrationRequiredMessage, setRegistrationRequiredMessage] =
     useState<string | null>(null);
   const [, startFilterSelectionTransition] = useTransition();
@@ -1389,10 +1388,9 @@ export default function EvaluationSourcePage({
   const triggerRegistrationRequired = useCallback(
     (message?: string) => {
       setRegistrationRequiredMessage(
-        message ?? "Guest attempts exhausted. Please register to continue."
+        message ?? "انتهت محاولات الضيف. سجّل الدخول للمتابعة."
       );
       setStatus("error");
-      setAuthModalMode("register");
       setAuthModalOpen(true);
       trackAction({
         actionType: "registration_required",
@@ -1401,11 +1399,7 @@ export default function EvaluationSourcePage({
         },
       });
       if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("sv:open-auth-modal", {
-            detail: { mode: "register" },
-          })
-        );
+        window.dispatchEvent(new CustomEvent("sv:open-auth-modal"));
       }
     },
     [trackAction]
@@ -4241,11 +4235,7 @@ export default function EvaluationSourcePage({
           </DialogContent>
         </Dialog>
         </main>
-      <AuthModal
-        open={authModalOpen}
-        onOpenChange={setAuthModalOpen}
-        initialMode={authModalMode}
-      />
+      <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </div>
   );
 }

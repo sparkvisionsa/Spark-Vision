@@ -17,7 +17,20 @@ type AuthUser = {
   username: string;
   email?: string | null;
   phone?: string | null;
-  role: "user" | "super_admin";
+  role:
+    | "user"
+    | "super_admin"
+    | "company_admin"
+    | "valuer"
+    | "data_entry"
+    | "reviewer"
+    | "inspector";
+  companyId?: string | null;
+  /** كل الشركات التي يملك المستخدم عضوية فيها (الشركة النشطة في `companyId`). */
+  companyIds?: string[];
+  companyName?: string | null;
+  /** null = all Value Tech products allowed (super admin / legacy user). */
+  valueTechProductIds: string[] | null;
   createdAt: string;
   lastLoginAt?: string | null;
 };
@@ -96,6 +109,13 @@ type AuthTrackingContextType = {
 };
 
 const AuthTrackingContext = createContext<AuthTrackingContextType | null>(null);
+
+/**
+ * تتبع داخل الموقع: ‎page_view، نبض الجلسة، تمرير، نقرات، ‎api_call، ‎/api/track/*‎.
+ * الافتراضي: **معطّل**. للتشغيل مرة أخرى: ‎`NEXT_PUBLIC_SV_BEHAVIOR_TRACKING=1`‎ في ‎.env
+ */
+const SV_BEHAVIOR_TRACKING_ENABLED =
+  typeof process !== "undefined" && process.env.NEXT_PUBLIC_SV_BEHAVIOR_TRACKING === "1";
 
 function nowIso() {
   return new Date().toISOString();
@@ -248,6 +268,7 @@ export default function AuthTrackingProvider({
 
   const trackAction = useCallback(
     (action: TrackingAction) => {
+      if (!SV_BEHAVIOR_TRACKING_ENABLED) return;
       actionQueueRef.current.push({
         ...action,
         timestamp: action.timestamp ?? nowIso(),
@@ -400,11 +421,12 @@ export default function AuthTrackingProvider({
         setLoading(false);
       }
 
-      // Session start tracking should not block first paint.
-      try {
-        await sendSessionEvent("start");
-      } catch {
-        // ignore start-event failures
+      if (SV_BEHAVIOR_TRACKING_ENABLED) {
+        try {
+          await sendSessionEvent("start");
+        } catch {
+          // ignore start-event failures
+        }
       }
     };
 
@@ -412,6 +434,7 @@ export default function AuthTrackingProvider({
   }, [refresh, sendSessionEvent]);
 
   useEffect(() => {
+    if (!SV_BEHAVIOR_TRACKING_ENABLED) return;
     if (!pathname) return;
     trackAction({
       actionType: "page_view",
@@ -424,6 +447,7 @@ export default function AuthTrackingProvider({
   }, [pathname, trackAction]);
 
   useEffect(() => {
+    if (!SV_BEHAVIOR_TRACKING_ENABLED) return;
     const heartbeat = window.setInterval(async () => {
       const now = Date.now();
       const elapsed = now - heartbeatStartRef.current;
@@ -447,6 +471,7 @@ export default function AuthTrackingProvider({
   }, [sendSessionEvent]);
 
   useEffect(() => {
+    if (!SV_BEHAVIOR_TRACKING_ENABLED) return;
     const onInteract = () => {
       lastInteractionRef.current = Date.now();
     };

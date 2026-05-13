@@ -3,6 +3,7 @@
 import { useContext, useEffect } from "react";
 import Link from "@/components/prefetch-link";
 import { useRouter } from "next/navigation";
+import MachineValuationShell from "@/components/machine-valuation-shell";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
 import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -27,10 +28,8 @@ import {
 } from "@/components/ui/sidebar";
 import { usePathname } from "next/navigation";
 
-function openAuthModal(mode: "login" | "register") {
-  window.dispatchEvent(
-    new CustomEvent("sv:open-auth-modal", { detail: { mode } }) as Event,
-  );
+function openAuthModal() {
+  window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
 }
 
 function userInitials(username: string) {
@@ -219,8 +218,8 @@ function ValueTechSidebarAccount({
     return (
       <button
         type="button"
-        onClick={() => openAuthModal("register")}
-        title={`${t.sidebarRegister} · ${t.sidebarUserGuest}`}
+        onClick={() => openAuthModal()}
+        title={`${t.sidebarSignIn} · ${t.sidebarUserGuest}`}
         className={cn(
           "flex w-full justify-center rounded-lg p-0.5 transition",
           "hover:bg-slate-900/12 active:bg-slate-900/18",
@@ -248,28 +247,14 @@ function ValueTechSidebarAccount({
         >
           <button
             type="button"
-            onClick={() => openAuthModal("login")}
-            className={cn(
-              "rounded px-0 py-0.5 text-slate-900/85 underline-offset-2 transition",
-              "hover:text-slate-900 hover:underline",
-              ringFocus,
-            )}
-          >
-            {t.sidebarSignIn}
-          </button>
-          <span className="select-none text-slate-900/35" aria-hidden>
-            ·
-          </span>
-          <button
-            type="button"
-            onClick={() => openAuthModal("register")}
+            onClick={() => openAuthModal()}
             className={cn(
               "rounded px-0 py-0.5 text-slate-900 underline-offset-2 transition",
               "hover:underline",
               ringFocus,
             )}
           >
-            {t.sidebarRegister}
+            {t.sidebarSignIn}
           </button>
         </div>
       </div>
@@ -369,6 +354,8 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
   const t = isArabic ? copy.ar : copy.en;
 
   const isHubPage = pathname === "/value-tech";
+  const isMachineValuationPage =
+    pathname === "/machine-valuation" || pathname.startsWith("/machine-valuation/");
 
   const currentProduct = PRODUCT_ROUTES.find((r) =>
     r.href === "/evaluation-source"
@@ -393,6 +380,10 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
         <ValueTechServiceFooter />
       </div>
     );
+  }
+
+  if (isMachineValuationPage) {
+    return <MachineValuationShell>{children}</MachineValuationShell>;
   }
 
   return (
@@ -492,4 +483,3 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
     </div>
   );
 }
-

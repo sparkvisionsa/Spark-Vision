@@ -1,17 +1,39 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
-function shouldCleanCaches() {
-  const value = (process.env.FRONTEND_FORCE_CLEAN ?? "").trim().toLowerCase();
-  return value === "1" || value === "true" || value === "yes";
+const DEV_LOCK_PATH = resolve(process.cwd(), ".frontend-dev.lock");
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function activeDevPidFromLock() {
+  try {
+    const raw = await readFile(DEV_LOCK_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const pid = Number(parsed?.pid);
+    return isProcessAlive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 async function main() {
-  if (!shouldCleanCaches()) {
+  const activeDevPid = await activeDevPidFromLock();
+  if (activeDevPid) {
+    console.log(
+      `[frontend] skipping .next cleanup (dev server is running, PID ${activeDevPid})`,
+    );
     return;
   }
 
-  console.log("[frontend] cleaning .next cache (FRONTEND_FORCE_CLEAN enabled)");
+  console.log("[frontend] cleaning .next cache");
   const nextDir = resolve(process.cwd(), ".next");
   const tsBuildInfo = resolve(process.cwd(), "tsconfig.tsbuildinfo");
   try {

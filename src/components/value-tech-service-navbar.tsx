@@ -1,13 +1,13 @@
 "use client";
 
-import { useContext, useId } from "react";
+import { useContext, useEffect, useId, useState } from "react";
 import {
   ChevronDown,
   Globe,
   Home,
   LayoutGrid,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
@@ -98,12 +98,20 @@ function ValueTechLogo({ size = 32 }: { size?: number }) {
 }
 
 export default function ValueTechServiceNavbar() {
+  const router = useRouter();
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const setLanguage = langContext?.setLanguage;
   const isArabic = language === "ar";
   const t = copy[language];
   const pathname = usePathname() || "/";
+  const [productsDesktopOpen, setProductsDesktopOpen] = useState(false);
+  const [productsMobileOpen, setProductsMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setProductsDesktopOpen(false);
+    setProductsMobileOpen(false);
+  }, [pathname]);
 
   const isValueTechRoute =
     pathname.startsWith("/value-tech") ||
@@ -115,43 +123,80 @@ export default function ValueTechServiceNavbar() {
     pathname.startsWith("/clients") ||
     pathname.startsWith("/settings");
 
-  const dropdownItems = (
+  const productMenuItems = (close: () => void) => (
     <>
-      <DropdownMenuItem asChild className="sm:hidden">
-        <Link href="/value-tech" className="text-[13px] gap-2">
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] sm:hidden"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/value-tech");
+        }}
+      >
+        <span className="flex items-center gap-2">
           <Home className="h-3.5 w-3.5" />
           {t.home}
-        </Link>
+        </span>
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/value-tech-app" className="text-[13px]">
-          {t.valueTechApp}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/value-tech-app");
+        }}
+      >
+        {t.valueTechApp}
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/real-estate-valuation" className="text-[13px]">
-          {t.realEstate}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/real-estate-valuation");
+        }}
+      >
+        {t.realEstate}
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/machine-valuation" className="text-[13px]">
-          {t.machines}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/machine-valuation");
+        }}
+      >
+        {t.machines}
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/evaluation-source" className="text-[13px]">
-          {t.sources}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/evaluation-source");
+        }}
+      >
+        {t.sources}
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/asset-inventory" className="text-[13px]">
-          {t.assetInventory}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/asset-inventory");
+        }}
+      >
+        {t.assetInventory}
       </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <Link href="/asset-inspection" className="text-[13px]">
-          {t.assetInspection}
-        </Link>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/asset-inspection");
+        }}
+      >
+        {t.assetInspection}
       </DropdownMenuItem>
     </>
   );
@@ -194,7 +239,11 @@ export default function ValueTechServiceNavbar() {
           <nav className="flex min-w-0 items-center">
             {/* Desktop */}
             <div className="hidden sm:flex items-center">
-              <DropdownMenu>
+              <DropdownMenu
+                modal={false}
+                open={productsDesktopOpen}
+                onOpenChange={setProductsDesktopOpen}
+              >
                 <DropdownMenuTrigger
                   className={cn(
                     "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium outline-none transition-colors duration-150",
@@ -210,14 +259,18 @@ export default function ValueTechServiceNavbar() {
                   align={isArabic ? "end" : "start"}
                   className="min-w-[210px]"
                 >
-                  {dropdownItems}
+                  {productMenuItems(() => setProductsDesktopOpen(false))}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
 
             {/* Mobile */}
             <div className="flex sm:hidden">
-              <DropdownMenu>
+              <DropdownMenu
+                modal={false}
+                open={productsMobileOpen}
+                onOpenChange={setProductsMobileOpen}
+              >
                 <DropdownMenuTrigger
                   aria-label={t.products}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 outline-none transition-colors duration-150 hover:text-slate-700 hover:bg-slate-100/70"
@@ -225,7 +278,7 @@ export default function ValueTechServiceNavbar() {
                   <LayoutGrid className="h-[18px] w-[18px]" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align={isArabic ? "end" : "start"}>
-                  {dropdownItems}
+                  {productMenuItems(() => setProductsMobileOpen(false))}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

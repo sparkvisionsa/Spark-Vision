@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useContext, useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,13 +24,21 @@ interface HeaderProps {
 }
 
 export default function Header({ navDisabled = false }: HeaderProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const [servicesMenuOpen, setServicesMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const langContext = useContext(LanguageContext);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    setIsOpen(false);
+    setServicesMenuOpen(false);
+  }, [pathname]);
 
   if (!langContext) {
     return null;
@@ -140,7 +149,13 @@ export default function Header({ navDisabled = false }: HeaderProps) {
           <nav className="flex items-center space-x-6 text-sm font-medium rtl:space-x-reverse">
             {c.nav.map((item) =>
               item.href === "#services" ? (
-                <DropdownMenu key={item.name} dir={isArabic ? "rtl" : "ltr"}>
+                <DropdownMenu
+                  key={item.name}
+                  dir={isArabic ? "rtl" : "ltr"}
+                  modal={false}
+                  open={servicesMenuOpen}
+                  onOpenChange={setServicesMenuOpen}
+                >
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
@@ -158,13 +173,15 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                     align={isArabic ? "end" : "start"}
                     className={`w-56 ${isArabic ? "text-right" : "text-left"}`}
                   >
-                    <DropdownMenuItem asChild>
-                      <Link
-                        href="/value-tech"
-                        className="flex w-full items-center justify-between"
-                      >
-                        {serviceMenuLabels.valueTech}
-                      </Link>
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setServicesMenuOpen(false);
+                        router.push("/value-tech");
+                      }}
+                    >
+                      {serviceMenuLabels.valueTech}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

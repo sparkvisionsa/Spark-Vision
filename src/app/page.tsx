@@ -1,7 +1,5 @@
-"use client";
-
-import MaintenancePage from "@/app/maintenance/page";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <MaintenancePage />;
+  redirect("/value-tech");
 }

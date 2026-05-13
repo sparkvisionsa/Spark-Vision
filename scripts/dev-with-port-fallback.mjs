@@ -14,33 +14,58 @@ function shouldUseTurboPack() {
 
   if (selectedBundler === "webpack") return false;
   if (selectedBundler === "turbopack") return true;
+  if (process.platform === "win32") return false;
   return true;
 }
 
-function shouldWarmRoutes() {
-  // Default ON: pre-compile main routes after dev server is ready so first navigation feels instant.
-  // Disable with FRONTEND_DEV_WARM_ROUTES=false if the machine is slow or you need minimal CPU.
-  const value = (process.env.FRONTEND_DEV_WARM_ROUTES ?? "true")
-    .trim()
-    .toLowerCase();
+function parseBooleanEnv(rawValue, defaultValue) {
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    return defaultValue;
+  }
+  const value = rawValue.trim().toLowerCase();
   return value !== "0" && value !== "false" && value !== "no";
 }
 
-// Order matters: `/w/[[...slug]]` routes are grouped so one Turbopack compile covers many paths.
+function shouldWarmRoutes(useTurboPack) {
+  // Default ON with webpack so first navigation does not wait for compile-on-demand.
+  // Default OFF with turbopack because it was the main source of manifest races on Windows.
+  if (process.env.FRONTEND_DEV_WARM_ROUTES != null) {
+    return parseBooleanEnv(process.env.FRONTEND_DEV_WARM_ROUTES, true);
+  }
+  return !useTurboPack;
+}
+
+const REWRITE_WARM_ROUTE_MAP = new Map([
+  ["/value-tech", "/w/vt"],
+  ["/value-tech-app", "/w/value-tech-app"],
+  ["/real-estate-valuation", "/w/real-estate-valuation"],
+  ["/machine-valuation", "/w/machine-valuation"],
+  ["/machine-valuation/projects", "/w/machine-valuation/projects"],
+  ["/clients", "/w/clients"],
+  ["/settings", "/w/settings"],
+  ["/evaluation-source", "/w/evaluation-source"],
+  ["/evaluation-source/cars", "/w/evaluation-source/cars"],
+  ["/evaluation-source/real-estate", "/w/evaluation-source/real-estate"],
+  ["/evaluation-source/other", "/w/evaluation-source/other"],
+]);
+
 const DEFAULT_WARM_ROUTES = [
   "/",
-  "/evaluation-source",
-  "/evaluation-source/cars",
-  "/evaluation-source/real-estate",
-  "/evaluation-source/other",
-  "/value-tech",
-  "/value-tech-app",
-  "/real-estate-valuation",
-  "/machine-valuation",
+  "/w/vt",
+  "/w/value-tech-app",
+  "/w/real-estate-valuation",
+  "/w/machine-valuation",
+  "/w/machine-valuation/projects",
+  /** يجمّع مسار `app/api/mv/[...path]` مبكراً حتى لا يضاف تأخير عند أول `fetch` */
+  "/api/mv/projects",
+  "/w/evaluation-source",
+  "/w/evaluation-source/cars",
+  "/w/evaluation-source/real-estate",
+  "/w/evaluation-source/other",
+  "/w/clients",
+  "/w/settings",
   "/admin",
   "/profile",
-  "/clients",
-  "/settings",
 ];
 
 function parseWarmRoutes() {
@@ -51,7 +76,8 @@ function parseWarmRoutes() {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
-    .map((item) => (item.startsWith("/") ? item : `/${item}`));
+    .map((item) => (item.startsWith("/") ? item : `/${item}`))
+    .map((item) => REWRITE_WARM_ROUTE_MAP.get(item) ?? item);
   return Array.from(new Set(routes));
 }
 
@@ -85,8 +111,14 @@ async function waitUntilDevServerListening(port, timeoutMs = 60_000) {
   return false;
 }
 
-function warmBatchSize() {
+function warmBatchSize(useTurboPack) {
   const raw = (process.env.FRONTEND_DEV_WARM_BATCH ?? "5").trim();
+  if (process.platform === "win32" && !process.env.FRONTEND_DEV_WARM_BATCH) {
+    return 2;
+  }
+  if (useTurboPack && !process.env.FRONTEND_DEV_WARM_BATCH) {
+    return 1;
+  }
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 1 && n <= 24) {
     return Math.floor(n);
@@ -94,8 +126,14 @@ function warmBatchSize() {
   return 5;
 }
 
-function warmBatchGapMs() {
+function warmBatchGapMs(useTurboPack) {
   const raw = (process.env.FRONTEND_DEV_WARM_BATCH_GAP_MS ?? "80").trim();
+  if (process.platform === "win32" && !process.env.FRONTEND_DEV_WARM_BATCH_GAP_MS) {
+    return 100;
+  }
+  if (useTurboPack && !process.env.FRONTEND_DEV_WARM_BATCH_GAP_MS) {
+    return 250;
+  }
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 0 && n <= 5000) {
     return Math.floor(n);
@@ -131,8 +169,8 @@ async function warmRoute(origin, route) {
   }
 }
 
-async function warmRoutes(port) {
-  if (!shouldWarmRoutes()) {
+async function warmRoutes(port, useTurboPack) {
+  if (!shouldWarmRoutes(useTurboPack)) {
     return;
   }
 
@@ -148,8 +186,12 @@ async function warmRoutes(port) {
     return;
   }
 
-  const batch = warmBatchSize();
-  const gapMs = warmBatchGapMs();
+  if (process.platform === "win32") {
+    await sleep(1200);
+  }
+
+  const batch = warmBatchSize(useTurboPack);
+  const gapMs = warmBatchGapMs(useTurboPack);
   console.log(
     `[frontend] warming ${routes.length} routes (batch=${batch}, gap=${gapMs}ms) — TCP readiness only, no extra GET / before warmup…`
   );
@@ -299,7 +341,7 @@ async function main() {
     env: process.env,
   });
 
-  void warmRoutes(port);
+  void warmRoutes(port, useTurboPack);
 
   child.on("exit", (code, signal) => {
     void safeReleaseLock();

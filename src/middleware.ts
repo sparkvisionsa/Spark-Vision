@@ -29,6 +29,49 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname === "/machine-valuation") {
+    return NextResponse.redirect(new URL("/machine-valuation/projects", request.url));
+  }
+
+  const mvSegments = pathname.split("/").filter(Boolean);
+  if (
+    mvSegments.length === 4 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "workflow" &&
+    mvSegments[3] === "folders"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/asset-images`, request.url),
+    );
+  }
+
+  if (
+    mvSegments.length === 3 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "workflow"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/report-data`, request.url),
+    );
+  }
+
+  if (
+    mvSegments.length === 2 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[1] !== "projects" &&
+    mvSegments[1] !== "dashboard" &&
+    mvSegments[1] !== "company"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/report-data`, request.url),
+    );
+  }
+
+  /** صفحة ثابتة تحت ‎/machine-valuation/company‎ — لا تُعاد كتابتها إلى ‎/w‎ حتى تُحمَّل من ‎app/machine-valuation/company‎ مع الهيكل الصحيح. */
+  if (pathname === "/machine-valuation/company") {
+    return NextResponse.next();
+  }
+
   for (const prefix of PREFIX_REWRITES) {
     if (pathname === prefix || pathname.startsWith(prefix + "/")) {
       return NextResponse.rewrite(new URL(`/w${pathname}`, request.url));

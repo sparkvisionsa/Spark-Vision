@@ -32,6 +32,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Activity, Clock3, Database, Layers3, TrendingUp } from "lucide-react";
+import { AdminCompaniesPanel } from "@/components/admin/admin-companies-panel";
 
 type AnalyticsPayload = {
   overview: {
@@ -732,6 +733,8 @@ export default function AdminDashboardPage() {
               {status}
             </p>
           ) : null}
+
+          <AdminCompaniesPanel />
 
           {loading ? (
             <Card>

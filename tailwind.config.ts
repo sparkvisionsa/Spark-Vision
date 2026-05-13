@@ -104,12 +104,24 @@ export default {
             opacity: '1',
             transform: 'translateY(0)'
           }
-        }
+        },
+        /** غلاف تقرير التقييم — نبض خفيف للطبقات الزخرفية */
+        'mv-report-soft-pulse': {
+          '0%, 100%': { opacity: '0.12' },
+          '50%': { opacity: '0.2' },
+        },
+        /** ظهور تدريجي لورقة التقرير في مساحة العمل */
+        'mv-report-sheet-reveal': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'fade-in-up': 'fade-in-up 0.6s ease-out forwards',
+        'mv-report-soft-pulse': 'mv-report-soft-pulse 12s ease-in-out infinite',
+        'mv-report-sheet-reveal': 'mv-report-sheet-reveal 0.55s ease-out both',
       },
     },
   },

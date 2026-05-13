@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import ValueTechShell from "@/components/value-tech-shell";
-import PageTransitionLoader from "@/components/ui/page-transition-loader";
+import ValueTechAccessGate from "@/components/value-tech-access-gate";
 
 const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentType<object> }>> = {
   vt: () => import("./workspace-sections/value-tech-hub"),
@@ -56,13 +56,16 @@ export function WorkspaceView({ slug }: { slug?: string[] }) {
       return MissingSection;
     }
     return dynamic(loader, {
-      loading: () => <PageTransitionLoader />,
+      /** شريط داخل المحتوى فقط — دون تغطية الشاشة كاملة أثناء أول تحميل للقسم */
+      loading: () => <WorkspaceSkeleton />,
     });
   }, [key, loader]);
 
   return (
-    <ValueTechShell>
-      <Section key={key} />
-    </ValueTechShell>
+    <ValueTechAccessGate sectionKey={key}>
+      <ValueTechShell>
+        <Section key={key} />
+      </ValueTechShell>
+    </ValueTechAccessGate>
   );
 }
