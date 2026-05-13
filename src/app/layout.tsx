@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import LayoutProvider from "@/components/layout-provider";
-import AuthTrackingProvider from "@/components/auth-tracking-provider";
-import PasswordGate from "@/components/password-gate";
-import RoutePrefetcher from "@/components/route-prefetcher";
-import { Toaster } from "@/components/ui/toaster";
+import AppProviders from "./providers";
 
 export const metadata: Metadata = {
   title: "Spark Vision",
@@ -18,28 +14,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning={true}>
-      {/* <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
-      </head> */}
       <body className="font-body antialiased">
-        <PasswordGate>
-          <LayoutProvider>
-            <AuthTrackingProvider>
-              {children}
-              <RoutePrefetcher />
-              <Toaster />
-            </AuthTrackingProvider>
-          </LayoutProvider>
-        </PasswordGate>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

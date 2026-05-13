@@ -1,5 +1,4 @@
 import type {NextConfig} from 'next';
-import { mvBackendOriginForProxy } from './src/lib/mv-backend-origin';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -31,23 +30,15 @@ const nextConfig: NextConfig = {
       process.env.BACKEND_URL?.replace(/\/+$/, "") ??
       process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??
       "http://127.0.0.1:5000";
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${backendBaseUrl}/api/:path*`,
-      },
-      {
-        source: "/uploads/:path*",
-        destination: `${backendBaseUrl}/uploads/:path*`,
-      },
-    ];
-    const origin = mvBackendOriginForProxy();
-    // fallback: only if no local app/api route matched (avoids proxying before Route Handlers).
     return {
       fallback: [
         {
           source: "/api/:path*",
-          destination: `${origin}/api/:path*`,
+          destination: `${backendBaseUrl}/api/:path*`,
+        },
+        {
+          source: "/uploads/:path*",
+          destination: `${backendBaseUrl}/uploads/:path*`,
         },
       ],
     };

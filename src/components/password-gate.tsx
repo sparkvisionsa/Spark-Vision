@@ -6,8 +6,27 @@ import type { ReactNode } from "react";
 type GateState = "checking" | "allowed" | "denied";
 
 const PASSWORD = "11447";
+const STORAGE_KEY = "spark-vision-password-gate";
 
 let cachedGateState: GateState | null = null;
+
+function readStoredGateState(): GateState | null {
+  try {
+    return window.sessionStorage.getItem(STORAGE_KEY) === "allowed"
+      ? "allowed"
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeAllowedGateState() {
+  try {
+    window.sessionStorage.setItem(STORAGE_KEY, "allowed");
+  } catch {
+    // Session storage may be unavailable in strict privacy modes.
+  }
+}
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
   const [gateState, setGateState] = useState<GateState>(
@@ -15,13 +34,18 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (cachedGateState) {
-      setGateState(cachedGateState);
+    const nextState = cachedGateState ?? readStoredGateState();
+    if (nextState) {
+      cachedGateState = nextState;
+      setGateState(nextState);
       return;
     }
 
-    const user = window.prompt("ادخل كلمة المرور:");
+    const user = window.prompt("أدخل كلمة المرور:");
     cachedGateState = user === PASSWORD ? "allowed" : "denied";
+    if (cachedGateState === "allowed") {
+      storeAllowedGateState();
+    }
     setGateState(cachedGateState);
   }, []);
 

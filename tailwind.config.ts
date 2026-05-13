@@ -17,8 +17,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        body: ['Inter', 'sans-serif'],
-        headline: ['Inter', 'sans-serif'],
+        body: ['Tajawal', 'Inter', 'sans-serif'],
+        headline: ['Tajawal', 'Inter', 'sans-serif'],
         code: ['monospace'],
       },
       colors: {

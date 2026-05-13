@@ -222,7 +222,7 @@ async function renderPdfPageToPngFile(
   if (!ctx) throw new Error("تعذر تجهيز صفحة PDF كصورة.");
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
 
   const suffix = pageCount > 1 ? `-page-${String(pageNumber).padStart(2, "0")}` : "";
   const imageFile = await canvasToPngFile(canvas, `${baseName}${suffix}.png`);
@@ -2350,7 +2350,7 @@ export default function MvValuationAccountingWorkspace({
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
         if (!cancelled) commitMediaCanvasLayout(canvas);
       } catch (error) {
         if (!cancelled) {
