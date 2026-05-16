@@ -67,8 +67,11 @@ export function hasMeaningfulSimpleReportData(
   if (!data) return false;
   return Boolean(
     data.valuationMethod ||
+      data.reportReference ||
+      data.reportTitle ||
       data.valuationPurpose ||
       data.valuePremise ||
+      data.valuationBasis ||
       data.reportIssueDate ||
       data.agreementDate ||
       data.inspectionDate ||
@@ -76,6 +79,19 @@ export function hasMeaningfulSimpleReportData(
       data.clientName ||
       data.clientEmail ||
       data.clientPhone ||
+      data.clientLegalType ||
+      data.clientActivity ||
+      data.clientRepresentativeName ||
+      data.intendedUsers ||
+      data.intendedUse ||
+      data.valuationFirmName ||
+      data.leadValuerName ||
+      data.scopeOfWorkDetails ||
+      data.informationSources ||
+      data.assetSubjectDescription ||
+      data.inspectionLocation ||
+      data.methodologyRationale ||
+      (Array.isArray(data.valuationTeam) && data.valuationTeam.length > 0) ||
       data.importantAssumptions ||
       data.specialAssumptions ||
       data.finalValue != null,
@@ -396,7 +412,7 @@ export function MvProjectReportHeader({
     ];
 
   return (
-    <header className="relative z-20 w-full shrink-0 border-b border-slate-200/90 bg-white shadow-[0_1px_0_0_rgba(15,23,42,0.04)]">
+    <header className="sticky top-0 z-30 w-full shrink-0 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/85">
       <MvTopBar
         sticky={false}
         compact={compact}

@@ -103,9 +103,53 @@ const PDF_UPLOAD_PARALLEL_UPLOADS = 4;
 const EXCEL_IMAGE_CONCURRENCY = 2;
 const DEFAULT_EXCEL_ROWS_PER_IMAGE = 15;
 const EXCEL_ROWS_PER_IMAGE_OPTIONS = [5, 10, 15, 20] as const;
+const DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE = 20;
+const MIN_EXCEL_PDF_ROWS_PER_IMAGE = 1;
+const MAX_EXCEL_PDF_ROWS_PER_IMAGE = 200;
+const EXCEL_PDF_MIN_COLUMN_WIDTH_PX = 64;
+const EXCEL_PDF_MAX_COLUMN_WIDTH_PX = 420;
+const EXCEL_PDF_DEFAULT_COLUMN_WIDTH_PX = 120;
+const EXCEL_PDF_ROW_HEIGHT_PX = 42;
+const EXCEL_PDF_CELL_FONT_PX = 18;
+const EXCEL_PDF_CELL_PAD_X_PX = 12;
+const EXCEL_PDF_CONTENT_PADDING_PX = 2;
+const EXCEL_PDF_RENDER_SCALE = 3;
+const EXCEL_PDF_MAX_CANVAS_DIMENSION_PX = 32_000;
+const EXCEL_PDF_MAX_CANVAS_PIXELS = 32_000_000;
 
 type CropSelection = { x: number; y: number; width: number; height: number };
 type PdfPageImageFile = { file: File; pageNumber: number; pageCount: number };
+type ExcelPdfSheet = {
+  name: string;
+  rows: string[][];
+  columnWidths: number[];
+  rowCount: number;
+  columnCount: number;
+};
+type PendingUploadKind = Extract<MvValuationAccountingFileKind, "excel" | "pdf">;
+type PendingUploadStatus = "processing" | "ready" | "error" | "saving";
+type PendingUploadPreview = {
+  id: string;
+  kind: PendingUploadKind;
+  approachId: MvValuationAccountingApproachId;
+  files: File[];
+  originalFiles?: File[];
+  status: PendingUploadStatus;
+  title: string;
+  message: string;
+  previewDataUrl?: string;
+  estimatedImageCount?: number;
+  pageCount?: number;
+  sheetName?: string;
+  rowCount?: number;
+  columnCount?: number;
+  excelRowsPerImage?: number;
+  error?: string;
+};
+type UploadControl = {
+  shouldStop?: () => boolean;
+  onImage?: (image: MvValuationAccountingImage) => void;
+};
 
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -199,6 +243,73 @@ function canvasToPngFile(canvas: HTMLCanvasElement, fileName: string): Promise<F
   });
 }
 
+function trimCanvasWhiteMargins(
+  canvas: HTMLCanvasElement,
+  options?: { threshold?: number; padding?: number },
+): { canvas: HTMLCanvasElement; cropped: boolean } {
+  const width = canvas.width;
+  const height = canvas.height;
+  if (width < 2 || height < 2) return { canvas, cropped: false };
+
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return { canvas, cropped: false };
+
+  let pixels: ImageData;
+  try {
+    pixels = ctx.getImageData(0, 0, width, height);
+  } catch {
+    return { canvas, cropped: false };
+  }
+
+  const threshold = Math.min(255, Math.max(180, options?.threshold ?? 248));
+  const isContent = (index: number) => {
+    const alpha = pixels.data[index + 3] ?? 255;
+    if (alpha < 10) return false;
+    const r = pixels.data[index] ?? 255;
+    const g = pixels.data[index + 1] ?? 255;
+    const b = pixels.data[index + 2] ?? 255;
+    return r < threshold || g < threshold || b < threshold;
+  };
+
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width * 4;
+    for (let x = 0; x < width; x += 1) {
+      if (!isContent(row + x * 4)) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  if (right < left || bottom < top) return { canvas, cropped: false };
+
+  const padding = Math.max(0, Math.round(options?.padding ?? 12));
+  const sx = Math.max(0, left - padding);
+  const sy = Math.max(0, top - padding);
+  const ex = Math.min(width - 1, right + padding);
+  const ey = Math.min(height - 1, bottom + padding);
+  const sw = ex - sx + 1;
+  const sh = ey - sy + 1;
+
+  if (sw >= width - 2 && sh >= height - 2) return { canvas, cropped: false };
+
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, sw);
+  out.height = Math.max(1, sh);
+  const outCtx = out.getContext("2d", { alpha: false });
+  if (!outCtx) return { canvas, cropped: false };
+  outCtx.fillStyle = "#ffffff";
+  outCtx.fillRect(0, 0, out.width, out.height);
+  outCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return { canvas: out, cropped: true };
+}
+
 async function renderPdfPageToPngFile(
   // PDF.js document — الأنواع ثقيلة هنا؛ نعتمد على واجهة getPage فقط في وقت التشغيل
   pdf: { getPage: (pageNumber: number) => Promise<import("pdfjs-dist").PDFPageProxy> },
@@ -225,7 +336,15 @@ async function renderPdfPageToPngFile(
   await page.render({ canvas, canvasContext: ctx, viewport }).promise;
 
   const suffix = pageCount > 1 ? `-page-${String(pageNumber).padStart(2, "0")}` : "";
-  const imageFile = await canvasToPngFile(canvas, `${baseName}${suffix}.png`);
+  const trimmed = trimCanvasWhiteMargins(canvas, {
+    padding: Math.max(8, Math.round(10 * scale)),
+    threshold: 248,
+  });
+  const imageFile = await canvasToPngFile(trimmed.canvas, `${baseName}${suffix}.png`);
+  if (trimmed.cropped) {
+    trimmed.canvas.width = 1;
+    trimmed.canvas.height = 1;
+  }
   canvas.width = 1;
   canvas.height = 1;
   return { file: imageFile, pageNumber, pageCount };
@@ -238,6 +357,7 @@ async function processPdfToValuationImages(
   activeApproach: MvValuationAccountingApproachId,
   cleanFileName: string,
   onProgress?: AccountFileProgressCb,
+  control?: UploadControl,
 ): Promise<MvValuationAccountingImage[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -254,23 +374,28 @@ async function processPdfToValuationImages(
   try {
     await flushProgress(onProgress, 0, pageCount, "تحويل ورفع صفحات PDF");
     for (let start = 1; start <= pageCount; start += PDF_PARALLEL_PAGES) {
+      if (control?.shouldStop?.()) break;
       const end = Math.min(pageCount, start + PDF_PARALLEL_PAGES - 1);
       const renderBatch: Promise<PdfPageImageFile>[] = [];
       for (let p = start; p <= end; p += 1) {
+        if (control?.shouldStop?.()) break;
         renderBatch.push(renderPdfPageToPngFile(pdf, p, pageCount, baseName));
       }
+      if (renderBatch.length === 0) break;
       const rendered = await Promise.all(renderBatch);
       for (let u = 0; u < rendered.length; u += PDF_UPLOAD_PARALLEL_UPLOADS) {
+        if (control?.shouldStop?.()) break;
         const chunk = rendered.slice(u, u + PDF_UPLOAD_PARALLEL_UPLOADS);
         const ids = await Promise.all(chunk.map((item) => uploadProjectFileAndReturnId(projectId, item.file, { valuationAccounting: true })));
         for (let i = 0; i < chunk.length; i += 1) {
+          if (control?.shouldStop?.()) break;
           const pageImage = chunk[i]!;
           const uploadedId = ids[i]!;
           const pageLabel =
             pageImage.pageCount > 1
               ? `${cleanFileName} — صفحة ${pageImage.pageNumber}`
               : `${cleanFileName} — صورة كاملة`;
-          out.push({
+          const image: MvValuationAccountingImage = {
             id: createId("account-image"),
             approachId: activeApproach,
             sourceId: pdfSource.id,
@@ -293,7 +418,9 @@ async function processPdfToValuationImages(
               width: 1,
               height: 1,
             },
-          });
+          };
+          out.push(image);
+          control?.onImage?.(image);
         }
       }
       await flushProgress(onProgress, end, pageCount, "تحويل ورفع صفحات PDF");
@@ -304,6 +431,58 @@ async function processPdfToValuationImages(
 
   out.sort((a, b) => (a.autoPageIndex ?? 0) - (b.autoPageIndex ?? 0));
   return out;
+}
+
+async function buildPdfUploadPreview(file: File): Promise<{
+  previewDataUrl: string;
+  pageCount: number;
+  estimatedImageCount: number;
+}> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    let scale = PDF_UPLOAD_RENDER_SCALE;
+    let viewport = page.getViewport({ scale });
+    const pagePixels = viewport.width * viewport.height;
+    if (pagePixels > PDF_UPLOAD_MAX_PAGE_PIXELS) {
+      scale *= Math.sqrt(PDF_UPLOAD_MAX_PAGE_PIXELS / pagePixels);
+      viewport = page.getViewport({ scale });
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("تعذر تجهيز معاينة PDF.");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+    const trimmed = trimCanvasWhiteMargins(canvas, {
+      padding: Math.max(8, Math.round(10 * scale)),
+      threshold: 248,
+    });
+    const previewDataUrl = trimmed.canvas.toDataURL("image/png");
+    if (trimmed.cropped) {
+      trimmed.canvas.width = 1;
+      trimmed.canvas.height = 1;
+    }
+    canvas.width = 1;
+    canvas.height = 1;
+    return {
+      previewDataUrl,
+      pageCount: pdf.numPages,
+      estimatedImageCount: pdf.numPages,
+    };
+  } finally {
+    await pdf.destroy();
+  }
 }
 
 function fileDownloadUrl(projectId: string, fileId: string) {
@@ -319,6 +498,15 @@ async function fetchFileArrayBuffer(projectId: string, fileId: string) {
 async function fetchFileBlob(projectId: string, fileId: string) {
   const res = await fetch(fileDownloadUrl(projectId, fileId), { credentials: "include" });
   if (!res.ok) throw new Error(`تعذر تحميل الملف من الخادم (${res.status}).`);
+  return await res.blob();
+}
+
+async function fetchValuationExcelFileBlob(projectId: string, fileId: string) {
+  const res = await fetch(
+    `/api/mv/projects/${encodeURIComponent(projectId)}/valuation-excel-files/${encodeURIComponent(fileId)}/download`,
+    { credentials: "include" },
+  );
+  if (!res.ok) throw new Error(`تعذر تحميل ملف Excel من الخادم (${res.status}).`);
   return await res.blob();
 }
 
@@ -1187,6 +1375,352 @@ async function renderValuationExcelRowsImageDataUrl({
   return canvas.toDataURL("image/png");
 }
 
+function normalizeExcelPdfRowsPerImage(value: unknown) {
+  const n = typeof value === "number" ? value : Number(String(value ?? "").replace(/[^\d]/g, ""));
+  if (!Number.isFinite(n)) return DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE;
+  return Math.max(
+    MIN_EXCEL_PDF_ROWS_PER_IMAGE,
+    Math.min(MAX_EXCEL_PDF_ROWS_PER_IMAGE, Math.round(n)),
+  );
+}
+
+function excelPdfCellText(cell: unknown) {
+  if (!cell || typeof cell !== "object") return "";
+  const c = cell as { w?: unknown; v?: unknown };
+  if (typeof c.w === "string") return cleanAccountingText(c.w);
+  if (c.v === null || c.v === undefined) return "";
+  if (c.v instanceof Date) return c.v.toLocaleDateString("ar-SA");
+  return cleanAccountingText(String(c.v));
+}
+
+function clampExcelPdfDimension(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function excelPdfColumnWidth(raw: unknown) {
+  const col = raw && typeof raw === "object" ? (raw as { wpx?: unknown; width?: unknown; wch?: unknown }) : {};
+  if (typeof col.wpx === "number" && Number.isFinite(col.wpx)) {
+    return clampExcelPdfDimension(col.wpx, EXCEL_PDF_MIN_COLUMN_WIDTH_PX, EXCEL_PDF_MAX_COLUMN_WIDTH_PX);
+  }
+  if (typeof col.width === "number" && Number.isFinite(col.width)) {
+    return clampExcelPdfDimension(
+      col.width * 9 + EXCEL_PDF_CELL_PAD_X_PX * 2,
+      EXCEL_PDF_MIN_COLUMN_WIDTH_PX,
+      EXCEL_PDF_MAX_COLUMN_WIDTH_PX,
+    );
+  }
+  if (typeof col.wch === "number" && Number.isFinite(col.wch)) {
+    return clampExcelPdfDimension(
+      col.wch * 9 + EXCEL_PDF_CELL_PAD_X_PX * 2,
+      EXCEL_PDF_MIN_COLUMN_WIDTH_PX,
+      EXCEL_PDF_MAX_COLUMN_WIDTH_PX,
+    );
+  }
+  return EXCEL_PDF_DEFAULT_COLUMN_WIDTH_PX;
+}
+
+async function readExcelSheetsForPdf(
+  file: File,
+  options?: { firstSheetOnly?: boolean; sheetRows?: number },
+): Promise<ExcelPdfSheet[]> {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(await file.arrayBuffer(), {
+    type: "array",
+    cellDates: true,
+    raw: false,
+    sheetStubs: true,
+  });
+
+  const sheets: ExcelPdfSheet[] = [];
+  const sheetNames = options?.firstSheetOnly ? workbook.SheetNames.slice(0, 1) : workbook.SheetNames;
+  for (const sheetName of sheetNames) {
+    const worksheet = workbook.Sheets[sheetName] as
+      | (Record<string, unknown> & {
+          "!ref"?: string;
+          "!cols"?: unknown[];
+        })
+      | undefined;
+    if (!worksheet?.["!ref"]) continue;
+    const range = XLSX.utils.decode_range(worksheet["!ref"]);
+    const firstCol = range.s.c;
+    const lastCol = range.e.c;
+    const rowsLimit =
+      options?.sheetRows && options.sheetRows > 0
+        ? normalizeExcelPdfRowsPerImage(options.sheetRows)
+        : null;
+    let firstRow = range.s.r;
+
+    if (rowsLimit) {
+      let foundContentRow = false;
+      for (let r = range.s.r; r <= range.e.r; r += 1) {
+        for (let c = firstCol; c <= lastCol; c += 1) {
+          if (excelPdfCellText(worksheet[XLSX.utils.encode_cell({ r, c })]).trim()) {
+            firstRow = r;
+            foundContentRow = true;
+            break;
+          }
+        }
+        if (foundContentRow) break;
+      }
+    }
+
+    const lastRow = rowsLimit ? Math.min(range.e.r, firstRow + rowsLimit - 1) : range.e.r;
+    const rawRows: string[][] = [];
+    let minContentRow = Number.POSITIVE_INFINITY;
+    let maxContentRow = -1;
+    let minContentCol = Number.POSITIVE_INFINITY;
+    let maxContentCol = -1;
+
+    for (let r = firstRow; r <= lastRow; r += 1) {
+      const row: string[] = [];
+      for (let c = firstCol; c <= lastCol; c += 1) {
+        const text = excelPdfCellText(worksheet[XLSX.utils.encode_cell({ r, c })]);
+        if (text.trim()) {
+          const rowIndex = rawRows.length;
+          minContentRow = Math.min(minContentRow, rowIndex);
+          maxContentRow = Math.max(maxContentRow, rowIndex);
+          minContentCol = Math.min(minContentCol, c);
+          maxContentCol = Math.max(maxContentCol, c);
+        }
+        row.push(text);
+      }
+      rawRows.push(row);
+    }
+
+    if (maxContentRow < 0 || maxContentCol < minContentCol) continue;
+    const colStart = Math.max(0, minContentCol - firstCol);
+    const colEnd = Math.max(colStart, maxContentCol - firstCol);
+    const rows = rawRows
+      .slice(Math.max(0, minContentRow), maxContentRow + 1)
+      .map((row) => row.slice(colStart, colEnd + 1));
+    const colCount = Math.max(1, colEnd - colStart + 1);
+    const rawCols = Array.isArray(worksheet["!cols"]) ? worksheet["!cols"] : [];
+    const columnWidths = Array.from({ length: colCount }, (_, index) =>
+      excelPdfColumnWidth(rawCols[minContentCol + index]),
+    );
+    sheets.push({
+      name: cleanAccountingText(sheetName) || "Sheet",
+      rows,
+      columnWidths,
+      rowCount: rows.length,
+      columnCount: colCount,
+    });
+  }
+
+  if (sheets.length === 0) {
+    throw new Error("لم يتم العثور على شيت صالح داخل ملف Excel.");
+  }
+  return sheets;
+}
+
+function renderExcelPdfPageDataUrl(
+  sheet: ExcelPdfSheet,
+  rowStart: number,
+  rowEnd: number,
+): string {
+  const rows = sheet.rows.slice(Math.max(0, rowStart), Math.max(rowStart + 1, rowEnd));
+  const visibleRows = rows.length > 0 ? rows : [Array.from({ length: Math.max(1, sheet.columnCount) }, () => "")];
+  const colCount = Math.max(sheet.columnCount, ...visibleRows.map((row) => row.length), 1);
+  const fontFamily = "Calibri, Arial, sans-serif";
+  const cellFont = `${EXCEL_PDF_CELL_FONT_PX}px ${fontFamily}`;
+  const measureCanvas = document.createElement("canvas");
+  const measureCtx = measureCanvas.getContext("2d");
+  if (!measureCtx) throw new Error("تعذر إنشاء صورة معاينة Excel.");
+  measureCtx.font = cellFont;
+  const columnWidths = Array.from({ length: colCount }, (_, index) => {
+    const base = sheet.columnWidths[index] ?? EXCEL_PDF_DEFAULT_COLUMN_WIDTH_PX;
+    let measured = base;
+    for (const row of visibleRows) {
+      const text = row[index] ?? "";
+      if (text) {
+        measured = Math.max(measured, measureCtx.measureText(text).width + EXCEL_PDF_CELL_PAD_X_PX * 2);
+      }
+    }
+    return clampExcelPdfDimension(
+      measured,
+      EXCEL_PDF_MIN_COLUMN_WIDTH_PX,
+      EXCEL_PDF_MAX_COLUMN_WIDTH_PX,
+    );
+  });
+  const tableWidth = Math.max(1, columnWidths.reduce((sum, width) => sum + width, 0));
+  const tableHeight = Math.max(EXCEL_PDF_ROW_HEIGHT_PX, visibleRows.length * EXCEL_PDF_ROW_HEIGHT_PX);
+  const cssWidth = tableWidth + EXCEL_PDF_CONTENT_PADDING_PX * 2 + 1;
+  const cssHeight = tableHeight + EXCEL_PDF_CONTENT_PADDING_PX * 2 + 1;
+  const pixelScale = Math.min(
+    EXCEL_PDF_RENDER_SCALE,
+    Math.sqrt(EXCEL_PDF_MAX_CANVAS_PIXELS / Math.max(1, cssWidth * cssHeight)),
+    EXCEL_PDF_MAX_CANVAS_DIMENSION_PX / Math.max(1, cssWidth),
+    EXCEL_PDF_MAX_CANVAS_DIMENSION_PX / Math.max(1, cssHeight),
+  );
+  const renderScale = Number.isFinite(pixelScale) && pixelScale > 0 ? pixelScale : 1;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(cssWidth * renderScale));
+  canvas.height = Math.max(1, Math.ceil(cssHeight * renderScale));
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) throw new Error("تعذر إنشاء صورة معاينة Excel.");
+  ctx.scale(renderScale, renderScale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+  ctx.save();
+  ctx.translate(EXCEL_PDF_CONTENT_PADDING_PX, EXCEL_PDF_CONTENT_PADDING_PX);
+  ctx.strokeStyle = "#d9e1e8";
+  ctx.lineWidth = 1 / renderScale;
+  ctx.textBaseline = "middle";
+
+  let y = 0;
+  visibleRows.forEach((row) => {
+    let x = 0;
+    for (let colIndex = 0; colIndex < colCount; colIndex += 1) {
+      const width = columnWidths[colIndex] ?? EXCEL_PDF_DEFAULT_COLUMN_WIDTH_PX;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(x, y, width, EXCEL_PDF_ROW_HEIGHT_PX);
+      ctx.strokeStyle = "#d9e1e8";
+      ctx.strokeRect(
+        x + 0.5 / renderScale,
+        y + 0.5 / renderScale,
+        width,
+        EXCEL_PDF_ROW_HEIGHT_PX,
+      );
+
+      const text = row[colIndex] ?? "";
+      if (text) {
+        const isArabic = /[\u0600-\u06FF]/.test(text);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+          x + EXCEL_PDF_CELL_PAD_X_PX / 2,
+          y + 2,
+          Math.max(1, width - EXCEL_PDF_CELL_PAD_X_PX),
+          Math.max(1, EXCEL_PDF_ROW_HEIGHT_PX - 4),
+        );
+        ctx.clip();
+        ctx.font = cellFont;
+        ctx.direction = isArabic ? "rtl" : "ltr";
+        ctx.textAlign = isArabic ? "right" : "left";
+        ctx.fillStyle = "#111827";
+        ctx.fillText(
+          text,
+          isArabic ? x + width - EXCEL_PDF_CELL_PAD_X_PX : x + EXCEL_PDF_CELL_PAD_X_PX,
+          y + EXCEL_PDF_ROW_HEIGHT_PX / 2,
+        );
+        ctx.restore();
+      }
+      x += width;
+    }
+    y += EXCEL_PDF_ROW_HEIGHT_PX;
+  });
+
+  ctx.restore();
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.lineWidth = 1 / renderScale;
+  ctx.strokeRect(
+    EXCEL_PDF_CONTENT_PADDING_PX + 0.5 / renderScale,
+    EXCEL_PDF_CONTENT_PADDING_PX + 0.5 / renderScale,
+    tableWidth,
+    tableHeight,
+  );
+  return canvas.toDataURL("image/png");
+}
+
+function excelPdfPageRanges(sheet: ExcelPdfSheet, rowsPerImage: number) {
+  const n = normalizeExcelPdfRowsPerImage(rowsPerImage);
+  const ranges: { start: number; end: number }[] = [];
+  for (let start = 0; start < sheet.rows.length; start += n) {
+    ranges.push({ start, end: Math.min(sheet.rows.length, start + n) });
+  }
+  return ranges.length > 0 ? ranges : [{ start: 0, end: Math.min(sheet.rows.length, n) }];
+}
+
+async function buildExcelPdfPreviewFromOriginalFile(file: File, rowsPerImage: number) {
+  const normalizedRows = normalizeExcelPdfRowsPerImage(rowsPerImage);
+  const sheets = await readExcelSheetsForPdf(file, {
+    firstSheetOnly: true,
+    sheetRows: normalizedRows,
+  });
+  const firstSheet = sheets[0]!;
+  const previewDataUrl = renderExcelPdfPageDataUrl(
+    firstSheet,
+    0,
+    Math.min(firstSheet.rows.length, normalizedRows),
+  );
+  return {
+    previewDataUrl,
+    estimatedImageCount: 1,
+    sheetName: firstSheet.name,
+    rowCount: firstSheet.rowCount,
+    columnCount: firstSheet.columnCount,
+  };
+}
+
+async function buildExcelPdfFromOriginalFile(
+  file: File,
+  options: { rowsPerImage: number },
+): Promise<{
+  pdfFile: File;
+  previewDataUrl: string;
+  estimatedImageCount: number;
+  sheetName: string;
+  rowCount: number;
+  columnCount: number;
+}> {
+  const sheets = await readExcelSheetsForPdf(file);
+  const rowsPerImage = normalizeExcelPdfRowsPerImage(options.rowsPerImage);
+  const pages: { dataUrl: string; sheet: ExcelPdfSheet; pageIndex: number; pageCount: number }[] = [];
+
+  for (const sheet of sheets) {
+    const ranges = excelPdfPageRanges(sheet, rowsPerImage);
+    for (let pageIndex = 0; pageIndex < ranges.length; pageIndex += 1) {
+      const range = ranges[pageIndex]!;
+      pages.push({
+        dataUrl: renderExcelPdfPageDataUrl(sheet, range.start, range.end),
+        sheet,
+        pageIndex,
+        pageCount: ranges.length,
+      });
+    }
+  }
+
+  if (pages.length === 0) throw new Error("تعذر إنشاء PDF من ملف Excel.");
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+  for (let i = 0; i < pages.length; i += 1) {
+    if (i > 0) pdf.addPage("a4", "landscape");
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const image = await loadImage(pages[i]!.dataUrl);
+    const fit = Math.min(pageW / Math.max(1, image.naturalWidth), pageH / Math.max(1, image.naturalHeight));
+    const drawW = image.naturalWidth * fit;
+    const drawH = image.naturalHeight * fit;
+    pdf.addImage(
+      pages[i]!.dataUrl,
+      "PNG",
+      (pageW - drawW) / 2,
+      (pageH - drawH) / 2,
+      drawW,
+      drawH,
+      undefined,
+      "FAST",
+    );
+  }
+
+  const firstSheet = pages[0]!.sheet;
+  return {
+    pdfFile: new File([pdf.output("blob")], `${safeImageFileBaseName(file.name)}.pdf`, {
+      type: "application/pdf",
+    }),
+    previewDataUrl: pages[0]!.dataUrl,
+    estimatedImageCount: pages.length,
+    sheetName: firstSheet.name,
+    rowCount: sheets.reduce((sum, sheet) => sum + sheet.rowCount, 0),
+    columnCount: firstSheet.columnCount,
+  };
+}
+
 type ExcelAutoImageJob = {
   sheet: ValuationExcelSheetDetails;
   visibleHeaders: string[];
@@ -2016,6 +2550,13 @@ export default function MvValuationAccountingWorkspace({
   const [editorSourceId, setEditorSourceId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<MvValuationAccountingImage | null>(null);
   const [autoExcelBusySourceIds, setAutoExcelBusySourceIds] = useState<string[]>([]);
+  const [pendingUploadPreview, setPendingUploadPreview] = useState<PendingUploadPreview | null>(null);
+  const [pendingPreviewPixelPerfect, setPendingPreviewPixelPerfect] = useState(false);
+  const [pendingPreviewZoom, setPendingPreviewZoom] = useState(1);
+  const [pendingPreviewNatural, setPendingPreviewNatural] = useState<{ w: number; h: number } | null>(null);
+  const [excelPreparingSourceIds, setExcelPreparingSourceIds] = useState<string[]>([]);
+  const pendingUploadTokenRef = useRef(0);
+  const uploadStopRequestedRef = useRef(false);
 
   const [excelGridOpen, setExcelGridOpen] = useState(false);
   const [excelColPicks, setExcelColPicks] = useState<number[]>([]);
@@ -2087,6 +2628,12 @@ export default function MvValuationAccountingWorkspace({
     const id = window.setInterval(() => setFileProcessElapsedTick((n) => n + 1), 450);
     return () => clearInterval(id);
   }, [fileProcessOverlay]);
+
+  useEffect(() => {
+    setPendingPreviewNatural(null);
+    setPendingPreviewPixelPerfect(false);
+    setPendingPreviewZoom(1);
+  }, [pendingUploadPreview?.id]);
 
   const pushFileProcess = useCallback(
     (patch: { phase: string; current: number; total: number; fileName?: string }) => {
@@ -2537,6 +3084,54 @@ export default function MvValuationAccountingWorkspace({
     [updateSource],
   );
 
+  const prepareExcelSourceForSmartGrid = useCallback(
+    async (source: MvValuationAccountingSourceFile) => {
+      if (source.kind !== "excel" || source.importResult) {
+        setExcelGridOpen(true);
+        return;
+      }
+      if (!source.fileId) {
+        toast({
+          variant: "destructive",
+          description: "ملف Excel الأصلي غير متاح لتحضير الجدول الذكي.",
+        });
+        return;
+      }
+      if (excelPreparingSourceIds.includes(source.id)) return;
+      setExcelPreparingSourceIds((current) =>
+        current.includes(source.id) ? current : [...current, source.id],
+      );
+      try {
+        const blob = await fetchValuationExcelFileBlob(projectId, source.fileId);
+        const excelFile = new File([blob], source.originalName || source.name, {
+          type: source.mimeType || blob.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        const importResult = await importValuationExcelSheets(
+          projectId,
+          excelFile,
+          cleanAccountingText(source.name),
+          source.fileId,
+        );
+        updateSource(source.id, {
+          excelDataSource: "mv-sheets",
+          excelRowsPerImage: source.excelRowsPerImage ?? DEFAULT_EXCEL_ROWS_PER_IMAGE,
+          importResult,
+          activeSheet: getFirstSheet(importResult),
+        });
+        setExcelGridOpen(true);
+        toast({ description: "تم تحضير الجدول الذكي من ملف Excel الأصلي." });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر تحضير الجدول الذكي من ملف Excel.",
+        });
+      } finally {
+        setExcelPreparingSourceIds((current) => current.filter((id) => id !== source.id));
+      }
+    },
+    [excelPreparingSourceIds, projectId, toast, updateSource],
+  );
+
   const setSourceVisibleColumns = useCallback(
     (sourceId: string, sheetKey: string, columns: string[]) => {
       updateSource(sourceId, {
@@ -2580,10 +3175,16 @@ export default function MvValuationAccountingWorkspace({
     return { min: Math.min(...excelRowPicks), max: Math.max(...excelRowPicks) };
   }, [excelRowPicks]);
 
-  const handleUpload = useCallback(
-    async (kind: MvValuationAccountingFileKind, list: FileList | null) => {
-      const files = Array.from(list ?? []).filter((file) => file.size > 0);
-      if (files.length === 0) return;
+  const commitUpload = useCallback(
+    async (
+      kind: MvValuationAccountingFileKind,
+      selectedFiles: File[],
+      targetApproach: MvValuationAccountingApproachId = activeApproach,
+      options?: { originalExcelFiles?: File[] },
+    ) => {
+      const files = selectedFiles.filter((file) => file.size > 0);
+      if (files.length === 0) return false;
+      uploadStopRequestedRef.current = false;
       setUploadingKind(kind);
       const sessionStart = Date.now();
       setFileProcessOverlay({
@@ -2605,7 +3206,9 @@ export default function MvValuationAccountingWorkspace({
         let convertedPdfPageCount = 0;
         let generatedExcelImageCount = 0;
         const excelGenerationErrors: string[] = [];
-        for (const file of files) {
+        for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+          const file = files[fileIndex]!;
+          if (uploadStopRequestedRef.current) break;
           const cleanFileName = cleanAccountingText(file.name);
           pushFileProcess({
             phase:
@@ -2641,7 +3244,7 @@ export default function MvValuationAccountingWorkspace({
             );
             const source: MvValuationAccountingSourceFile = {
               id: createId("account-source"),
-              approachId: activeApproach,
+              approachId: targetApproach,
               kind,
               name: cleanFileName,
               originalName: file.name,
@@ -2685,8 +3288,38 @@ export default function MvValuationAccountingWorkspace({
               );
             }
           } else if (kind === "pdf") {
+            const originalExcelFile = options?.originalExcelFiles?.[fileIndex];
+            if (originalExcelFile && !uploadStopRequestedRef.current) {
+              pushFileProcess({
+                phase: "حفظ ملف Excel الأصلي كمسودة متقدمة...",
+                current: 0,
+                total: 0,
+                fileName: cleanAccountingText(originalExcelFile.name),
+              });
+              const storedExcelFileId = await uploadValuationExcelFileAndReturnId(projectId, originalExcelFile);
+              const excelDraftSource: MvValuationAccountingSourceFile = {
+                id: createId("account-source"),
+                approachId: targetApproach,
+                kind: "excel",
+                name: cleanAccountingText(originalExcelFile.name),
+                originalName: originalExcelFile.name,
+                mimeType: originalExcelFile.type,
+                sizeBytes: originalExcelFile.size,
+                createdAt: new Date().toISOString(),
+                fileId: storedExcelFileId,
+                excelRowsPerImage: DEFAULT_EXCEL_ROWS_PER_IMAGE,
+              };
+              nextSources.push(excelDraftSource);
+              persistStore((current) => ({
+                ...current,
+                sources: current.sources.some((source) => source.id === excelDraftSource.id)
+                  ? current.sources
+                  : [...current.sources, excelDraftSource],
+              }));
+            }
+            if (uploadStopRequestedRef.current) break;
             pushFileProcess({
-              phase: "رفع ملف PDF الأصلي…",
+              phase: originalExcelFile ? "حفظ ملف PDF الناتج من Excel…" : "رفع ملف PDF الأصلي…",
               current: 0,
               total: 0,
               fileName: cleanFileName,
@@ -2696,7 +3329,7 @@ export default function MvValuationAccountingWorkspace({
             });
             const pdfSource: MvValuationAccountingSourceFile = {
               id: createId("account-source"),
-              approachId: activeApproach,
+              approachId: targetApproach,
               kind: "pdf",
               name: cleanFileName,
               originalName: file.name,
@@ -2706,11 +3339,17 @@ export default function MvValuationAccountingWorkspace({
               fileId: pdfFileId,
             };
             nextSources.push(pdfSource);
+            persistStore((current) => ({
+              ...current,
+              sources: current.sources.some((source) => source.id === pdfSource.id)
+                ? current.sources
+                : [...current.sources, pdfSource],
+            }));
             const pdfImages = await processPdfToValuationImages(
               projectId,
               file,
               pdfSource,
-              activeApproach,
+              targetApproach,
               cleanFileName,
               async (done, total, phase) => {
                 pushFileProcess({
@@ -2720,6 +3359,17 @@ export default function MvValuationAccountingWorkspace({
                   fileName: cleanFileName,
                 });
                 await waitFrame();
+              },
+              {
+                shouldStop: () => uploadStopRequestedRef.current,
+                onImage: (image) => {
+                  persistStore((current) => ({
+                    ...current,
+                    images: current.images.some((item) => item.id === image.id)
+                      ? current.images
+                      : [...current.images, image],
+                  }));
+                },
               },
             );
             convertedPdfPageCount += pdfImages.length;
@@ -2742,7 +3392,7 @@ export default function MvValuationAccountingWorkspace({
             });
             const imageSource: MvValuationAccountingSourceFile = {
               id: createId("account-source"),
-              approachId: activeApproach,
+              approachId: targetApproach,
               kind,
               name: cleanFileName,
               originalName: file.name,
@@ -2754,11 +3404,11 @@ export default function MvValuationAccountingWorkspace({
             nextSources.push(imageSource);
             nextImages.push({
               id: createId("account-image"),
-              approachId: activeApproach,
+              approachId: targetApproach,
               sourceId: imageSource.id,
               sourceKind: "image",
               sourceFileName: cleanFileName,
-              name: `${approachLabel(activeApproach)} - ${cleanFileName}`,
+              name: `${approachLabel(targetApproach)} - ${cleanFileName}`,
               fileId: uploadedId,
               createdAt: new Date().toISOString(),
               displayWidthPercent: 90,
@@ -2771,18 +3421,29 @@ export default function MvValuationAccountingWorkspace({
         }
         persistStore((current) => ({
           ...current,
-          sources: [...current.sources, ...nextSources],
-          images: [...current.images, ...nextImages],
+          sources: [
+            ...current.sources,
+            ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
+          ],
+          images: [
+            ...current.images,
+            ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
+          ],
         }));
-        const firstNonExcelSource = nextSources.find((source) => source.kind !== "excel");
-        if (firstNonExcelSource) setEditorSourceId(firstNonExcelSource.id);
+        const firstGeneratedImage = nextImages[0] ?? null;
+        if ((kind === "excel" || options?.originalExcelFiles?.length) && firstGeneratedImage) {
+          setPreviewImage(firstGeneratedImage);
+        } else {
+          const firstNonExcelSource = nextSources.find((source) => source.kind !== "excel");
+          if (firstNonExcelSource) setEditorSourceId(firstNonExcelSource.id);
+        }
         toast({
           description:
             kind === "excel"
-              ? `تم رفع ${files.length} ملف Excel وتوليد ${generatedExcelImageCount} صورة تلقائياً في ${approachLabel(activeApproach)}.`
+              ? `تم رفع ${files.length} ملف Excel وتوليد ${generatedExcelImageCount} صورة تلقائياً في ${approachLabel(targetApproach)}.`
               : convertedPdfPageCount > 0
-              ? `تم تحويل PDF إلى ${convertedPdfPageCount} صورة عالية الجودة وربطها بـ ${approachLabel(activeApproach)}.`
-              : `تم رفع ${files.length} ملف إلى ${approachLabel(activeApproach)}.`,
+              ? `تم تحويل PDF إلى ${convertedPdfPageCount} صورة عالية الجودة وربطها بـ ${approachLabel(targetApproach)}.`
+              : `تم رفع ${files.length} ملف إلى ${approachLabel(targetApproach)}.`,
         });
         if (excelGenerationErrors.length > 0) {
           toast({
@@ -2790,11 +3451,13 @@ export default function MvValuationAccountingWorkspace({
             description: excelGenerationErrors.slice(0, 2).join(" | "),
           });
         }
+        return true;
       } catch (error) {
         toast({
           variant: "destructive",
           description: error instanceof Error ? error.message : "تعذر رفع الملف.",
         });
+        return false;
       } finally {
         setUploadingKind(null);
         setFileProcessOverlay(null);
@@ -2815,6 +3478,264 @@ export default function MvValuationAccountingWorkspace({
       toast,
     ],
   );
+
+  const closePendingUploadPreview = useCallback(() => {
+    pendingUploadTokenRef.current += 1;
+    uploadStopRequestedRef.current = true;
+    setPendingUploadPreview(null);
+    setPendingPreviewNatural(null);
+    setUploadingKind(null);
+    setFileProcessOverlay(null);
+  }, []);
+
+  const prepareUploadPreview = useCallback(
+    async (
+      kind: PendingUploadKind,
+      selectedFiles: File[],
+      targetApproach: MvValuationAccountingApproachId,
+    ) => {
+      const files = selectedFiles.filter((file) => file.size > 0);
+      if (files.length === 0) return;
+      const token = pendingUploadTokenRef.current + 1;
+      pendingUploadTokenRef.current = token;
+      const id = createId("pending-upload");
+      const cleanFirstName = cleanAccountingText(files[0]?.name ?? "");
+      setPendingUploadPreview({
+        id,
+        kind,
+        approachId: targetApproach,
+        files,
+        status: "processing",
+        title: cleanFirstName,
+        message:
+          kind === "excel"
+            ? "جاري تحويل Excel إلى PDF مؤقت للمعاينة فقط..."
+            : "جاري تجهيز معاينة PDF...",
+      });
+      setUploadingKind(kind);
+      setFileProcessOverlay({
+        phase:
+          kind === "excel"
+            ? "جاري تحويل Excel إلى PDF مؤقت للمعاينة فقط..."
+            : "جاري تجهيز معاينة PDF...",
+        current: 0,
+        total: 0,
+        fileName: cleanFirstName,
+        startedAt: Date.now(),
+      });
+      await waitFrame();
+
+      try {
+        if (kind === "excel") {
+          const rowsPerImage = DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE;
+          const preview = await buildExcelPdfPreviewFromOriginalFile(files[0]!, rowsPerImage);
+          if (pendingUploadTokenRef.current !== token) return;
+          setPendingUploadPreview({
+            id,
+            kind: "excel",
+            approachId: targetApproach,
+            files,
+            status: "ready",
+            title: cleanFirstName,
+            message:
+              files.length > 1
+                ? `تم تجهيز عينة من أول ملف. عند المتابعة سيتم حفظ ملفات Excel الأصلية وملفات PDF الناتجة وصور كل الملفات (${files.length}).`
+                : "تم تجهيز عينة الصورة النهائية. عند المتابعة سيتم حفظ ملف Excel الأصلي وملف PDF الناتج وكل الصور.",
+            previewDataUrl: preview.previewDataUrl,
+            estimatedImageCount: preview.estimatedImageCount,
+            sheetName: preview.sheetName,
+            rowCount: preview.rowCount,
+            columnCount: preview.columnCount,
+            excelRowsPerImage: rowsPerImage,
+          });
+        } else {
+          const preview = await buildPdfUploadPreview(files[0]!);
+          if (pendingUploadTokenRef.current !== token) return;
+          setPendingUploadPreview({
+            id,
+            kind,
+            approachId: targetApproach,
+            files,
+            status: "ready",
+            title: cleanFirstName,
+            message:
+              files.length > 1
+                ? `تم تجهيز عينة من أول PDF. عند المتابعة سيتم قص وتخزين صفحات كل الملفات (${files.length}).`
+                : "تم تجهيز عينة الصفحة الأولى بعد قص الهوامش البيضاء. عند المتابعة سيتم حفظ كل الصفحات.",
+            previewDataUrl: preview.previewDataUrl,
+            estimatedImageCount: preview.estimatedImageCount,
+            pageCount: preview.pageCount,
+          });
+        }
+      } catch (error) {
+        if (pendingUploadTokenRef.current !== token) return;
+        const message = error instanceof Error ? error.message : "تعذر تجهيز المعاينة.";
+        setPendingUploadPreview((current) =>
+          current?.id === id
+            ? {
+                ...current,
+                status: "error",
+                message,
+                error: message,
+              }
+            : current,
+        );
+        toast({ variant: "destructive", description: message });
+      } finally {
+        if (pendingUploadTokenRef.current === token) {
+          setUploadingKind(null);
+          setFileProcessOverlay(null);
+        }
+      }
+    },
+    [
+      excelPreviewCellFont,
+      excelPreviewColMul,
+      excelPreviewHeaderFont,
+      excelPreviewPadX,
+      excelPreviewPadY,
+      excelPreviewRowHeight,
+      qualityScale,
+      toast,
+    ],
+  );
+
+  const refreshPendingExcelPreview = useCallback(async () => {
+    const pending = pendingUploadPreview;
+    if (!pending || pending.kind !== "excel" || pending.files.length === 0) return;
+    const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
+    setPendingUploadPreview({
+      ...pending,
+      status: "processing",
+      message: "جاري تحديث معاينة Excel حسب عدد الصفوف...",
+      excelRowsPerImage: rowsPerImage,
+    });
+    setUploadingKind("excel");
+    setFileProcessOverlay({
+      phase: "جاري تحديث معاينة Excel حسب عدد الصفوف...",
+      current: 0,
+      total: 0,
+      fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
+      startedAt: Date.now(),
+    });
+    await waitFrame();
+    try {
+      const preview = await buildExcelPdfPreviewFromOriginalFile(pending.files[0]!, rowsPerImage);
+      setPendingUploadPreview((current) =>
+        current?.id === pending.id
+          ? {
+              ...current,
+              status: "ready",
+              message:
+                current.files.length > 1
+                  ? `تم تحديث العينة. عند المتابعة سيتم حفظ ملفات Excel الأصلية وملفات PDF الناتجة وصور كل الملفات (${current.files.length}).`
+                  : "تم تحديث العينة. عند المتابعة سيتم حفظ ملف Excel الأصلي وملف PDF الناتج وكل الصور.",
+              previewDataUrl: preview.previewDataUrl,
+              estimatedImageCount: preview.estimatedImageCount,
+              sheetName: preview.sheetName,
+              rowCount: preview.rowCount,
+              columnCount: preview.columnCount,
+              excelRowsPerImage: rowsPerImage,
+            }
+          : current,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "تعذر تحديث معاينة Excel.";
+      setPendingUploadPreview((current) =>
+        current?.id === pending.id
+          ? { ...current, status: "error", message, error: message }
+          : current,
+      );
+      toast({ variant: "destructive", description: message });
+    } finally {
+      setUploadingKind(null);
+      setFileProcessOverlay(null);
+    }
+  }, [pendingUploadPreview, toast]);
+
+  const handleUpload = useCallback(
+    async (kind: MvValuationAccountingFileKind, list: FileList | null) => {
+      const files = Array.from(list ?? []).filter((file) => file.size > 0);
+      if (files.length === 0) return;
+      if (kind === "image") {
+        await commitUpload(kind, files, activeApproach);
+        return;
+      }
+      await prepareUploadPreview(kind, files, activeApproach);
+    },
+    [activeApproach, commitUpload, prepareUploadPreview],
+  );
+
+  const continuePendingUpload = useCallback(async () => {
+    const pending = pendingUploadPreview;
+    if (!pending || pending.status !== "ready") return;
+    setPendingUploadPreview({ ...pending, status: "saving", message: "جاري إنشاء كل الصور وحفظها..." });
+    if (pending.kind === "excel") {
+      const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
+      const pdfFiles: File[] = [];
+      try {
+        uploadStopRequestedRef.current = false;
+        setUploadingKind("excel");
+        setFileProcessOverlay({
+          phase: "جاري إنشاء PDF من Excel...",
+          current: 0,
+          total: pending.files.length,
+          fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
+          startedAt: Date.now(),
+        });
+        for (let index = 0; index < pending.files.length; index += 1) {
+          if (uploadStopRequestedRef.current) break;
+          const file = pending.files[index]!;
+          pushFileProcess({
+            phase: "جاري إنشاء PDF من Excel...",
+            current: index,
+            total: pending.files.length,
+            fileName: cleanAccountingText(file.name),
+          });
+          await waitFrame();
+          const converted = await buildExcelPdfFromOriginalFile(file, { rowsPerImage });
+          pdfFiles.push(converted.pdfFile);
+          pushFileProcess({
+            phase: "تم إنشاء PDF من Excel",
+            current: index + 1,
+            total: pending.files.length,
+            fileName: cleanAccountingText(file.name),
+          });
+          await waitFrame();
+        }
+        if (uploadStopRequestedRef.current) {
+          setPendingUploadPreview({ ...pending, status: "ready" });
+          return;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "تعذر إنشاء PDF من Excel.";
+        toast({ variant: "destructive", description: message });
+        setPendingUploadPreview({ ...pending, status: "ready", message });
+        return;
+      } finally {
+        setUploadingKind(null);
+        setFileProcessOverlay(null);
+      }
+      const ok = await commitUpload("pdf", pdfFiles, pending.approachId, {
+        originalExcelFiles: pending.files,
+      });
+      if (ok) {
+        closePendingUploadPreview();
+        return;
+      }
+      setPendingUploadPreview({ ...pending, status: "ready" });
+      return;
+    }
+
+    const ok = await commitUpload(pending.kind, pending.files, pending.approachId, {
+      originalExcelFiles: pending.originalFiles,
+    });
+    if (ok) {
+      closePendingUploadPreview();
+      return;
+    }
+    setPendingUploadPreview({ ...pending, status: "ready" });
+  }, [closePendingUploadPreview, commitUpload, pendingUploadPreview, pushFileProcess, toast]);
 
   const applyExcelCapture = useCallback(async () => {
     if (!editorSource || editorSource.kind !== "excel" || !activeSheet) return;
@@ -3345,10 +4266,15 @@ export default function MvValuationAccountingWorkspace({
                                 size="sm"
                                 variant={source.kind === "excel" ? "outline" : "secondary"}
                                 className="h-8 gap-1.5 px-2 text-[11px] font-bold"
-                                disabled={autoBusy}
-                                onClick={() => setEditorSourceId(source.id)}
+                                disabled={autoBusy || excelPreparingSourceIds.includes(source.id)}
+                                onClick={() => {
+                                  setEditorSourceId(source.id);
+                                  if (source.kind === "excel") void prepareExcelSourceForSmartGrid(source);
+                                }}
                               >
-                                {source.kind === "excel" ? (
+                                {excelPreparingSourceIds.includes(source.id) ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : source.kind === "excel" ? (
                                   <Settings className="h-3.5 w-3.5" />
                                 ) : (
                                   <Scissors className="h-3.5 w-3.5" />
@@ -4295,7 +5221,270 @@ export default function MvValuationAccountingWorkspace({
         </DialogContent>
       </Dialog>
 
-      {fileProcessOverlay ? (
+      <Dialog
+        open={pendingUploadPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) closePendingUploadPreview();
+        }}
+      >
+        <DialogContent
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[940] flex h-[88dvh] w-[min(94vw,1320px)] max-w-[96vw] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-slate-800/70 bg-slate-950 p-0 text-white shadow-2xl",
+            "sm:rounded-2xl",
+            "[&>button]:hidden",
+          )}
+          dir="rtl"
+        >
+          {pendingUploadPreview ? (
+            <>
+              <DialogHeader className="shrink-0 border-b border-slate-800 bg-slate-950/95 px-3 py-3 text-right sm:px-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <DialogTitle className="flex min-w-0 items-center gap-2 text-[14px] font-black sm:text-base">
+                      {pendingUploadPreview.kind === "excel" ? (
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-300" />
+                      ) : (
+                        <FileText className="h-4 w-4 shrink-0 text-red-300" />
+                      )}
+                      <span className="truncate">{cleanAccountingText(pendingUploadPreview.title)}</span>
+                    </DialogTitle>
+                    <DialogDescription className="mt-1 text-[12px] font-semibold text-slate-300">
+                      {pendingUploadPreview.message}
+                    </DialogDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 shrink-0 border-slate-700 bg-slate-900 text-white hover:bg-slate-800"
+                    onClick={closePendingUploadPreview}
+                    aria-label="إغلاق"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-bold text-slate-200">
+                    {approachLabel(pendingUploadPreview.approachId)}
+                  </span>
+                  <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-bold text-slate-200">
+                    {pendingUploadPreview.files.length} ملف
+                  </span>
+                  {pendingUploadPreview.kind !== "excel" && pendingUploadPreview.estimatedImageCount ? (
+                    <span className="rounded-md border border-emerald-800 bg-emerald-950/60 px-2 py-1 text-[11px] font-bold text-emerald-200">
+                      {pendingUploadPreview.estimatedImageCount} صورة متوقعة
+                    </span>
+                  ) : null}
+                  {pendingUploadPreview.pageCount ? (
+                    <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-bold text-slate-200">
+                      {pendingUploadPreview.pageCount} صفحة PDF
+                    </span>
+                  ) : null}
+                  {pendingUploadPreview.sheetName ? (
+                    <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] font-bold text-slate-200">
+                      {pendingUploadPreview.sheetName} · {pendingUploadPreview.rowCount ?? 0} صف ·{" "}
+                      {pendingUploadPreview.columnCount ?? 0} عمود
+                    </span>
+                  ) : null}
+                </div>
+
+                {pendingUploadPreview.previewDataUrl ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant={pendingPreviewPixelPerfect ? "default" : "secondary"}
+                      size="sm"
+                      className={cn(
+                        "h-8 px-2 text-[11px]",
+                        pendingPreviewPixelPerfect
+                          ? "bg-amber-600 text-white hover:bg-amber-700"
+                          : "border-slate-700 text-slate-200",
+                      )}
+                      onClick={() => setPendingPreviewPixelPerfect(true)}
+                    >
+                      1:1
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={!pendingPreviewPixelPerfect ? "default" : "secondary"}
+                      size="sm"
+                      className={cn(
+                        "h-8 px-2 text-[11px]",
+                        !pendingPreviewPixelPerfect
+                          ? "bg-amber-600 text-white hover:bg-amber-700"
+                          : "border-slate-700 text-slate-200",
+                      )}
+                      onClick={() => setPendingPreviewPixelPerfect(false)}
+                    >
+                      ملائم للشاشة
+                    </Button>
+                    <div className="flex min-w-[12rem] flex-1 items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1.5">
+                      <span className="text-[11px] font-bold text-slate-300">Zoom</span>
+                      <Slider
+                        min={0.5}
+                        max={2.5}
+                        step={0.05}
+                        value={[pendingPreviewZoom]}
+                        onValueChange={(v) => setPendingPreviewZoom(v[0] ?? 1)}
+                        className="flex-1"
+                      />
+                      <span className="text-[11px] font-bold text-slate-300" dir="ltr">
+                        {Math.round(pendingPreviewZoom * 100)}%
+                      </span>
+                    </div>
+                    {pendingUploadPreview.kind === "excel" ? (
+                      <label className="flex min-w-[13rem] items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1.5">
+                        <span className="whitespace-nowrap text-[11px] font-bold text-slate-300">
+                          صفوف الصورة
+                        </span>
+                        <Input
+                          type="number"
+                          min={MIN_EXCEL_PDF_ROWS_PER_IMAGE}
+                          max={MAX_EXCEL_PDF_ROWS_PER_IMAGE}
+                          value={normalizeExcelPdfRowsPerImage(pendingUploadPreview.excelRowsPerImage)}
+                          onChange={(event) => {
+                            const rows = normalizeExcelPdfRowsPerImage(event.target.value);
+                            setPendingUploadPreview((current) =>
+                              current?.id === pendingUploadPreview.id
+                                ? { ...current, excelRowsPerImage: rows }
+                                : current,
+                            );
+                          }}
+                          className="h-7 w-20 border-slate-700 bg-slate-900 text-center text-[12px] font-bold text-white"
+                          dir="ltr"
+                        />
+                      </label>
+                    ) : null}
+                    {pendingPreviewNatural ? (
+                      <span className="text-[11px] font-semibold text-slate-400" dir="ltr">
+                        {pendingPreviewNatural.w} × {pendingPreviewNatural.h} px
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </DialogHeader>
+
+              <div className="min-h-0 flex-1 overflow-auto bg-[linear-gradient(45deg,rgba(255,255,255,0.035)_25%,transparent_25%,transparent_75%,rgba(255,255,255,0.035)_75%),linear-gradient(45deg,rgba(255,255,255,0.035)_25%,transparent_25%,transparent_75%,rgba(255,255,255,0.035)_75%)] bg-[length:24px_24px] bg-[position:0_0,12px_12px] p-3 sm:p-4">
+                {pendingUploadPreview.status === "processing" ? (
+                  <div className="flex h-full min-h-[24rem] items-center justify-center">
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <Loader2 className="h-9 w-9 animate-spin text-amber-300" />
+                      <p className="text-[13px] font-bold text-slate-200">جاري تجهيز المعاينة...</p>
+                    </div>
+                  </div>
+                ) : pendingUploadPreview.status === "error" ? (
+                  <div className="flex h-full min-h-[24rem] items-center justify-center">
+                    <div className="max-w-lg rounded-lg border border-red-800 bg-red-950/50 px-4 py-4 text-center">
+                      <p className="text-[13px] font-black text-red-100">تعذر تجهيز المعاينة</p>
+                      <p className="mt-1 text-[12px] font-semibold text-red-200">
+                        {pendingUploadPreview.error ?? pendingUploadPreview.message}
+                      </p>
+                    </div>
+                  </div>
+                ) : pendingUploadPreview.previewDataUrl ? (
+                  <div
+                    className={cn(
+                      "flex min-h-full min-w-0",
+                      pendingPreviewPixelPerfect
+                        ? "items-start justify-start overflow-auto"
+                        : "items-center justify-center overflow-auto p-1",
+                    )}
+                    style={pendingPreviewPixelPerfect ? { direction: "ltr" } : undefined}
+                  >
+                    <img
+                      key={pendingUploadPreview.previewDataUrl}
+                      src={pendingUploadPreview.previewDataUrl}
+                      alt="معاينة الصورة النهائية"
+                      decoding="async"
+                      onLoad={(event) => {
+                        setPendingPreviewNatural({
+                          w: event.currentTarget.naturalWidth,
+                          h: event.currentTarget.naturalHeight,
+                        });
+                      }}
+                      className="rounded-sm bg-white shadow-2xl shadow-black/40"
+                      style={
+                        pendingPreviewPixelPerfect
+                          ? {
+                              width: "auto",
+                              height: "auto",
+                              maxWidth: "none",
+                              maxHeight: "none",
+                              transform: `scale(${pendingPreviewZoom})`,
+                              transformOrigin: "top left",
+                              imageRendering: "auto",
+                              display: "block",
+                            }
+                          : {
+                              display: "block",
+                              width: "auto",
+                              height: "auto",
+                              maxWidth: "100%",
+                              maxHeight: "min(72vh, 980px)",
+                              objectFit: "contain" as const,
+                              transform: `scale(${pendingPreviewZoom})`,
+                              transformOrigin: "center center",
+                              imageRendering: "auto",
+                            }
+                      }
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/95 px-3 py-3 sm:px-4">
+                <p className="min-w-0 flex-1 text-[11px] font-semibold text-slate-400">
+                  {pendingUploadPreview.status === "saving" && fileProcessOverlay
+                    ? `${fileProcessOverlay.phase} ${fileProcessOverlay.total > 0 ? `${fileProcessOverlay.current} / ${fileProcessOverlay.total}` : ""}`
+                    : "لن يتم تخزين الملف أو إنشاء كل الصور إلا بعد المتابعة."}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-slate-700 bg-slate-900 px-3 text-[12px] text-white hover:bg-slate-800"
+                    onClick={closePendingUploadPreview}
+                  >
+                    {pendingUploadPreview.status === "saving" ? "إيقاف" : "إلغاء"}
+                  </Button>
+                  {pendingUploadPreview.kind === "excel" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 border-emerald-800 bg-emerald-950/60 px-3 text-[12px] font-extrabold text-emerald-100 hover:bg-emerald-900 disabled:opacity-60"
+                      disabled={pendingUploadPreview.status !== "ready"}
+                      onClick={() => void refreshPendingExcelPreview()}
+                    >
+                      {pendingUploadPreview.status === "processing" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileSpreadsheet className="h-4 w-4" />
+                      )}
+                      معاينة أخرى
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    className="h-9 gap-1.5 bg-amber-600 px-4 text-[12px] font-extrabold text-white hover:bg-amber-700 disabled:opacity-60"
+                    disabled={pendingUploadPreview.status !== "ready"}
+                    onClick={() => void continuePendingUpload()}
+                  >
+                    {pendingUploadPreview.status === "saving" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    متابعة
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      {fileProcessOverlay && pendingUploadPreview?.status !== "saving" ? (
         <div
           className="pointer-events-auto fixed inset-0 z-[945] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-md"
           dir="rtl"

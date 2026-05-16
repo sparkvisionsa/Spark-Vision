@@ -13,7 +13,6 @@ import {
   ImageIcon,
   Loader2,
   MinusSquare,
-  Plus,
   MoreVertical,
   PlusSquare,
   RefreshCw,
@@ -21,7 +20,6 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import Link from "@/components/prefetch-link";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -35,25 +33,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  type ActiveImportSheetRef,
   type AssetImportResult,
-  migrateStoredActiveRef,
-  mergeImportResults,
   normalizeImportResult,
-  withSheetImportIds,
 } from "./asset-import-panel";
-import { readActiveImportSheetRef } from "./mv-asset-import-active-sheet";
 import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
+import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { isPhotosSubfolderName, isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
 import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types";
@@ -120,8 +107,6 @@ type WebkitDirectoryEntry = WebkitEntry & {
 
 const imageExtensions = /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg|tif|tiff)$/i;
 const numberFormatter = new Intl.NumberFormat("ar-SA");
-const ACCEPTED_ASSET_IMPORT_FILES =
-  ".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv";
 type AssetImagesSource = "app" | "device";
 type AppPreviewMediaTab = "images" | "videos";
 
@@ -459,21 +444,6 @@ function readAssetImportFromSession(projectId: string): AssetImportResult | null
   }
 }
 
-function parseMvAssetApiErrorMessage(responseText: string, fallback: string): string {
-  try {
-    const j = JSON.parse(responseText) as { message?: string | string[] };
-    if (j.message) {
-      return Array.isArray(j.message) ? j.message.join(" ") : String(j.message);
-    }
-  } catch {
-    const t = responseText.trim();
-    if (t.length > 0 && t.length < 600) return t;
-  }
-  return fallback;
-}
-
-type FoldersTabImportColumn = { key: string; label: string };
-
 async function postAssetImagesFormData(projectId: string, batch: PickedImageFile[]): Promise<MvDriveFile[]> {
   const formData = new FormData();
   for (const item of batch) {
@@ -698,7 +668,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const { toast } = useToast();
   const filePickInputRef = useRef<HTMLInputElement>(null);
   const folderPickInputRef = useRef<HTMLInputElement>(null);
-  const assetExcelInputRef = useRef<HTMLInputElement>(null);
   /** blob: للمعاينة الفورية قبل اكتمال الرفع — يُحرَّر عند الاستبدال أو إلغاء التثبيت */
   const optimisticPreviewUrlsRef = useRef<Map<string, string>>(new Map());
   const [files, setFiles] = useState<MvDriveFile[]>(() => {
@@ -749,12 +718,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [creatingPreviewFolder, setCreatingPreviewFolder] = useState(false);
   const [draggingPreview, setDraggingPreview] = useState(false);
   const [assetImportResult, setAssetImportResult] = useState<AssetImportResult | null>(null);
-  const [foldersTabExcelSheet, setFoldersTabExcelSheet] = useState<ActiveImportSheetRef | null>(null);
-  const [foldersTabColumns, setFoldersTabColumns] = useState<FoldersTabImportColumn[]>([]);
-  const [loadingFoldersTabColumns, setLoadingFoldersTabColumns] = useState(false);
-  const [generatingFoldersForColumnKey, setGeneratingFoldersForColumnKey] = useState<string | null>(null);
-  const [selectedFoldersTabColumnKey, setSelectedFoldersTabColumnKey] = useState<string>("");
-  const [importingAssetExcel, setImportingAssetExcel] = useState(false);
+  const [assetImageFoldersModalOpen, setAssetImageFoldersModalOpen] = useState(false);
   const filesById = useMemo(() => new Map(files.map((f) => [f._id, f])), [files]);
 
   const loadImages = useCallback(async (mode: "full" | "revalidate" = "full") => {
@@ -900,31 +864,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const applyAssetImportResult = useCallback((result: AssetImportResult | null) => {
     const normalized = result ? normalizeImportResult(result) : null;
     setAssetImportResult(normalized);
-    if (!result) {
-      setFoldersTabExcelSheet(null);
-      setFoldersTabColumns([]);
-      return;
-    }
-    const norm = withSheetImportIds(normalized!);
-    setFoldersTabExcelSheet((current) => {
-      if (
-        current &&
-        norm.summary.sheets.some((s) => s.importId === current.importId && s.sheetName === current.sheetName)
-      ) {
-        return current;
-      }
-      const stored = readActiveImportSheetRef(projectId);
-      const resolved = migrateStoredActiveRef(stored, norm);
-      if (resolved) return resolved;
-      const first = norm.summary.sheets[0];
-      return first
-        ? {
-            importId: first.importId ?? norm.importId,
-            sheetName: first.sheetName,
-          }
-        : null;
-    });
-  }, [projectId]);
+  }, []);
 
   const loadAssetImportSummary = useCallback(async () => {
     const sessionResult = readAssetImportFromSession(projectId);
@@ -979,53 +919,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loadAssetImportSummary, refreshAssetImageSources]);
-
-  useEffect(() => {
-    if (
-      !foldersTabExcelSheet?.importId.trim() ||
-      !foldersTabExcelSheet.sheetName.trim()
-    ) {
-      setFoldersTabColumns([]);
-      return;
-    }
-    const ac = new AbortController();
-    (async () => {
-      setLoadingFoldersTabColumns(true);
-      try {
-        const qs = new URLSearchParams({
-          projectId,
-          importId: foldersTabExcelSheet.importId.trim(),
-          sheetName: foldersTabExcelSheet.sheetName.trim(),
-          sheetColumns: "1",
-          schemaAssetType: "other",
-          page: "1",
-          limit: "1",
-        });
-        const r = await fetch(`/api/assets?${qs.toString()}`, {
-          credentials: "include",
-          signal: ac.signal,
-        });
-        const text = await r.text();
-        if (!r.ok) {
-          setFoldersTabColumns([]);
-          return;
-        }
-        const data = JSON.parse(text) as { columns?: FoldersTabImportColumn[] };
-        const cols = Array.isArray(data.columns) ? data.columns : [];
-        setFoldersTabColumns(cols);
-        setSelectedFoldersTabColumnKey((current) =>
-          cols.some((col) => col.key === current) ? current : (cols[0]?.key ?? ""),
-        );
-      } catch {
-        if (!ac.signal.aborted) {
-          setFoldersTabColumns([]);
-        }
-      } finally {
-        if (!ac.signal.aborted) setLoadingFoldersTabColumns(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [projectId, foldersTabExcelSheet]);
 
   useEffect(() => {
     return () => {
@@ -1270,11 +1163,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }
     return previewFolderBasePath(selectedPreviewFolderNode.name);
   }, [selectedPreviewFolderNode]);
-
-  const importSheetsForFoldersTab = useMemo(() => {
-    if (!assetImportResult) return [];
-    return withSheetImportIds(assetImportResult).summary.sheets;
-  }, [assetImportResult]);
 
   const selectedFolderPath = selectedFolder.path;
   const reportSelectedFileIds = useMemo(
@@ -1547,101 +1435,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       setCreatingPreviewFolder(false);
     }
   }, [loadImages, loadPreviewPhotoFolders, photosRootId, projectId, toast]);
-
-  const generateFoldersFromExcelColumn = useCallback(
-    async (columnKey: string) => {
-      const key = columnKey.trim();
-      if (!foldersTabExcelSheet || !key) {
-        toast({ variant: "destructive", description: "اختر ورقة Excel ثم عموداً." });
-        return;
-      }
-      const label = foldersTabColumns.find((c) => c.key === key)?.label ?? key;
-      if (
-        !window.confirm(
-          `سيتم إنشاء مجلدات تحت «۲. صور المعاينة» — مجلد لكل قيمة فريدة في العمود «${label}». المتابعة؟`,
-        )
-      ) {
-        return;
-      }
-      setGeneratingFoldersForColumnKey(key);
-      try {
-        const response = await fetch(
-          `/api/mv/projects/${encodeURIComponent(projectId)}/asset-import-image-folders`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              columnKey: key,
-              importId: foldersTabExcelSheet.importId.trim(),
-              sheetName: foldersTabExcelSheet.sheetName.trim(),
-            }),
-          },
-        );
-        const responseText = await response.text();
-        if (!response.ok) {
-          throw new Error(parseMvAssetApiErrorMessage(responseText, "تعذّر إنشاء مجلدات الصور."));
-        }
-        const payload = JSON.parse(responseText) as {
-          createdCount: number;
-          existingCount: number;
-          totalValues: number;
-          parentFolderName: string;
-        };
-        toast({
-          description: `تم ضبط ${numberFormatter.format(payload.totalValues)} مجلداً تحت «${payload.parentFolderName}» (جديد: ${numberFormatter.format(payload.createdCount)}، موجود: ${numberFormatter.format(payload.existingCount)}).`,
-        });
-        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذّر إنشاء مجلدات الصور.",
-        });
-      } finally {
-        setGeneratingFoldersForColumnKey(null);
-      }
-    },
-    [foldersTabColumns, foldersTabExcelSheet, loadImages, loadPreviewPhotoFolders, projectId, toast],
-  );
-
-  const handleAssetExcelImportFile = useCallback(
-    async (file: File) => {
-      setImportingAssetExcel(true);
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("projectId", projectId);
-        formData.append("sourceFileNameUtf8", file.name);
-
-        const response = await fetch("/api/assets/import", {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        });
-        const text = await response.text();
-        if (!response.ok) {
-          throw new Error(parseMvAssetApiErrorMessage(text, "تعذر استيراد ملف Excel."));
-        }
-
-        const result = normalizeImportResult(JSON.parse(text) as AssetImportResult);
-        const next = mergeImportResults(assetImportResult, result);
-        applyAssetImportResult(next);
-        if (typeof window !== "undefined") {
-          window.sessionStorage.setItem(assetImportSessionStorageKey(projectId), JSON.stringify(next));
-        }
-        toast({ description: "تم استيراد شيت Excel. اختر الشيت والعمود لتوليد مجلدات الصور." });
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر استيراد ملف Excel.",
-        });
-      } finally {
-        setImportingAssetExcel(false);
-        if (assetExcelInputRef.current) assetExcelInputRef.current.value = "";
-      }
-    },
-    [applyAssetImportResult, assetImportResult, projectId, toast],
-  );
 
   const toggleExpanded = useCallback((path: string) => {
     setExpandedPaths((current) => {
@@ -2899,13 +2692,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 shrink-0 gap-1 px-2 text-[10px] font-bold"
+              className="h-8 w-8 shrink-0 p-0"
               disabled={loadingPreviewFolders}
               onClick={() => void refreshAppPicFoldersFromServer()}
+              aria-label="تحديث من الخادم"
               title="إعادة جلب مجلدات الأصول من الخادم"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", loadingPreviewFolders && "animate-spin")} />
-              تحديث من الخادم
             </Button>
           </div>
           {appExpanded ? (
@@ -2916,9 +2709,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 </div>
               ) : previewRoot.folders.length > 0 ? (
                 <>
-                  <p className="px-1 text-[10px] font-extrabold uppercase tracking-wide text-emerald-800/90">
-                    صور الأصول (صور فقط)
-                  </p>
                   {previewRoot.folders.map((folder) => renderPreviewTreeFolder(folder, 1, "images"))}
                 </>
               ) : (
@@ -3100,8 +2890,37 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   )}
                   dir="rtl"
                 >
-                  <div className="flex w-full min-w-0 flex-wrap items-start gap-3" dir="rtl">
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto" dir="rtl">
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 shrink-0 gap-2 border-emerald-200 bg-white px-3 text-[12px] font-extrabold text-emerald-900 hover:bg-emerald-50"
+                        onClick={() => setAssetImageFoldersModalOpen(true)}
+                      >
+                        <FileSpreadsheet className="h-4 w-4 shrink-0" />
+                        إنشاء مجلدات الصور
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        title="إنشاء مجلد جديد داخل صور المعاينة"
+                        aria-label="إنشاء مجلد جديد داخل صور المعاينة"
+                        disabled={!photosRootId || creatingPreviewFolder}
+                        onClick={() => void createPreviewFolder()}
+                        className="h-9 shrink-0 gap-2 border-emerald-200 bg-white px-3 text-[12px] font-bold text-slate-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-40"
+                      >
+                        {creatingPreviewFolder ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                        ) : (
+                          <FolderPlus className="h-4 w-4 text-emerald-600" />
+                        )}
+                        إنشاء مجلد جديد
+                      </Button>
+
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -3109,7 +2928,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             className="h-9 shrink-0 rounded-lg bg-[#0C447C] px-3 text-[12px] font-extrabold text-white hover:bg-[#0a3a66] sm:px-4"
                           >
                             <Upload className="me-2 h-3.5 w-3.5 shrink-0" />
-                            رفع صور/مجلد
+                            رفع صور/مجلدات
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 text-right">
@@ -3133,7 +2952,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                      <label className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700">
+                    </div>
+
+                    <div className="ms-auto flex shrink-0 items-center gap-2">
+                      <label className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 shadow-sm">
                         <Checkbox
                           checked={includeAssetImagesInReport}
                           disabled={reportSelectionSaving}
@@ -3143,143 +2965,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         />
                         <span>عرض الصور في التقرير</span>
                       </label>
+
                       {selectedCount > 0 ? (
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-950">
+                        <span className="flex h-9 shrink-0 items-center rounded-full bg-emerald-100 px-2.5 text-[11px] font-bold text-emerald-950">
                           {numberFormatter.format(selectedCount)} للتقرير
                         </span>
                       ) : null}
+
                       {bulkActionsDropdown}
                     </div>
-
-                    <div className="flex min-w-0 flex-1 flex-col gap-2">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-9 gap-2 border-emerald-200 bg-white text-[12px] font-semibold text-emerald-900 hover:bg-emerald-50"
-                          asChild
-                        >
-                          <Link href={`/machine-valuation/${projectId}/workflow/import`}>
-                            <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                            استيراد Excel — بيانات الأصول
-                          </Link>
-                        </Button>
-                        {assetImportResult && importSheetsForFoldersTab.length > 0 ? (
-                          <div className="min-w-[220px]">
-                            <Select
-                              value={
-                                foldersTabExcelSheet
-                                  ? `${foldersTabExcelSheet.importId}::${foldersTabExcelSheet.sheetName}`
-                                  : ""
-                              }
-                              onValueChange={(v) => {
-                                const i = v.indexOf("::");
-                                if (i < 0) return;
-                                const importId = v.slice(0, i);
-                                const sheetName = v.slice(i + 2);
-                                if (!importId || !sheetName) return;
-                                setFoldersTabExcelSheet({ importId, sheetName });
-                              }}
-                            >
-                              <SelectTrigger className="h-9 border-slate-200 bg-white text-[12px] font-semibold">
-                                <SelectValue placeholder="اختر الشيت" />
-                              </SelectTrigger>
-                              <SelectContent className="text-right" dir="rtl">
-                                {importSheetsForFoldersTab.map((s) => {
-                                  const sid = s.importId ?? assetImportResult.importId;
-                                  return (
-                                    <SelectItem
-                                      key={`${sid}:${s.sheetName}`}
-                                      value={`${sid}::${s.sheetName}`}
-                                      className="text-[12px]"
-                                    >
-                                      <span dir="auto">{s.sheetName}</span>
-                                      <span className="me-1 text-[10px] opacity-70">
-                                        ({numberFormatter.format(s.rowCount)})
-                                      </span>
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {assetImportResult && importSheetsForFoldersTab.length > 0 ? (
-                        <div className="min-w-0 space-y-1">
-                          {loadingFoldersTabColumns ? (
-                            <div className="flex items-center gap-2 text-[12px] text-slate-500">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              جاري تحميل الأعمدة…
-                            </div>
-                          ) : foldersTabColumns.length > 0 ? (
-                            <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2">
-                              <div className="min-w-[180px]">
-                                <Select
-                                  value={selectedFoldersTabColumnKey}
-                                  onValueChange={(v) => setSelectedFoldersTabColumnKey(v)}
-                                >
-                                  <SelectTrigger className="h-8 border-slate-200 bg-white text-[11px] font-semibold">
-                                    <SelectValue placeholder="اختر الهيدر (العمود) لإنشاء المجلدات…" />
-                                  </SelectTrigger>
-                                  <SelectContent className="text-right" dir="rtl">
-                                    {foldersTabColumns.map((col) => (
-                                      <SelectItem key={col.key} value={col.key} className="text-[12px]">
-                                        <span dir="auto">{col.label}</span>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-8 shrink-0 gap-2 whitespace-nowrap bg-emerald-700 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-800"
-                                disabled={
-                                  !foldersTabExcelSheet ||
-                                  loadingFoldersTabColumns ||
-                                  !selectedFoldersTabColumnKey ||
-                                  generatingFoldersForColumnKey !== null
-                                }
-                                onClick={() => void generateFoldersFromExcelColumn(selectedFoldersTabColumnKey)}
-                              >
-                                {generatingFoldersForColumnKey !== null ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : null}
-                                توليد مجلدات الصور
-                              </Button>
-                            </div>
-                          ) : (
-                            <p className="text-[11px] text-amber-800">
-                              لم تُحمَّل أعمدة هذه الورقة. حدّث من القائمة ⋮
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <button
-                      type="button"
-                      title="إنشاء مجلد جديد داخل صور المعاينة"
-                      aria-label="إنشاء مجلد جديد داخل صور المعاينة"
-                      disabled={!photosRootId || creatingPreviewFolder}
-                      onClick={() => void createPreviewFolder()}
-                      className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50/80 disabled:opacity-40"
-                    >
-                      {creatingPreviewFolder ? (
-                        <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
-                      ) : (
-                        <>
-                          <Folder className="h-6 w-6" strokeWidth={1.75} />
-                          <span className="absolute -bottom-0.5 -end-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-white shadow ring-2 ring-white">
-                            <Plus className="h-2.5 w-2.5" strokeWidth={3} aria-hidden />
-                          </span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
 
@@ -3542,6 +3236,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       </div>
 
       </MvWorkflowPageScrollBody>
+
+      <MvAssetImageFoldersModal
+        open={assetImageFoldersModalOpen}
+        onOpenChange={setAssetImageFoldersModalOpen}
+        projectId={projectId}
+        initialImportResult={assetImportResult}
+        onImportResultChange={applyAssetImportResult}
+        onGenerated={async () => {
+          await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        }}
+      />
 
       <Dialog open={lightboxFile != null} onOpenChange={(open) => !open && setLightboxFile(null)}>
         <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden border-0 bg-slate-950 p-0 text-white">

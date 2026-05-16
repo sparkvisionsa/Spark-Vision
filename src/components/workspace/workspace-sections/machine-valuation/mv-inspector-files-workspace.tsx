@@ -35,6 +35,13 @@ import { cn } from "@/lib/utils";
 import type { MvInspectorFile, MvInspectorLogicalFileType, MvProject } from "./types";
 import { MvTopBar } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
+import {
+  MV_ALL_LOCATIONS_VALUE,
+  MvLocationMultiSelect,
+  mvLocationId,
+  mvLocationLabel,
+  normalizeMvLocationSelection,
+} from "./mv-location-multi-select";
 
 const font = Tajawal({
   subsets: ["arabic"],
@@ -43,6 +50,7 @@ const font = Tajawal({
 });
 
 const ACCEPT = "";
+const DEFAULT_INSPECTOR_FILE_LOCATION_IDS = [MV_ALL_LOCATIONS_VALUE];
 
 /** تنزيل أو بث عبر واجهة التطبيق لجميع ملفات المعاين. */
 function inspectorFileDownloadHref(projectId: string, f: MvInspectorFile, mode: "attachment" | "inline"): string {
@@ -53,6 +61,12 @@ function inspectorFileDownloadHref(projectId: string, f: MvInspectorFile, mode: 
 
 function inspectorFileMediaSrc(projectId: string, f: MvInspectorFile): string {
   return inspectorFileDownloadHref(projectId, f, "inline");
+}
+
+function inspectorFileLocationIds(file: MvInspectorFile): string[] {
+  return Array.isArray(file.locationIds)
+    ? file.locationIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
 }
 
 type UploadJobState = "queued" | "uploading" | "done" | "error";
@@ -120,6 +134,10 @@ function MvCircularUploadRing({
   );
 }
 
+export default function MvInspectorFilesWorkspace({ projectId }: { projectId: string }) {
+  return <MvInspectorFilesPanel projectId={projectId} />;
+}
+
 function TypeIcon({ type, className }: { type: MvInspectorLogicalFileType; className?: string }) {
   const cls = cn("h-5 w-5", className);
   switch (type) {
@@ -140,11 +158,27 @@ function TypeIcon({ type, className }: { type: MvInspectorLogicalFileType; class
   }
 }
 
-export default function MvInspectorFilesWorkspace({ projectId }: { projectId: string }) {
+export function MvInspectorFilesPanel({
+  projectId,
+  initialProject = null,
+  embedded = false,
+  initialLocationIds = DEFAULT_INSPECTOR_FILE_LOCATION_IDS,
+  locationSelectionLocked = false,
+  className,
+  onProjectLoaded,
+}: {
+  projectId: string;
+  initialProject?: MvProject | null;
+  embedded?: boolean;
+  initialLocationIds?: string[];
+  locationSelectionLocked?: boolean;
+  className?: string;
+  onProjectLoaded?: (project: MvProject) => void;
+}) {
   const { toast } = useToast();
-  const [project, setProject] = useState<MvProject | null>(null);
-  const [files, setFiles] = useState<MvInspectorFile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [project, setProject] = useState<MvProject | null>(initialProject);
+  const [files, setFiles] = useState<MvInspectorFile[]>(initialProject?.inspectorFiles ?? []);
+  const [loading, setLoading] = useState(!initialProject);
   const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
   const uploadQueueRef = useRef(Promise.resolve());
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -153,33 +187,60 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>(initialLocationIds);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const onProjectLoadedRef = useRef(onProjectLoaded);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    onProjectLoadedRef.current = onProjectLoaded;
+  }, [onProjectLoaded]);
+
+  useEffect(() => {
+    if (!initialProject) return;
+    setProject(initialProject);
+    setFiles(initialProject.inspectorFiles ?? []);
+    setLoading(false);
+  }, [initialProject]);
+
+  useEffect(() => {
+    const locations = project?.locations ?? initialProject?.locations ?? [];
+    setSelectedLocationIds(normalizeMvLocationSelection(initialLocationIds, locations));
+  }, [initialLocationIds, initialProject?.locations, project?.locations]);
+
+  const load = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    const showLoading = options.showLoading ?? true;
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const res = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
         credentials: "include",
       });
       if (!res.ok) {
-        setProject(null);
-        setFiles([]);
+        if (showLoading) {
+          setProject(null);
+          setFiles([]);
+        }
         return;
       }
       const data = (await res.json()) as { project?: MvProject };
       setProject(data.project ?? null);
       setFiles(data.project?.inspectorFiles ?? []);
+      if (data.project) onProjectLoadedRef.current?.(data.project);
+    } catch {
+      if (showLoading) {
+        setProject(null);
+        setFiles([]);
+      }
     } finally {
       setLoading(false);
     }
   }, [projectId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load({ showLoading: !initialProject?._id });
+  }, [initialProject?._id, load]);
 
   useEffect(() => {
     const valid = new Set(files.map((f) => f.id));
@@ -209,6 +270,10 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
       patchUploadJob(clientId, { state: "uploading", progress: 0 });
       const fd = new FormData();
       fd.append("file", file);
+      fd.append(
+        "locationIds",
+        JSON.stringify(selectedLocationIds.includes(MV_ALL_LOCATIONS_VALUE) ? [] : selectedLocationIds),
+      );
       const xhrUrl = `/api/mv/projects/${projectId}/inspectorFiles`;
 
       return new Promise<void>((resolve) => {
@@ -258,7 +323,7 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
         xhr.send(fd);
       });
     },
-    [projectId, toast, patchUploadJob, scheduleRemoveUploadJob],
+    [projectId, selectedLocationIds, toast, patchUploadJob, scheduleRemoveUploadJob],
   );
 
   /** طابور رفع متسلسل على الخادم؛ تقدم كل ملف عبر XHR كما في Google Drive. */
@@ -351,7 +416,7 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
       }
       const body = raw as { inspectorFiles?: MvInspectorFile[] };
       if (Array.isArray(body.inspectorFiles)) setFiles(body.inspectorFiles);
-      else void load();
+      else void load({ showLoading: false });
       setSelectedIds((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Set(prev);
@@ -383,7 +448,7 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
         });
       }
       setSelectedIds(new Set());
-      await load();
+      await load({ showLoading: false });
     } finally {
       setBulkDeleting(false);
     }
@@ -414,6 +479,18 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
   };
 
   if (loading) {
+    if (embedded) {
+      return (
+        <div className={cn(font.className, "space-y-4 p-4")} dir="rtl">
+          <div className="h-12 animate-pulse rounded-xl bg-slate-200/70" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="aspect-square animate-pulse rounded-2xl bg-slate-200/50" />
+            ))}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={cn(font.className, "min-h-screen bg-slate-950/[0.03]")} dir="rtl">
         <MvTopBar breadcrumbs={[{ label: "…" }]} saveState="idle" />
@@ -430,6 +507,13 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
   }
 
   if (!project) {
+    if (embedded) {
+      return (
+        <div className={cn(font.className, "p-8 text-center")} dir="rtl">
+          <p className="font-semibold text-slate-800">تعذر تحميل المشروع.</p>
+        </div>
+      );
+    }
     return (
       <div className={cn(font.className, "min-h-screen")} dir="rtl">
         <MvTopBar breadcrumbs={[{ label: "ملفات المعاين" }]} saveState="error" />
@@ -445,21 +529,41 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
 
   return (
     <div
-      className={cn(font.className, "flex min-h-screen scroll-smooth flex-col bg-[#f4f6f9] antialiased")}
+      className={cn(
+        font.className,
+        "relative flex scroll-smooth flex-col bg-[#f4f6f9] antialiased",
+        embedded ? "h-[min(78vh,760px)] min-h-0" : "min-h-screen",
+        className,
+      )}
       dir="rtl"
     >
-      <MvTopBar
-        breadcrumbs={[
-          { label: "المشاريع", href: MV_PROJECTS_TABLE_PATH },
-          { label: project.name, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "ملفات المعاين" },
-        ]}
-        saveState="idle"
-      />
+      {!embedded ? (
+        <MvTopBar
+          breadcrumbs={[
+            { label: "المشاريع", href: MV_PROJECTS_TABLE_PATH },
+            { label: project.name, href: `/machine-valuation/${projectId}/workflow/report-data` },
+            { label: "ملفات المعاين" },
+          ]}
+          saveState="idle"
+        />
+      ) : null}
 
-      <div className="sticky top-0 z-20 border-b border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-shadow duration-200 sm:px-4">
+      <div
+        className={cn(
+          "z-20 border-b border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-shadow duration-200 sm:px-4",
+          embedded ? "shrink-0" : "sticky top-0",
+        )}
+      >
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
           <input ref={inputRef} type="file" className="hidden" accept={ACCEPT} multiple onChange={onInputChange} />
+          <MvLocationMultiSelect
+            locations={project.locations ?? []}
+            value={selectedLocationIds}
+            onChange={setSelectedLocationIds}
+            disabled={locationSelectionLocked}
+            className="min-w-[210px]"
+            label={locationSelectionLocked ? "موقع الرفع" : "إرسال الملفات إلى"}
+          />
           <Button
             type="button"
             size="sm"
@@ -564,7 +668,12 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 motion-reduce:scroll-auto">
+      <div
+        className={cn(
+          "mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4 motion-reduce:scroll-auto",
+          embedded ? "min-h-0 overflow-y-auto" : "",
+        )}
+      >
         {files.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 py-24 text-slate-400">
             <Upload className="h-10 w-10 opacity-40" />
@@ -661,6 +770,21 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
                   <p className="truncate text-[11px] font-bold text-slate-800" title={f.name}>
                     {f.name}
                   </p>
+                  <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                    {(() => {
+                      const ids = inspectorFileLocationIds(f);
+                      if (ids.length === 0) return "كل مواقع المعاينة";
+                      return ids
+                        .map((id) => {
+                          const index = (project.locations ?? []).findIndex(
+                            (location, locationIndex) => mvLocationId(location, locationIndex) === id,
+                          );
+                          return index >= 0 ? mvLocationLabel((project.locations ?? [])[index]!, index) : "";
+                        })
+                        .filter(Boolean)
+                        .join("، ");
+                    })()}
+                  </p>
                 </div>
               </div>
             ))}
@@ -670,7 +794,12 @@ export default function MvInspectorFilesWorkspace({ projectId }: { projectId: st
 
       {uploadJobs.length > 0 ? (
         <div
-          className="pointer-events-auto fixed bottom-0 start-0 z-[60] flex max-w-[100vw] gap-2 overflow-x-auto overflow-y-visible px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1 sm:px-4"
+          className={cn(
+            "pointer-events-auto z-[60] flex gap-2 overflow-x-auto overflow-y-visible px-3 pt-1 sm:px-4",
+            embedded
+              ? "absolute bottom-3 start-3 max-w-[calc(100%-1.5rem)] pb-0"
+              : "fixed bottom-0 start-0 max-w-[100vw] pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+          )}
           dir="rtl"
         >
           {uploadJobs.map((job) => (

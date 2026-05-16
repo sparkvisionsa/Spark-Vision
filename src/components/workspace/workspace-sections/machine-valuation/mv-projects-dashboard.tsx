@@ -3,33 +3,33 @@
 import { Tajawal } from "next/font/google";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowDownWideNarrow,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  FileDown,
   FileSpreadsheet,
-  Files,
   FilterX,
   FolderOpen,
   FolderPlus,
   FolderSymlink,
-  Images,
   LayoutGrid,
   Loader2,
   MapPinned,
   MoreHorizontal,
-  Phone,
-  Scale,
+  Plus,
   Search,
   Trash2,
-  Upload,
+  Users,
   Workflow,
 } from "lucide-react";
 import Link from "@/components/prefetch-link";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -49,6 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { toApiUrl } from "@/lib/api-url";
@@ -56,23 +57,33 @@ import { useAuthTracking } from "@/components/auth-tracking-provider";
 import type {
   MvProject,
   MvProjectContact,
+  MvInspectionAssignment,
   MvProjectLocation,
   MvProjectReportType,
   MvProjectWorkflowStatus,
 } from "./types";
 import CreateDialog from "./create-dialog";
 import {
-  EMPTY_PROJECT_CONTACT_FORM,
-  projectContactDataFromForm,
-  projectContactFormFromData,
-  type MvProjectContactForm,
+  createProjectInspectionSiteForm,
+  projectContactDataFromInspectionSites,
+  projectInspectionSitesFromData,
+  type MvProjectInspectionSiteForm,
 } from "./mv-project-contact-data";
-import { MvProjectContactFields } from "./mv-project-contact-fields";
+import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
+import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
+import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
+import {
+  MV_ALL_LOCATIONS_VALUE,
+  MvLocationMultiSelect,
+  mvLocationId,
+  mvLocationSelectionSummary,
+} from "./mv-location-multi-select";
 import { MvEmptyState, MvStatusBadge, MvTopBar } from "./mv-ui";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 
-type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
+type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
+type ContactDialogTab = "locations" | "files";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -89,6 +100,13 @@ const MV_WORKFLOW_LABEL_AR: Record<MvProjectWorkflowStatus, string> = {
 const MV_REPORT_TYPE_LABEL_AR: Record<MvProjectReportType, string> = {
   simple: "تقرير مبسّط",
   advanced: "تقرير متقدّم",
+};
+
+const PROJECT_STATUS_FILTERS: ProjectStatusFilter[] = ["all", "new", "review", "approved"];
+
+const PROJECT_STATUS_FILTER_LABEL_AR: Record<ProjectStatusFilter, string> = {
+  all: "كل الحالات",
+  ...MV_WORKFLOW_LABEL_AR,
 };
 
 const numberFormatter = new Intl.NumberFormat("ar-SA");
@@ -126,6 +144,13 @@ function getStatusTone(status: MvProjectWorkflowStatus): "info" | "warning" | "s
 
 function projectWorkspaceHref(projectId: string) {
   return `/machine-valuation/${projectId}/workflow/report-data`;
+}
+
+function projectRecentTimestamp(project: MvProject): number {
+  const updated = Date.parse(project.updatedAt);
+  if (!Number.isNaN(updated)) return updated;
+  const created = Date.parse(project.createdAt);
+  return Number.isNaN(created) ? 0 : created;
 }
 
 function ProjectWorkspaceLink({
@@ -170,13 +195,6 @@ function ProjectWorkspaceLink({
   );
 }
 
-function parseDateBoundary(value: string, boundary: "start" | "end") {
-  if (!value) return null;
-  const date = new Date(`${value}T${boundary === "start" ? "00:00:00.000" : "23:59:59.999"}`);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.getTime();
-}
-
 function buildPaginationTokens(currentPage: number, totalPages: number): PaginationToken[] {
   if (totalPages <= 5) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -192,13 +210,15 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 
 function ProjectActionsMenu({
   project,
-  onNavigate,
-  onEditContactData,
+  onOpenAssetFolders,
+  onOpenLocations,
+  onOpenInspectorAssignments,
   onDelete,
 }: {
   project: MvProject;
-  onNavigate: (href: string) => void;
-  onEditContactData: (project: MvProject) => void;
+  onOpenAssetFolders: (project: MvProject) => void;
+  onOpenLocations: (project: MvProject) => void;
+  onOpenInspectorAssignments: (project: MvProject) => void;
   onDelete: (projectId: string) => void;
 }) {
   return (
@@ -213,47 +233,20 @@ function ProjectActionsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 text-right">
-        <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onNavigate(`/machine-valuation/${project._id}/workflow/import`)}
-        >
-          <Upload className="h-4 w-4 shrink-0 text-[#378ADD]" />
-          إضافة بيانات الأصول
+        <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenLocations(project)}>
+          <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
+          تحديد مواقع المعاينة
+        </DropdownMenuItem>
+        <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
+          <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
+          انشاء مجلدات الاصول
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onNavigate(`/machine-valuation/${project._id}/workflow/asset-images`)}
+          onSelect={() => onOpenInspectorAssignments(project)}
         >
-          <Images className="h-4 w-4 shrink-0 text-emerald-600" />
-          تحديد صور الأصول
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onNavigate(`/machine-valuation/${project._id}/workflow/valuation`)}
-        >
-          <Scale className="h-4 w-4 shrink-0 text-amber-600" />
-          التقييم (اختيار المسار)
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onNavigate(`/machine-valuation/${project._id}/workflow/report`)}
-        >
-          <FileDown className="h-4 w-4 shrink-0 text-violet-700" />
-          إنشاء التقرير النهائي
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onNavigate(`/machine-valuation/${project._id}/inspector-files`)}
-        >
-          <Files className="h-4 w-4 shrink-0 text-sky-600" />
-          ملفات المعاين
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onEditContactData(project)}
-        >
-          <Phone className="h-4 w-4 shrink-0 text-emerald-600" />
-          بيانات للتواصل
+          <Users className="h-4 w-4 shrink-0 text-violet-700" />
+          اختيار المعاينين
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -361,21 +354,21 @@ function ProjectsPagination({
   );
 }
 
-function MetricStripRow({
+function ProjectMetricGrid({
   items,
 }: {
   items: { hint: string; value: string; icon: React.ReactNode }[];
 }) {
   return (
-    <div className="grid grid-cols-2 gap-px bg-slate-200/70 p-px sm:grid-cols-4">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
       {items.map((item) => (
         <div
           key={item.hint}
-          title={item.hint}
-          className="flex min-h-[2.75rem] items-center justify-center gap-2 bg-white/95 py-2 sm:min-h-0 sm:py-2.5"
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-slate-600"
         >
-          <span className="text-slate-400 [&>svg]:h-4 [&>svg]:w-4">{item.icon}</span>
-          <span className="text-lg font-bold tabular-nums leading-none text-slate-900 sm:text-xl">{item.value}</span>
+          <span className="text-slate-400 [&>svg]:h-3.5 [&>svg]:w-3.5">{item.icon}</span>
+          <span className="text-[11px] font-bold text-slate-500">{item.hint}</span>
+          <span className="text-[15px] font-black tabular-nums text-slate-950">{item.value}</span>
         </div>
       ))}
     </div>
@@ -383,6 +376,320 @@ function MetricStripRow({
 }
 
 type CompanyOptionRow = { id: string; name: string };
+type ProjectInspectorOption = {
+  id: string;
+  username: string;
+  email?: string | null;
+  phone?: string | null;
+};
+
+function inspectorOptionLabel(inspector: ProjectInspectorOption): string {
+  return inspector.username || inspector.email || inspector.phone || "معاين";
+}
+
+function normalizeInspectorSelection(value: readonly string[], inspectors: readonly ProjectInspectorOption[]): string[] {
+  const allowed = new Set(inspectors.map((inspector) => inspector.id));
+  return Array.from(new Set(value.filter((id) => allowed.has(id))));
+}
+
+function inspectorSelectionSummary(value: readonly string[], inspectors: readonly ProjectInspectorOption[]): string {
+  const normalized = normalizeInspectorSelection(value, inspectors);
+  if (normalized.length === 0) return "اختر المعاينين";
+  if (normalized.length === 1) {
+    const inspector = inspectors.find((item) => item.id === normalized[0]);
+    return inspector ? inspectorOptionLabel(inspector) : "معاين واحد";
+  }
+  return `${normalized.length} معاينين محددين`;
+}
+
+function ProjectInspectorMultiSelect({
+  inspectors,
+  value,
+  onChange,
+  disabled,
+  loading,
+}: {
+  inspectors: ProjectInspectorOption[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const normalized = normalizeInspectorSelection(value, inspectors);
+  const allSelected = inspectors.length > 0 && normalized.length === inspectors.length;
+
+  const toggleInspector = (id: string, checked: boolean) => {
+    if (checked) {
+      onChange(normalizeInspectorSelection([...normalized, id], inspectors));
+      return;
+    }
+    onChange(normalizeInspectorSelection(normalized.filter((item) => item !== id), inspectors));
+  };
+
+  const toggleAll = (checked: boolean) => {
+    onChange(checked ? inspectors.map((inspector) => inspector.id) : []);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          className="h-10 min-w-[190px] justify-between gap-2 rounded-lg border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 shadow-none hover:bg-slate-50"
+        >
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+            <span className="truncate">
+              {loading ? "جاري تحميل المعاينين..." : inspectorSelectionSummary(normalized, inspectors)}
+            </span>
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="z-[980] w-72 text-right">
+        <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">المعاينون</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {inspectors.length > 0 ? (
+          <DropdownMenuCheckboxItem
+            checked={allSelected}
+            onCheckedChange={(checked) => toggleAll(checked === true)}
+            onSelect={(event) => event.preventDefault()}
+            className="cursor-pointer text-[12px] font-bold"
+          >
+            كل المعاينين
+          </DropdownMenuCheckboxItem>
+        ) : (
+          <div className="px-2 py-2 text-[12px] font-semibold text-slate-400">
+            لا يوجد مستخدمون بدور معاين.
+          </div>
+        )}
+        {inspectors.length > 0 ? <DropdownMenuSeparator /> : null}
+        {inspectors.map((inspector) => (
+          <DropdownMenuCheckboxItem
+            key={inspector.id}
+            checked={normalized.includes(inspector.id)}
+            onCheckedChange={(checked) => toggleInspector(inspector.id, checked === true)}
+            onSelect={(event) => event.preventDefault()}
+            className="cursor-pointer text-[12px]"
+          >
+            <span className="truncate" dir="auto">{inspectorOptionLabel(inspector)}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function MvInspectorAssignmentsDialog({
+  open,
+  project,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  project: MvProject | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved: (project: MvProject) => void;
+}) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [inspectors, setInspectors] = useState<ProjectInspectorOption[]>([]);
+  const [draftAssignments, setDraftAssignments] = useState<MvInspectionAssignment[]>([]);
+  const [selectedInspectorIds, setSelectedInspectorIds] = useState<string[]>([]);
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
+  const [projectSnapshot, setProjectSnapshot] = useState<MvProject | null>(project);
+
+  useEffect(() => {
+    if (!open || !project?._id) return;
+    let cancelled = false;
+    setProjectSnapshot(project);
+    setDraftAssignments(project.inspectionAssignments ?? []);
+    setSelectedInspectorIds([]);
+    setSelectedLocationIds([MV_ALL_LOCATIONS_VALUE]);
+    void (async () => {
+      try {
+        setLoading(true);
+        const [projectRes, inspectorsRes] = await Promise.all([
+          fetch(`/api/mv/projects/${project._id}?picAssetMode=summary`, { credentials: "include" }),
+          fetch(`/api/mv/projects/${project._id}/inspectors`, { credentials: "include" }),
+        ]);
+        if (cancelled) return;
+        if (projectRes.ok) {
+          const data = (await projectRes.json().catch(() => null)) as { project?: MvProject } | null;
+          if (data?.project) {
+            setProjectSnapshot(data.project);
+            setDraftAssignments(data.project.inspectionAssignments ?? []);
+            onSaved(data.project);
+          }
+        }
+        if (inspectorsRes.ok) {
+          const data = (await inspectorsRes.json().catch(() => null)) as { inspectors?: ProjectInspectorOption[] } | null;
+          setInspectors(data?.inspectors ?? []);
+        } else {
+          setInspectors([]);
+        }
+      } catch {
+        if (!cancelled) {
+          setInspectors([]);
+          toast({ variant: "destructive", description: "تعذر تحميل قائمة المعاينين." });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, project, onSaved, toast]);
+
+  const locations = projectSnapshot?.locations ?? [];
+  const selectedInspectors = inspectors.filter((item) => selectedInspectorIds.includes(item.id));
+
+  const addAssignment = () => {
+    if (selectedInspectors.length === 0) return;
+    const locationIds = selectedLocationIds.includes(MV_ALL_LOCATIONS_VALUE) ? [] : selectedLocationIds;
+    const keyFor = (inspectorId: string) => `${inspectorId}:${locationIds.length > 0 ? locationIds.join("|") : "all"}`;
+    const addedKeys = new Set(selectedInspectors.map((inspector) => keyFor(inspector.id)));
+    const now = new Date().toISOString();
+    setDraftAssignments((prev) => [
+      ...prev.filter((assignment) => {
+        const existingLocations = assignment.locationIds ?? [];
+        const existingKey = `${assignment.inspectorUserId}:${existingLocations.length > 0 ? existingLocations.join("|") : "all"}`;
+        return !addedKeys.has(existingKey);
+      }),
+      ...selectedInspectors.map((inspector, index) => ({
+        id: `${inspector.id}-${locationIds.join("-") || "all"}-${Date.now()}-${index}`,
+        inspectorUserId: inspector.id,
+        inspectorName: inspectorOptionLabel(inspector),
+        ...(locationIds.length > 0 ? { locationIds } : {}),
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ]);
+  };
+
+  const saveAssignments = async () => {
+    if (!projectSnapshot?._id) return;
+    try {
+      setSaving(true);
+      const response = await fetch(`/api/mv/projects/${projectSnapshot._id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ inspectionAssignments: draftAssignments }),
+      });
+      if (!response.ok) throw new Error();
+      const data = (await response.json().catch(() => null)) as { project?: MvProject } | null;
+      if (data?.project) {
+        onSaved(data.project);
+        setProjectSnapshot(data.project);
+        setDraftAssignments(data.project.inspectionAssignments ?? []);
+      }
+      toast({ description: "تم حفظ اختيار المعاينين." });
+      onOpenChange(false);
+    } catch {
+      toast({ variant: "destructive", description: "تعذر حفظ اختيار المعاينين." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
+        <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 text-right">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
+              <Users className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-[15px] font-bold text-slate-900">اختيار المعاينين</DialogTitle>
+              <DialogDescription className="truncate text-[12px] text-slate-500">
+                {projectSnapshot?.name || project?.name || "المشروع"}
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="max-h-[calc(90vh-9.5rem)] overflow-y-auto px-5 py-4">
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ProjectInspectorMultiSelect
+                inspectors={inspectors}
+                value={selectedInspectorIds}
+                onChange={setSelectedInspectorIds}
+                disabled={loading}
+                loading={loading}
+              />
+              <MvLocationMultiSelect
+                locations={locations}
+                value={selectedLocationIds}
+                onChange={setSelectedLocationIds}
+                disabled={loading}
+                className="h-10"
+                label="نطاق عمل المعاين"
+              />
+            </div>
+            <Button
+              type="button"
+              className="h-10 rounded-lg bg-slate-950 px-4 text-[12px] font-bold text-white hover:bg-slate-800"
+              onClick={addAssignment}
+              disabled={selectedInspectors.length === 0 || loading}
+            >
+              إضافة
+            </Button>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {draftAssignments.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
+                لا توجد تعيينات معاينين بعد.
+              </div>
+            ) : (
+              draftAssignments.map((assignment) => (
+                <div
+                  key={assignment.id}
+                  className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-black text-slate-900">{assignment.inspectorName}</p>
+                    <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                      {mvLocationSelectionSummary(
+                        assignment.locationIds?.length ? assignment.locationIds : [MV_ALL_LOCATIONS_VALUE],
+                        locations,
+                      )}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 self-start rounded-lg px-2 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:text-red-700 sm:self-auto"
+                    onClick={() => setDraftAssignments((prev) => prev.filter((item) => item.id !== assignment.id))}
+                  >
+                    حذف
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+          <Button type="button" variant="outline" className="h-10 rounded-xl border-slate-200 bg-white px-5" onClick={() => onOpenChange(false)} disabled={saving}>
+            إلغاء
+          </Button>
+          <Button type="button" className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800" onClick={() => void saveAssignments()} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function MvProjectsDashboard() {
   const { navigate } = useMvInPageNavigation();
@@ -396,15 +703,23 @@ export default function MvProjectsDashboard() {
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [projectQuery, setProjectQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("all");
-  const [createdFrom, setCreatedFrom] = useState("");
-  const [createdTo, setCreatedTo] = useState("");
+  const [sortRecentlyWorked, setSortRecentlyWorked] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [contactDataOpen, setContactDataOpen] = useState(false);
   const [contactDataProject, setContactDataProject] = useState<MvProject | null>(null);
-  const [contactDataForm, setContactDataForm] = useState<MvProjectContactForm>(EMPTY_PROJECT_CONTACT_FORM);
+  const [contactDataForm, setContactDataForm] = useState<MvProjectInspectionSiteForm[]>([
+    createProjectInspectionSiteForm(0),
+  ]);
+  const [contactDialogTab, setContactDialogTab] = useState<ContactDialogTab>("locations");
+  const [contactFilesLocationIds, setContactFilesLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
+  const [openingInspectorFilesSiteId, setOpeningInspectorFilesSiteId] = useState<string | null>(null);
   const [savingContactData, setSavingContactData] = useState(false);
+  const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
+  const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
+  const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
+  const [inspectorAssignmentsOpen, setInspectorAssignmentsOpen] = useState(false);
+  const [inspectorAssignmentsProject, setInspectorAssignmentsProject] = useState<MvProject | null>(null);
 
   /**
    * القائمة مُصفّاة من الخادم حسب شركة الجلسة؛ لا نعيد تصفية حسب `companyId` هنا
@@ -486,7 +801,7 @@ export default function MvProjectsDashboard() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [projectQuery, statusFilter, createdFrom, createdTo, pageSize]);
+  }, [projectQuery, statusFilter, sortRecentlyWorked, pageSize]);
 
   const metrics = useMemo(() => {
     const withAssets = visibleProjects.filter((project) => (project.sheetCount ?? 0) > 0).length;
@@ -497,51 +812,51 @@ export default function MvProjectsDashboard() {
 
     return [
       {
-        hint: "إجمالي المشاريع",
+        hint: "الإجمالي",
         value: numberFormatter.format(visibleProjects.length),
-        icon: <LayoutGrid className="h-4 w-4 text-cyan-600" />,
+        icon: <LayoutGrid />,
       },
       {
-        hint: "مشاريع بها بيانات أصول",
+        hint: "بها أصول",
         value: numberFormatter.format(withAssets),
-        icon: <Upload className="h-4 w-4 text-cyan-600" />,
+        icon: <FileSpreadsheet />,
       },
       {
-        hint: "مشاريع بها مجلدات فرعية",
+        hint: "فرعية",
         value: numberFormatter.format(withSubfolders),
-        icon: <FolderSymlink className="h-4 w-4 text-cyan-600" />,
+        icon: <FolderSymlink />,
       },
       {
-        hint: "المشاريع المعتمدة",
+        hint: "معتمدة",
         value: numberFormatter.format(approved),
-        icon: <Workflow className="h-4 w-4 text-cyan-600" />,
+        icon: <Workflow />,
       },
     ];
   }, [visibleProjects]);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = projectQuery.trim().toLocaleLowerCase();
-    const fromBoundary = parseDateBoundary(createdFrom, "start");
-    const toBoundary = parseDateBoundary(createdTo, "end");
 
-    return visibleProjects.filter((project) => {
+    const next = visibleProjects.filter((project) => {
       if (normalizedQuery && !project.name.toLocaleLowerCase().includes(normalizedQuery)) {
         return false;
       }
 
-      const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
-      if (statusFilter !== "all" && workflowStatus !== statusFilter) {
+      if (statusFilter !== "all" && normalizeWorkflowStatus(project.workflowStatus) !== statusFilter) {
         return false;
       }
 
-      const createdAtTime = new Date(project.createdAt).getTime();
-      if (Number.isNaN(createdAtTime)) return false;
-      if (fromBoundary !== null && createdAtTime < fromBoundary) return false;
-      if (toBoundary !== null && createdAtTime > toBoundary) return false;
-
       return true;
     });
-  }, [createdFrom, createdTo, projectQuery, visibleProjects, statusFilter]);
+
+    if (!sortRecentlyWorked) return next;
+
+    return [...next].sort((a, b) => {
+      const recentDelta = projectRecentTimestamp(b) - projectRecentTimestamp(a);
+      if (recentDelta !== 0) return recentDelta;
+      return b._id.localeCompare(a._id);
+    });
+  }, [projectQuery, sortRecentlyWorked, statusFilter, visibleProjects]);
 
   const totalPages = Math.max(1, Math.ceil(filteredProjects.length / pageSize));
 
@@ -558,8 +873,6 @@ export default function MvProjectsDashboard() {
     name: string,
     options?: {
       reportType: MvProjectReportType;
-      locations?: MvProjectLocation[];
-      contacts?: MvProjectContact[];
     },
   ) => {
     try {
@@ -573,8 +886,8 @@ export default function MvProjectsDashboard() {
       } = {
         name,
         reportType: options?.reportType ?? "simple",
-        locations: options?.locations ?? [],
-        contacts: options?.contacts ?? [],
+        locations: [],
+        contacts: [],
       };
       if (user?.role === "super_admin") {
         const cid = selectedCompanyId.trim();
@@ -595,24 +908,78 @@ export default function MvProjectsDashboard() {
       }
       const created = (await response.json()) as MvProject;
       toast({ description: "تم إنشاء المشروع بنجاح." });
-      navigate(`/machine-valuation/${created._id}/workflow/report-data`);
+      setProjects((prev) => [created, ...prev.filter((project) => project._id !== created._id)]);
+      setCreateOpen(false);
+      setCreatedFlowProject(created);
+      setContactDataProject(created);
+      setContactDataForm([createProjectInspectionSiteForm(0)]);
+      setContactDataOpen(true);
     } catch {
       toast({ variant: "destructive", description: "تعذر إنشاء المشروع." });
     } finally {
       setCreating(false);
-      setCreateOpen(false);
     }
   };
 
-  const openContactDataModal = (project: MvProject) => {
-    setContactDataProject(project);
-    setContactDataForm(projectContactFormFromData(project.locations, project.contacts));
-    setContactDataOpen(true);
+  const mergeProjectIntoList = useCallback((updated: MvProject) => {
+    setProjects((prev) => prev.map((project) => (project._id === updated._id ? { ...project, ...updated } : project)));
+  }, []);
+
+  const openAssetFoldersModal = (project: MvProject) => {
+    setAssetFoldersProject(project);
+    setAssetFoldersOpen(true);
   };
 
-  const handleSaveContactData = async () => {
-    if (!contactDataProject) return;
-    const payload = projectContactDataFromForm(contactDataForm);
+  const openInspectorAssignmentsModal = (project: MvProject) => {
+    setInspectorAssignmentsProject(project);
+    setInspectorAssignmentsOpen(true);
+  };
+
+  const openContactDataModal = async (project: MvProject) => {
+    setContactDataProject(project);
+    setContactDataForm(projectInspectionSitesFromData(project.locations, project.contacts));
+    setContactDialogTab("locations");
+    setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
+    setContactDataOpen(true);
+
+    try {
+      const response = await fetch(`/api/mv/projects/${project._id}?picAssetMode=summary`, {
+        credentials: "include",
+      });
+      if (!response.ok) return;
+      const raw = (await response.json().catch(() => null)) as { project?: MvProject } | MvProject | null;
+      const freshProject: MvProject | undefined =
+        raw && "project" in raw
+          ? raw.project
+          : raw && "_id" in raw
+            ? raw
+            : undefined;
+      if (!freshProject?._id) return;
+
+      setProjects((prev) =>
+        prev.map((item) => (item._id === freshProject._id ? { ...item, ...freshProject } : item)),
+      );
+      setContactDataProject(freshProject);
+      setContactDataForm(projectInspectionSitesFromData(freshProject.locations, freshProject.contacts));
+    } catch {
+      // Keep the already-open form populated from the project list fallback.
+    }
+  };
+
+  const handleSaveContactData = async (
+    options: {
+      closeDialog?: boolean;
+      continueCreatedFlow?: boolean;
+      showToast?: boolean;
+    } = {},
+  ): Promise<MvProject | null> => {
+    const {
+      closeDialog = true,
+      continueCreatedFlow = true,
+      showToast = true,
+    } = options;
+    if (!contactDataProject) return null;
+    const payload = projectContactDataFromInspectionSites(contactDataForm);
     try {
       setSavingContactData(true);
       const response = await fetch(`/api/mv/projects/${contactDataProject._id}`, {
@@ -645,12 +1012,73 @@ export default function MvProjectsDashboard() {
         ),
       );
       setContactDataProject(updatedProject);
-      setContactDataOpen(false);
-      toast({ description: "تم تحديث بيانات التواصل." });
+      if (closeDialog) setContactDataOpen(false);
+      if (continueCreatedFlow && createdFlowProject?._id === contactDataProject._id) {
+        setCreatedFlowProject(updatedProject);
+        setAssetFoldersOpen(true);
+      }
+      if (showToast) toast({ description: "تم تحديث مواقع المعاينة والتواصل." });
+      return updatedProject;
     } catch {
-      toast({ variant: "destructive", description: "تعذر تحديث بيانات التواصل." });
+      if (showToast) toast({ variant: "destructive", description: "تعذر تحديث مواقع المعاينة والتواصل." });
+      return null;
     } finally {
       setSavingContactData(false);
+    }
+  };
+
+  const openInspectorFilesForSite = async (site: MvProjectInspectionSiteForm) => {
+    if (!contactDataProject?._id) return;
+    setOpeningInspectorFilesSiteId(site.id);
+    try {
+      const updatedProject = await handleSaveContactData({
+        closeDialog: false,
+        continueCreatedFlow: false,
+        showToast: false,
+      });
+      if (!updatedProject) {
+        toast({ variant: "destructive", description: "احفظ موقع المعاينة أولاً قبل إضافة ملفات المعاين." });
+        return;
+      }
+
+      const hasSavedLocation = (updatedProject.locations ?? []).some(
+        (location, index) => mvLocationId(location, index) === site.id,
+      );
+      if (!hasSavedLocation) {
+        toast({
+          variant: "destructive",
+          description: "أضف بيانات للموقع ثم احفظه قبل رفع ملفات المعاين عليه.",
+        });
+        return;
+      }
+
+      setContactDataProject(updatedProject);
+      setContactFilesLocationIds([site.id]);
+      setContactDialogTab("files");
+    } finally {
+      setOpeningInspectorFilesSiteId(null);
+    }
+  };
+
+  const handleSkipInspectionLocations = () => {
+    setContactDataOpen(false);
+    setContactDialogTab("locations");
+    setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
+    if (createdFlowProject) {
+      setAssetFoldersOpen(true);
+      return;
+    }
+    setContactDataProject(null);
+  };
+
+  const finishCreatedProjectSetup = () => {
+    const projectId = createdFlowProject?._id;
+    setAssetFoldersOpen(false);
+    setAssetFoldersProject(null);
+    setCreatedFlowProject(null);
+    setContactDataProject(null);
+    if (projectId) {
+      navigate(`/machine-valuation/${projectId}/workflow/report-data`);
     }
   };
 
@@ -673,413 +1101,457 @@ export default function MvProjectsDashboard() {
   const resetFilters = () => {
     setProjectQuery("");
     setStatusFilter("all");
-    setCreatedFrom("");
-    setCreatedTo("");
+    setSortRecentlyWorked(true);
   };
 
   const hasActiveFilters =
-    projectQuery.trim().length > 0 ||
-    statusFilter !== "all" ||
-    createdFrom.length > 0 ||
-    createdTo.length > 0;
+    projectQuery.trim().length > 0 || statusFilter !== "all" || !sortRecentlyWorked;
 
   return (
-    <div className={cn(tajawal.className, "min-h-screen bg-[#050810]")} dir="rtl">
-      <MvTopBar breadcrumbs={[{ label: "لوحة التحكم" }, { label: "المشاريع" }]} />
+    <div className={cn(tajawal.className, "min-h-screen bg-[#f5f7fb] text-slate-950")} dir="rtl">
+      <MvTopBar
+        breadcrumbs={[
+          { label: "لوحة التحكم", href: "/machine-valuation/dashboard" },
+          { label: "المشاريع" },
+        ]}
+        sticky
+        className="top-0 z-30 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/85"
+      />
 
-      <div className="mx-auto max-w-6xl px-2 pb-2 pt-1 sm:px-3">
-        <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-slate-900/25 shadow-[0_28px_100px_-24px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.05] backdrop-blur-md">
-          <div className="relative flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-2.5 py-2 sm:px-3 sm:py-2.5">
-            <div
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_100%_0%,rgba(34,211,238,0.12),transparent_50%),radial-gradient(ellipse_100%_60%_at_0%_100%,rgba(139,92,246,0.08),transparent_45%)]"
-              aria-hidden
-            />
-            <div className="relative flex min-w-0 flex-1 items-center gap-2">
-              <h1 className="truncate bg-gradient-to-l from-white via-slate-100 to-slate-400 bg-clip-text text-base font-extrabold tracking-tight text-transparent sm:text-lg">
-                مشاريع تقييم الآلات والمعدات
-              </h1>
-              {!loading && !authLoading && filteredProjects.length > 0 ? (
-                <span className="shrink-0 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-cyan-200/90">
-                  {numberFormatter.format(filteredProjects.length)}
-                </span>
-              ) : null}
+      <main className="mx-auto flex w-full max-w-[1320px] flex-col gap-3 px-3 py-3 sm:px-5 lg:px-6">
+        <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:px-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
+              <h1 className="shrink-0 text-[20px] font-black text-slate-950">المشاريع</h1>
+              <ProjectMetricGrid items={metrics} />
             </div>
-            <div className="relative flex shrink-0 items-center gap-1">
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setCreateOpen(true)}
+              disabled={!canCreateMvProject}
+              title={
+                needsCompanyMembership
+                  ? "يجب أن يكون حسابك مرتبطاً بشركة لإنشاء مشروع"
+                  : "إنشاء مشروع جديد"
+              }
+              aria-label="إنشاء مشروع جديد"
+              className="h-10 shrink-0 gap-2 rounded-lg bg-slate-950 px-4 text-[13px] font-black text-white shadow-sm hover:bg-slate-800 disabled:opacity-45"
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+              <span>إنشاء مشروع جديد</span>
+            </Button>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-200 bg-white px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(220px,1fr)_180px] lg:max-w-2xl">
+              <div className="relative min-w-0">
+                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={projectQuery}
+                  onChange={(event) => setProjectQuery(event.target.value)}
+                  placeholder="بحث في المشاريع"
+                  className="h-10 rounded-lg border-slate-200 bg-slate-50 pr-9 text-[13px] font-semibold shadow-none focus-visible:ring-slate-200"
+                />
+              </div>
+
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}
+              >
+                <SelectTrigger
+                  aria-label="بحث متقدم حسب الحالة"
+                  className="h-10 justify-start gap-2 rounded-lg border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-700 shadow-none focus:ring-slate-200 [&>svg:last-child]:mr-auto"
+                >
+                  <span className="shrink-0 text-[11px] font-black text-slate-400">الحالة</span>
+                  <SelectValue placeholder="كل الحالات" />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {PROJECT_STATUS_FILTERS.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {PROJECT_STATUS_FILTER_LABEL_AR[status]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="relative h-8 gap-1 border-white/15 bg-white/5 px-2 text-[11px] text-white hover:bg-white/10 sm:h-8 sm:px-2.5"
-                onClick={() => setFiltersOpen(true)}
+                onClick={() => setSortRecentlyWorked((current) => !current)}
+                className={cn(
+                  "h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black shadow-none",
+                  sortRecentlyWorked
+                    ? "border-sky-200 bg-sky-50 text-[#0C447C] hover:bg-sky-100 hover:text-[#0C447C]"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                )}
+                title="ترتيب حسب آخر مشروع تم العمل عليه"
+                aria-pressed={sortRecentlyWorked}
               >
-                <Search className="h-3.5 w-3.5 opacity-90" />
-                <span className="hidden sm:inline">بحث</span>
-                {hasActiveFilters ? (
-                  <span className="absolute -left-0.5 -top-0.5 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.85)]" />
-                ) : null}
+                <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
+                <span>الأحدث عملاً</span>
               </Button>
-              <Button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                disabled={!canCreateMvProject}
-                title={
-                  needsCompanyMembership
-                    ? "يجب أن يكون حسابك مرتبطاً بشركة لإنشاء مشروع"
-                    : undefined
-                }
-                className="h-8 gap-1 rounded-lg bg-gradient-to-l from-cyan-500 to-sky-600 px-2.5 text-[11px] font-bold text-white shadow-md shadow-cyan-500/25 hover:from-cyan-400 hover:to-sky-500 disabled:opacity-45 sm:px-3 sm:text-[12px]"
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-                مشروع
-              </Button>
+              <span className="whitespace-nowrap rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] font-bold tabular-nums text-slate-500">
+                {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
+              </span>
+              {hasActiveFilters ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  onClick={resetFilters}
+                  title="مسح التصفية"
+                  aria-label="مسح التصفية"
+                >
+                  <FilterX className="h-4 w-4" />
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          <div className="bg-slate-50">
-            <MetricStripRow items={metrics} />
-
-            {loading || authLoading ? (
-              <div className="divide-y divide-slate-200/80">
-                {Array.from({ length: 7 }).map((_, index) => (
-                  <div key={index} className="flex animate-pulse items-center gap-2.5 px-2 py-2 sm:px-3">
-                    <div className="h-7 w-7 shrink-0 rounded-md bg-slate-200/90" />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="h-3 w-[48%] max-w-xs rounded bg-slate-200/90" />
-                      <div className="h-2 w-20 rounded bg-slate-200/70" />
-                    </div>
+          {loading || authLoading ? (
+            <div className="divide-y divide-slate-100">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <div key={index} className="flex animate-pulse items-center gap-3 px-4 py-3">
+                  <div className="h-8 w-8 shrink-0 rounded-lg bg-slate-200" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3 w-[42%] max-w-sm rounded bg-slate-200" />
+                    <div className="h-2 w-24 rounded bg-slate-100" />
                   </div>
-                ))}
-              </div>
-            ) : needsCompanyMembership ? (
-              <div className="py-6">
-                <MvEmptyState title="الحساب غير مرتبط بشركة." />
-              </div>
-            ) : visibleProjects.length === 0 ? (
-              <div className="py-6">
-                <MvEmptyState
-                  title="لا توجد مشاريع"
-                  action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCreateOpen(true)}
-                      disabled={!canCreateMvProject}
-                      className="rounded-lg border-slate-300 text-[12px]"
-                    >
-                      إنشاء
-                    </Button>
-                  }
-                />
-              </div>
-            ) : filteredProjects.length === 0 ? (
-              <div className="py-6">
-                <MvEmptyState
-                  title="لا نتائج"
-                  action={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={resetFilters}
-                      className="rounded-lg text-[12px]"
-                    >
-                      مسح التصفية
-                    </Button>
-                  }
-                />
-              </div>
-            ) : (
-              <>
-                <div className="hidden lg:block overflow-x-auto">
-                  <table className="w-full min-w-[900px] table-fixed border-collapse text-right">
-                    <thead>
-                      <tr className="border-b border-slate-200/90 bg-white text-[10px] font-bold text-slate-500">
-                        <th className="w-[28%] px-2 py-1.5">المشروع</th>
-                        <th className="w-[92px] px-2 py-1.5">الحالة</th>
-                        <th className="w-[108px] px-2 py-1.5">الإنشاء</th>
-                        <th className="w-[56px] px-1 py-1.5 text-center">فرعية</th>
-                        <th className="w-[56px] px-1 py-1.5 text-center">أصول</th>
-                        <th className="w-[120px] px-2 py-1.5">التقدّم</th>
-                        <th className="w-[108px] px-2 py-1.5">تحديث</th>
-                        <th className="w-[44px] px-1 py-1.5 text-center" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {paginatedProjects.map((project) => {
-                        const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
-                        const progress = projectProgressPct(project);
-                        const reportType = project.reportType;
-                        const reportLabel =
-                          reportType === "simple" || reportType === "advanced"
-                            ? MV_REPORT_TYPE_LABEL_AR[reportType]
-                            : null;
-                        const sheets = project.sheetCount ?? 0;
-                        const subs = project.subProjectCount ?? 0;
-
-                        return (
-                          <tr
-                            key={project._id}
-                            className="text-right transition-colors hover:bg-cyan-50/40"
-                          >
-                            <td className="px-2 py-1.5 align-middle">
-                              <div className="flex min-w-0 flex-col gap-0.5">
-                                <ProjectWorkspaceLink
-                                  projectId={project._id}
-                                  title={project.name || "—"}
-                                  compact
-                                />
-                                {reportLabel ? (
-                                  <span className="text-[10px] text-slate-400">{reportLabel}</span>
-                                ) : null}
-                              </div>
-                            </td>
-
-                            <td className="px-2 py-1.5 align-middle">
-                              <MvStatusBadge
-                                label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
-                                tone={getStatusTone(workflowStatus)}
-                                className="whitespace-nowrap px-1.5 py-0.5 text-[10px]"
-                              />
-                            </td>
-
-                            <td className="px-2 py-1.5 align-middle text-[11px] tabular-nums text-slate-600">
-                              {formatDateLabel(project.createdAt)}
-                            </td>
-
-                            <td className="px-1 py-1.5 align-middle text-center">
-                              <span className="tabular-nums text-[12px] font-semibold text-slate-800">
-                                {numberFormatter.format(subs)}
-                              </span>
-                            </td>
-
-                            <td className="px-1 py-1.5 align-middle text-center">
-                              <span
-                                className={cn(
-                                  "tabular-nums text-[12px] font-semibold",
-                                  sheets > 0 ? "text-slate-800" : "text-slate-300",
-                                )}
-                              >
-                                {numberFormatter.format(sheets)}
-                              </span>
-                            </td>
-
-                            <td className="px-2 py-1.5 align-middle">
-                              <div className="flex items-center gap-2">
-                                <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-200">
-                                  <div
-                                    className="h-full rounded-full bg-gradient-to-l from-cyan-500 to-sky-500 transition-[width]"
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
-                                <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-500">
-                                  {numberFormatter.format(progress)}٪
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="px-2 py-1.5 align-middle text-[11px] tabular-nums text-slate-500">
-                              {formatDateLabel(project.updatedAt)}
-                            </td>
-
-                            <td className="px-1 py-1.5 align-middle">
-                              <div className="flex justify-center">
-                                <ProjectActionsMenu
-                                  project={project}
-                                  onNavigate={(href) => navigate(href)}
-                                  onEditContactData={openContactDataModal}
-                                  onDelete={(id) => void handleDeleteProject(id)}
-                                />
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
                 </div>
+              ))}
+            </div>
+          ) : needsCompanyMembership ? (
+            <div className="py-6">
+              <MvEmptyState title="الحساب غير مرتبط بشركة." />
+            </div>
+          ) : visibleProjects.length === 0 ? (
+            <div className="py-6">
+              <MvEmptyState
+                title="لا توجد مشاريع"
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCreateOpen(true)}
+                    disabled={!canCreateMvProject}
+                    className="rounded-lg border-slate-300 text-[12px]"
+                  >
+                    إنشاء
+                  </Button>
+                }
+              />
+            </div>
+          ) : filteredProjects.length === 0 ? (
+            <div className="py-6">
+              <MvEmptyState
+                title="لا نتائج"
+                action={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={resetFilters}
+                    className="rounded-lg text-[12px]"
+                  >
+                    مسح التصفية
+                  </Button>
+                }
+              />
+            </div>
+          ) : (
+            <>
+              <div className="hidden overflow-x-auto lg:block">
+                <table className="w-full min-w-[980px] table-fixed border-collapse text-right">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500">
+                      <th className="w-[32%] px-4 py-3">المشروع</th>
+                      <th className="w-[120px] px-3 py-3">الحالة</th>
+                      <th className="w-[140px] px-3 py-3">النوع</th>
+                      <th className="w-[88px] px-2 py-3 text-center">أصول</th>
+                      <th className="w-[88px] px-2 py-3 text-center">فرعية</th>
+                      <th className="w-[160px] px-3 py-3">التقدم</th>
+                      <th className="w-[130px] px-3 py-3">آخر تحديث</th>
+                      <th className="w-[110px] px-3 py-3 text-center" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedProjects.map((project) => {
+                      const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
+                      const progress = projectProgressPct(project);
+                      const reportType = project.reportType;
+                      const reportLabel =
+                        reportType === "simple" || reportType === "advanced"
+                          ? MV_REPORT_TYPE_LABEL_AR[reportType]
+                          : "—";
+                      const sheets = project.sheetCount ?? 0;
+                      const subs = project.subProjectCount ?? 0;
 
-                <div className="space-y-1.5 p-2 sm:p-2.5 lg:hidden">
-                  {paginatedProjects.map((project) => {
-                    const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
-                    const progress = projectProgressPct(project);
-                    const reportType = project.reportType;
-                    const reportLabel =
-                      reportType === "simple" || reportType === "advanced"
-                        ? MV_REPORT_TYPE_LABEL_AR[reportType]
-                        : null;
-
-                    return (
-                      <article
-                        key={project._id}
-                        className="rounded-xl border border-slate-200/90 bg-white p-2.5 shadow-sm"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <ProjectWorkspaceLink projectId={project._id} title={project.name || "—"} compact />
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <MvStatusBadge
-                                label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
-                                tone={getStatusTone(workflowStatus)}
-                                className="whitespace-nowrap px-1.5 py-0.5 text-[10px]"
-                              />
-                              {reportLabel ? (
-                                <span className="text-[10px] text-slate-400">{reportLabel}</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <ProjectActionsMenu
-                            project={project}
-                            onNavigate={(href) => navigate(href)}
-                            onEditContactData={openContactDataModal}
-                            onDelete={(id) => void handleDeleteProject(id)}
-                          />
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold tabular-nums text-slate-700">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5">
-                            <FolderSymlink className="h-3 w-3 text-slate-400" />
-                            {numberFormatter.format(project.subProjectCount ?? 0)}
-                          </span>
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5",
-                              (project.sheetCount ?? 0) > 0 ? "bg-cyan-50 text-cyan-900" : "bg-slate-100 text-slate-400",
-                            )}
-                          >
-                            <FileSpreadsheet className="h-3 w-3 opacity-70" />
-                            {numberFormatter.format(project.sheetCount ?? 0)}
-                          </span>
-                        </div>
-
-                        <p className="mt-1.5 text-[10px] tabular-nums leading-relaxed text-slate-500">
-                          {formatDateLabel(project.createdAt)} · {formatDateLabel(project.updatedAt)}
-                        </p>
-
-                        <div className="mt-1.5 flex items-center gap-2">
-                          <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-l from-cyan-500 to-sky-500"
-                              style={{ width: `${progress}%` }}
+                      return (
+                        <tr key={project._id} className="bg-white text-right transition-colors hover:bg-slate-50">
+                          <td className="px-4 py-3 align-middle">
+                            <ProjectWorkspaceLink
+                              projectId={project._id}
+                              title={project.name || "—"}
+                              compact
+                              nameClassName="text-[13px] font-black"
                             />
+                          </td>
+
+                          <td className="px-3 py-3 align-middle">
+                            <MvStatusBadge
+                              label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
+                              tone={getStatusTone(workflowStatus)}
+                              className="whitespace-nowrap px-2 py-0.5 text-[10px]"
+                            />
+                          </td>
+
+                          <td className="px-3 py-3 align-middle text-[12px] font-semibold text-slate-600">
+                            {reportLabel}
+                          </td>
+
+                          <td className="px-2 py-3 text-center align-middle">
+                            <span className="font-bold tabular-nums text-slate-800">
+                              {numberFormatter.format(sheets)}
+                            </span>
+                          </td>
+
+                          <td className="px-2 py-3 text-center align-middle">
+                            <span className="font-bold tabular-nums text-slate-800">
+                              {numberFormatter.format(subs)}
+                            </span>
+                          </td>
+
+                          <td className="px-3 py-3 align-middle">
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className="h-full rounded-full bg-slate-700 transition-[width]"
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </div>
+                              <span className="w-9 shrink-0 text-[10px] font-bold tabular-nums text-slate-500">
+                                {numberFormatter.format(progress)}٪
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-3 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
+                            {formatDateLabel(project.updatedAt)}
+                          </td>
+
+                          <td className="px-3 py-3 align-middle">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Button
+                                asChild
+                                variant="outline"
+                                size="sm"
+                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                              >
+                                <Link href={projectWorkspaceHref(project._id)}>
+                                  فتح
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                </Link>
+                              </Button>
+                              <ProjectActionsMenu
+                                project={project}
+                                onOpenAssetFolders={openAssetFoldersModal}
+                                onOpenLocations={openContactDataModal}
+                                onOpenInspectorAssignments={openInspectorAssignmentsModal}
+                                onDelete={(id) => void handleDeleteProject(id)}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid gap-2 bg-slate-50 p-2 lg:hidden">
+                {paginatedProjects.map((project) => {
+                  const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
+                  const progress = projectProgressPct(project);
+                  const reportType = project.reportType;
+                  const reportLabel =
+                    reportType === "simple" || reportType === "advanced"
+                      ? MV_REPORT_TYPE_LABEL_AR[reportType]
+                      : null;
+
+                  return (
+                    <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <ProjectWorkspaceLink
+                            projectId={project._id}
+                            title={project.name || "—"}
+                            compact
+                            nameClassName="text-[13px] font-black"
+                          />
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <MvStatusBadge
+                              label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
+                              tone={getStatusTone(workflowStatus)}
+                              className="whitespace-nowrap px-1.5 py-0.5 text-[10px]"
+                            />
+                            {reportLabel ? (
+                              <span className="text-[10px] font-bold text-slate-400">{reportLabel}</span>
+                            ) : null}
                           </div>
-                          <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-500">
-                            {numberFormatter.format(progress)}٪
-                          </span>
                         </div>
-                      </article>
-                    );
-                  })}
-                </div>
+                        <ProjectActionsMenu
+                          project={project}
+                          onOpenAssetFolders={openAssetFoldersModal}
+                          onOpenLocations={openContactDataModal}
+                          onOpenInspectorAssignments={openInspectorAssignmentsModal}
+                          onDelete={(id) => void handleDeleteProject(id)}
+                        />
+                      </div>
 
-                <ProjectsPagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  pageSize={pageSize}
-                  totalItems={filteredProjects.length}
-                  onPageChange={(page) => setCurrentPage(Math.max(1, Math.min(page, totalPages)))}
-                  onPageSizeChange={setPageSize}
-                />
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-bold tabular-nums text-slate-600">
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
+                          {numberFormatter.format(project.sheetCount ?? 0)} أصول
+                        </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
+                          {numberFormatter.format(project.subProjectCount ?? 0)} فرعية
+                        </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
+                          {numberFormatter.format(progress)}٪
+                        </span>
+                      </div>
 
-      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <DialogContent className="max-w-[420px] gap-0 border-slate-200/90 p-0 shadow-2xl" dir="rtl">
-          <DialogHeader className="border-b border-slate-100 px-4 py-2.5 text-right">
-            <DialogTitle className="text-[14px] font-bold text-slate-900">بحث</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 px-4 py-3">
-            <Input
-              value={projectQuery}
-              onChange={(event) => setProjectQuery(event.target.value)}
-              placeholder="اسم المشروع…"
-              className="h-10 border-slate-200 bg-slate-50/80 text-[13px]"
-            />
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}>
-              <SelectTrigger className="h-10 border-slate-200 bg-slate-50/80 text-[13px]">
-                <SelectValue placeholder="الحالة" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">كل الحالات</SelectItem>
-                <SelectItem value="new">جديد</SelectItem>
-                <SelectItem value="review">قيد المراجعة</SelectItem>
-                <SelectItem value="approved">معتمد</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="date"
-                value={createdFrom}
-                onChange={(event) => setCreatedFrom(event.target.value)}
-                className="h-10 border-slate-200 bg-slate-50/80 text-[12px]"
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                        <span className="text-[10px] font-bold tabular-nums text-slate-400">
+                          {formatDateLabel(project.updatedAt)}
+                        </span>
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Link href={projectWorkspaceHref(project._id)}>
+                            فتح
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <ProjectsPagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                pageSize={pageSize}
+                totalItems={filteredProjects.length}
+                onPageChange={(page) => setCurrentPage(Math.max(1, Math.min(page, totalPages)))}
+                onPageSizeChange={setPageSize}
               />
-              <Input
-                type="date"
-                value={createdTo}
-                onChange={(event) => setCreatedTo(event.target.value)}
-                className="h-10 border-slate-200 bg-slate-50/80 text-[12px]"
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-9 text-slate-600"
-                onClick={resetFilters}
-                disabled={!hasActiveFilters}
-              >
-                <FilterX className="ms-1 h-4 w-4" />
-                مسح
-              </Button>
-              <Button type="button" size="sm" className="h-9 bg-slate-900 text-white hover:bg-slate-800" onClick={() => setFiltersOpen(false)}>
-                تم
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </>
+          )}
+        </section>
+      </main>
 
       <Dialog
         open={contactDataOpen}
         onOpenChange={(open) => {
-          setContactDataOpen(open);
-          if (!open) setContactDataProject(null);
+          if (open) {
+            setContactDataOpen(true);
+            return;
+          }
+          if (createdFlowProject) {
+            handleSkipInspectionLocations();
+            return;
+          }
+          setContactDataOpen(false);
+          setContactDataProject(null);
+          setContactDialogTab("locations");
+          setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-2xl" dir="rtl">
-          <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 text-right">
+        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-4xl" dir="rtl">
+          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-5 py-4 text-right">
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
                 <MapPinned className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">بيانات للتواصل</DialogTitle>
+                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">تحديد مواقع المعاينة</DialogTitle>
                 <DialogDescription className="truncate text-[12px] text-slate-500">
                   {contactDataProject?.name || "المشروع"}
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
-          <div className="max-h-[calc(90vh-9.5rem)] overflow-y-auto px-5 py-4">
-            <MvProjectContactFields
-              value={contactDataForm}
-              onChange={setContactDataForm}
-              disabled={savingContactData}
-            />
-          </div>
-          <DialogFooter className="gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+          <Tabs
+            value={contactDialogTab}
+            onValueChange={(value) => {
+              const next = value === "files" ? "files" : "locations";
+              if (next === "files") setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
+              setContactDialogTab(next);
+            }}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-2">
+              <TabsList className="h-9 rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200">
+                <TabsTrigger value="locations" className="h-7 rounded-md px-3 text-[12px] font-bold">
+                  تحديد المواقع
+                </TabsTrigger>
+                <TabsTrigger value="files" className="h-7 rounded-md px-3 text-[12px] font-bold">
+                  إضافة ملفات للمعاين
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="locations" className="m-0 min-h-0 flex-1 overflow-y-auto px-5 py-4 data-[state=inactive]:hidden">
+              <MvInspectionLocationsFields
+                value={contactDataForm}
+                onChange={setContactDataForm}
+                disabled={savingContactData}
+                onOpenInspectorFiles={(site) => void openInspectorFilesForSite(site)}
+                openingInspectorFilesSiteId={openingInspectorFilesSiteId}
+              />
+            </TabsContent>
+            <TabsContent value="files" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+              {contactDataProject?._id ? (
+                <MvInspectorFilesPanel
+                  projectId={contactDataProject._id}
+                  initialProject={contactDataProject}
+                  embedded
+                  initialLocationIds={contactFilesLocationIds}
+                  locationSelectionLocked={!contactFilesLocationIds.includes(MV_ALL_LOCATIONS_VALUE)}
+                  className="h-[min(62vh,620px)]"
+                  onProjectLoaded={(project) => {
+                    mergeProjectIntoList(project);
+                    setContactDataProject(project);
+                  }}
+                />
+              ) : (
+                <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
+                  اختر مشروعاً أولاً.
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+          <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
             <Button
               type="button"
               variant="outline"
               className="h-10 rounded-xl border-slate-200 bg-white px-5"
-              onClick={() => setContactDataOpen(false)}
+              onClick={createdFlowProject ? handleSkipInspectionLocations : () => setContactDataOpen(false)}
               disabled={savingContactData}
             >
-              إلغاء
+              {createdFlowProject ? "تخطي" : "إلغاء"}
             </Button>
             <Button
               type="button"
@@ -1131,6 +1603,31 @@ export default function MvProjectsDashboard() {
           ) : undefined
         }
         onSubmit={handleCreate}
+      />
+
+      <MvInspectorAssignmentsDialog
+        open={inspectorAssignmentsOpen}
+        project={inspectorAssignmentsProject}
+        onOpenChange={(open) => {
+          setInspectorAssignmentsOpen(open);
+          if (!open) setInspectorAssignmentsProject(null);
+        }}
+        onSaved={mergeProjectIntoList}
+      />
+
+      <MvAssetImageFoldersModal
+        open={assetFoldersOpen}
+        onOpenChange={(open) => {
+          setAssetFoldersOpen(open);
+          if (!open && createdFlowProject) {
+            finishCreatedProjectSetup();
+            return;
+          }
+          if (!open) setAssetFoldersProject(null);
+        }}
+        projectId={createdFlowProject?._id ?? assetFoldersProject?._id ?? null}
+        showSkip
+        skipLabel="تخطي والمتابعة"
       />
     </div>
   );

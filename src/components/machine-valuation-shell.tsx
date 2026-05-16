@@ -23,12 +23,8 @@ import {
   Building2,
   ChevronDown,
   ChevronLeft,
-  FileStack,
   FolderKanban,
   LayoutDashboard,
-  ListPlus,
-  Shield,
-  Users,
   Wrench,
 } from "lucide-react";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
@@ -248,7 +244,6 @@ function MachineSidebarNav() {
   const { currentPath } = useMvInPageNavigation();
   const pathname = currentPath;
   const { isDashboard, isProjectsList, isProjectContext, isCompanyPanel } = parseMachineValuationPath(pathname);
-  const { user } = useAuthTracking();
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
 
@@ -336,30 +331,6 @@ function MachineSidebarNav() {
                 <CollapsibleContent>
                   <ul className="me-1.5 mt-0.5 space-y-0 border-r border-slate-200/90 pe-1">
                     <li>
-                      <SidebarMenuButton asChild size="sm" className={cn("h-7 w-full text-[11px]", idleNav)}>
-                        <Link href="/clients" className="flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5 shrink-0 text-amber-700" />
-                          <span className="truncate">العملاء</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </li>
-                    <li>
-                      <SidebarMenuButton asChild size="sm" className={cn("h-7 w-full text-[11px]", idleNav)}>
-                        <Link href="/clients#create-template" className="flex items-center gap-1.5">
-                          <ListPlus className="h-3.5 w-3.5 shrink-0 text-emerald-700" />
-                          <span className="truncate">إنشاء نماذج</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </li>
-                    <li>
-                      <SidebarMenuButton asChild size="sm" className={cn("h-7 w-full text-[11px]", idleNav)}>
-                        <Link href="/clients#templates" className="flex items-center gap-1.5">
-                          <FileStack className="h-3.5 w-3.5 shrink-0 text-violet-700" />
-                          <span className="truncate">عرض النماذج</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </li>
-                    <li>
                       <SidebarMenuButton
                         asChild
                         size="sm"
@@ -374,25 +345,15 @@ function MachineSidebarNav() {
                         </Link>
                       </SidebarMenuButton>
                     </li>
-                    {user?.role === "company_admin" ? (
-                      <li>
-                        <SidebarMenuButton
-                          asChild
-                          size="sm"
-                          className={cn("h-7 w-full text-[11px]", isCompanyPanel ? activeNav : idleNav)}
-                        >
-                          <Link href="/machine-valuation/company" className="flex items-center gap-1.5">
-                            <Building2 className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
-                            <span className="truncate">لوحة إدارة الشركة</span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </li>
-                    ) : null}
                     <li>
-                      <SidebarMenuButton asChild size="sm" className={cn("h-7 w-full text-[11px]", idleNav)}>
-                        <Link href="/settings" className="flex items-center gap-1.5">
-                          <Shield className="h-3.5 w-3.5 shrink-0 text-slate-600" />
-                          <span className="truncate">الصلاحيات</span>
+                      <SidebarMenuButton
+                        asChild
+                        size="sm"
+                        className={cn("h-7 w-full text-[11px]", isCompanyPanel ? activeNav : idleNav)}
+                      >
+                        <Link href="/machine-valuation/company" className="flex items-center gap-1.5">
+                          <Building2 className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
+                          <span className="truncate">لوحة إدارة الشركة</span>
                         </Link>
                       </SidebarMenuButton>
                     </li>

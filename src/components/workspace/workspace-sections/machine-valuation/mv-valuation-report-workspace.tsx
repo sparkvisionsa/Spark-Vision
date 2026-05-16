@@ -18,8 +18,6 @@ import {
   FileText,
   ImageIcon,
   Loader2,
-  Lock,
-  LockOpen,
   RotateCcw,
   Ruler,
   Settings2,
@@ -37,6 +35,7 @@ import type {
   MvDriveFile,
   MvProject,
   MvProjectReportData,
+  MvReportEditableSection,
   MvSubProject,
   PicAssetImage,
 } from "./types";
@@ -63,7 +62,48 @@ import {
 import { MV_REPORT_SCROLL_ANCHOR_ORDER, MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 
 function applyMvReportCaptureClone(clonedDoc: Document) {
+  const stableCaptureStyle = clonedDoc.createElement("style");
+  stableCaptureStyle.textContent = `
+    [data-mv-report-sheet] {
+      animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+      filter: none !important;
+      transition: none !important;
+    }
+  `;
+  clonedDoc.head.appendChild(stableCaptureStyle);
   clonedDoc.querySelectorAll(".mv-report-chrome").forEach((n) => n.remove());
+  clonedDoc.querySelectorAll<HTMLElement>("[data-mv-report-scale-viewport]").forEach((el) => {
+    el.style.overflow = "visible";
+    el.style.maxWidth = "none";
+  });
+  clonedDoc.querySelectorAll<HTMLElement>("[data-mv-report-scale-shell]").forEach((el) => {
+    el.style.transform = "none";
+    el.style.transformOrigin = "top left";
+    el.style.willChange = "auto";
+  });
+  clonedDoc.querySelectorAll<HTMLElement>("[data-mv-report-sheet]").forEach((el) => {
+    el.style.margin = "0";
+    el.style.marginBottom = "0";
+    el.style.transform = "none";
+    el.style.opacity = "1";
+    el.style.filter = "none";
+    el.style.animation = "none";
+    el.style.transition = "none";
+    el.style.boxShadow = "none";
+    el.style.borderRadius = "0";
+  });
+  clonedDoc.querySelectorAll<HTMLElement>("[data-mv-report-sheet], [data-mv-report-sheet] *").forEach((el) => {
+    el.style.letterSpacing = "0";
+    el.style.fontKerning = "normal";
+    el.style.textRendering = "optimizeLegibility";
+    el.style.fontFeatureSettings = '"liga" 1, "calt" 1, "kern" 1';
+  });
+  clonedDoc.querySelectorAll("img").forEach((raw) => {
+    raw.setAttribute("loading", "eager");
+    raw.setAttribute("decoding", "sync");
+  });
   clonedDoc.querySelectorAll("input.mv-report-preparer-field").forEach((raw) => {
     const inp = raw as HTMLInputElement;
     const span = clonedDoc.createElement("span");
@@ -75,9 +115,257 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
 
 /** يضمن التقاط الصفحات العريضة والمحتوى الممتد دون قص في html2canvas */
 function getSheetPixelBox(el: HTMLElement) {
-  const w = Math.max(el.offsetWidth, el.scrollWidth, 1);
-  const h = Math.max(el.offsetHeight, el.scrollHeight, 1);
+  const rect = el.getBoundingClientRect();
+  const w = Math.max(Math.ceil(rect.width), 1);
+  const h = Math.max(Math.ceil(rect.height), 1);
   return { w, h };
+}
+
+function prepareReportCaptureLayout(root: HTMLElement) {
+  const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
+  const scaleShells = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-scale-shell]"));
+  const scaleViewports = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-scale-viewport]"));
+  const savedSheets = sheets.map((el) => ({
+    el,
+    animation: el.style.animation,
+    transition: el.style.transition,
+    opacity: el.style.opacity,
+    transform: el.style.transform,
+    filter: el.style.filter,
+  }));
+  const savedShells = scaleShells.map((el) => ({
+    el,
+    transform: el.style.transform,
+    transformOrigin: el.style.transformOrigin,
+    willChange: el.style.willChange,
+  }));
+  const savedViewports = scaleViewports.map((el) => ({
+    el,
+    width: el.style.width,
+    height: el.style.height,
+    minHeight: el.style.minHeight,
+    maxWidth: el.style.maxWidth,
+    overflow: el.style.overflow,
+  }));
+
+  for (const el of sheets) {
+    el.style.animation = "none";
+    el.style.transition = "none";
+    el.style.opacity = "1";
+    el.style.transform = "none";
+    el.style.filter = "none";
+  }
+
+  for (const el of scaleShells) {
+    el.style.transform = "none";
+    el.style.transformOrigin = "top left";
+    el.style.willChange = "auto";
+  }
+
+  for (const el of scaleViewports) {
+    const shell = el.querySelector<HTMLElement>("[data-mv-report-scale-shell]");
+    const width = shell ? Math.max(shell.scrollWidth, shell.offsetWidth, 1) : Math.max(el.scrollWidth, 1);
+    const height = shell ? Math.max(shell.scrollHeight, shell.offsetHeight, 1) : Math.max(el.scrollHeight, 1);
+    el.style.width = `${width}px`;
+    el.style.height = `${height}px`;
+    el.style.minHeight = `${height}px`;
+    el.style.maxWidth = "none";
+    el.style.overflow = "visible";
+  }
+
+  return () => {
+    for (const item of savedViewports) {
+      item.el.style.width = item.width;
+      item.el.style.height = item.height;
+      item.el.style.minHeight = item.minHeight;
+      item.el.style.maxWidth = item.maxWidth;
+      item.el.style.overflow = item.overflow;
+    }
+    for (const item of savedShells) {
+      item.el.style.transform = item.transform;
+      item.el.style.transformOrigin = item.transformOrigin;
+      item.el.style.willChange = item.willChange;
+    }
+    for (const item of savedSheets) {
+      item.el.style.animation = item.animation;
+      item.el.style.transition = item.transition;
+      item.el.style.opacity = item.opacity;
+      item.el.style.transform = item.transform;
+      item.el.style.filter = item.filter;
+    }
+  };
+}
+
+const REPORT_IMAGE_DOWNLOAD_CONCURRENCY = 2;
+const REPORT_IMAGE_RETRY_DELAYS_MS = [650, 1400, 2800, 5200];
+const REPORT_READY_ANIMATION_SETTLE_MS = 160;
+const REPORT_INITIAL_IMAGE_WAIT_MS = 900;
+const REPORT_INITIAL_FONT_WAIT_MS = 700;
+const REPORT_BACKGROUND_IMAGE_WARM_DELAY_MS = 1800;
+const reportImageObjectUrlCache = new Map<string, string>();
+const reportImagePromiseCache = new Map<string, Promise<string>>();
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
+  let timer: number | null = null;
+  try {
+    await Promise.race([
+      promise.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = window.setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer != null) window.clearTimeout(timer);
+  }
+}
+
+function normalizeReportImageSrc(rawSrc: string) {
+  if (!rawSrc || typeof window === "undefined") return rawSrc;
+  try {
+    return new URL(rawSrc, window.location.href).href;
+  } catch {
+    return rawSrc;
+  }
+}
+
+function shouldCacheReportImage(rawSrc: string) {
+  if (!rawSrc || typeof window === "undefined") return false;
+  if (rawSrc.startsWith("data:") || rawSrc.startsWith("blob:")) return false;
+  try {
+    const url = new URL(rawSrc, window.location.href);
+    return url.origin === window.location.origin && url.pathname.includes("/files/") && url.pathname.endsWith("/download");
+  } catch {
+    return false;
+  }
+}
+
+function getCachedReportImageSrc(rawSrc: string) {
+  if (!shouldCacheReportImage(rawSrc)) return rawSrc;
+  return reportImageObjectUrlCache.get(normalizeReportImageSrc(rawSrc)) ?? rawSrc;
+}
+
+async function fetchReportImageCached(rawSrc: string) {
+  if (!shouldCacheReportImage(rawSrc)) return rawSrc;
+  const key = normalizeReportImageSrc(rawSrc);
+  const cached = reportImageObjectUrlCache.get(key);
+  if (cached) return cached;
+  const existing = reportImagePromiseCache.get(key);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt <= REPORT_IMAGE_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        const res = await fetch(key, {
+          credentials: "include",
+          cache: "force-cache",
+        });
+        if (res.status === 429 && attempt < REPORT_IMAGE_RETRY_DELAYS_MS.length) {
+          await sleep(REPORT_IMAGE_RETRY_DELAYS_MS[attempt]! + Math.floor(Math.random() * 250));
+          continue;
+        }
+        if (!res.ok) throw new Error(`Image download failed: ${res.status}`);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        reportImageObjectUrlCache.set(key, objectUrl);
+        return objectUrl;
+      } catch (err) {
+        lastError = err;
+        if (attempt < REPORT_IMAGE_RETRY_DELAYS_MS.length) {
+          await sleep(REPORT_IMAGE_RETRY_DELAYS_MS[attempt]!);
+          continue;
+        }
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Image download failed");
+  })();
+
+  reportImagePromiseCache.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    reportImagePromiseCache.delete(key);
+  }
+}
+
+async function preloadReportImageCache(
+  srcs: string[],
+  onProgress?: (done: number, total: number) => void,
+) {
+  const unique = Array.from(new Set(srcs.filter((src) => shouldCacheReportImage(src))));
+  if (unique.length === 0) return;
+  let done = 0;
+  await mapWithConcurrency(unique, REPORT_IMAGE_DOWNLOAD_CONCURRENCY, async (src) => {
+    try {
+      await fetchReportImageCached(src);
+    } catch {
+      // A failed image should not block the whole report preview.
+    } finally {
+      done += 1;
+      onProgress?.(done, unique.length);
+    }
+  });
+}
+
+function reportDriveFileImageSrc(projectId: string, file: MvDriveFile) {
+  const anyFile = file as MvDriveFile & { sourceUrl?: string };
+  if (anyFile.sourceUrl) return anyFile.sourceUrl;
+  return `/api/mv/projects/${projectId}/files/${file._id}/download`;
+}
+
+function reportValuationImageSrc(projectId: string, image: { dataUrl?: string; fileId?: string }) {
+  if (image.dataUrl) return image.dataUrl;
+  if (image.fileId) return `/api/mv/projects/${projectId}/files/${image.fileId}/download`;
+  return "";
+}
+
+function waitNextFrame() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function waitForReportFonts() {
+  if (typeof document === "undefined" || !("fonts" in document)) return;
+  try {
+    await document.fonts.ready;
+  } catch {
+    // Capturing can continue with fallback fonts if the browser refuses a font promise.
+  }
+}
+
+async function waitForReportImages(root: HTMLElement, timeoutMs = 12000) {
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img")).filter(
+    (img) => img.src && !img.complete,
+  );
+  if (imgs.length === 0) return;
+  await Promise.allSettled(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          let finished = false;
+          const finish = () => {
+            if (finished) return;
+            finished = true;
+            window.clearTimeout(timer);
+            img.removeEventListener("load", finish);
+            img.removeEventListener("error", finish);
+            resolve();
+          };
+          const timer = window.setTimeout(finish, timeoutMs);
+          img.addEventListener("load", finish, { once: true });
+          img.addEventListener("error", finish, { once: true });
+        }),
+    ),
+  );
+}
+
+function collectReportImageSources(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLImageElement>("img"))
+    .map((img) => img.getAttribute("src") || img.currentSrc || img.src)
+    .filter((src): src is string => Boolean(src));
 }
 
 /**
@@ -105,11 +393,18 @@ function ReportViewportFit({
     const inner = innerRef.current;
     if (!sc || !inner) return;
     requestAnimationFrame(() => {
-      const W = Math.max(1, inner.scrollWidth);
-      const H = Math.max(1, inner.scrollHeight);
+      const W = Math.max(1, inner.scrollWidth, inner.offsetWidth);
+      const H = Math.max(1, inner.scrollHeight, inner.offsetHeight);
       const avail = Math.max(0, sc.clientWidth - gutterPx);
       const s = avail > 0 ? Math.min(1, Math.max(0.12, avail / W)) : 1;
-      setLayout({ s, boxW: W * s, boxH: H * s });
+      const next = { s, boxW: W * s, boxH: H * s };
+      setLayout((prev) =>
+        Math.abs(prev.s - next.s) < 0.001 &&
+        Math.abs(prev.boxW - next.boxW) < 0.5 &&
+        Math.abs(prev.boxH - next.boxH) < 0.5
+          ? prev
+          : next,
+      );
     });
   }, [scrollRef, gutterPx]);
 
@@ -130,13 +425,24 @@ function ReportViewportFit({
     };
   }, [recalc, scrollRef]);
 
+  useEffect(() => {
+    recalc();
+    const frame = requestAnimationFrame(() => recalc());
+    const timer = window.setTimeout(recalc, 80);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [children, recalc]);
+
   return (
     /* LTR هنا فقط لضبط المقياس ومنع قصّ جانبي عند ‎dir=rtl‎ في الصفحة */
     <div className="flex w-full justify-center" dir="ltr">
       <div
-        className="mx-auto overflow-hidden rounded-lg shadow-[0_1px_0_0_rgba(15,23,42,0.06)] ring-1 ring-slate-900/[0.04]"
+        data-mv-report-scale-viewport
+        className="mx-auto max-w-full overflow-hidden rounded-lg shadow-[0_1px_0_0_rgba(15,23,42,0.06)] ring-1 ring-slate-900/[0.04]"
         style={{
-          width: layout.boxW > 0 ? layout.boxW : "100%",
+          width: layout.boxW > 0 ? layout.boxW : "fit-content",
           maxWidth: "100%",
           height: layout.boxH > 0 ? layout.boxH : "auto",
           minHeight: layout.boxH > 0 ? layout.boxH : undefined,
@@ -144,6 +450,7 @@ function ReportViewportFit({
       >
         <div
           ref={innerRef}
+          data-mv-report-scale-shell
           dir="rtl"
           className="inline-block align-top will-change-transform"
           style={{
@@ -183,8 +490,6 @@ type ReportSignatureRow = {
 
 type PreparerFieldEdits = Record<string, { name: string; roleLabel: string }>;
 
-type EditableReportSection = { id: string; title: string; body: string };
-
 function newId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `r-${Date.now()}-${Math.random()}`;
 }
@@ -223,7 +528,7 @@ function migratePreparerFieldEdits(bundle: {
   return out;
 }
 
-function normalizeEditableSections(raw: unknown): EditableReportSection[] {
+function normalizeEditableSections(raw: unknown): MvReportEditableSection[] {
   if (!Array.isArray(raw)) return [];
   return (raw as unknown[])
     .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object")
@@ -232,6 +537,25 @@ function normalizeEditableSections(raw: unknown): EditableReportSection[] {
       title: typeof s.title === "string" ? s.title : "قسم جديد",
       body: typeof s.body === "string" ? s.body : "",
     }));
+}
+
+function isReportDraftMode(data: MvProjectReportData | undefined | null) {
+  return data?.reportPresentationDraft !== false;
+}
+
+function withDraftDefaultReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
+  return {
+    ...(data ?? {}),
+    reportPresentationDraft: isReportDraftMode(data),
+  };
+}
+
+function withDraftDefaultProject(project: MvProject | null | undefined): MvProject | null {
+  if (!project) return null;
+  return {
+    ...project,
+    reportData: withDraftDefaultReportData(project.reportData),
+  };
 }
 
 const reportFont = Tajawal({
@@ -363,7 +687,7 @@ type ValuationReportSessionBundle = {
   /** @deprecated — يُستورد إلى preparerFieldEdits عند التحميل */
   signatureRows?: ReportSignatureRow[];
   signatureRowsCompanySynced?: boolean;
-  editableSections?: EditableReportSection[];
+  editableSections?: MvReportEditableSection[];
   reportLayout?: ReportLayoutPrefs;
   reportNarrativeB1?: string;
   reportNarrativeB2?: string;
@@ -421,11 +745,16 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const sessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
   const initialBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey);
   const initialLayout = readLayoutFromBundle(initialBundle ?? undefined);
-  const [project, setProject] = useState<MvProject | null>(() => initialBundle?.project ?? null);
+  const [project, setProject] = useState<MvProject | null>(() => withDraftDefaultProject(initialBundle?.project));
   const projectRef = useRef<MvProject | null>(project);
   const reportDataPersistTimerRef = useRef<number | null>(null);
+  const reportDataPersistRequestRef = useRef(0);
+  const draftModeOverrideRef = useRef<boolean | null>(null);
   const [files, setFiles] = useState<MvDriveFile[]>(() => initialBundle?.files ?? []);
   const [loading, setLoading] = useState(() => initialBundle?.project == null);
+  const [preparingReport, setPreparingReport] = useState(true);
+  const [reportMediaLoading, setReportMediaLoading] = useState(false);
+  const reportPreparationRunRef = useRef(0);
   const [valuationAccountStore, setValuationAccountStore] =
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
   const [companySignatories, setCompanySignatories] = useState<ReportSignatureRow[]>([]);
@@ -436,24 +765,28 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [preparerFieldEdits, setPreparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
   );
-  const [editableSections, setEditableSections] = useState<EditableReportSection[]>(() =>
-    normalizeEditableSections(initialBundle?.editableSections),
+  const [editableSections, setEditableSections] = useState<MvReportEditableSection[]>(() =>
+    normalizeEditableSections(initialBundle?.project?.reportData?.reportEditableSections ?? initialBundle?.editableSections),
   );
   const [narrativeB1, setNarrativeB1] = useState(
-    () => initialBundle?.reportNarrativeB1 ?? MV_DEFAULT_NARRATIVE_B1,
+    () => initialBundle?.project?.reportData?.reportNarrativeB1 ?? initialBundle?.reportNarrativeB1 ?? MV_DEFAULT_NARRATIVE_B1,
   );
   const [narrativeB2, setNarrativeB2] = useState(
-    () => initialBundle?.reportNarrativeB2 ?? MV_DEFAULT_NARRATIVE_B2,
+    () => initialBundle?.project?.reportData?.reportNarrativeB2 ?? initialBundle?.reportNarrativeB2 ?? MV_DEFAULT_NARRATIVE_B2,
   );
   const [narrativeB3, setNarrativeB3] = useState(
-    () => initialBundle?.reportNarrativeB3 ?? MV_DEFAULT_NARRATIVE_B3,
+    () => initialBundle?.project?.reportData?.reportNarrativeB3 ?? initialBundle?.reportNarrativeB3 ?? MV_DEFAULT_NARRATIVE_B3,
   );
   const [narrativeB4, setNarrativeB4] = useState(
-    () => initialBundle?.reportNarrativeB4 ?? MV_DEFAULT_NARRATIVE_B4,
+    () => initialBundle?.project?.reportData?.reportNarrativeB4 ?? initialBundle?.reportNarrativeB4 ?? MV_DEFAULT_NARRATIVE_B4,
   );
   const [introExtraHtml, setIntroExtraHtml] = useState(
     () =>
-      typeof initialBundle?.reportIntroExtraHtml === "string" ? initialBundle.reportIntroExtraHtml : "",
+      typeof initialBundle?.project?.reportData?.reportIntroExtraHtml === "string"
+        ? initialBundle.project.reportData.reportIntroExtraHtml
+        : typeof initialBundle?.reportIntroExtraHtml === "string"
+          ? initialBundle.reportIntroExtraHtml
+          : "",
   );
   const [tocApproxPages, setTocApproxPages] = useState<Record<string, string>>({});
   const [activeSection, setActiveSection] = useState<ReportSectionId>("report-cover");
@@ -467,12 +800,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [imageOrder, setImageOrder] = useState<string[]>([]);
   const [hiddenImageIds, setHiddenImageIds] = useState<Set<string>>(() => new Set());
   const reportSectionsScrollRef = useRef<HTMLDivElement>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
   const reportPdfRef = useRef<HTMLElement | null>(null);
+  const previewReportRef = useRef<HTMLElement | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  /** معاينة ورقة ورقة (مثل Word) لتجنب قص الصفحات العريضة */
-  const [previewPageImages, setPreviewPageImages] = useState<string[]>([]);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
+  const reportImageWarmKeyRef = useRef("");
+  const loadRunRef = useRef(0);
   const [layoutBarExpanded, setLayoutBarExpanded] = useState(true);
 
   const resetLayoutToDefaults = useCallback(() => {
@@ -487,6 +822,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   }, []);
 
   const load = useCallback(async () => {
+    const runId = ++loadRunRef.current;
     const hasSession = readMvWorkflowSessionJson<ValuationReportSessionBundle>(
       MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId),
     )?.project != null;
@@ -497,6 +833,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         fetch(`/api/mv/projects/${projectId}/asset-image-files`, { credentials: "include" }),
         fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, { credentials: "include" }),
       ]);
+      if (runId !== loadRunRef.current) return;
 
       const [projectData, driveRowsRaw, previewData] = await Promise.all([
         projectRes.ok ? (projectRes.json() as Promise<{ project?: MvProject }>) : Promise.resolve(null),
@@ -505,9 +842,39 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           ? (previewRes.json() as Promise<{ subProjects?: MvSubProject[] }>)
           : Promise.resolve(null),
       ]);
+      if (runId !== loadRunRef.current) return;
 
-      const fetchedProject = projectData?.project ?? null;
+      const fetchedProject = withDraftDefaultProject(projectData?.project ?? null);
       const driveRows = Array.isArray(driveRowsRaw) ? driveRowsRaw : [];
+      const quickProject =
+        projectRes.ok && fetchedProject
+          ? {
+              ...fetchedProject,
+              reportData: {
+                ...(fetchedProject.reportData ?? {}),
+                ...(draftModeOverrideRef.current === null
+                  ? {}
+                  : { reportPresentationDraft: draftModeOverrideRef.current }),
+              },
+            }
+          : null;
+
+      setFiles(driveRows);
+      setProject((prev) => {
+        const nextP = quickProject ?? prev;
+        const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
+        writeMvWorkflowSessionJson(sessionKey, {
+          ...prevBundle,
+          project: nextP,
+          files: driveRows,
+          fetchedAt: Date.now(),
+        });
+        return nextP;
+      });
+      setLoading(false);
+      setReportMediaLoading(
+        (Array.isArray(previewData?.subProjects) ? previewData!.subProjects! : []).some((s) => Boolean(s.picAsset?._id)),
+      );
 
       let picRows: (MvDriveFile & { sourceUrl?: string })[] = [];
       try {
@@ -573,10 +940,23 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         // ignore pic asset load failures; drive files still show
       }
 
+      if (runId !== loadRunRef.current) return;
+      setReportMediaLoading(false);
       const merged = [...driveRows, ...picRows];
       setFiles(merged);
       setProject((prev) => {
-        const nextP = projectRes.ok ? fetchedProject : prev;
+        const nextP =
+          projectRes.ok && fetchedProject
+            ? {
+                ...fetchedProject,
+                reportData: {
+                  ...(fetchedProject.reportData ?? {}),
+                  ...(draftModeOverrideRef.current === null
+                    ? {}
+                    : { reportPresentationDraft: draftModeOverrideRef.current }),
+                },
+              }
+            : prev;
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, {
           ...prevBundle,
@@ -587,7 +967,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         return nextP;
       });
     } finally {
-      setLoading(false);
+      if (runId === loadRunRef.current) {
+        setLoading(false);
+        setReportMediaLoading(false);
+      }
     }
   }, [projectId, sessionKey]);
 
@@ -598,6 +981,19 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   useEffect(() => {
     projectRef.current = project;
   }, [project]);
+
+  useEffect(() => {
+    const rd = project?.reportData;
+    if (!rd) return;
+    if (Array.isArray(rd.reportEditableSections)) {
+      setEditableSections(normalizeEditableSections(rd.reportEditableSections));
+    }
+    if (typeof rd.reportNarrativeB1 === "string") setNarrativeB1(rd.reportNarrativeB1);
+    if (typeof rd.reportNarrativeB2 === "string") setNarrativeB2(rd.reportNarrativeB2);
+    if (typeof rd.reportNarrativeB3 === "string") setNarrativeB3(rd.reportNarrativeB3);
+    if (typeof rd.reportNarrativeB4 === "string") setNarrativeB4(rd.reportNarrativeB4);
+    if (typeof rd.reportIntroExtraHtml === "string") setIntroExtraHtml(rd.reportIntroExtraHtml);
+  }, [loading, project?._id]);
 
   useEffect(
     () => () => {
@@ -648,7 +1044,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     return () => {
       cancelled = true;
     };
-  }, [loading, project]);
+  }, [loading, project?._id]);
 
   const serverAccountingKey = useMemo(
     () => JSON.stringify(project?.valuationAccountingWorkspace ?? null),
@@ -711,68 +1107,37 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     valuationImageWidth,
   ]);
 
-  const openReportPreview = useCallback(async () => {
+  const openReportPreview = useCallback(() => {
+    if (loading || preparingReport || reportMediaLoading) return;
     setPreviewOpen(true);
-    setPreviewPageImages([]);
-    setPreviewLoading(true);
-    const root = reportPdfRef.current;
+  }, [loading, preparingReport, reportMediaLoading]);
+
+  const downloadAsPdf = useCallback(async () => {
+    if (loading || preparingReport || reportMediaLoading) return;
+    setDownloadingPdf(true);
+    let restoreCaptureLayout: (() => void) | null = null;
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
     const prevLeft = scrollEl?.scrollLeft ?? 0;
-    if (scrollEl) {
-      scrollEl.scrollTop = 0;
-      scrollEl.scrollLeft = 0;
-    }
-    try {
-      if (!root) return;
-      const { default: html2canvas } = await import("html2canvas");
-      const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
-      if (sheets.length === 0) return;
-
-      const urls: string[] = [];
-      for (const el of sheets) {
-        const landscape = el.dataset.mvReportOrientation === "landscape";
-        const scale = landscape ? 1.45 : 1.35;
-        const { w, h } = getSheetPixelBox(el);
-        const canvas = await html2canvas(el, {
-          scale,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          backgroundColor: "#ffffff",
-          scrollX: 0,
-          scrollY: 0,
-          width: w,
-          height: h,
-          windowWidth: w,
-          windowHeight: h,
-          ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
-          onclone: applyMvReportCaptureClone,
-        });
-        urls.push(canvas.toDataURL("image/png", 0.92));
-      }
-      setPreviewPageImages(urls);
-    } finally {
-      if (scrollEl) {
-        scrollEl.scrollTop = prevTop;
-        scrollEl.scrollLeft = prevLeft;
-      }
-      setPreviewLoading(false);
-    }
-  }, []);
-
-  const downloadAsPdf = useCallback(async () => {
-    setDownloadingPdf(true);
     try {
       const root = reportPdfRef.current;
       if (!root) return;
-      const scrollEl = reportSectionsScrollRef.current;
-      const prevTop = scrollEl?.scrollTop ?? 0;
-      const prevLeft = scrollEl?.scrollLeft ?? 0;
       if (scrollEl) {
         scrollEl.scrollTop = 0;
         scrollEl.scrollLeft = 0;
       }
+
+      await preloadReportImageCache(collectReportImageSources(root));
+      setReportImageCacheVersion((v) => v + 1);
+      await waitNextFrame();
+      await waitNextFrame();
+      await waitForReportImages(root);
+      await waitForReportFonts();
+      restoreCaptureLayout = prepareReportCaptureLayout(root);
+      await waitNextFrame();
+      await waitNextFrame();
+      await waitForReportImages(root);
+      await waitForReportFonts();
 
       const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
         import("jspdf"),
@@ -817,19 +1182,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           pdf.addPage("a4", orientation);
         }
 
-        const rw = pdfW / canvas.width;
-        const rh = pdfH / canvas.height;
-        const r = Math.min(rw, rh);
-        const dw = canvas.width * r;
-        const dh = canvas.height * r;
-        const ox = (pdfW - dw) / 2;
-        const oy = (pdfH - dh) / 2;
-        pdf.addImage(imgData, "PNG", ox, oy, dw, dh, undefined, "FAST");
-      }
-
-      if (scrollEl) {
-        scrollEl.scrollTop = prevTop;
-        scrollEl.scrollLeft = prevLeft;
+        pdf.addImage(imgData, "PNG", 0, 0, pdfW, pdfH, undefined, "NONE");
       }
 
       if (pdf) {
@@ -837,9 +1190,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         pdf.save(`${safeName}-valuation-report.pdf`);
       }
     } finally {
+      restoreCaptureLayout?.();
+      if (scrollEl) {
+        scrollEl.scrollTop = prevTop;
+        scrollEl.scrollLeft = prevLeft;
+      }
       setDownloadingPdf(false);
     }
-  }, [project?.name]);
+  }, [loading, preparingReport, project?.name, reportMediaLoading]);
 
   useEffect(() => {
     const steps = readVisitedSimpleReportSteps(projectId);
@@ -848,7 +1206,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }
   }, [projectId]);
 
-  const reportData: MvProjectReportData = project?.reportData ?? {};
+  const reportData: MvProjectReportData = useMemo(
+    () => withDraftDefaultReportData(project?.reportData),
+    [project?.reportData],
+  );
+  const draftMode = isReportDraftMode(reportData);
   const includeAssetImages = reportData.includeAssetImages !== false;
   const includeValuationAccountImages =
     reportData.includeValuationAccountImages !== false &&
@@ -937,6 +1299,89 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     });
   }, [companySignatories, preparerFieldEdits]);
 
+  const reportImageSources = useMemo(() => {
+    const sources: string[] = [];
+    if (companyBrand.logoSrc) sources.push(companyBrand.logoSrc);
+    for (const file of orderedImages) sources.push(reportDriveFileImageSrc(projectId, file));
+    for (const image of valuationAccountImages) sources.push(reportValuationImageSrc(projectId, image));
+    for (const row of preparerDisplayRows) {
+      if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
+    }
+    return sources.filter(Boolean);
+  }, [companyBrand.logoSrc, orderedImages, preparerDisplayRows, projectId, valuationAccountImages]);
+
+  const reportImageSourcesKey = useMemo(
+    () =>
+      reportImageSources
+        .filter((src) => shouldCacheReportImage(src))
+        .map((src) => normalizeReportImageSrc(src))
+        .join("|"),
+    [reportImageSources],
+  );
+
+  const resolveReportImageSrc = useCallback(
+    (src: string) => getCachedReportImageSrc(src),
+    [reportImageCacheVersion],
+  );
+
+  useEffect(() => {
+    if (loading || reportImageSources.length === 0) return;
+    if (reportImageWarmKeyRef.current === reportImageSourcesKey) return;
+    reportImageWarmKeyRef.current = reportImageSourcesKey;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void preloadReportImageCache(reportImageSources).then(() => {
+        if (!cancelled) setReportImageCacheVersion((v) => v + 1);
+      });
+    }, REPORT_BACKGROUND_IMAGE_WARM_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [loading, reportImageSources, reportImageSourcesKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const runId = ++reportPreparationRunRef.current;
+    let cancelled = false;
+
+    if (loading || !project) {
+      setPreparingReport(true);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setPreparingReport(true);
+
+    void (async () => {
+      await waitNextFrame();
+      await waitNextFrame();
+      if (cancelled || runId !== reportPreparationRunRef.current) return;
+
+      const root = reportPdfRef.current;
+      await Promise.all([
+        settleWithin(waitForReportFonts(), REPORT_INITIAL_FONT_WAIT_MS),
+        root
+          ? settleWithin(waitForReportImages(root, REPORT_INITIAL_IMAGE_WAIT_MS), REPORT_INITIAL_IMAGE_WAIT_MS + 100)
+          : Promise.resolve(),
+      ]);
+      await sleep(REPORT_READY_ANIMATION_SETTLE_MS);
+      await waitNextFrame();
+
+      if (!cancelled && runId === reportPreparationRunRef.current) {
+        setPreparingReport(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    project?._id,
+  ]);
+
   const projectName = project?.name ?? projectId;
   const primarySignatory = preparerDisplayRows[0];
   const inspectionLocationLine = useMemo(() => {
@@ -963,6 +1408,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     async (nextReportData: MvProjectReportData) => {
       const p = projectRef.current;
       if (!p?._id) return;
+      const requestId = ++reportDataPersistRequestRef.current;
+      const normalizedReportData = withDraftDefaultReportData(nextReportData);
       try {
         const res = await fetch(`/api/mv/projects/${projectId}`, {
           method: "PATCH",
@@ -971,15 +1418,29 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           body: JSON.stringify({
             name: p.name,
             reportType: p.reportType ?? "simple",
-            reportData: nextReportData,
+            reportData: normalizedReportData,
           }),
         });
         if (!res.ok) return;
         const j = (await res.json()) as { project?: MvProject };
-        if (j.project) {
-          setProject(j.project);
-          const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
-          writeMvWorkflowSessionJson(sessionKey, { ...prevBundle, project: j.project, fetchedAt: Date.now() });
+        if (j.project && requestId === reportDataPersistRequestRef.current) {
+          const savedProject = withDraftDefaultProject(j.project)!;
+          setProject((current) => {
+            const currentDraft = current?._id === savedProject._id ? current?.reportData?.reportPresentationDraft : undefined;
+            const nextProject =
+              currentDraft === undefined
+                ? savedProject
+                : {
+                    ...savedProject,
+                    reportData: {
+                      ...(savedProject.reportData ?? {}),
+                      reportPresentationDraft: currentDraft,
+                    },
+                  };
+            const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
+            writeMvWorkflowSessionJson(sessionKey, { ...prevBundle, project: nextProject, fetchedAt: Date.now() });
+            return nextProject;
+          });
         }
       } catch {
         /* ignore */
@@ -992,7 +1453,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     (patch: Partial<MvProjectReportData>) => {
       setProject((p) => {
         if (!p) return p;
-        const rd = { ...(p.reportData ?? {}), ...patch };
+        const rd = withDraftDefaultReportData({ ...(p.reportData ?? {}), ...patch });
+        if (typeof patch.reportPresentationDraft === "boolean") {
+          draftModeOverrideRef.current = patch.reportPresentationDraft;
+        }
         const next = { ...p, reportData: rd };
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, { ...prevBundle, project: next, fetchedAt: Date.now() });
@@ -1010,9 +1474,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const toggleDraftMode = useCallback(() => {
     setProject((p) => {
       if (!p) return p;
+      const nextDraftMode = !isReportDraftMode(p.reportData);
+      draftModeOverrideRef.current = nextDraftMode;
       const rd = {
         ...(p.reportData ?? {}),
-        reportPresentationDraft: !(p.reportData?.reportPresentationDraft === true),
+        reportPresentationDraft: nextDraftMode,
       };
       const next = { ...p, reportData: rd };
       const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
@@ -1026,6 +1492,46 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     });
   }, [persistProjectReportData, sessionKey]);
 
+  const updateIntroExtraHtml = useCallback(
+    (html: string) => {
+      setIntroExtraHtml(html);
+      onReportDataPatch({ reportIntroExtraHtml: html });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateNarrativeB1 = useCallback(
+    (html: string) => {
+      setNarrativeB1(html);
+      onReportDataPatch({ reportNarrativeB1: html });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateNarrativeB2 = useCallback(
+    (html: string) => {
+      setNarrativeB2(html);
+      onReportDataPatch({ reportNarrativeB2: html });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateNarrativeB3 = useCallback(
+    (html: string) => {
+      setNarrativeB3(html);
+      onReportDataPatch({ reportNarrativeB3: html });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateNarrativeB4 = useCallback(
+    (html: string) => {
+      setNarrativeB4(html);
+      onReportDataPatch({ reportNarrativeB4: html });
+    },
+    [onReportDataPatch],
+  );
+
   const sectionIdsOrdered = useMemo((): ReportSectionId[] => {
     return [
       ...MV_REPORT_SCROLL_ANCHOR_ORDER,
@@ -1038,12 +1544,19 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     const root = reportPdfRef.current;
     if (!root || loading) return;
 
-    const sheets = Array.from(root.querySelectorAll("[data-mv-report-sheet]"));
-    const total = sheets.length;
-    sheets.forEach((sheet, i) => {
-      const slot = sheet.querySelector("[data-mv-page-label-slot]");
-      if (slot) slot.textContent = `${i + 1} / ${total}`;
-    });
+    const labelSheets = (targetRoot: HTMLElement | null) => {
+      if (!targetRoot) return [] as Element[];
+      const targetSheets = Array.from(targetRoot.querySelectorAll("[data-mv-report-sheet]"));
+      const total = targetSheets.length;
+      targetSheets.forEach((sheet, i) => {
+        const slot = sheet.querySelector("[data-mv-page-label-slot]");
+        if (slot) slot.textContent = `${i + 1} / ${total}`;
+      });
+      return targetSheets;
+    };
+
+    const sheets = labelSheets(root);
+    if (previewOpen) labelSheets(previewReportRef.current);
 
     const next: Record<string, string> = {};
     for (const row of MV_REPORT_TOC_ROWS) {
@@ -1084,20 +1597,79 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     includeValuationAccountImages,
     companyBrand.name,
     companyBrand.logoSrc,
+    previewOpen,
   ]);
 
   const addEditableSection = useCallback(() => {
-    setEditableSections((list) => [...list, { id: newId(), title: "قسم جديد", body: "" }]);
-  }, []);
+    setEditableSections((list) => {
+      const next = [...list, { id: newId(), title: "قسم جديد", body: "" }];
+      onReportDataPatch({ reportEditableSections: next });
+      return next;
+    });
+  }, [onReportDataPatch]);
 
   const removeEditableSection = useCallback((id: string) => {
-    setEditableSections((list) => list.filter((s) => s.id !== id));
+    setEditableSections((list) => {
+      const next = list.filter((s) => s.id !== id);
+      onReportDataPatch({ reportEditableSections: next });
+      return next;
+    });
     setActiveSection((current) => (current === `custom:${id}` ? "report-cover" : current));
-  }, []);
+  }, [onReportDataPatch]);
 
-  const updateEditableSection = useCallback((id: string, patch: Partial<EditableReportSection>) => {
-    setEditableSections((list) => list.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  }, []);
+  const updateEditableSection = useCallback((id: string, patch: Partial<MvReportEditableSection>) => {
+    setEditableSections((list) => {
+      const next = list.map((s) => (s.id === id ? { ...s, ...patch } : s));
+      onReportDataPatch({ reportEditableSections: next });
+      return next;
+    });
+  }, [onReportDataPatch]);
+
+  const reportDocumentProps = {
+    projectId,
+    project,
+    projectName,
+    reportData,
+    companyBrand,
+    reportFooterLines,
+    draftWatermark: draftMode,
+    onReportDataPatch,
+    tocApproxPages,
+    sectionGap,
+    narrativeB1,
+    narrativeB2,
+    narrativeB3,
+    narrativeB4,
+    introExtraHtml,
+    onNarrativeB1: updateNarrativeB1,
+    onNarrativeB2: updateNarrativeB2,
+    onNarrativeB3: updateNarrativeB3,
+    onNarrativeB4: updateNarrativeB4,
+    onIntroExtraHtml: updateIntroExtraHtml,
+    assetFolderLabels,
+    inspectionLocationText: inspectionLocationLine.text,
+    inspectionMapUrl: inspectionLocationLine.mapUrl,
+    primarySignatory,
+    preparerDisplayRows,
+    updatePreparerField,
+    includeAssetImages,
+    includeValuationAccountImages,
+    orderedImages,
+    imageOrder,
+    imageGroupGap,
+    imageInnerGap,
+    assetImageWidth,
+    valuationImageWidth,
+    valuationAccountImages,
+    resolveImageSrc: resolveReportImageSrc,
+    moveImage,
+    hideImage,
+    navigate,
+    editableSections,
+    updateEditableSection,
+    removeEditableSection,
+    addEditableSection,
+  };
 
   const scrollToSection = useCallback((id: ReportSectionId) => {
     setActiveSection(id);
@@ -1144,6 +1716,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       cancelAnimationFrame(frame);
     };
   }, [loading, sectionIdsOrdered]);
+
+  const showReportPreparationModal = loading || preparingReport || downloadingPdf;
 
   return (
     <MvWorkflowPageFrame
@@ -1247,40 +1821,48 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               >
                 <RotateCcw className="h-4 w-4" />
               </Button>
-              <Button
+              <button
                 type="button"
-                variant={reportData.reportPresentationDraft ? "secondary" : "outline"}
-                size="sm"
                 className={cn(
-                  "h-8 gap-1 px-2.5 text-[11px] font-bold",
-                  reportData.reportPresentationDraft
-                    ? "border-amber-200/90 bg-amber-50 text-amber-950 hover:bg-amber-100/90"
-                    : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
+                  "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-2.5 text-[11px] font-black transition disabled:cursor-not-allowed disabled:opacity-60",
+                  draftMode
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                    : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200",
                 )}
-                disabled={loading}
+                disabled={loading || preparingReport}
                 title={
-                  reportData.reportPresentationDraft
-                    ? "وضع مسودة — علامة مائية وإخفاء التوقيعات. انقر للتقرير النهائي."
-                    : "تقرير نهائي. انقر لتفعيل وضع المسودة."
+                  draftMode
+                    ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
+                    : "وضع المسودة مغلق: لا توجد علامة مائية وتظهر التوقيعات."
                 }
                 onClick={toggleDraftMode}
+                aria-pressed={draftMode}
               >
-                {reportData.reportPresentationDraft ? (
-                  <LockOpen className="h-3.5 w-3.5" />
-                ) : (
-                  <Lock className="h-3.5 w-3.5" />
-                )}
-                {reportData.reportPresentationDraft ? "مسودة" : "نهائي"}
-              </Button>
+                <span>مسودة</span>
+                <span
+                  className={cn(
+                    "relative h-4 w-8 rounded-full transition-colors",
+                    draftMode ? "bg-emerald-500" : "bg-slate-300",
+                  )}
+                  aria-hidden
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform",
+                      draftMode ? "-translate-x-[0.95rem]" : "translate-x-[-0.125rem]",
+                    )}
+                  />
+                </span>
+              </button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1 border-sky-200 bg-white px-2.5 text-[11px] font-bold text-sky-950 hover:bg-sky-50"
-                disabled={loading || previewLoading}
-                onClick={() => void openReportPreview()}
+                disabled={loading || preparingReport || reportMediaLoading}
+                onClick={openReportPreview}
               >
-                {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                <Eye className="h-3.5 w-3.5" />
                 معاينة
               </Button>
               <Button
@@ -1288,12 +1870,18 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 variant="outline"
                 size="sm"
                 className="h-8 gap-1 border-slate-200 bg-white px-2.5 text-[11px] font-bold hover:bg-slate-50"
-                disabled={downloadingPdf || loading}
+                disabled={downloadingPdf || loading || preparingReport || reportMediaLoading}
                 onClick={() => void downloadAsPdf()}
               >
                 {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
                 PDF
               </Button>
+              {reportMediaLoading ? (
+                <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-sky-50 px-2.5 text-[10px] font-bold text-sky-900">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  جاري تحميل صور التقرير
+                </span>
+              ) : null}
             </div>
 
             {layoutBarExpanded ? (
@@ -1313,7 +1901,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     icon={<Ruler className="h-3.5 w-3.5 text-sky-800" />}
                     label="هامش أعلى/أسفل"
                     value={marginY}
-                    min={8}
+                    min={0}
                     max={140}
                     step={2}
                     suffix="px"
@@ -1323,7 +1911,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     icon={<Settings2 className="h-3.5 w-3.5 text-sky-800" />}
                     label="فراغ بين الأقسام"
                     value={sectionGap}
-                    min={16}
+                    min={0}
                     max={72}
                     step={2}
                     suffix="px"
@@ -1333,7 +1921,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
                     label="فراغ مجموعات الصور"
                     value={imageGroupGap}
-                    min={8}
+                    min={0}
                     max={120}
                     step={2}
                     suffix="px"
@@ -1343,7 +1931,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
                     label="فراغ بين صور المجموعة"
                     value={imageInnerGap}
-                    min={4}
+                    min={0}
                     max={40}
                     step={2}
                     suffix="px"
@@ -1401,52 +1989,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             ) : (
               <ReportViewportFit
                 scrollRef={reportSectionsScrollRef}
-                gutterPx={Math.round(marginX * 2 + 16)}
+                gutterPx={Math.max(0, Math.round(marginX * 2))}
               >
-                <MvValuationReportDocumentBody
-                  projectId={projectId}
-                  project={project}
-                  projectName={projectName}
-                  reportData={reportData}
-                  companyBrand={companyBrand}
-                  reportFooterLines={reportFooterLines}
-                  draftWatermark={reportData.reportPresentationDraft === true}
-                  onReportDataPatch={onReportDataPatch}
-                  tocApproxPages={tocApproxPages}
-                  sectionGap={sectionGap}
-                  narrativeB1={narrativeB1}
-                  narrativeB2={narrativeB2}
-                  narrativeB3={narrativeB3}
-                  narrativeB4={narrativeB4}
-                  introExtraHtml={introExtraHtml}
-                  onNarrativeB1={setNarrativeB1}
-                  onNarrativeB2={setNarrativeB2}
-                  onNarrativeB3={setNarrativeB3}
-                  onNarrativeB4={setNarrativeB4}
-                  onIntroExtraHtml={setIntroExtraHtml}
-                  assetFolderLabels={assetFolderLabels}
-                  inspectionLocationText={inspectionLocationLine.text}
-                  inspectionMapUrl={inspectionLocationLine.mapUrl}
-                  primarySignatory={primarySignatory}
-                  preparerDisplayRows={preparerDisplayRows}
-                  updatePreparerField={updatePreparerField}
-                  includeAssetImages={includeAssetImages}
-                  includeValuationAccountImages={includeValuationAccountImages}
-                  orderedImages={orderedImages}
-                  imageOrder={imageOrder}
-                  imageGroupGap={imageGroupGap}
-                  imageInnerGap={imageInnerGap}
-                  assetImageWidth={assetImageWidth}
-                  valuationImageWidth={valuationImageWidth}
-                  valuationAccountImages={valuationAccountImages}
-                  moveImage={moveImage}
-                  hideImage={hideImage}
-                  navigate={navigate}
-                  editableSections={editableSections}
-                  updateEditableSection={updateEditableSection}
-                  removeEditableSection={removeEditableSection}
-                  addEditableSection={addEditableSection}
-                />
+                <MvValuationReportDocumentBody {...reportDocumentProps} />
               </ReportViewportFit>
             )}
           </article>
@@ -1455,58 +2000,55 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         </div>
       </div>
 
+      {showReportPreparationModal ? (
+        <div
+          className="fixed inset-0 z-[650] flex items-center justify-center bg-slate-950/15 px-4 backdrop-blur-[2px]"
+          role="status"
+          aria-live="polite"
+          aria-label="جاري إعداد التقرير النهائي"
+        >
+          <div className="flex min-w-[240px] items-center justify-center gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 text-right shadow-2xl shadow-slate-950/15 ring-1 ring-white/70">
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#0C447C]" />
+            <span className="text-[13px] font-black text-slate-900">جاري إعداد التقرير النهائي</span>
+          </div>
+        </div>
+      ) : null}
+
       <Dialog
         open={previewOpen}
-        onOpenChange={(open) => {
-          setPreviewOpen(open);
-          if (!open) setPreviewPageImages([]);
-        }}
+        onOpenChange={setPreviewOpen}
       >
         <DialogContent
           className="!fixed !inset-3 !left-3 !right-3 !top-3 !bottom-3 flex h-[calc(100dvh-1.5rem)] !max-h-none w-auto !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-slate-200/90 bg-gradient-to-b from-[#e8edf4] via-white to-[#f0f4fa] p-0 shadow-2xl ring-1 ring-slate-900/10 sm:!inset-5 sm:h-[calc(100dvh-2.5rem)]"
           dir="rtl"
         >
           <DialogHeader className="shrink-0 border-b border-[#0C447C]/10 bg-gradient-to-l from-white via-sky-50/30 to-[#e8f0fa] px-4 py-3 text-right sm:px-5 sm:py-3.5">
-            <DialogTitle className="text-base font-black text-[#0a1f33] sm:text-lg">معاينة التقرير</DialogTitle>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">
-              {previewPageImages.length > 0
-                ? `${previewPageImages.length} صفحة — كامل العرض دون قص`
-                : "صفحة بصفحة كما في التصدير"}
-            </p>
+            <DialogTitle className="text-base font-black text-[#0a1f33] sm:text-lg">معاينة التقرير النهائية</DialogTitle>
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">نفس الشكل الذي سيتم تنزيله بصيغة PDF</p>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[#cbd5e1]/25 p-3 sm:p-5">
-            {previewLoading ? (
-              <div className="flex min-h-[40vh] items-center justify-center gap-2 text-slate-500">
-                <Loader2 className="h-8 w-8 animate-spin" />
-                <span className="text-sm font-bold">جاري تجهيز الصفحات…</span>
-              </div>
-            ) : previewPageImages.length > 0 ? (
-              <div className="mx-auto flex max-w-5xl flex-col gap-6 pb-6">
-                {previewPageImages.map((src, i) => (
-                  <div
-                    key={i}
-                    className="motion-safe:animate-mv-report-sheet-reveal rounded-xl border border-white/90 bg-white p-2 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.18)] ring-1 ring-slate-900/5 transition-shadow duration-300 hover:shadow-[0_20px_50px_-15px_rgba(12,68,124,0.2)]"
-                    style={{ animationDelay: `${Math.min(i, 12) * 45}ms` }}
-                  >
-                    <p className="mb-2 text-center text-[10px] font-black tabular-nums text-[#0C447C]/80">
-                      صفحة {i + 1} / {previewPageImages.length}
-                    </p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={src}
-                      alt=""
-                      className="mx-auto block h-auto w-full max-w-full rounded-md bg-white"
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="py-16 text-center text-sm font-bold text-slate-500">تعذر إنشاء المعاينة.</p>
-            )}
+          <div
+            ref={previewScrollRef}
+            className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[#cbd5e1]/25 p-3 sm:p-5"
+          >
+            <article
+              ref={(el) => {
+                previewReportRef.current = el;
+              }}
+              className="pointer-events-none mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950 [&_.mv-report-chrome]:!hidden"
+              style={{ padding: `${marginY}px ${marginX}px` }}
+              aria-label="معاينة التقرير"
+            >
+              <ReportViewportFit
+                scrollRef={previewScrollRef}
+                gutterPx={Math.max(24, Math.round(marginX * 2))}
+              >
+                <MvValuationReportDocumentBody {...reportDocumentProps} />
+              </ReportViewportFit>
+            </article>
           </div>
         </DialogContent>
       </Dialog>
-      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen} />
+      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !preparingReport && !previewOpen} />
     </MvWorkflowPageFrame>
   );
 }

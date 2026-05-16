@@ -2,66 +2,8 @@
 > spark-vision-frontend@0.1.0 predev
 > node scripts/clean-next.mjs
 
-[frontend] cleaning .next cache
+[frontend] skipping .next cleanup (dev server is running, PID 12652)
 
 > spark-vision-frontend@0.1.0 dev
 > node scripts/dev-with-port-fallback.mjs
 
-[frontend] next dev on port 3000 (webpack)
-   ▲ Next.js 15.5.15
-   - Local:        http://localhost:3000
-   - Network:      http://192.168.0.126:3000
-   - Environments: .env
-   - Experiments (use with caution):
-     · serverActions
-     · middlewareClientMaxBodySize: "160mb"
-
- ✓ Starting...
-[frontend] warming 15 routes (batch=2, gap=100ms) — TCP readiness only, no extra GET / before warmup…
- ✓ Ready in 3.9s
- ○ Compiling /w/[[...slug]] ...
- ✓ Compiled /w/[[...slug]] in 40.1s (2484 modules)
- GET / 200 in 20185ms
- GET / 200 in 41739ms
-[frontend] warmed / in 44410ms
- GET /w/vt 200 in 42995ms
-[frontend] warmed /w/vt in 45587ms
- GET /w/value-tech-app 200 in 459ms
-[frontend] warmed /w/value-tech-app in 504ms
- GET /w/real-estate-valuation 200 in 460ms
-[frontend] warmed /w/real-estate-valuation in 503ms
- GET /w/machine-valuation 200 in 442ms
-[frontend] warmed /w/machine-valuation in 455ms
- GET /w/machine-valuation/projects 200 in 447ms
-[frontend] warmed /w/machine-valuation/projects in 461ms
- ○ Compiling /api/mv/[...path] ...
- ✓ Compiled /api/mv/[...path] in 4.3s (2489 modules)
- GET /w/evaluation-source 200 in 7174ms
-[frontend] warmed /w/evaluation-source in 7185ms
- GET /api/mv/projects 401 in 9338ms
- GET /w/evaluation-source/cars 200 in 335ms
-[frontend] warmed /w/evaluation-source/cars in 365ms
- GET /w/evaluation-source/real-estate 200 in 334ms
-[frontend] warmed /w/evaluation-source/real-estate in 368ms
- GET /w/evaluation-source/other 200 in 461ms
-[frontend] warmed /w/evaluation-source/other in 473ms
- GET /w/clients 200 in 464ms
-[frontend] warmed /w/clients in 476ms
- ○ Compiling /admin ...
- ✓ Compiled /admin in 7.4s (3601 modules)
- GET /admin 200 in 8884ms
-[frontend] warmed /admin in 8889ms
- GET /w/settings 200 in 8879ms
-[frontend] warmed /w/settings in 8893ms
- ○ Compiling /profile ...
- ✓ Compiled /profile in 1565ms (3609 modules)
- GET /profile 200 in 2253ms
-[frontend] warmed /profile in 2256ms
-[frontend] route warmup finished in 68751ms
- ○ Compiling /_error ...
- ✓ Compiled /_error in 16.4s (2038 modules)
- ○ Compiling / ...
- ✓ Compiled / in 2.9s (1521 modules)
- GET / 200 in 3659ms
- GET / 200 in 209ms
-[?25h

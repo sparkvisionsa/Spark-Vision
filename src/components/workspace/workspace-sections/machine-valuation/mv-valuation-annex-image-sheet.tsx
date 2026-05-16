@@ -27,7 +27,11 @@ function AnnexSectionShell({
   children: ReactNode;
 }) {
   return (
-    <section {...(id ? { id } : {})} dir="rtl" className={cn("scroll-mt-4 text-right")}>
+    <section
+      {...(id ? { id, "data-mv-report-insert-anchor": id } : {})}
+      dir="rtl"
+      className={cn("scroll-mt-4 text-right")}
+    >
       <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
         <div
           className="min-w-0 flex-1 text-right text-[17px] font-black leading-tight text-[#0a1f33] sm:text-[19px]"
@@ -51,6 +55,9 @@ export function MvValuationAnnexImageSheet({
   footerLines,
   valuationImageWidth,
   draftWatermark,
+  resolveImageSrc,
+  insertedBlocksNode,
+  titleNode,
 }: {
   projectId: string;
   approach: Approach;
@@ -61,8 +68,13 @@ export function MvValuationAnnexImageSheet({
   footerLines: string[];
   valuationImageWidth: number;
   draftWatermark: boolean;
+  resolveImageSrc?: (src: string) => string;
+  insertedBlocksNode?: ReactNode;
+  titleNode?: ReactNode;
 }) {
   const [orientation, setOrientation] = useState<MvReportPageOrientation>("landscape");
+  const rawSrc = valuationImageSrc(projectId, image);
+  const imgSrc = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;
 
   const onImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const im = e.currentTarget;
@@ -83,8 +95,8 @@ export function MvValuationAnnexImageSheet({
       draftWatermark={draftWatermark}
     >
       <AnnexSectionShell
-        id={vIdx === 0 ? "mv-annex-1" : undefined}
-        title={
+        id={vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`}
+        title={titleNode ?? (
           <span className="text-[14px]">
             مرفق 1: {approach.label}
             {vIdx > 0 ? (
@@ -95,12 +107,12 @@ export function MvValuationAnnexImageSheet({
               </span>
             )}
           </span>
-        }
+        )}
       >
         <figure className="flex min-h-[132mm] w-full items-center justify-center rounded-xl bg-gradient-to-b from-slate-50/95 to-white p-2 ring-1 ring-[#0C447C]/12">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={valuationImageSrc(projectId, image)}
+            src={imgSrc}
             alt=""
             className="object-contain"
             style={{
@@ -113,6 +125,7 @@ export function MvValuationAnnexImageSheet({
             onLoad={onImgLoad}
           />
         </figure>
+        {insertedBlocksNode}
       </AnnexSectionShell>
     </MvReportPageShell>
   );

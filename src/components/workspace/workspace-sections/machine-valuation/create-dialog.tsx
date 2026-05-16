@@ -15,13 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
 import { FileText, Layers3, Loader2 } from "lucide-react";
-import type { MvProjectContact, MvProjectLocation, MvProjectReportType } from "./types";
-import {
-  EMPTY_PROJECT_CONTACT_FORM,
-  projectContactDataFromForm,
-  type MvProjectContactForm,
-} from "./mv-project-contact-data";
-import { MvProjectContactFields } from "./mv-project-contact-fields";
+import type { MvProjectReportType } from "./types";
 
 const copy = {
   en: {
@@ -71,8 +65,6 @@ interface CreateDialogProps {
     name: string,
     options?: {
       reportType: MvProjectReportType;
-      locations?: MvProjectLocation[];
-      contacts?: MvProjectContact[];
     },
   ) => void;
 }
@@ -92,14 +84,12 @@ export default function CreateDialog({
 
   const [name, setName] = useState("");
   const [reportType, setReportType] = useState<MvProjectReportType>("simple");
-  const [contactForm, setContactForm] = useState<MvProjectContactForm>(EMPTY_PROJECT_CONTACT_FORM);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setName("");
       setReportType("simple");
-      setContactForm(EMPTY_PROJECT_CONTACT_FORM);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open]);
@@ -108,7 +98,7 @@ export default function CreateDialog({
     const trimmed = name.trim();
     if (!trimmed) return;
     if (variant === "project") {
-      onSubmit(trimmed, { reportType, ...projectContactDataFromForm(contactForm) });
+      onSubmit(trimmed, { reportType });
       return;
     }
     onSubmit(trimmed, undefined);
@@ -151,14 +141,6 @@ export default function CreateDialog({
               disabled={loading}
             />
           </div>
-
-          {variant === "project" ? (
-            <MvProjectContactFields
-              value={contactForm}
-              onChange={setContactForm}
-              disabled={loading}
-            />
-          ) : null}
 
           {variant === "project" ? (
             <div className="space-y-3 text-right">

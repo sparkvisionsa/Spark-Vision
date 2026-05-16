@@ -1,0 +1,4 @@
+[mv-nest-proxy] upstream failed [TypeError: fetch failed] {
+  [cause]: [AggregateError: ] { code: 'ECONNREFUSED' }
+}
+[frontend] warmup /api/mv/projects responded with 502 in 6631ms

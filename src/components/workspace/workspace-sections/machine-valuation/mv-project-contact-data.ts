@@ -10,6 +10,11 @@ export interface MvProjectContactForm {
   secondaryPhone: string;
 }
 
+export interface MvProjectInspectionSiteForm extends MvProjectContactForm {
+  id: string;
+  name: string;
+}
+
 export interface MvProjectResolvedLocation {
   region: string;
   city: string;
@@ -28,9 +33,32 @@ export const EMPTY_PROJECT_CONTACT_FORM: MvProjectContactForm = {
   secondaryPhone: "",
 };
 
+const INSPECTION_SITE_ORDINALS = [
+  "الأول",
+  "الثاني",
+  "الثالث",
+  "الرابع",
+  "الخامس",
+  "السادس",
+  "السابع",
+  "الثامن",
+  "التاسع",
+  "العاشر",
+];
+
 function textValue(value: unknown, maxLength: number): string {
   if (value == null) return "";
   return String(value).trim().slice(0, maxLength);
+}
+
+function createInspectionSiteId(index: number): string {
+  return `site-${index + 1}`;
+}
+
+function createDraftInspectionSiteId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function toFiniteCoordinate(value: unknown, kind: "lat" | "lng"): number | null {
@@ -152,11 +180,21 @@ export function normalizeProjectLocation(raw: unknown): MvProjectLocation {
       ? (raw as Record<string, unknown>)
       : {};
   return {
+    id: textValue(record.id ?? record.siteId ?? record.locationId ?? record._id, 80) || undefined,
+    name: textValue(record.name ?? record.label ?? record.title, 120) || undefined,
     region: textValue(record.region, 120),
     city: textValue(record.city, 120),
     latitude: toFiniteCoordinate(record.latitude ?? record.lat, "lat"),
     longitude: toFiniteCoordinate(record.longitude ?? record.lng, "lng"),
     mapUrl: textValue(record.mapUrl ?? record.url, 600) || undefined,
+    primaryPhone: textValue(
+      record.primaryPhone ?? record.primaryContactPhone ?? record.contactPhone ?? record.phone,
+      60,
+    ) || undefined,
+    secondaryPhone: textValue(
+      record.secondaryPhone ?? record.secondaryContactPhone ?? record.backupPhone ?? record.alternatePhone,
+      60,
+    ) || undefined,
   };
 }
 
@@ -170,62 +208,193 @@ export function normalizeProjectContact(raw: unknown, fallbackType: "primary" | 
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const type = record.type === "secondary" ? "secondary" : record.type === "primary" ? "primary" : fallbackType;
-  const phone = textValue(record.phone ?? record.value ?? record.number, 60);
-  return phone ? { type, phone } : null;
+  const primaryPhone = textValue(record.primaryPhone ?? record.primaryContactPhone ?? record.contactPhone, 60);
+  const secondaryPhone = textValue(
+    record.secondaryPhone ?? record.secondaryContactPhone ?? record.backupPhone ?? record.alternatePhone,
+    60,
+  );
+  const type =
+    record.type === "secondary" || (!record.type && !record.phone && !record.value && !record.number && secondaryPhone)
+      ? "secondary"
+      : record.type === "primary"
+        ? "primary"
+        : fallbackType;
+  const phone = textValue(
+    record.phone ?? record.value ?? record.number ?? (type === "secondary" ? secondaryPhone : primaryPhone),
+    60,
+  );
+  const locationId = textValue(record.locationId ?? record.siteId, 80);
+  const rawLocationIndex = Number(record.locationIndex ?? record.siteIndex);
+  const locationIndex = Number.isInteger(rawLocationIndex) && rawLocationIndex >= 0 ? rawLocationIndex : undefined;
+  const locationName = textValue(record.locationName ?? record.siteName, 120);
+  return phone
+    ? {
+        type,
+        phone,
+        ...(locationId ? { locationId } : {}),
+        ...(locationIndex !== undefined ? { locationIndex } : {}),
+        ...(locationName ? { locationName } : {}),
+      }
+    : null;
+}
+
+export function defaultInspectionSiteName(index: number): string {
+  return `الموقع ${INSPECTION_SITE_ORDINALS[index] ?? `رقم ${index + 1}`}`;
+}
+
+export function createProjectInspectionSiteForm(index = 0): MvProjectInspectionSiteForm {
+  return {
+    id: createDraftInspectionSiteId(),
+    name: defaultInspectionSiteName(index),
+    ...EMPTY_PROJECT_CONTACT_FORM,
+  };
 }
 
 export function projectContactFormFromData(
   locations: unknown[] | undefined,
   contacts: unknown[] | undefined,
 ): MvProjectContactForm {
-  const location = normalizeProjectLocation(Array.isArray(locations) ? locations[0] : undefined);
-  const normalizedContacts = (Array.isArray(contacts) ? contacts : [])
-    .map((item, index) => normalizeProjectContact(item, index === 1 ? "secondary" : "primary"))
-    .filter((item): item is MvProjectContact => item != null);
-
-  const primary = normalizedContacts.find((item) => item.type === "primary");
-  const secondary = normalizedContacts.find((item) => item.type === "secondary");
-
-  return {
-    region: location.region,
-    city: location.city,
-    latitude: formatCoordinate(location.latitude),
-    longitude: formatCoordinate(location.longitude),
-    mapUrl: location.mapUrl ?? "",
-    primaryPhone: primary?.phone ?? "",
-    secondaryPhone: secondary?.phone ?? "",
-  };
+  const [first] = projectInspectionSitesFromData(locations, contacts);
+  if (!first) return EMPTY_PROJECT_CONTACT_FORM;
+  const { region, city, latitude, longitude, mapUrl, primaryPhone, secondaryPhone } = first;
+  return { region, city, latitude, longitude, mapUrl, primaryPhone, secondaryPhone };
 }
 
 export function projectContactDataFromForm(form: MvProjectContactForm): {
   locations: MvProjectLocation[];
   contacts: MvProjectContact[];
 } {
-  const region = textValue(form.region, 120);
-  const city = textValue(form.city, 120);
-  const latitude = toFiniteCoordinate(form.latitude, "lat");
-  const longitude = toFiniteCoordinate(form.longitude, "lng");
-  const mapUrl = textValue(form.mapUrl, 600);
-  const primaryPhone = textValue(form.primaryPhone, 60);
-  const secondaryPhone = textValue(form.secondaryPhone, 60);
+  return projectContactDataFromInspectionSites([
+    {
+      id: "single",
+      name: defaultInspectionSiteName(0),
+      ...form,
+    },
+  ]);
+}
 
-  const locations =
-    region || city || latitude !== null || longitude !== null || mapUrl
-      ? [
-          {
-            region,
-            city,
-            latitude,
-            longitude,
-            ...(mapUrl ? { mapUrl } : {}),
-          },
-        ]
-      : [];
+export function projectInspectionSitesFromData(
+  locations: unknown[] | undefined,
+  contacts: unknown[] | undefined,
+): MvProjectInspectionSiteForm[] {
+  const normalizedLocations = (Array.isArray(locations) ? locations : []).map(normalizeProjectLocation);
+  const normalizedContacts = (Array.isArray(contacts) ? contacts : [])
+    .map((item, index) => normalizeProjectContact(item, index === 1 ? "secondary" : "primary"))
+    .filter((item): item is MvProjectContact => item != null);
+  const hasExplicitContactLinks = normalizedContacts.some(
+    (item) => item.locationId || typeof item.locationIndex === "number" || item.locationName,
+  );
+  const unlinkedPrimaryContacts = hasExplicitContactLinks
+    ? []
+    : normalizedContacts.filter((item) => item.type === "primary");
+  const unlinkedSecondaryContacts = hasExplicitContactLinks
+    ? []
+    : normalizedContacts.filter((item) => item.type === "secondary");
+  const unlinkedSiteCount = hasExplicitContactLinks
+    ? 0
+    : Math.max(unlinkedPrimaryContacts.length, unlinkedSecondaryContacts.length);
+  const indexedContactMax = normalizedContacts.reduce(
+    (max, item) =>
+      typeof item.locationIndex === "number" && item.locationIndex > max ? item.locationIndex : max,
+    -1,
+  );
+  const siteCount = Math.max(
+    normalizedLocations.length,
+    indexedContactMax + 1,
+    unlinkedSiteCount,
+    1,
+  );
 
+  return Array.from({ length: Math.min(siteCount, 10) }, (_, index) => {
+    const location = normalizedLocations[index];
+    const locationId = location?.id || createInspectionSiteId(index);
+    const siteName = location?.name ?? defaultInspectionSiteName(index);
+    const byId = normalizedContacts.filter((item) => item.locationId && item.locationId === locationId);
+    const byIndex = normalizedContacts.filter((item) => item.locationIndex === index);
+    const byName = normalizedContacts.filter((item) => item.locationName && item.locationName === siteName);
+    const siteContacts =
+      byId.length > 0
+        ? byId
+        : byIndex.length > 0
+          ? byIndex
+          : byName.length > 0
+            ? byName
+            : !hasExplicitContactLinks
+              ? [unlinkedPrimaryContacts[index], unlinkedSecondaryContacts[index]].filter(
+                  (item): item is MvProjectContact => item != null,
+                )
+              : [];
+    const primary = siteContacts.find((item) => item.type === "primary");
+    const secondary = siteContacts.find((item) => item.type === "secondary");
+    const fallbackName =
+      location?.name ||
+      primary?.locationName ||
+      secondary?.locationName ||
+      defaultInspectionSiteName(index);
+    const siteId = location?.id || primary?.locationId || secondary?.locationId || locationId;
+
+    return {
+      id: siteId,
+      name: fallbackName,
+      region: location?.region ?? "",
+      city: location?.city ?? "",
+      latitude: formatCoordinate(location?.latitude),
+      longitude: formatCoordinate(location?.longitude),
+      mapUrl: location?.mapUrl ?? "",
+      primaryPhone: primary?.phone ?? location?.primaryPhone ?? "",
+      secondaryPhone: secondary?.phone ?? location?.secondaryPhone ?? "",
+    };
+  });
+}
+
+export function projectContactDataFromInspectionSites(forms: MvProjectInspectionSiteForm[]): {
+  locations: MvProjectLocation[];
+  contacts: MvProjectContact[];
+} {
+  const locations: MvProjectLocation[] = [];
   const contacts: MvProjectContact[] = [];
-  if (primaryPhone) contacts.push({ type: "primary", phone: primaryPhone });
-  if (secondaryPhone) contacts.push({ type: "secondary", phone: secondaryPhone });
+
+  forms.slice(0, 10).forEach((form, index) => {
+    const region = textValue(form.region, 120);
+    const city = textValue(form.city, 120);
+    const latitude = toFiniteCoordinate(form.latitude, "lat");
+    const longitude = toFiniteCoordinate(form.longitude, "lng");
+    const mapUrl = textValue(form.mapUrl, 600);
+    const siteId = textValue(form.id, 80) || createInspectionSiteId(index);
+    const name = textValue(form.name, 120) || defaultInspectionSiteName(index);
+    const primaryPhone = textValue(form.primaryPhone, 60);
+    const secondaryPhone = textValue(form.secondaryPhone, 60);
+    const hasSiteData =
+      region ||
+      city ||
+      latitude !== null ||
+      longitude !== null ||
+      mapUrl ||
+      primaryPhone ||
+      secondaryPhone ||
+      name !== defaultInspectionSiteName(index);
+
+    if (!hasSiteData) return;
+
+    const locationIndex = locations.length;
+    locations.push({
+      id: siteId,
+      name,
+      region,
+      city,
+      latitude,
+      longitude,
+      ...(mapUrl ? { mapUrl } : {}),
+      ...(primaryPhone ? { primaryPhone } : {}),
+      ...(secondaryPhone ? { secondaryPhone } : {}),
+    });
+    if (primaryPhone) {
+      contacts.push({ type: "primary", phone: primaryPhone, locationId: siteId, locationIndex, locationName: name });
+    }
+    if (secondaryPhone) {
+      contacts.push({ type: "secondary", phone: secondaryPhone, locationId: siteId, locationIndex, locationName: name });
+    }
+  });
 
   return { locations, contacts };
 }

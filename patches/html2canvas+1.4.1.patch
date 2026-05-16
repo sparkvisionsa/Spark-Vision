@@ -1,0 +1,328 @@
+diff --git a/node_modules/html2canvas/dist/html2canvas.esm.js b/node_modules/html2canvas/dist/html2canvas.esm.js
+index 268e9bc..2fa5309 100644
+--- a/node_modules/html2canvas/dist/html2canvas.esm.js
++++ b/node_modules/html2canvas/dist/html2canvas.esm.js
+@@ -4374,6 +4374,12 @@ var TextBounds = /** @class */ (function () {
+     return TextBounds;
+ }());
+ var parseTextBounds = function (context, value, styles, node) {
++    if (styles.direction === 1 /* RTL */ && FEATURES.SUPPORT_RANGE_BOUNDS) {
++        var rtlTextBounds = parseRtlTextBounds(context, value, styles, node);
++        if (rtlTextBounds.length > 0) {
++            return rtlTextBounds;
++        }
++    }
+     var textList = breakText(value, styles);
+     var textBounds = [];
+     var offset = 0;
+@@ -4433,6 +4439,64 @@ var createRange = function (node, offset, length) {
+     range.setEnd(node, offset + length);
+     return range;
+ };
++var boundsFromRect = function (context, rect) {
++    return new Bounds(rect.left + context.windowBounds.left, rect.top + context.windowBounds.top, rect.width, rect.height);
++};
++var mergeBounds = function (a, b) {
++    var left = Math.min(a.left, b.left);
++    var top = Math.min(a.top, b.top);
++    var right = Math.max(a.left + a.width, b.left + b.width);
++    var bottom = Math.max(a.top + a.height, b.top + b.height);
++    return new Bounds(left, top, right - left, bottom - top);
++};
++var sameTextLine = function (a, b) {
++    return Math.abs(a.top - b.top) <= Math.max(2, Math.min(a.height, b.height) * 0.65);
++};
++var parseRtlTextBounds = function (context, value, styles, node) {
++    var textList = segmentWords(value, styles);
++    var textBounds = [];
++    var offset = 0;
++    var lineStart = -1;
++    var lineEnd = 0;
++    var lineBounds = null;
++    var flushLine = function () {
++        if (lineStart < 0 || lineBounds === null || lineEnd <= lineStart) {
++            return;
++        }
++        var lineText = value.slice(lineStart, lineEnd);
++        if (lineText.trim().length > 0 || styles.textDecorationLine.length) {
++            textBounds.push(new TextBounds(lineText, lineBounds));
++        }
++    };
++    textList.forEach(function (text) {
++        var start = offset;
++        var end = offset + text.length;
++        if (styles.textDecorationLine.length || text.trim().length > 0) {
++            var rect = Array.from(createRange(node, start, text.length).getClientRects()).find(function (r) { return r.width !== 0 || r.height !== 0; });
++            if (rect) {
++                var bounds = boundsFromRect(context, rect);
++                if (lineBounds === null) {
++                    lineStart = start;
++                    lineEnd = end;
++                    lineBounds = bounds;
++                }
++                else if (sameTextLine(lineBounds, bounds)) {
++                    lineEnd = end;
++                    lineBounds = mergeBounds(lineBounds, bounds);
++                }
++                else {
++                    flushLine();
++                    lineStart = start;
++                    lineEnd = end;
++                    lineBounds = bounds;
++                }
++            }
++        }
++        offset = end;
++    });
++    flushLine();
++    return textBounds;
++};
+ var segmentGraphemes = function (value) {
+     if (FEATURES.SUPPORT_NATIVE_TEXT_SEGMENTATION) {
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+@@ -6697,7 +6761,15 @@ var CanvasRenderer = /** @class */ (function (_super) {
+     CanvasRenderer.prototype.renderTextWithLetterSpacing = function (text, letterSpacing, baseline) {
+         var _this = this;
+         if (letterSpacing === 0) {
+-            this.ctx.fillText(text.text, text.bounds.left, text.bounds.top + baseline);
++            var isRTL = this.ctx.direction === 'rtl';
++            var previousTextAlign = this.ctx.textAlign;
++            if (isRTL) {
++                this.ctx.textAlign = 'right';
++            }
++            this.ctx.fillText(text.text, isRTL ? text.bounds.left + text.bounds.width : text.bounds.left, text.bounds.top + baseline);
++            if (isRTL) {
++                this.ctx.textAlign = previousTextAlign;
++            }
+         }
+         else {
+             var letters = segmentGraphemes(text.text);
+diff --git a/node_modules/html2canvas/dist/html2canvas.js b/node_modules/html2canvas/dist/html2canvas.js
+index 3ec00e0..1a3771f 100644
+--- a/node_modules/html2canvas/dist/html2canvas.js
++++ b/node_modules/html2canvas/dist/html2canvas.js
+@@ -4380,6 +4380,12 @@
+         return TextBounds;
+     }());
+     var parseTextBounds = function (context, value, styles, node) {
++        if (styles.direction === 1 /* RTL */ && FEATURES.SUPPORT_RANGE_BOUNDS) {
++            var rtlTextBounds = parseRtlTextBounds(context, value, styles, node);
++            if (rtlTextBounds.length > 0) {
++                return rtlTextBounds;
++            }
++        }
+         var textList = breakText(value, styles);
+         var textBounds = [];
+         var offset = 0;
+@@ -4439,6 +4445,64 @@
+         range.setEnd(node, offset + length);
+         return range;
+     };
++    var boundsFromRect = function (context, rect) {
++        return new Bounds(rect.left + context.windowBounds.left, rect.top + context.windowBounds.top, rect.width, rect.height);
++    };
++    var mergeBounds = function (a, b) {
++        var left = Math.min(a.left, b.left);
++        var top = Math.min(a.top, b.top);
++        var right = Math.max(a.left + a.width, b.left + b.width);
++        var bottom = Math.max(a.top + a.height, b.top + b.height);
++        return new Bounds(left, top, right - left, bottom - top);
++    };
++    var sameTextLine = function (a, b) {
++        return Math.abs(a.top - b.top) <= Math.max(2, Math.min(a.height, b.height) * 0.65);
++    };
++    var parseRtlTextBounds = function (context, value, styles, node) {
++        var textList = segmentWords(value, styles);
++        var textBounds = [];
++        var offset = 0;
++        var lineStart = -1;
++        var lineEnd = 0;
++        var lineBounds = null;
++        var flushLine = function () {
++            if (lineStart < 0 || lineBounds === null || lineEnd <= lineStart) {
++                return;
++            }
++            var lineText = value.slice(lineStart, lineEnd);
++            if (lineText.trim().length > 0 || styles.textDecorationLine.length) {
++                textBounds.push(new TextBounds(lineText, lineBounds));
++            }
++        };
++        textList.forEach(function (text) {
++            var start = offset;
++            var end = offset + text.length;
++            if (styles.textDecorationLine.length || text.trim().length > 0) {
++                var rect = Array.from(createRange(node, start, text.length).getClientRects()).find(function (r) { return r.width !== 0 || r.height !== 0; });
++                if (rect) {
++                    var bounds = boundsFromRect(context, rect);
++                    if (lineBounds === null) {
++                        lineStart = start;
++                        lineEnd = end;
++                        lineBounds = bounds;
++                    }
++                    else if (sameTextLine(lineBounds, bounds)) {
++                        lineEnd = end;
++                        lineBounds = mergeBounds(lineBounds, bounds);
++                    }
++                    else {
++                        flushLine();
++                        lineStart = start;
++                        lineEnd = end;
++                        lineBounds = bounds;
++                    }
++                }
++            }
++            offset = end;
++        });
++        flushLine();
++        return textBounds;
++    };
+     var segmentGraphemes = function (value) {
+         if (FEATURES.SUPPORT_NATIVE_TEXT_SEGMENTATION) {
+             // eslint-disable-next-line @typescript-eslint/no-explicit-any
+@@ -6703,7 +6767,15 @@
+         CanvasRenderer.prototype.renderTextWithLetterSpacing = function (text, letterSpacing, baseline) {
+             var _this = this;
+             if (letterSpacing === 0) {
+-                this.ctx.fillText(text.text, text.bounds.left, text.bounds.top + baseline);
++                var isRTL = this.ctx.direction === 'rtl';
++                var previousTextAlign = this.ctx.textAlign;
++                if (isRTL) {
++                    this.ctx.textAlign = 'right';
++                }
++                this.ctx.fillText(text.text, isRTL ? text.bounds.left + text.bounds.width : text.bounds.left, text.bounds.top + baseline);
++                if (isRTL) {
++                    this.ctx.textAlign = previousTextAlign;
++                }
+             }
+             else {
+                 var letters = segmentGraphemes(text.text);
+diff --git a/node_modules/html2canvas/dist/lib/css/layout/text.js b/node_modules/html2canvas/dist/lib/css/layout/text.js
+index 5b0fe1f..7f301a5 100644
+--- a/node_modules/html2canvas/dist/lib/css/layout/text.js
++++ b/node_modules/html2canvas/dist/lib/css/layout/text.js
+@@ -14,6 +14,12 @@ var TextBounds = /** @class */ (function () {
+ }());
+ exports.TextBounds = TextBounds;
+ var parseTextBounds = function (context, value, styles, node) {
++    if (styles.direction === 1 /* RTL */ && features_1.FEATURES.SUPPORT_RANGE_BOUNDS) {
++        var rtlTextBounds = parseRtlTextBounds(context, value, styles, node);
++        if (rtlTextBounds.length > 0) {
++            return rtlTextBounds;
++        }
++    }
+     var textList = breakText(value, styles);
+     var textBounds = [];
+     var offset = 0;
+@@ -74,6 +80,64 @@ var createRange = function (node, offset, length) {
+     range.setEnd(node, offset + length);
+     return range;
+ };
++var boundsFromRect = function (context, rect) {
++    return new bounds_1.Bounds(rect.left + context.windowBounds.left, rect.top + context.windowBounds.top, rect.width, rect.height);
++};
++var mergeBounds = function (a, b) {
++    var left = Math.min(a.left, b.left);
++    var top = Math.min(a.top, b.top);
++    var right = Math.max(a.left + a.width, b.left + b.width);
++    var bottom = Math.max(a.top + a.height, b.top + b.height);
++    return new bounds_1.Bounds(left, top, right - left, bottom - top);
++};
++var sameTextLine = function (a, b) {
++    return Math.abs(a.top - b.top) <= Math.max(2, Math.min(a.height, b.height) * 0.65);
++};
++var parseRtlTextBounds = function (context, value, styles, node) {
++    var textList = segmentWords(value, styles);
++    var textBounds = [];
++    var offset = 0;
++    var lineStart = -1;
++    var lineEnd = 0;
++    var lineBounds = null;
++    var flushLine = function () {
++        if (lineStart < 0 || lineBounds === null || lineEnd <= lineStart) {
++            return;
++        }
++        var lineText = value.slice(lineStart, lineEnd);
++        if (lineText.trim().length > 0 || styles.textDecorationLine.length) {
++            textBounds.push(new TextBounds(lineText, lineBounds));
++        }
++    };
++    textList.forEach(function (text) {
++        var start = offset;
++        var end = offset + text.length;
++        if (styles.textDecorationLine.length || text.trim().length > 0) {
++            var rect = Array.from(createRange(node, start, text.length).getClientRects()).find(function (r) { return r.width !== 0 || r.height !== 0; });
++            if (rect) {
++                var bounds = boundsFromRect(context, rect);
++                if (lineBounds === null) {
++                    lineStart = start;
++                    lineEnd = end;
++                    lineBounds = bounds;
++                }
++                else if (sameTextLine(lineBounds, bounds)) {
++                    lineEnd = end;
++                    lineBounds = mergeBounds(lineBounds, bounds);
++                }
++                else {
++                    flushLine();
++                    lineStart = start;
++                    lineEnd = end;
++                    lineBounds = bounds;
++                }
++            }
++        }
++        offset = end;
++    });
++    flushLine();
++    return textBounds;
++};
+ var segmentGraphemes = function (value) {
+     if (features_1.FEATURES.SUPPORT_NATIVE_TEXT_SEGMENTATION) {
+         // eslint-disable-next-line @typescript-eslint/no-explicit-any
+diff --git a/node_modules/html2canvas/dist/lib/render/canvas/canvas-renderer.js b/node_modules/html2canvas/dist/lib/render/canvas/canvas-renderer.js
+index 509f0a8..c155e20 100644
+--- a/node_modules/html2canvas/dist/lib/render/canvas/canvas-renderer.js
++++ b/node_modules/html2canvas/dist/lib/render/canvas/canvas-renderer.js
+@@ -169,7 +169,15 @@ var CanvasRenderer = /** @class */ (function (_super) {
+     CanvasRenderer.prototype.renderTextWithLetterSpacing = function (text, letterSpacing, baseline) {
+         var _this = this;
+         if (letterSpacing === 0) {
+-            this.ctx.fillText(text.text, text.bounds.left, text.bounds.top + baseline);
++            var isRTL = this.ctx.direction === 'rtl';
++            var previousTextAlign = this.ctx.textAlign;
++            if (isRTL) {
++                this.ctx.textAlign = 'right';
++            }
++            this.ctx.fillText(text.text, isRTL ? text.bounds.left + text.bounds.width : text.bounds.left, text.bounds.top + baseline);
++            if (isRTL) {
++                this.ctx.textAlign = previousTextAlign;
++            }
+         }
+         else {
+             var letters = text_1.segmentGraphemes(text.text);
+diff --git a/node_modules/html2canvas/tsconfig.json b/node_modules/html2canvas/tsconfig.json
+index 82e2959..f9733d5 100644
+--- a/node_modules/html2canvas/tsconfig.json
++++ b/node_modules/html2canvas/tsconfig.json
+@@ -6,16 +6,18 @@
+         "noUnusedParameters": true,
+         "strictNullChecks": true,
+         "strictPropertyInitialization": true,
+-        "types": ["node", "jest"],
+-        "target": "es5",
++        "types": [],
++        "target": "es6",
++        "module": "esnext",
+         "lib": ["es2015", "dom"],
++        "moduleResolution": "bundler",
+         "sourceMap": true,
+         "outDir": "dist/lib",
+         "declaration": true,
+         "declarationDir": "dist/types",
+         "resolveJsonModule": true
+     },
+-    "include": [
+-        "src"
++    "files": [
++        "dist/types/index.d.ts"
+     ]
+ }

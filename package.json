@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "postinstall": "patch-package",
     "typecheck": "node -e \"const fs=require('fs'); fs.rmSync('tsconfig.tsbuildinfo',{force:true});\" && tsc --noEmit"
   },
   "dependencies": {

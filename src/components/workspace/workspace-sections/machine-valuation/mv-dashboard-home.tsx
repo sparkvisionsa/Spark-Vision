@@ -4,13 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "@/components/prefetch-link";
 import {
   BarChart3,
-  Cpu,
-  FileStack,
+  Building2,
   FolderKanban,
-  ListPlus,
-  Shield,
-  UserPlus,
-  Users,
   Wrench,
 } from "lucide-react";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -56,51 +51,25 @@ export default function MvDashboardHome() {
   const tiles = [
     {
       href: "/machine-valuation/projects",
-      title: "المشاريع",
-      desc: "عرض الحالات، الجدول، وإنشاء مشروع جديد.",
-      icon: <FolderKanban className="h-5 w-5 text-[#0C447C]" />,
-    },
-    {
-      href: "/clients",
-      title: "العملاء",
-      desc: "إدارة العملاء وأنواعهم وربط النماذج.",
-      icon: <Users className="h-5 w-5 text-[#633806]" />,
-    },
-    {
-      href: "/clients#create-template",
-      title: "إنشاء نماذج",
-      desc: "بناء قالب نموذج جديد للحقول المخصصة.",
-      icon: <ListPlus className="h-5 w-5 text-emerald-700" />,
-    },
-    {
-      href: "/clients#templates",
-      title: "عرض النماذج",
-      desc: "استعراض ومراجعة النماذج المحفوظة.",
-      icon: <FileStack className="h-5 w-5 text-violet-700" />,
-    },
-    {
-      href: "/machine-valuation/projects",
       title: "إحصائيات المشاريع",
       desc: "بطاقات وجدول ملخص لكل المشاريع.",
       icon: <BarChart3 className="h-5 w-5 text-sky-700" />,
     },
     {
-      href: "/admin",
-      title: "المستخدمون والمراقبة",
-      desc: "لوحة إدارية للحسابات والجلسات (يتطلب صلاحية).",
-      icon: <UserPlus className="h-5 w-5 text-amber-800" />,
-    },
-    {
-      href: "/settings",
-      title: "الصلاحيات والإعدادات",
-      desc: "تفضيلات النظام — توسعة لاحقة للصلاحيات التفصيلية.",
-      icon: <Shield className="h-5 w-5 text-slate-700" />,
+      href: "/machine-valuation/company",
+      title: "لوحة إدارة الشركة",
+      desc: "إدارة مستخدمي الشركة والإعدادات والتوقيعات.",
+      icon: <Building2 className="h-5 w-5 text-[#0C447C]" />,
     },
   ] as const;
 
   return (
     <div className="min-h-screen" dir="rtl">
-      <MvTopBar breadcrumbs={[{ label: "لوحة التحكم" }]} sticky />
+      <MvTopBar
+        breadcrumbs={[{ label: "لوحة التحكم" }]}
+        sticky
+        className="top-0 z-30 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/85"
+      />
 
       <div className="space-y-5 px-5 py-5">
         <section className="overflow-hidden rounded-2xl border border-sky-200/60 bg-white/90 p-5 shadow-sm backdrop-blur-sm">
@@ -112,20 +81,11 @@ export default function MvDashboardHome() {
               <div className="min-w-0 space-y-2">
                 <h1 className="text-[17px] font-semibold text-slate-900">لوحة تحكم تقييم الآلات</h1>
                 <p className="text-[13px] leading-relaxed text-slate-600">
-                  <span className="font-medium text-slate-800">لوحة التحكم</span> تجمع الإدارة العامة: العملاء، النماذج،
-                  الاختصارات الإدارية، ونظرة على حجم العمل.{" "}
-                  <span className="font-medium text-slate-800">المشاريع</span> هي مساحة تنفيذ التقييم لكل مشروع على حدة
-                  (استيراد، خطوات العمل، التقارير) مع جدول المشاريع وإحصائياتها.
+                  <span className="font-medium text-slate-800">لوحة التحكم</span> تعرض اختصارات الإدارة الأساسية فقط:
+                  إحصائيات المشاريع ولوحة إدارة الشركة.
                 </p>
               </div>
             </div>
-            <Link
-              href="/machine-valuation/projects"
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg bg-[#378ADD] px-4 text-[13px] font-medium text-white shadow-sm transition hover:bg-[#2d77be]"
-            >
-              <Cpu className="h-4 w-4" />
-              الانتقال إلى المشاريع
-            </Link>
           </div>
         </section>
 
@@ -143,7 +103,7 @@ export default function MvDashboardHome() {
 
         <div>
           <h2 className="mb-3 text-[14px] font-medium text-slate-900">وصول سريع</h2>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {tiles.map((tile) => (
               <Link
                 key={tile.href + tile.title}

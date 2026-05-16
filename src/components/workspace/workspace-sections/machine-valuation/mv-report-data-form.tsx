@@ -3,14 +3,20 @@
 import type { ReactNode } from "react";
 import {
   BadgeCheck,
+  Building2,
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   ClipboardList,
   Coins,
   Info,
+  ListChecks,
+  MapPinned,
+  Plus,
   Save,
+  Trash2,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,13 +35,25 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
-import type { MvProject, MvProjectReportData } from "./types";
+import type { MvProject, MvProjectReportData, MvReportTeamMember } from "./types";
 
-export type MvReportCollapsibleSectionId = "basic" | "client" | "assumptions" | "finalValue";
+export type MvReportCollapsibleSectionId =
+  | "basic"
+  | "client"
+  | "firm"
+  | "scope"
+  | "methodology"
+  | "team"
+  | "assumptions"
+  | "finalValue";
 
 export const MV_REPORT_COLLAPSIBLE_IDS: MvReportCollapsibleSectionId[] = [
   "basic",
   "client",
+  "firm",
+  "scope",
+  "methodology",
+  "team",
   "assumptions",
   "finalValue",
 ];
@@ -63,6 +81,22 @@ const VALUE_PREMISE_OPTIONS = [
   "البيع القسري",
   "أخرى",
 ];
+const VALUATION_BASIS_OPTIONS = [
+  "القيمة السوقية",
+  "القيمة العادلة",
+  "القيمة الاستثمارية",
+  "القيمة الخاصة",
+  "القيمة التأمينية",
+  "أخرى",
+];
+
+function createReportTeamMember(): MvReportTeamMember {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `member-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return { id, name: "", title: "", membershipNo: "", role: "" };
+}
 
 function selectDisplay(value: string | undefined | null, fallback = "غير محدد") {
   return value && value.trim() ? value : fallback;
@@ -194,6 +228,15 @@ export function MvReportDataForm({
   const textareaClass =
     "min-h-32 rounded-lg border-slate-300/80 bg-white px-3 py-2 text-[13px] font-bold leading-7 text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100";
   const finalValue = reportData.finalValue ?? null;
+  const teamRows = reportData.valuationTeam ?? [];
+  const updateTeamMember = (id: string, patch: Partial<MvReportTeamMember>) => {
+    onReportDataChange({
+      valuationTeam: teamRows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+    });
+  };
+  const addTeamMember = () => onReportDataChange({ valuationTeam: [...teamRows, createReportTeamMember()] });
+  const removeTeamMember = (id: string) =>
+    onReportDataChange({ valuationTeam: teamRows.filter((row) => row.id !== id) });
 
   return (
     <section className="relative min-h-[calc(100vh-9.5rem)]">
@@ -212,6 +255,24 @@ export function MvReportDataForm({
                 onChange={(event) => onProjectNameChange(event.target.value)}
                 className={inputClass}
                 dir="auto"
+              />
+            </ReportField>
+            <ReportField label="عنوان الغلاف داخل التقرير">
+              <Input
+                value={reportData.reportTitle ?? ""}
+                onChange={(event) => onReportDataChange({ reportTitle: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="تقرير تقييم معدات وآلات"
+              />
+            </ReportField>
+            <ReportField label="رقم المرجع / رقم التقرير">
+              <Input
+                value={reportData.reportReference ?? ""}
+                onChange={(event) => onReportDataChange({ reportReference: event.target.value })}
+                className={cn(inputClass, "text-left")}
+                dir="ltr"
+                placeholder="2600050001"
               />
             </ReportField>
             <ReportField label="نوع التقرير">
@@ -242,6 +303,40 @@ export function MvReportDataForm({
               placeholder="اختر الفرضية"
               onChange={(value) => onReportDataChange({ valuePremise: value })}
             />
+            <ReportSelect
+              label="أساس القيمة"
+              value={reportData.valuationBasis ?? ""}
+              options={VALUATION_BASIS_OPTIONS}
+              placeholder="اختر أساس القيمة"
+              onChange={(value) => onReportDataChange({ valuationBasis: value })}
+            />
+            <ReportField label="نوع التقرير المهني">
+              <Input
+                value={reportData.reportTypeLabel ?? ""}
+                onChange={(event) => onReportDataChange({ reportTypeLabel: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="تقرير مفصل"
+              />
+            </ReportField>
+            <ReportField label="المعايير والإصدارات المطبقة">
+              <Input
+                value={reportData.standardsVersion ?? ""}
+                onChange={(event) => onReportDataChange({ standardsVersion: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="معايير التقييم الدولية IVS 2025"
+              />
+            </ReportField>
+            <ReportField label="العملة">
+              <Input
+                value={reportData.currencyLabel ?? ""}
+                onChange={(event) => onReportDataChange({ currencyLabel: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="الريال السعودي (ر.س)"
+              />
+            </ReportField>
             <ReportField label="تاريخ إصدار التقرير">
               <Input
                 type="date"
@@ -314,6 +409,311 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
+            <ReportField label="الشكل النظامي للعميل">
+              <Input
+                value={reportData.clientLegalType ?? ""}
+                onChange={(event) => onReportDataChange({ clientLegalType: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="مؤسسة / شركة / فرد"
+              />
+            </ReportField>
+            <ReportField label="نشاط العميل">
+              <Input
+                value={reportData.clientActivity ?? ""}
+                onChange={(event) => onReportDataChange({ clientActivity: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label="ممثل العميل">
+              <Input
+                value={reportData.clientRepresentativeName ?? ""}
+                onChange={(event) => onReportDataChange({ clientRepresentativeName: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label="صفة ممثل العميل">
+              <Input
+                value={reportData.clientRepresentativeRole ?? ""}
+                onChange={(event) => onReportDataChange({ clientRepresentativeRole: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="مالك / مدير / وكيل"
+              />
+            </ReportField>
+            <ReportField label="المستخدمون المستهدفون">
+              <Input
+                value={reportData.intendedUsers ?? ""}
+                onChange={(event) => onReportDataChange({ intendedUsers: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="العميل / جهة قضائية / جهة تمويل"
+              />
+            </ReportField>
+            <ReportField label="الاستخدام المستهدف للتقرير">
+              <Input
+                value={reportData.intendedUse ?? ""}
+                onChange={(event) => onReportDataChange({ intendedUse: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+          </div>
+        </ReportSection>
+
+        <ReportSection
+          id="firm"
+          title="هوية شركة التقييم والمقيم"
+          icon={<Building2 className="h-5 w-5" />}
+          open={openSections.firm}
+          onOpenChange={onSectionOpenChange}
+        >
+          <div className="grid gap-3 md:grid-cols-3">
+            <ReportField label="اسم شركة التقييم">
+              <Input
+                value={reportData.valuationFirmName ?? ""}
+                onChange={(event) => onReportDataChange({ valuationFirmName: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label="رقم الترخيص المهني">
+              <Input
+                value={reportData.valuationFirmLicense ?? ""}
+                onChange={(event) => onReportDataChange({ valuationFirmLicense: event.target.value })}
+                className={cn(inputClass, "text-left")}
+                dir="ltr"
+              />
+            </ReportField>
+            <ReportField label="عنوان الشركة">
+              <Input
+                value={reportData.valuationFirmAddress ?? ""}
+                onChange={(event) => onReportDataChange({ valuationFirmAddress: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label="المقيم المعتمد / المسؤول">
+              <Input
+                value={reportData.leadValuerName ?? ""}
+                onChange={(event) => onReportDataChange({ leadValuerName: event.target.value })}
+                className={inputClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label="صفة المقيم المسؤول">
+              <Input
+                value={reportData.leadValuerTitle ?? ""}
+                onChange={(event) => onReportDataChange({ leadValuerTitle: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="مقيم أساس / زميل معتمد"
+              />
+            </ReportField>
+            <ReportField label="رقم العضوية">
+              <Input
+                value={reportData.leadValuerMembershipNo ?? ""}
+                onChange={(event) => onReportDataChange({ leadValuerMembershipNo: event.target.value })}
+                className={cn(inputClass, "text-left")}
+                dir="ltr"
+              />
+            </ReportField>
+          </div>
+        </ReportSection>
+
+        <ReportSection
+          id="scope"
+          title="نطاق العمل والقيود"
+          icon={<ListChecks className="h-5 w-5" />}
+          open={openSections.scope}
+          onOpenChange={onSectionOpenChange}
+        >
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ReportField label="تفاصيل نطاق العمل">
+              <Textarea
+                value={reportData.scopeOfWorkDetails ?? ""}
+                onChange={(event) => onReportDataChange({ scopeOfWorkDetails: event.target.value })}
+                className={textareaClass}
+                placeholder="المقابلات، المعاينة، دراسة السوق، مراجعة المستندات، وأي أعمال تحقق."
+              />
+            </ReportField>
+            <ReportField label="تعريف / توضيح أساس القيمة">
+              <Textarea
+                value={reportData.valuationBasisDefinition ?? ""}
+                onChange={(event) => onReportDataChange({ valuationBasisDefinition: event.target.value })}
+                className={textareaClass}
+                placeholder="اكتب تعريف القيمة السوقية أو أساس القيمة المستخدم عند الحاجة."
+              />
+            </ReportField>
+            <ReportField label="قيود الاستخدام والتوزيع">
+              <Textarea
+                value={reportData.useRestriction ?? ""}
+                onChange={(event) => onReportDataChange({ useRestriction: event.target.value })}
+                className={textareaClass}
+              />
+            </ReportField>
+            <ReportField label="المختصون الخارجيون">
+              <Textarea
+                value={reportData.externalSpecialistUse ?? ""}
+                onChange={(event) => onReportDataChange({ externalSpecialistUse: event.target.value })}
+                className={textareaClass}
+                placeholder="اذكر هل تم الاعتماد على مختصين خارجيين أو لا."
+              />
+            </ReportField>
+            <ReportField label="اعتبارات الاستدامة والحوكمة ESG">
+              <Textarea
+                value={reportData.esgConsiderations ?? ""}
+                onChange={(event) => onReportDataChange({ esgConsiderations: event.target.value })}
+                className={textareaClass}
+              />
+            </ReportField>
+            <ReportField label="مصادر المعلومات والمدخلات الرئيسية">
+              <Textarea
+                value={reportData.informationSources ?? ""}
+                onChange={(event) => onReportDataChange({ informationSources: event.target.value })}
+                className={textareaClass}
+                placeholder="مستندات العميل، المعاينة، بيانات السوق، المقابلات، الجداول الحسابية."
+              />
+            </ReportField>
+          </div>
+        </ReportSection>
+
+        <ReportSection
+          id="methodology"
+          title="الأصل والمنهجية والمعاينة"
+          icon={<MapPinned className="h-5 w-5" />}
+          open={openSections.methodology}
+          onOpenChange={onSectionOpenChange}
+        >
+          <div className="grid gap-3 lg:grid-cols-2">
+            <ReportField label="الأصل محل التقييم">
+              <Textarea
+                value={reportData.assetSubjectDescription ?? ""}
+                onChange={(event) => onReportDataChange({ assetSubjectDescription: event.target.value })}
+                className={textareaClass}
+              />
+            </ReportField>
+            <ReportField label="الوصف التفصيلي للأصول">
+              <Textarea
+                value={reportData.assetDetailedDescription ?? ""}
+                onChange={(event) => onReportDataChange({ assetDetailedDescription: event.target.value })}
+                className={textareaClass}
+              />
+            </ReportField>
+            <ReportField label="موقع المعاينة">
+              <Input
+                value={reportData.inspectionLocation ?? ""}
+                onChange={(event) => onReportDataChange({ inspectionLocation: event.target.value })}
+                className={inputClass}
+                dir="auto"
+                placeholder="المدينة / الموقع / العنوان"
+              />
+            </ReportField>
+            <ReportField label="رابط الخريطة">
+              <Input
+                value={reportData.inspectionMapUrl ?? ""}
+                onChange={(event) => onReportDataChange({ inspectionMapUrl: event.target.value })}
+                className={cn(inputClass, "text-left")}
+                dir="ltr"
+                placeholder="https://maps.google.com/..."
+              />
+            </ReportField>
+            <ReportField label="مبررات اختيار المنهجية">
+              <Textarea
+                value={reportData.methodologyRationale ?? ""}
+                onChange={(event) => onReportDataChange({ methodologyRationale: event.target.value })}
+                className={textareaClass}
+                placeholder="سبب استخدام أسلوب التكلفة أو السوق أو استبعاد أي أسلوب."
+              />
+            </ReportField>
+            <ReportField label="تفاصيل تطبيق أسلوب التكلفة">
+              <Textarea
+                value={reportData.costApproachDetails ?? ""}
+                onChange={(event) => onReportDataChange({ costApproachDetails: event.target.value })}
+                className={textareaClass}
+                placeholder="تكلفة الاستبدال، الاستنساخ، الإهلاك، الخردة، التقادم الوظيفي والاقتصادي."
+              />
+            </ReportField>
+          </div>
+        </ReportSection>
+
+        <ReportSection
+          id="team"
+          title="فريق التقييم"
+          icon={<UsersRound className="h-5 w-5" />}
+          open={openSections.team}
+          onOpenChange={onSectionOpenChange}
+        >
+          <div className="space-y-3">
+            {teamRows.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-center text-[12px] font-bold text-slate-500">
+                لم تتم إضافة أعضاء فريق لهذا التقرير بعد.
+              </div>
+            ) : (
+              teamRows.map((row, index) => (
+                <div key={row.id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <p className="text-[12px] font-extrabold text-slate-800">عضو رقم {index + 1}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeTeamMember(row.id)}
+                      className="h-8 w-8 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      aria-label="حذف عضو الفريق"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <ReportField label="الاسم">
+                      <Input
+                        value={row.name ?? ""}
+                        onChange={(event) => updateTeamMember(row.id, { name: event.target.value })}
+                        className={inputClass}
+                        dir="auto"
+                      />
+                    </ReportField>
+                    <ReportField label="الصفة المهنية">
+                      <Input
+                        value={row.title ?? ""}
+                        onChange={(event) => updateTeamMember(row.id, { title: event.target.value })}
+                        className={inputClass}
+                        dir="auto"
+                      />
+                    </ReportField>
+                    <ReportField label="رقم العضوية">
+                      <Input
+                        value={row.membershipNo ?? ""}
+                        onChange={(event) => updateTeamMember(row.id, { membershipNo: event.target.value })}
+                        className={cn(inputClass, "text-left")}
+                        dir="ltr"
+                      />
+                    </ReportField>
+                    <ReportField label="الدور في التقرير">
+                      <Input
+                        value={row.role ?? ""}
+                        onChange={(event) => updateTeamMember(row.id, { role: event.target.value })}
+                        className={inputClass}
+                        dir="auto"
+                        placeholder="المعاينة / إعداد التقرير / المراجعة"
+                      />
+                    </ReportField>
+                  </div>
+                </div>
+              ))
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addTeamMember}
+              className="h-10 rounded-lg border-sky-200 bg-white text-[12px] font-extrabold text-sky-950 hover:bg-sky-50"
+            >
+              <Plus className="h-4 w-4" />
+              إضافة عضو فريق
+            </Button>
           </div>
         </ReportSection>
 
@@ -369,7 +769,6 @@ export function MvReportDataForm({
                 }}
                 className={cn(inputClass, "text-left text-[13px] font-bold")}
                 dir="ltr"
-                placeholder="10000"
               />
             </ReportField>
             <ReportField label="الرقم كتابياً">
@@ -377,7 +776,6 @@ export function MvReportDataForm({
                 value={reportData.finalValueWords ?? ""}
                 readOnly
                 className={cn(inputClass, "bg-emerald-50/80 font-extrabold text-emerald-900")}
-                placeholder="عشرة آلاف ريال سعودي لا غير"
               />
             </ReportField>
           </div>

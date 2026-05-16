@@ -25,10 +25,39 @@ export type MvProjectWorkflowStatus = "new" | "review" | "approved";
 
 export type MvProjectReportType = "simple" | "advanced";
 
+export interface MvReportTeamMember {
+  id: string;
+  name: string;
+  title?: string;
+  membershipNo?: string;
+  role?: string;
+}
+
+export interface MvReportEditableSection {
+  id: string;
+  title: string;
+  body: string;
+}
+
+export type MvReportInsertedBlockKind = "heading" | "paragraph" | "image";
+
+export interface MvReportInsertedBlock {
+  id: string;
+  anchorId: string;
+  kind: MvReportInsertedBlockKind;
+  content?: string;
+  imageDataUrl?: string;
+  caption?: string;
+}
+
 export interface MvProjectReportData {
+  reportReference?: string;
+  reportTitle?: string;
   valuationMethod?: string;
   valuationPurpose?: string;
   valuePremise?: string;
+  valuationBasis?: string;
+  valuationBasisDefinition?: string;
   includeAssetImages?: boolean;
   includeValuationAccountImages?: boolean;
   reportIssueDate?: string;
@@ -39,6 +68,33 @@ export interface MvProjectReportData {
   clientName?: string;
   clientEmail?: string;
   clientPhone?: string;
+  clientLegalType?: string;
+  clientActivity?: string;
+  clientRepresentativeName?: string;
+  clientRepresentativeRole?: string;
+  intendedUsers?: string;
+  intendedUse?: string;
+  valuationFirmName?: string;
+  valuationFirmLicense?: string;
+  valuationFirmAddress?: string;
+  leadValuerName?: string;
+  leadValuerTitle?: string;
+  leadValuerMembershipNo?: string;
+  reportTypeLabel?: string;
+  standardsVersion?: string;
+  scopeOfWorkDetails?: string;
+  useRestriction?: string;
+  externalSpecialistUse?: string;
+  esgConsiderations?: string;
+  informationSources?: string;
+  assetSubjectDescription?: string;
+  assetDetailedDescription?: string;
+  inspectionLocation?: string;
+  inspectionMapUrl?: string;
+  currencyLabel?: string;
+  methodologyRationale?: string;
+  costApproachDetails?: string;
+  valuationTeam?: MvReportTeamMember[];
   importantAssumptions?: string;
   specialAssumptions?: string;
   finalValue?: number | null;
@@ -52,14 +108,31 @@ export interface MvProjectReportData {
   receivedClientDocumentsHtml?: string;
   /** محتوى HTML — شهادة التسجيل في بوابة «تقييم» */
   sceRegistrationCertificateHtml?: string;
+  /** تعديلات نصية مباشرة داخل صفحة إعداد التقرير، بما يشمل القيم الديناميكية. */
+  reportTextOverrides?: Record<string, string>;
+  /** محتوى HTML — نص المقدمة الإضافي داخل صفحة إعداد التقرير. */
+  reportIntroExtraHtml?: string;
+  /** محتوى HTML — أقسام التقرير المهنية القابلة للتحرير. */
+  reportNarrativeB1?: string;
+  reportNarrativeB2?: string;
+  reportNarrativeB3?: string;
+  reportNarrativeB4?: string;
+  /** أقسام إضافية يضيفها المستخدم داخل التقرير. */
+  reportEditableSections?: MvReportEditableSection[];
+  /** كتل مضافة من قائمة النقر داخل صفحات التقرير. */
+  reportInsertedBlocks?: MvReportInsertedBlock[];
 }
 
 export interface MvProjectLocation {
+  id?: string;
+  name?: string;
   region: string;
   city: string;
   latitude: number | null;
   longitude: number | null;
   mapUrl?: string;
+  primaryPhone?: string;
+  secondaryPhone?: string;
 }
 
 export type MvProjectContactType = "primary" | "secondary";
@@ -67,6 +140,19 @@ export type MvProjectContactType = "primary" | "secondary";
 export interface MvProjectContact {
   type: MvProjectContactType;
   phone: string;
+  locationId?: string;
+  locationIndex?: number;
+  locationName?: string;
+}
+
+export interface MvInspectionAssignment {
+  id: string;
+  inspectorUserId: string;
+  inspectorName: string;
+  locationIds?: string[];
+  assignedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type MvInspectorLogicalFileType =
@@ -91,6 +177,7 @@ export interface MvInspectorFile {
   spacesKey?: string;
   gridFsFileId?: string;
   sizeBytes?: number;
+  locationIds?: string[];
 }
 
 export interface MvProject {
@@ -107,6 +194,7 @@ export interface MvProject {
   reportData?: MvProjectReportData;
   locations?: MvProjectLocation[];
   contacts?: MvProjectContact[];
+  inspectionAssignments?: MvInspectionAssignment[];
   createdByUserId?: string | null;
   createdByName?: string | null;
   inspectorFiles?: MvInspectorFile[];
