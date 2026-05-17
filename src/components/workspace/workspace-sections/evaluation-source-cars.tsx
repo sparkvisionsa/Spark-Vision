@@ -1,6 +1,7 @@
 import EvaluationSourcePage from "@/app/evaluation-source/evaluation-source-page";
 
-const HARJ_EXCLUDED_TAG1 = ["قطع غيار وملحقات", "شاحنات ومعدات ثقيلة"];
+/** يُستبعد فقط قطع الغيار؛ شاحنات ومعدات ثقيلة تظهر ضمن حراج السيارات. */
+const HARJ_EXCLUDED_TAG1 = ["قطع غيار وملحقات"];
 
 export default function EvaluationSourceCarsSection() {
   return (
@@ -11,10 +12,11 @@ export default function EvaluationSourceCarsSection() {
       enableModelFilter
       enableModelYearFilter
       enableMileageFilter
-      dataSources={["haraj", "yallamotor", "syarah"]}
+      dataSources={["haraj", "mobasher"]}
+      useCarsIndDatabase
       progressiveAdvancedFilters
       requireSearchClickToApplyFilters
-      forceExactSearch
+      broadDocumentSearch
     />
   );
 }

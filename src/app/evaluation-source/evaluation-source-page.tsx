@@ -84,7 +84,7 @@ type EvaluationSourceItem = {
   mileage: number | null;
   phone: string;
   url: string;
-  source: "haraj" | "yallamotor" | "syarah";
+  source: "haraj" | "yallamotor" | "syarah" | "mobasher";
   priceCompare?: {
     min?: string | number | null;
     max?: string | number | null;
@@ -111,10 +111,13 @@ type EvaluationSourcePageProps = {
   enableModelFilter?: boolean;
   enableModelYearFilter?: boolean;
   enableMileageFilter?: boolean;
-  dataSources?: Array<"haraj" | "yallamotor" | "syarah">;
+  dataSources?: Array<"haraj" | "yallamotor" | "syarah" | "mobasher">;
+  useCarsIndDatabase?: boolean;
   progressiveAdvancedFilters?: boolean;
   requireSearchClickToApplyFilters?: boolean;
   forceExactSearch?: boolean;
+  /** بحث في كل حقول المستند (ليس العنوان/الوصف فقط) */
+  broadDocumentSearch?: boolean;
 };
 
 const defaultFilters = {
@@ -157,6 +160,7 @@ const SEARCH_SUGGESTIONS_MAX_ITEMS = 12;
 const SEARCH_SUGGESTIONS_MIN_CHARS = 1;
 const SEARCH_SUGGESTIONS_REMOTE_MIN_CHARS = 2;
 const SEARCH_SUGGESTIONS_DEBOUNCE_MS = 90;
+const FILTER_AUTO_APPLY_DEBOUNCE_MS = 320;
 const SEARCH_SUGGESTIONS_CACHE_MAX_ITEMS = 200;
 const DETAIL_DOCUMENT_CACHE_MAX_ITEMS = 320;
 const DETAIL_PREFETCH_VISIBLE_ITEMS = 8;
@@ -236,7 +240,7 @@ function buildOptionPoolStorageKey({
   excludeTag1Values,
 }: {
   tag0?: string;
-  sources: Array<"haraj" | "yallamotor" | "syarah">;
+  sources: Array<"haraj" | "yallamotor" | "syarah" | "mobasher">;
   excludeTag1Values?: string[];
 }) {
   const normalizedTag0 = (tag0 ?? "").trim().toLowerCase();
@@ -270,7 +274,10 @@ function parseOptionPoolCachePayload(raw: string): OptionPoolCachePayload | null
         (item): item is OptionPoolCacheItem =>
           Boolean(item) &&
           typeof item.id === "string" &&
-          (item.source === "haraj" || item.source === "yallamotor" || item.source === "syarah")
+          (item.source === "haraj" ||
+            item.source === "yallamotor" ||
+            item.source === "syarah" ||
+            item.source === "mobasher")
       )
       .slice(0, OPTION_POOL_MAX_ITEMS)
       .map((item) => ({
@@ -382,8 +389,14 @@ const copy = {
     filters: {
       badge: "Magic Filters",
       title: "Filter and refine",
-      subtitle: "Instant results as you type.",
-      searchModeSubtitle: "Results update after you click Search.",
+      subtitle: "Set filters, then press Search.",
+      searchModeSubtitle:
+        "Press Search to load results. Enable Match to require the search term in any document field.",
+      matchHint: "Term must appear somewhere in the listing",
+      searchPending: "Searching for",
+      searchResultsReady: (query: string, count: number) =>
+        `Showing ${count.toLocaleString("en-US")} results for "${query}"`,
+      searchTyping: "Updating results...",
       search: "Search",
       match: "Match",
       searchPlaceholder: "Search everything: title, brand, model, city, year, mileage, price...",
@@ -409,6 +422,7 @@ const copy = {
       sourceOptions: {
         all: "All sources",
         haraj: "Haraj",
+        mobasher: "Mobasher",
         yallamotor: "Yalla Motor",
         syarah: "Syarah",
       },
@@ -508,8 +522,14 @@ const copy = {
     filters: {
       badge: "مرشحات ذكية",
       title: "تصفية ",
-      subtitle: "نتائج فورية أثناء الكتابة.",
-      searchModeSubtitle: "يتم تحديث النتائج بعد الضغط على زر البحث.",
+      subtitle: "اضبط المرشحات ثم اضغط بحث.",
+      searchModeSubtitle:
+        "اضغط «بحث» لعرض النتائج. فعّل «تطابق» لوجود كلمة البحث في أي حقل بالإعلان.",
+      matchHint: "يجب أن تظهر كلمة البحث في أي حقل بالإعلان",
+      searchPending: "جارٍ البحث عن",
+      searchResultsReady: (query: string, count: number) =>
+        `عرض ${count.toLocaleString("en-US")} نتيجة للبحث «${query}»`,
+      searchTyping: "جارٍ تحديث النتائج...",
       search: "بحث",
       searchPlaceholder: "ابحث في كل شيء: العنوان، الماركة، الطراز، المدينة، السنة، العداد، السعر...",
       advancedSearch: "بحث متقدم",
@@ -528,6 +548,7 @@ const copy = {
       sourceOptions: {
         all: "كل المصادر",
         haraj: "حراج",
+        mobasher: "مباشر",
         yallamotor: "يلا موتور",
         syarah: "\u0633\u064A\u0627\u0631\u0629",
       },
@@ -710,6 +731,11 @@ function resolveSourceUrl(item: Pick<EvaluationSourceItem, "source" | "url">) {
   if (item.source === "haraj") {
     return `https://haraj.com.sa/${normalizedPath}`;
   }
+  if (item.source === "mobasher") {
+    if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+    if (/^(www\.)?re\.mobasher\.sa\//i.test(rawUrl)) return `https://${rawUrl}`;
+    return rawUrl ? `https://re.mobasher.sa/${normalizedPath}` : "";
+  }
   if (item.source === "yallamotor") {
     return `https://www.yallamotor.com/${normalizedPath}`;
   }
@@ -750,6 +776,112 @@ function sanitizeDescriptionText(value: string) {
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function formatMobasherDescription(value: unknown) {
+  if (value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    return sanitizeDescriptionText(value);
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const lines = Object.entries(value as Record<string, unknown>)
+      .map(([key, entry]) => {
+        const normalized =
+          entry === null || entry === undefined ? "" : String(entry).trim();
+        if (!normalized) return "";
+        return `${key}: ${normalized}`;
+      })
+      .filter(Boolean);
+    return lines.join("\n");
+  }
+
+  return sanitizeDescriptionText(String(value));
+}
+
+function formatMobasherNotes(detail: Record<string, any>) {
+  const sections: string[] = [];
+  const descriptionText = formatMobasherDescription(detail?.description);
+  if (descriptionText) sections.push(descriptionText);
+
+  const productNotes = detail?.productNotes;
+  if (productNotes && typeof productNotes === "object") {
+    const warning =
+      typeof productNotes.warning === "string" ? productNotes.warning.trim() : "";
+    const notes = typeof productNotes.notes === "string" ? productNotes.notes.trim() : "";
+    if (warning) sections.push(warning);
+    if (notes) sections.push(notes);
+  }
+
+  const auctionDetails = detail?.auctionDetails;
+  if (auctionDetails && typeof auctionDetails === "object") {
+    const auctionLines = Object.entries(auctionDetails as Record<string, unknown>)
+      .map(([key, entry]) => {
+        const normalized =
+          entry === null || entry === undefined ? "" : String(entry).trim();
+        if (!normalized || normalized === "-") return "";
+        return `${key}: ${normalized}`;
+      })
+      .filter(Boolean);
+    if (auctionLines.length > 0) {
+      sections.push(auctionLines.join("\n"));
+    }
+  }
+
+  const fees = detail?.fees;
+  if (fees && typeof fees === "object") {
+    if (typeof fees.totalWords === "string" && fees.totalWords.trim()) {
+      sections.push(fees.totalWords.trim());
+    } else if (typeof fees.totalNumber === "string" && fees.totalNumber.trim()) {
+      sections.push(`إجمالي الرسوم: ${fees.totalNumber.trim()}`);
+    }
+  }
+
+  return sections.join("\n\n").trim();
+}
+
+function resolveMobasherDetailCity(detail: Record<string, any>) {
+  const description = detail?.description;
+  if (description && typeof description === "object" && !Array.isArray(description)) {
+    const city = description["المدينة"];
+    if (typeof city === "string" && city.trim()) return city.trim();
+  }
+
+  const address = typeof detail?.address === "string" ? detail.address.trim() : "";
+  if (!address) return detail?.city ?? "";
+
+  const parts = address
+    .split(/[,،]/)
+    .map((part: string) => part.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : address;
+}
+
+function resolveMobasherDetailPrice(detail: Record<string, any>) {
+  const highest = detail?.highestOnlineBid;
+  const highestNumber =
+    typeof highest?.number === "number" && highest.number > 0 ? highest.number : null;
+  if (highestNumber) return highestNumber;
+
+  const highestRaw = typeof highest?.raw === "string" ? highest.raw.replace(/[^\d]/g, "") : "";
+  if (highestRaw) {
+    const parsed = Number(highestRaw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  const bids = Array.isArray(detail?.bidHistory) ? detail.bidHistory : [];
+  let best: number | null = null;
+  for (const bid of bids) {
+    const raw = typeof bid?.amount === "string" ? bid.amount : String(bid?.amount ?? "");
+    const digits = raw.replace(/[^\d]/g, "");
+    if (!digits) continue;
+    const parsed = Number(digits);
+    if (Number.isFinite(parsed) && parsed > 0 && (best === null || parsed > best)) {
+      best = parsed;
+    }
+  }
+  return best;
 }
 
 function formatYallaDescription(value: string) {
@@ -1035,9 +1167,24 @@ function filterVehicleOptionsByInput(options: IndexedVehicleOption[], input: str
   }).map((option) => option.label);
 }
 
+function mapMobasherBidsToComments(bids: Array<Record<string, any>>) {
+  return bids.map((bid, index) => {
+    const amount = typeof bid.amount === "string" ? bid.amount.trim() : String(bid.amount ?? "").trim();
+    const method = typeof bid.method === "string" ? bid.method.trim() : "";
+    const time = typeof bid.time === "string" ? bid.time.trim() : "";
+    const parts = [amount, method, time].filter(Boolean);
+    return {
+      id: `mobasher-bid-${index}`,
+      authorUsername: typeof bid.bidder === "string" ? bid.bidder : "مزايد",
+      body: parts.join(" — ") || amount || "-",
+    };
+  });
+}
+
 function filterVisibleComments(comments: Array<Record<string, any>>) {
   return comments.filter((comment) => {
     const body = typeof comment?.body === "string" ? comment.body.replace(/\s+/g, " ").trim() : "";
+    if (!body) return false;
     return !body.includes(PRIVATE_COMMENT_MARKER);
   });
 }
@@ -1050,9 +1197,11 @@ export default function EvaluationSourcePage({
   enableModelYearFilter = false,
   enableMileageFilter = false,
   dataSources,
+  useCarsIndDatabase = false,
   progressiveAdvancedFilters = false,
   requireSearchClickToApplyFilters = false,
   forceExactSearch = false,
+  broadDocumentSearch = false,
 }: EvaluationSourcePageProps) {
   const langContext = useContext(LanguageContext);
   const { trackAction } = useAuthTracking();
@@ -1103,13 +1252,19 @@ export default function EvaluationSourcePage({
     isArabic ? "text-right" : "text-left"
   }`;
   const getSourceDisplayName = useCallback((source: EvaluationSourceItem["source"]) => {
+    if (source === "mobasher") return t.filters.sourceOptions.mobasher;
     if (source === "yallamotor") return t.filters.sourceOptions.yallamotor;
     if (source === "syarah") return t.filters.sourceOptions.syarah;
     return t.filters.sourceOptions.haraj;
-  }, [t.filters.sourceOptions.haraj, t.filters.sourceOptions.syarah, t.filters.sourceOptions.yallamotor]);
+  }, [
+    t.filters.sourceOptions.haraj,
+    t.filters.sourceOptions.mobasher,
+    t.filters.sourceOptions.syarah,
+    t.filters.sourceOptions.yallamotor,
+  ]);
   const mileageMinPlaceholder = "Min";
   const mileageMaxPlaceholder = "Max";
-  const resolvedSources = useMemo<Array<"haraj" | "yallamotor" | "syarah">>(
+  const resolvedSources = useMemo<Array<"haraj" | "yallamotor" | "syarah" | "mobasher">>(
     () => (dataSources?.length ? dataSources : ["haraj"]),
     [dataSources]
   );
@@ -1155,6 +1310,8 @@ export default function EvaluationSourcePage({
   const [liveSearchSuggestions, setLiveSearchSuggestions] = useState<string[]>([]);
   const [liveSearchSuggestionsLoading, setLiveSearchSuggestionsLoading] = useState(false);
   const [searchRequestPending, setSearchRequestPending] = useState(false);
+  const [listFetchPending, setListFetchPending] = useState(false);
+  const [listFetchNonce, setListFetchNonce] = useState(0);
   const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
   const [searchSuggestionActiveIndex, setSearchSuggestionActiveIndex] = useState(-1);
   const [shouldLoadOptionPool, setShouldLoadOptionPool] = useState(false);
@@ -1184,6 +1341,8 @@ export default function EvaluationSourcePage({
     useState<string | null>(null);
   const [, startFilterSelectionTransition] = useTransition();
   const listResponseCacheRef = useRef<Map<string, ListResponse>>(new Map());
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const searchSuggestionsCacheRef = useRef<Map<string, string[]>>(new Map());
   const detailDocumentCacheRef = useRef<Map<string, Record<string, any>>>(new Map());
   const detailRequestCacheRef = useRef<Map<string, Promise<Record<string, any>>>>(
@@ -1330,12 +1489,11 @@ export default function EvaluationSourcePage({
     [liveSearchSuggestions]
   );
   const shouldShowClearSearchHistoryAction = searchHistory.length > 0;
-  const shouldShowSearchLoadingIndicator =
-    liveSearchSuggestionsLoading && mergedSearchSuggestions.length === 0;
-  const isSearchResultsLoading =
-    searchRequestPending || (status === "loading" && Boolean(appliedFilters.search.trim()));
-  const shouldShowSearchInputLoadingIndicator =
-    shouldShowSearchLoadingIndicator || isSearchResultsLoading;
+  const isSearchTypingPending = filters.search.trim() !== appliedFilters.search.trim();
+  const activeSearchQuery = appliedFilters.search.trim();
+  const showSearchPageOverlay = listFetchPending;
+  const isSearchResultsLoading = listFetchPending;
+  const showSearchStatusBanner = Boolean(activeSearchQuery);
   useEffect(() => {
     if (!progressiveAdvancedFilters) return;
     if (!hasAdvancedFilterSelections) return;
@@ -1457,6 +1615,7 @@ export default function EvaluationSourcePage({
   };
 
   const applyFiltersSnapshot = (nextFilters: FilterState) => {
+    setListFetchPending(true);
     setSearchRequestPending(Boolean(nextFilters.search.trim()));
     trackAction({
       actionType: "search",
@@ -1473,12 +1632,13 @@ export default function EvaluationSourcePage({
     saveSearchToHistory(nextFilters.search);
     setAppliedFilters({ ...nextFilters });
     setPage(1);
+    setListFetchNonce((value) => value + 1);
   };
 
   const applyFilters = () => {
     setSearchDropdownOpen(false);
     setSearchSuggestionActiveIndex(-1);
-    applyFiltersSnapshot(filters);
+    applyFiltersSnapshot(filtersRef.current);
   };
 
   const applyFilterSelection = useCallback((updates: Partial<FilterState>) => {
@@ -1497,7 +1657,7 @@ export default function EvaluationSourcePage({
     setFilters(next);
     setSearchDropdownOpen(false);
     setSearchSuggestionActiveIndex(-1);
-    if (autoApply && requireSearchClickToApplyFilters) {
+    if (autoApply || !requireSearchClickToApplyFilters) {
       applyFiltersSnapshot(next);
     }
   };
@@ -1573,6 +1733,7 @@ export default function EvaluationSourcePage({
     setModelDropdownShowAll(false);
     setModelYearDropdownOpen(false);
     setModelYearDropdownShowAll(false);
+    setListFetchPending(false);
     setSearchRequestPending(false);
     if (progressiveAdvancedFilters) {
       setAdvancedFiltersOpen(false);
@@ -1599,11 +1760,14 @@ export default function EvaluationSourcePage({
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (appliedFilters.search) params.set("search", appliedFilters.search);
-    const shouldUseExactSearch =
+    const matchDocumentMode =
       Boolean(appliedFilters.search.trim()) &&
       (forceExactSearch || appliedFilters.match);
-    if (shouldUseExactSearch) {
+    if (matchDocumentMode) {
       params.set("exactSearch", "true");
+      params.set("broadSearch", "true");
+    } else if (broadDocumentSearch && appliedFilters.search.trim()) {
+      params.set("broadSearch", "true");
     }
     if (appliedFilters.city) params.set("city", appliedFilters.city);
     if (appliedFilters.hasImage !== "any") params.set("hasImage", appliedFilters.hasImage);
@@ -1620,7 +1784,9 @@ export default function EvaluationSourcePage({
       const sourcesParam =
         !selectedSource || selectedSource === "all"
           ? availableSources
-          : availableSources.includes(selectedSource as "haraj" | "yallamotor" | "syarah")
+          : availableSources.includes(
+              selectedSource as "haraj" | "yallamotor" | "syarah" | "mobasher"
+            )
             ? [selectedSource]
             : availableSources;
       params.set("sources", sourcesParam.join(","));
@@ -1651,6 +1817,7 @@ export default function EvaluationSourcePage({
   }, [
     appliedFilters,
     forceExactSearch,
+    broadDocumentSearch,
     page,
     limit,
     tag0,
@@ -1683,7 +1850,9 @@ export default function EvaluationSourcePage({
     const sourcesParam =
       !selectedSource || selectedSource === "all"
         ? availableSources
-        : availableSources.includes(selectedSource as "haraj" | "yallamotor" | "syarah")
+        : availableSources.includes(
+            selectedSource as "haraj" | "yallamotor" | "syarah" | "mobasher"
+          )
           ? [selectedSource]
           : availableSources;
     params.set("sources", sourcesParam.join(","));
@@ -1697,11 +1866,23 @@ export default function EvaluationSourcePage({
       const filtered = excludeTag1Values.map((value) => value.trim()).filter(Boolean);
       if (filtered.length > 0) params.set("excludeTag1", filtered.join(","));
     }
+    const suggestionsMatchMode =
+      Boolean(deferredSearchValue.trim()) &&
+      (forceExactSearch || filters.match);
+    if (suggestionsMatchMode) {
+      params.set("exactSearch", "true");
+      params.set("broadSearch", "true");
+    } else if (broadDocumentSearch && deferredSearchValue.trim()) {
+      params.set("broadSearch", "true");
+    }
 
     return params.toString();
   }, [
     searchDropdownOpen,
     deferredSearchValue,
+    broadDocumentSearch,
+    forceExactSearch,
+    filters.match,
     deferredSourceValue,
     deferredBrandValue,
     deferredModelValue,
@@ -1753,8 +1934,26 @@ export default function EvaluationSourcePage({
 
   useEffect(() => {
     if (requireSearchClickToApplyFilters) return;
-    setAppliedFilters(filters);
-    setPage(1);
+
+    setSearchRequestPending(Boolean(filters.search.trim()));
+
+    const timer = window.setTimeout(() => {
+      const nextFilters = filtersRef.current;
+      setAppliedFilters((current) => {
+        if (!hasFilterStateChanged(nextFilters, current)) {
+          return current;
+        }
+        if (nextFilters.search.trim()) {
+          saveSearchToHistory(nextFilters.search);
+        }
+        return nextFilters;
+      });
+      setPage(1);
+    }, FILTER_AUTO_APPLY_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [filters, requireSearchClickToApplyFilters]);
 
   useEffect(() => {
@@ -1945,6 +2144,8 @@ export default function EvaluationSourcePage({
         );
         setData(normalizedCachedResponse);
         setStatus("idle");
+        setListFetchPending(false);
+        setSearchRequestPending(false);
       } else {
         setStatus("loading");
       }
@@ -1963,6 +2164,7 @@ export default function EvaluationSourcePage({
             if (payload.error === "registration_required") {
               if (active) {
                 triggerRegistrationRequired(payload.message);
+                setListFetchPending(false);
                 setSearchRequestPending(false);
               }
               return;
@@ -1976,6 +2178,7 @@ export default function EvaluationSourcePage({
           setData(result);
           setRegistrationRequiredMessage(null);
           setStatus("idle");
+          setListFetchPending(false);
           setSearchRequestPending(false);
         }
 
@@ -2005,11 +2208,16 @@ export default function EvaluationSourcePage({
         }
       } catch (err) {
         if (controller.signal.aborted) {
+          if (active) {
+            setListFetchPending(false);
+            setSearchRequestPending(false);
+          }
           return;
         }
         if (active) {
           setStatus("error");
           setError(t.status.error);
+          setListFetchPending(false);
           setSearchRequestPending(false);
         }
       }
@@ -2020,7 +2228,7 @@ export default function EvaluationSourcePage({
       active = false;
       controller.abort();
     };
-  }, [listRequestUrl, queryString, listEndpoint, page, triggerRegistrationRequired]);
+  }, [listRequestUrl, listFetchNonce, queryString, listEndpoint, page, triggerRegistrationRequired]);
 
   useEffect(() => {
     if (!enableModelYearFilter || !shouldLoadModelYears) return;
@@ -2420,11 +2628,15 @@ export default function EvaluationSourcePage({
     }
 
     const endpoint = toApiUrl(
-      source === "yallamotor"
-        ? "/api/yallamotor-scrape"
-        : source === "syarah"
-          ? "/api/syarah-scrape"
-          : "/api/haraj-scrape"
+      source === "mobasher"
+        ? "/api/mobasher-auctions"
+        : source === "yallamotor"
+          ? "/api/yallamotor-scrape"
+          : source === "syarah"
+            ? "/api/syarah-scrape"
+            : useCarsIndDatabase
+              ? "/api/cars-ind/haraj-scrape"
+              : "/api/haraj-scrape"
     );
 
     const request = (async () => {
@@ -2449,7 +2661,7 @@ export default function EvaluationSourcePage({
     } finally {
       detailRequestCacheRef.current.delete(cacheKey);
     }
-  }, [buildDetailCacheKey, setCachedDetailDocument]);
+  }, [buildDetailCacheKey, setCachedDetailDocument, useCarsIndDatabase]);
 
   const prefetchDetail = useCallback((item: EvaluationSourceItem) => {
     void fetchDetail(item).catch(() => {
@@ -2499,6 +2711,31 @@ export default function EvaluationSourcePage({
       } as Record<string, any>;
     }
 
+    if (source === "mobasher") {
+      return {
+        __source: "mobasher",
+        id: item.id,
+        title: item.title,
+        city: item.city,
+        scrapedAt: item.postDate ?? null,
+        url: item.url ?? "",
+        auctionUrl: item.url ?? "",
+        images: [],
+        breadcrumbs: item.tags ?? [],
+        productData: {
+          "نوع المركبة": item.tags?.[1] ?? "",
+          "موديل المركبة": item.tags?.[2] ?? "",
+          "سنة الصنع": item.carModelYear ?? "",
+          "عداد الكيلومترات": item.mileage ?? "",
+        },
+        bidHistory: [],
+        description: {},
+        auctionDetails: {},
+        productNotes: {},
+        priceNumeric: item.priceNumeric ?? null,
+      } as Record<string, any>;
+    }
+
     return {
       __source: "haraj",
       id: item.id,
@@ -2521,12 +2758,14 @@ export default function EvaluationSourcePage({
           formattedPrice: item.priceFormatted ?? null,
         },
         carInfo: {
+          model: item.carModelYear ?? null,
           mileage: item.mileage ?? null,
         },
         bodyTEXT: "",
       },
       comments: [],
       carInfo: {
+        model: item.carModelYear ?? null,
         mileage: item.mileage ?? null,
       },
     } as Record<string, any>;
@@ -2582,7 +2821,9 @@ export default function EvaluationSourcePage({
           : item.source === "syarah"
             ? ((cachedDoc?.images ??
                 (cachedDoc?.featured_image ? [cachedDoc.featured_image] : [])) as string[])
-            : ((cachedDoc?.item?.imagesList ?? cachedDoc?.imagesList ?? []) as string[]);
+            : item.source === "mobasher"
+              ? ((cachedDoc?.images ?? []) as string[])
+              : ((cachedDoc?.item?.imagesList ?? cachedDoc?.imagesList ?? []) as string[]);
       setModalImages(cachedImages);
       setModalStatus("idle");
       return;
@@ -2597,7 +2838,9 @@ export default function EvaluationSourcePage({
           ? ((doc?.detail?.images ?? doc?.images ?? []) as string[])
           : item.source === "syarah"
             ? ((doc?.images ?? (doc?.featured_image ? [doc.featured_image] : [])) as string[])
-            : ((doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[]);
+            : item.source === "mobasher"
+              ? ((doc?.images ?? []) as string[])
+              : ((doc?.item?.imagesList ?? doc?.imagesList ?? []) as string[]);
       setModalImages(images);
       setModalStatus("idle");
     } catch (err) {
@@ -2628,9 +2871,11 @@ export default function EvaluationSourcePage({
     const cachedDoc = detailDocumentCacheRef.current.get(cacheKey);
     if (cachedDoc) {
       const comments =
-        (cachedDoc?.comments ??
-          cachedDoc?.gql?.comments?.json?.data?.comments?.items ??
-          []) as Array<Record<string, any>>;
+        item.source === "mobasher"
+          ? mapMobasherBidsToComments((cachedDoc?.bidHistory ?? []) as Array<Record<string, any>>)
+          : ((cachedDoc?.comments ??
+              cachedDoc?.gql?.comments?.json?.data?.comments?.items ??
+              []) as Array<Record<string, any>>);
       setModalComments(filterVisibleComments(comments));
       setModalPriceCompare(null);
       setModalStatus("idle");
@@ -2643,9 +2888,11 @@ export default function EvaluationSourcePage({
     try {
       const doc = (await fetchDetail(item)) as Record<string, any>;
       const comments =
-        (doc?.comments ??
-          doc?.gql?.comments?.json?.data?.comments?.items ??
-          []) as Array<Record<string, any>>;
+        item.source === "mobasher"
+          ? mapMobasherBidsToComments((doc?.bidHistory ?? []) as Array<Record<string, any>>)
+          : ((doc?.comments ??
+              doc?.gql?.comments?.json?.data?.comments?.items ??
+              []) as Array<Record<string, any>>);
       setModalComments(filterVisibleComments(comments));
       setModalStatus("idle");
     } catch (err) {
@@ -2685,20 +2932,27 @@ export default function EvaluationSourcePage({
   const detailSource = (detail as any)?.__source ?? (detail as any)?.source ?? "haraj";
   const isYallaDetail = detailSource === "yallamotor";
   const isSyarahDetail = detailSource === "syarah";
+  const isMobasherDetail = detailSource === "mobasher";
   const detailImages = (isYallaDetail
     ? detail?.detail?.images ?? detail?.images ?? []
     : isSyarahDetail
       ? detail?.images ?? (detail?.featured_image ? [detail.featured_image] : [])
-      : detail?.item?.imagesList ?? detail?.imagesList ?? []) as string[];
+      : isMobasherDetail
+        ? detail?.images ?? []
+        : detail?.item?.imagesList ?? detail?.imagesList ?? []) as string[];
   const detailTags = (isYallaDetail
     ? detail?.detail?.breadcrumb ?? detail?.breadcrumb ?? []
     : isSyarahDetail
       ? ["syarah", detail?.brand ?? "", detail?.model ?? "", detail?.trim ?? ""]
-    : detail?.tags ?? detail?.item?.tags ?? []) as string[];
+      : isMobasherDetail
+        ? (detail?.breadcrumbs ?? detail?.tags ?? [])
+        : detail?.tags ?? detail?.item?.tags ?? []) as string[];
   const detailComments = filterVisibleComments(
     (isYallaDetail || isSyarahDetail
       ? []
-      : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>
+      : isMobasherDetail
+        ? mapMobasherBidsToComments((detail?.bidHistory ?? []) as Array<Record<string, any>>)
+        : detail?.comments ?? detail?.gql?.comments?.json?.data?.comments?.items ?? []) as Array<Record<string, any>>
   );
   const syarahCarInfo = isSyarahDetail
     ? ({
@@ -2722,20 +2976,28 @@ export default function EvaluationSourcePage({
     ? detail?.detail?.importantSpecs
     : isSyarahDetail
       ? syarahCarInfo
-    : detail?.item?.carInfo ??
-      detail?.carInfo ??
-      detail?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo ??
-      null) as Record<string, any> | null;
+      : isMobasherDetail
+        ? (detail?.productData ?? null)
+        : detail?.item?.carInfo ??
+          detail?.carInfo ??
+          detail?.gql?.posts?.json?.data?.posts?.items?.[0]?.carInfo ??
+          null) as Record<string, any> | null;
   const carMileage = isSyarahDetail
     ? detail?.mileage_km ?? null
-    : !isYallaDetail
-      ? (carInfo as any)?.mileage ?? null
-      : null;
+    : isMobasherDetail
+      ? detail?.productData?.["عداد الكيلومترات"] ?? null
+      : !isYallaDetail
+        ? (carInfo as any)?.mileage ?? null
+        : null;
   const carInfoEntries =
     carInfo && typeof carInfo === "object" && !Array.isArray(carInfo)
       ? Object.entries(carInfo).filter(
           ([key, value]) =>
-            (isYallaDetail || isSyarahDetail ? true : key !== "mileage") &&
+            (isYallaDetail || isSyarahDetail
+              ? true
+              : isMobasherDetail
+                ? key !== "عداد الكيلومترات"
+                : key !== "mileage") &&
             value !== null &&
             value !== undefined &&
             value !== ""
@@ -2744,24 +3006,34 @@ export default function EvaluationSourcePage({
   const detailFeatures = (isYallaDetail ? detail?.detail?.features ?? [] : []) as string[];
   const detailPriceCompare = isYallaDetail ? detail?.detail?.priceCompare ?? detail?.priceCompare ?? null : null;
   const detailSourceUrl = resolveSourceUrl({
-    source: isYallaDetail ? "yallamotor" : isSyarahDetail ? "syarah" : "haraj",
+    source: isYallaDetail
+      ? "yallamotor"
+      : isSyarahDetail
+        ? "syarah"
+        : isMobasherDetail
+          ? "mobasher"
+          : "haraj",
     url: String(
       (isYallaDetail
         ? detail?.url ?? detail?.detail?.url
         : isSyarahDetail
           ? detail?.share_link ?? detail?.url
-          : detail?.url ?? detail?.item?.URL) ?? ""
+          : isMobasherDetail
+            ? detail?.url ?? detail?.auctionUrl
+            : detail?.url ?? detail?.item?.URL) ?? ""
     ),
   });
   const detailNotes = isYallaDetail
     ? formatYallaDescription(detail?.detail?.description ?? "") || t.modals.noDescription
     : isSyarahDetail
       ? sanitizeDescriptionText(detail?.title ?? "") || t.modals.noDescription
-      : sanitizeDescriptionText(detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? "") ||
-        t.modals.noDescription;
+      : isMobasherDetail
+        ? formatMobasherNotes(detail as Record<string, any>) || t.modals.noDescription
+        : sanitizeDescriptionText(detail?.item?.bodyTEXT ?? detail?.item?.bodyHTML ?? "") ||
+          t.modals.noDescription;
   const normalizedDetailTags = detailTags
     .filter((tag): tag is string => Boolean(tag))
-    .slice(isYallaDetail ? 3 : 1);
+    .slice(isYallaDetail ? 3 : isMobasherDetail ? 1 : 1);
   const normalizedFeatures = detailFeatures.filter((feature) => Boolean(feature));
   const carInfoGridEntries = carInfo
     ? [
@@ -2846,6 +3118,30 @@ export default function EvaluationSourcePage({
                 href: detailSourceUrl || undefined,
               },
             ]
+          : isMobasherDetail
+            ? [
+                {
+                  label: t.modals.titleLabel,
+                  value: detail?.title ?? detail?.auctionTitle ?? "-",
+                },
+                {
+                  label: t.modals.cityLabel,
+                  value: resolveMobasherDetailCity(detail as Record<string, any>) || "-",
+                },
+                {
+                  label: t.modals.priceLabel,
+                  value: formatPrice(resolveMobasherDetailPrice(detail as Record<string, any>), null),
+                },
+                {
+                  label: t.modals.dateLabel,
+                  value: formatEpoch(detail?.scrapedAt ?? detail?.postDate ?? null),
+                },
+                {
+                  label: t.modals.sourceLabel,
+                  value: detailSourceUrl ? t.modals.openListing : "-",
+                  href: detailSourceUrl || undefined,
+                },
+              ]
         : [
             {
               label: t.modals.titleLabel,
@@ -2860,6 +3156,12 @@ export default function EvaluationSourcePage({
               value: formatPrice(
                 detail?.priceNumeric ?? detail?.item?.price?.numeric ?? null,
                 detail?.item?.price?.formattedPrice ?? null
+              ),
+            },
+            {
+              label: t.modals.dateLabel,
+              value: formatEpoch(
+                detail?.postDate ?? detail?.item?.postDate ?? detail?.lastSeenAt ?? null
               ),
             },
             {
@@ -3083,6 +3385,21 @@ export default function EvaluationSourcePage({
         </section> */}
 
         <section className="relative min-w-0 pb-16">
+          {showSearchPageOverlay ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-40 flex items-start justify-center bg-white/50 pt-20 backdrop-blur-sm sm:pt-24"
+              aria-hidden="true"
+            >
+              <div className="pointer-events-auto flex flex-col items-center gap-3 rounded-2xl border border-emerald-100 bg-white px-6 py-5 shadow-[0_20px_48px_rgba(15,23,42,0.12)]">
+                <Loader2 className="h-10 w-10 animate-spin text-emerald-600" />
+                <p className="text-sm font-medium text-slate-700">
+                  {activeSearchQuery
+                    ? `${t.filters.searchPending} «${activeSearchQuery}»...`
+                    : t.filters.searchTyping}
+                </p>
+              </div>
+            </div>
+          ) : null}
           <div className="w-full min-w-0 px-6">
             <div
               className={`relative overflow-visible border border-slate-200/80 ${
@@ -3144,9 +3461,6 @@ export default function EvaluationSourcePage({
                           ref={searchDropdownRef}
                         >
                           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
-                          {shouldShowSearchInputLoadingIndicator ? (
-                            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-500" />
-                          ) : null}
                           <Input
                             value={filters.search}
                             onChange={(event) => handleSearchInputChange(event.target.value)}
@@ -3154,7 +3468,7 @@ export default function EvaluationSourcePage({
                             onFocus={handleSearchInputFocus}
                             placeholder={progressiveAdvancedFilters ? "" : t.filters.searchPlaceholder}
                             autoComplete="off"
-                            className="h-9 w-full min-w-0 rounded-md border-slate-300 bg-white pl-8 pr-8 text-xs shadow-[inset_0_0_0_1px_rgba(16,185,129,0.16),0_0_0_1px_rgba(15,23,42,0.05)] transition-colors focus-visible:border-slate-300 focus-visible:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.5),0_0_0_3px_rgba(16,185,129,0.14)] focus-visible:ring-0"
+                            className="h-9 w-full min-w-0 rounded-md border-slate-300 bg-white pl-8 pr-3 text-xs shadow-[inset_0_0_0_1px_rgba(16,185,129,0.16),0_0_0_1px_rgba(15,23,42,0.05)] transition-colors focus-visible:border-slate-300 focus-visible:shadow-[inset_0_0_0_1px_rgba(16,185,129,0.5),0_0_0_3px_rgba(16,185,129,0.14)] focus-visible:ring-0"
                           />
                           {searchDropdownOpen ? (
                             <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_34px_rgba(15,23,42,0.14)]">
@@ -3186,7 +3500,12 @@ export default function EvaluationSourcePage({
                                         key={`${value}-${index}`}
                                         type="button"
                                         onMouseDown={(event) => event.preventDefault()}
-                                        onClick={() => applySearchSuggestion(value, true)}
+                                        onClick={() =>
+                                          applySearchSuggestion(
+                                            value,
+                                            !requireSearchClickToApplyFilters
+                                          )
+                                        }
                                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
                                           isActive
                                             ? "bg-emerald-100 text-emerald-800"
@@ -3205,10 +3524,6 @@ export default function EvaluationSourcePage({
                                     );
                                   })}
                                 </div>
-                              ) : shouldShowSearchLoadingIndicator ? (
-                                <p className="px-3 py-2 text-xs text-slate-500">
-                                  {loadingSuggestionsLabel}
-                                </p>
                               ) : deferredSearchValue.trim().length >= SEARCH_SUGGESTIONS_MIN_CHARS &&
                                   !liveSearchSuggestionsLoading ? (
                                 <p className="px-3 py-2 text-xs text-slate-500">
@@ -3218,28 +3533,36 @@ export default function EvaluationSourcePage({
                             </div>
                           ) : null}
                         </div>
+                        {requireSearchClickToApplyFilters ? (
+                          <>
+                            <label
+                              title={t.filters.matchHint}
+                              className="inline-flex h-9 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={filters.match}
+                                onChange={(event) =>
+                                  updateFilters({ match: event.target.checked })
+                                }
+                                className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span>{matchLabel}</span>
+                            </label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9 shrink-0 rounded-md border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-800"
+                              onClick={applyFilters}
+                            >
+                              {t.filters.search}
+                            </Button>
+                          </>
+                        ) : null}
+
                         {progressiveAdvancedFilters &&
                         (requireSearchClickToApplyFilters || hasAdvancedFilterControls) ? (
                           <div className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-row sm:items-center sm:flex-none">
-                            {requireSearchClickToApplyFilters ? (
-                              <Button
-                                type="button"
-                                className="h-9 w-full rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-600 sm:w-auto"
-                                onClick={applyFilters}
-                              >
-                                {t.filters.search}
-                              </Button>
-                            ) : null}
-                            {requireSearchClickToApplyFilters ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-9 w-full rounded-md border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-emerald-700 sm:w-auto"
-                                onClick={resetFilters}
-                              >
-                                {resetFiltersLabel}
-                              </Button>
-                            ) : null}
                             {hasAdvancedFilterControls ? (
                               <button
                                 type="button"
@@ -3260,6 +3583,16 @@ export default function EvaluationSourcePage({
                           </div>
                         ) : null}
                       </div>
+                      {requireSearchClickToApplyFilters && showSearchStatusBanner ? (
+                        <p
+                          className="text-xs text-emerald-700"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          {t.filters.searchResultsReady(activeSearchQuery, items.length)}
+                        </p>
+                      ) : null}
+
 
                       {!progressiveAdvancedFilters && showSearchAuxControls ? (
                         <div className="flex flex-wrap items-center gap-2">
@@ -3594,6 +3927,9 @@ export default function EvaluationSourcePage({
                               {resolvedSources.includes("syarah") ? (
                                 <SelectItem value="syarah">{t.filters.sourceOptions.syarah}</SelectItem>
                               ) : null}
+                              {resolvedSources.includes("mobasher") ? (
+                                <SelectItem value="mobasher">{t.filters.sourceOptions.mobasher}</SelectItem>
+                              ) : null}
                             </SelectContent>
                           </Select>
                         </div>
@@ -3800,6 +4136,28 @@ export default function EvaluationSourcePage({
                 </div>
               </div>
             </div>
+
+
+            {showSearchStatusBanner ? (
+              <div
+                className={`mt-4 flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3 text-sm ${
+                  isSearchResultsLoading
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                }`}
+                role="status"
+                aria-live="polite"
+              >
+                {isSearchResultsLoading ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                ) : null}
+                <span>
+                  {isSearchResultsLoading
+                    ? `${t.filters.searchPending} «${activeSearchQuery}»...`
+                    : t.filters.searchResultsReady(activeSearchQuery, items.length)}
+                </span>
+              </div>
+            ) : null}
 
             <div className="mt-8 min-w-0 rounded-3xl border border-slate-200 bg-white/95 shadow-2xl">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">

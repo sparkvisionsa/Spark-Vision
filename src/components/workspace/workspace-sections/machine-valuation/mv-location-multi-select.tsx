@@ -1,11 +1,11 @@
 "use client";
 
-import { ChevronDown, MapPinned } from "lucide-react";
+import { Check, ChevronDown, MapPinned } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -48,6 +48,20 @@ export function mvLocationSelectionSummary(value: readonly string[], locations: 
   if (labels.length === 0) return "كل مواقع المعاينة";
   if (labels.length === 1) return labels[0]!;
   return `${labels.length} مواقع محددة`;
+}
+
+function LocationOptionCheck({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+        checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent",
+      )}
+      aria-hidden
+    >
+      <Check className="h-3 w-3" />
+    </span>
+  );
 }
 
 export function MvLocationMultiSelect({
@@ -100,27 +114,32 @@ export function MvLocationMultiSelect({
       <DropdownMenuContent align="end" className="z-[980] w-72 text-right">
         <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">{label}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
-          checked={allSelected}
-          onCheckedChange={setAll}
-          onSelect={(event) => event.preventDefault()}
-          className="cursor-pointer text-[12px] font-bold"
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setAll();
+          }}
+          className="cursor-pointer gap-2 text-[12px] font-bold"
         >
-          كل مواقع المعاينة
-        </DropdownMenuCheckboxItem>
+          <LocationOptionCheck checked={allSelected} />
+          <span className="truncate">كل مواقع المعاينة</span>
+        </DropdownMenuItem>
         {locations.length > 0 ? <DropdownMenuSeparator /> : null}
         {locations.map((location, index) => {
           const id = mvLocationId(location, index);
+          const checked = !allSelected && normalized.includes(id);
           return (
-            <DropdownMenuCheckboxItem
+            <DropdownMenuItem
               key={id}
-              checked={!allSelected && normalized.includes(id)}
-              onCheckedChange={(checked) => toggleLocation(id, checked === true)}
-              onSelect={(event) => event.preventDefault()}
-              className="cursor-pointer text-[12px]"
+              onSelect={(event) => {
+                event.preventDefault();
+                toggleLocation(id, !checked);
+              }}
+              className="cursor-pointer gap-2 text-[12px]"
             >
-              {mvLocationLabel(location, index)}
-            </DropdownMenuCheckboxItem>
+              <LocationOptionCheck checked={checked} />
+              <span className="truncate">{mvLocationLabel(location, index)}</span>
+            </DropdownMenuItem>
           );
         })}
       </DropdownMenuContent>

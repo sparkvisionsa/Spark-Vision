@@ -116,7 +116,7 @@ export function MvValuationAnnexImageSheet({
             alt=""
             className="object-contain"
             style={{
-              width: `${valuationImageWidth}%`,
+              width: `${Math.min(100, image.displayWidthPercent ?? valuationImageWidth)}%`,
               maxHeight: orientation === "landscape" ? "158mm" : "245mm",
               height: "auto",
               imageRendering: "-webkit-optimize-contrast",

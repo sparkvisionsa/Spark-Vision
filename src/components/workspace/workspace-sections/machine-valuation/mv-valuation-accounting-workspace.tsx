@@ -21,6 +21,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  Save,
   Scissors,
   Settings,
   Sparkles,
@@ -66,6 +67,7 @@ import {
   writeVisitedSimpleReportSteps,
 } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 import {
   approachLabel,
   emptyValuationAccountingStore,
@@ -94,10 +96,10 @@ const CROP_TABLE_SELECTOR = 'table[data-account-crop-table="1"]';
 const DEFAULT_QUALITY_SCALE = 4;
 const DEFAULT_PDF_RENDER_SCALE = 3;
 /** أقل قليلاً من 3.1 لتسريع التحويل مع بقاء الجودة مناسبة للتقرير */
-const PDF_UPLOAD_RENDER_SCALE = 2.85;
+const PDF_UPLOAD_RENDER_SCALE = 2.1;
 const PDF_UPLOAD_MAX_PAGE_PIXELS = 18_000_000;
 /** صفحات PDF تُعرض بالتوازي (worker واحد لكن عمليات الرسم متوازية) */
-const PDF_PARALLEL_PAGES = 3;
+const PDF_PARALLEL_PAGES = 4;
 const PDF_UPLOAD_PARALLEL_UPLOADS = 4;
 /** صور Excel تُولَّد على دفعات لتقليل زمن الانتظار */
 const EXCEL_IMAGE_CONCURRENCY = 2;
@@ -2537,8 +2539,9 @@ export default function MvValuationAccountingWorkspace({
     emptyValuationAccountingStore(),
   );
   const [activeApproach, setActiveApproach] =
-    useState<MvValuationAccountingApproachId>("cost");
+    useState<MvValuationAccountingApproachId>("market");
   const [uploadingKind, setUploadingKind] = useState<MvValuationAccountingFileKind | null>(null);
+  const [accountingImageDropActive, setAccountingImageDropActive] = useState(false);
   const [fileProcessOverlay, setFileProcessOverlay] = useState<{
     phase: string;
     current: number;
@@ -2548,6 +2551,7 @@ export default function MvValuationAccountingWorkspace({
   } | null>(null);
   const [, setFileProcessElapsedTick] = useState(0);
   const [editorSourceId, setEditorSourceId] = useState<string | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
   const [previewImage, setPreviewImage] = useState<MvValuationAccountingImage | null>(null);
   const [autoExcelBusySourceIds, setAutoExcelBusySourceIds] = useState<string[]>([]);
   const [pendingUploadPreview, setPendingUploadPreview] = useState<PendingUploadPreview | null>(null);
@@ -2615,6 +2619,7 @@ export default function MvValuationAccountingWorkspace({
   const [previewEnhanceContrast, setPreviewEnhanceContrast] = useState(1.12);
   const [previewEnhanceBrightness, setPreviewEnhanceBrightness] = useState(1.03);
   const [previewEnhanceBusy, setPreviewEnhanceBusy] = useState(false);
+  const [previewSaving, setPreviewSaving] = useState(false);
 
   type CropHandle = "move" | "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
   const cropDragRef = useRef<{
@@ -2722,6 +2727,48 @@ export default function MvValuationAccountingWorkspace({
     },
     [projectId, toast, flushAccountingWorkspaceToServer],
   );
+
+  const saveEditorModalAndClose = useCallback(async () => {
+    if (serverSaveTimerRef.current) {
+      clearTimeout(serverSaveTimerRef.current);
+      serverSaveTimerRef.current = null;
+    }
+    pendingAccountingSaveRef.current = readValuationAccountingStore(projectId);
+    setEditorSaving(true);
+    try {
+      await flushAccountingWorkspaceToServer();
+      toast({ description: "تم حفظ التغييرات في قاعدة البيانات." });
+      setEditorSourceId(null);
+    } catch {
+      toast({
+        variant: "destructive",
+        description: "تعذر حفظ التغييرات. حاول مرة أخرى.",
+      });
+    } finally {
+      setEditorSaving(false);
+    }
+  }, [flushAccountingWorkspaceToServer, projectId, toast]);
+
+  const savePreviewModalAndClose = useCallback(async () => {
+    if (serverSaveTimerRef.current) {
+      clearTimeout(serverSaveTimerRef.current);
+      serverSaveTimerRef.current = null;
+    }
+    pendingAccountingSaveRef.current = readValuationAccountingStore(projectId);
+    setPreviewSaving(true);
+    try {
+      await flushAccountingWorkspaceToServer();
+      toast({ description: "تم حفظ الصور في قاعدة البيانات وستظهر في إعداد التقرير." });
+      setPreviewImage(null);
+    } catch {
+      toast({
+        variant: "destructive",
+        description: "تعذر حفظ الصور. حاول مرة أخرى.",
+      });
+    } finally {
+      setPreviewSaving(false);
+    }
+  }, [flushAccountingWorkspaceToServer, projectId, toast]);
 
   const loadProject = useCallback(async () => {
     try {
@@ -3014,7 +3061,6 @@ export default function MvValuationAccountingWorkspace({
         crop,
       };
       persistStore((current) => ({ ...current, images: [...current.images, image] }));
-      setPreviewImage(image);
       toast({
         description:
           options?.skipEnhance === true
@@ -3431,11 +3477,10 @@ export default function MvValuationAccountingWorkspace({
           ],
         }));
         const firstGeneratedImage = nextImages[0] ?? null;
-        if ((kind === "excel" || options?.originalExcelFiles?.length) && firstGeneratedImage) {
+        if (firstGeneratedImage) {
+          /** بعد رفع Excel/PDF/صورة: نعرض الصورة فقط في معاينة بسيطة
+           *  دون فتح مودال القص تلقائيًا. */
           setPreviewImage(firstGeneratedImage);
-        } else {
-          const firstNonExcelSource = nextSources.find((source) => source.kind !== "excel");
-          if (firstNonExcelSource) setEditorSourceId(firstNonExcelSource.id);
         }
         toast({
           description:
@@ -3657,13 +3702,49 @@ export default function MvValuationAccountingWorkspace({
     async (kind: MvValuationAccountingFileKind, list: FileList | null) => {
       const files = Array.from(list ?? []).filter((file) => file.size > 0);
       if (files.length === 0) return;
-      if (kind === "image") {
+      if (kind === "image" || kind === "pdf") {
         await commitUpload(kind, files, activeApproach);
         return;
       }
-      await prepareUploadPreview(kind, files, activeApproach);
+      const rowsPerImage = DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE;
+      const pdfFiles: File[] = [];
+      try {
+        uploadStopRequestedRef.current = false;
+        setUploadingKind("excel");
+        setFileProcessOverlay({
+          phase: "جاري تحويل Excel ورفع الصور تلقائياً…",
+          current: 0,
+          total: files.length,
+          fileName: cleanAccountingText(files[0]?.name ?? ""),
+          startedAt: Date.now(),
+        });
+        await waitFrame();
+        for (let index = 0; index < files.length; index += 1) {
+          if (uploadStopRequestedRef.current) break;
+          const file = files[index]!;
+          pushFileProcess({
+            phase: "جاري تحويل Excel إلى PDF…",
+            current: index,
+            total: files.length,
+            fileName: cleanAccountingText(file.name),
+          });
+          await waitFrame();
+          const converted = await buildExcelPdfFromOriginalFile(file, { rowsPerImage });
+          pdfFiles.push(converted.pdfFile);
+        }
+        if (uploadStopRequestedRef.current || pdfFiles.length === 0) return;
+        await commitUpload("pdf", pdfFiles, activeApproach, { originalExcelFiles: files });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر رفع ملف Excel.",
+        });
+      } finally {
+        setUploadingKind(null);
+        setFileProcessOverlay(null);
+      }
     },
-    [activeApproach, commitUpload, prepareUploadPreview],
+    [activeApproach, commitUpload, pushFileProcess, toast],
   );
 
   const continuePendingUpload = useCallback(async () => {
@@ -4215,7 +4296,38 @@ export default function MvValuationAccountingWorkspace({
             const sources = store.sources.filter((source) => source.approachId === approach.id);
             const images = store.images.filter((image) => image.approachId === approach.id);
             return (
-              <div key={approach.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div
+                key={approach.id}
+                className={cn(
+                  "rounded-lg border bg-white p-4 shadow-sm transition",
+                  accountingImageDropActive
+                    ? "border-sky-400 ring-2 ring-sky-100"
+                    : "border-slate-200",
+                )}
+                onDragOver={(event) => {
+                  if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+                  event.preventDefault();
+                  setAccountingImageDropActive(true);
+                  event.dataTransfer.dropEffect = "copy";
+                }}
+                onDragLeave={(event) => {
+                  if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                  setAccountingImageDropActive(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setAccountingImageDropActive(false);
+                  const picked = Array.from(event.dataTransfer.files).filter(
+                    (file) =>
+                      file.type.startsWith("image/") ||
+                      /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg|tif)/i.test(file.name),
+                  );
+                  if (picked.length === 0) return;
+                  const transfer = new DataTransfer();
+                  picked.forEach((file) => transfer.items.add(file));
+                  void handleUpload("image", transfer.files);
+                }}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                   <div>
                     <h2 className="text-[16px] font-black text-slate-950">{approach.label}</h2>
@@ -4229,7 +4341,7 @@ export default function MvValuationAccountingWorkspace({
 
                 {sources.length === 0 ? (
                   <div className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-[12px] font-bold text-slate-500">
-                    ارفع ملف Excel أو PDF أو صورة من أعلى الصفحة بعد اختيار هذا التبويب.
+                    ارفع ملف Excel أو PDF أو صورة من الأعلى، أو اسحب صوراً وأفلتها هنا.
                   </div>
                 ) : (
                   <div className="mt-4 grid gap-4">
@@ -4981,6 +5093,21 @@ export default function MvValuationAccountingWorkspace({
                   </aside>
                 ) : null}
               </div>
+
+              <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-3 py-2.5 sm:px-4">
+                <p className="text-[10px] font-semibold text-slate-500 sm:text-[11px]">
+                  التغييرات تُحفظ محلياً تلقائياً. اضغط «حفظ» لمزامنة القاعدة فوراً.
+                </p>
+                <Button
+                  type="button"
+                  className="h-9 min-w-[7.5rem] gap-1.5 bg-emerald-700 px-4 text-[12px] font-bold hover:bg-emerald-800"
+                  disabled={editorSaving}
+                  onClick={() => void saveEditorModalAndClose()}
+                >
+                  {editorSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  حفظ
+                </Button>
+              </footer>
             </>
           ) : null}
         </DialogContent>
@@ -5001,223 +5128,64 @@ export default function MvValuationAccountingWorkspace({
           )}
           dir="rtl"
         >
-          <DialogHeader className="shrink-0 border-b border-slate-800 bg-slate-950/95 px-3 py-2 text-right sm:px-4">
-            <DialogTitle className="flex items-center gap-2 text-[14px] font-black sm:text-base">
-              <ImageIcon className="h-4 w-4 text-amber-300" />
-              {previewImage ? cleanAccountingText(previewImage.name) : "معاينة الصورة"}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/95 px-3 py-2.5 sm:px-4">
+            <DialogTitle className="flex min-w-0 flex-1 items-center gap-2 text-[14px] font-black sm:text-base">
+              <ImageIcon className="h-4 w-4 shrink-0 text-amber-300" />
+              <span className="truncate">
+                {previewImage ? cleanAccountingText(previewImage.name) : "معاينة الصورة"}
+              </span>
             </DialogTitle>
-            <div className="flex flex-wrap items-center gap-1.5 pt-2">
-              {previewImage ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 border-slate-600 bg-transparent px-2 text-[11px] text-white hover:bg-slate-900"
-                    onClick={() => downloadAccountingImage(projectId, previewImage, cropImageFileName(previewImage.name))}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    تنزيل PNG
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={previewPixelPerfect ? "default" : "secondary"}
-                    size="sm"
-                    className={cn(
-                      "h-8 px-2 text-[11px]",
-                      previewPixelPerfect
-                        ? "bg-amber-600 text-white hover:bg-amber-700"
-                        : "border-slate-600 text-slate-200",
-                    )}
-                    onClick={() => setPreviewPixelPerfect(true)}
-                  >
-                    1:1 (تمرير)
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={!previewPixelPerfect ? "default" : "secondary"}
-                    size="sm"
-                    className={cn(
-                      "h-8 px-2 text-[11px]",
-                      !previewPixelPerfect
-                        ? "bg-amber-600 text-white hover:bg-amber-700"
-                        : "border-slate-600 text-slate-200",
-                    )}
-                    onClick={() => setPreviewPixelPerfect(false)}
-                  >
-                    ملائم للشاشة
-                  </Button>
-                  <div className="flex min-w-[12rem] flex-1 items-center gap-2 rounded-md border border-slate-800 bg-slate-950/40 px-2 py-1.5">
-                    <span className="text-[11px] font-bold text-slate-300">Zoom</span>
-                    <Slider
-                      min={0.5}
-                      max={2.5}
-                      step={0.05}
-                      value={[previewZoom]}
-                      onValueChange={(v) => setPreviewZoom(v[0] ?? 1)}
-                      className="flex-1"
-                    />
-                    <span className="text-[11px] font-bold text-slate-300" dir="ltr">
-                      {Math.round(previewZoom * 100)}%
-                    </span>
-                  </div>
-                </>
-              ) : null}
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0 border-slate-600 bg-transparent text-white hover:bg-slate-800"
+              onClick={() => setPreviewImage(null)}
+              aria-label="إغلاق"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-900 p-4">
             {previewImage ? (
-              <div className="mt-2 grid gap-x-3 gap-y-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-                <Label className="grid gap-1 text-[10px] font-bold text-slate-300">
-                  تحسين الدقة: ×{previewEnhanceScale.toFixed(2)}
-                  <Slider
-                    min={1}
-                    max={3}
-                    step={0.1}
-                    value={[previewEnhanceScale]}
-                    onValueChange={(v) => setPreviewEnhanceScale(v[0] ?? 1.5)}
-                  />
-                </Label>
-                <Label className="grid gap-1 text-[10px] font-bold text-slate-300">
-                  التباين: {previewEnhanceContrast.toFixed(2)}
-                  <Slider
-                    min={1}
-                    max={1.4}
-                    step={0.02}
-                    value={[previewEnhanceContrast]}
-                    onValueChange={(v) => setPreviewEnhanceContrast(v[0] ?? 1.12)}
-                  />
-                </Label>
-                <Label className="grid gap-1 text-[10px] font-bold text-slate-300">
-                  الإضاءة: {previewEnhanceBrightness.toFixed(2)}
-                  <Slider
-                    min={1}
-                    max={1.25}
-                    step={0.01}
-                    value={[previewEnhanceBrightness]}
-                    onValueChange={(v) => setPreviewEnhanceBrightness(v[0] ?? 1.03)}
-                  />
-                </Label>
-                <div className="flex gap-1.5 sm:min-w-[15rem]">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-8 shrink-0 border-slate-700 bg-slate-900 px-2 text-[11px] text-slate-100 hover:bg-slate-800"
-                    disabled={previewEnhanceBusy}
-                    onClick={() => {
-                      setPreviewEnhanceScale(1.5);
-                      setPreviewEnhanceContrast(1.12);
-                      setPreviewEnhanceBrightness(1.03);
-                    }}
-                  >
-                    ضبط افتراضي
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-8 flex-1 gap-1.5 bg-amber-600 px-2 text-[11px] text-white hover:bg-amber-700 disabled:opacity-60"
-                    disabled={previewEnhanceBusy}
-                    onClick={() => {
-                      if (!previewImage) return;
-                      void (async () => {
-                        try {
-                          setPreviewEnhanceBusy(true);
-                          const base = await ensureImageDataUrl(previewImage);
-                          const dataUrl = await enhanceImageDataUrl(base, {
-                            scale: previewEnhanceScale,
-                            contrast: previewEnhanceContrast,
-                            brightness: previewEnhanceBrightness,
-                          });
-                          const blob = await fetch(dataUrl).then((response) => response.blob());
-                          const file = new File([blob], cropImageFileName(previewImage.name), {
-                            type: "image/png",
-                          });
-                          const fileId = await uploadProjectFileAndReturnId(projectId, file, { valuationAccounting: true });
-                          const patch = {
-                            fileId,
-                            dataUrl: undefined,
-                            qualityScale: previewEnhanceScale,
-                          };
-                          updateImage(previewImage.id, patch);
-                          setPreviewImage((cur) =>
-                            cur?.id === previewImage.id ? { ...cur, ...patch } : cur,
-                          );
-                          toast({ description: "تم تحسين الصورة بنجاح." });
-                        } catch (e) {
-                          toast({
-                            variant: "destructive",
-                            description: e instanceof Error ? e.message : "تعذر تحسين الصورة.",
-                          });
-                        } finally {
-                          setPreviewEnhanceBusy(false);
-                        }
-                      })();
-                    }}
-                  >
-                    {previewEnhanceBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    تطبيق تحسينات الصورة
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {/* تم نقل إعدادات معاينة الاقتطاع لداخل مودال Excel نفسه */}
-            {previewPixelPerfect && previewNatural ? (
-              <p className="text-[11px] font-semibold text-slate-400" dir="ltr">
-                {previewNatural.w} × {previewNatural.h} px
-              </p>
-            ) : null}
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto bg-[linear-gradient(45deg,rgba(255,255,255,0.035)_25%,transparent_25%,transparent_75%,rgba(255,255,255,0.035)_75%),linear-gradient(45deg,rgba(255,255,255,0.035)_25%,transparent_25%,transparent_75%,rgba(255,255,255,0.035)_75%)] bg-[length:24px_24px] bg-[position:0_0,12px_12px] p-3 sm:p-4">
-            {previewImage ? (
-              <div
-                className={cn(
-                  "flex min-h-0 min-w-0 flex-1",
-                  previewPixelPerfect
-                    ? "items-start justify-start overflow-auto"
-                    : "items-center justify-center overflow-auto p-1",
-                )}
-                style={previewPixelPerfect ? { direction: "ltr" } : undefined}
-              >
+              <div className="flex min-h-[min(70vh,720px)] items-center justify-center">
                 <img
                   key={previewImage.dataUrl ?? previewImage.fileId ?? previewImage.id}
                   src={accountingImageSrc(projectId, previewImage)}
                   alt={cleanAccountingText(previewImage.name)}
                   decoding="async"
-                  onLoad={(e) => {
-                    setPreviewNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight });
-                  }}
                   onError={() => {
                     toast({ variant: "destructive", description: "تعذر عرض الصورة الحالية." });
                   }}
-                  className="rounded-sm bg-white shadow-2xl shadow-black/40"
-                  style={
-                    previewPixelPerfect
-                      ? {
-                          width: "auto",
-                          height: "auto",
-                          maxWidth: "none",
-                          maxHeight: "none",
-                          transform: `scale(${previewZoom})`,
-                          transformOrigin: "top left",
-                          imageRendering: "auto",
-                          display: "block",
-                        }
-                      : {
-                          display: "block",
-                          width: "auto",
-                          height: "auto",
-                          maxWidth: "100%",
-                          maxHeight: "min(85vh, 1200px)",
-                          objectFit: "contain" as const,
-                          transform: `scale(${previewZoom})`,
-                          transformOrigin: "center center",
-                          imageRendering: "auto",
-                        }
-                  }
+                  className="max-h-[min(78vh,900px)] w-auto max-w-full rounded-sm bg-white object-contain shadow-2xl shadow-black/40"
                 />
               </div>
             ) : null}
           </div>
+          <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/95 px-3 py-2.5 sm:px-4">
+            <p className="text-[10px] font-semibold text-slate-400 sm:text-[11px]">
+              اضغط «حفظ» لإظهار الصور في إعداد التقرير.
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 border-slate-600 bg-transparent px-3 text-[12px] text-white hover:bg-slate-800"
+                onClick={() => setPreviewImage(null)}
+              >
+                إغلاق
+              </Button>
+              <Button
+                type="button"
+                className="h-9 min-w-[7rem] gap-1.5 bg-emerald-600 px-4 text-[12px] font-bold hover:bg-emerald-700"
+                disabled={previewSaving}
+                onClick={() => void savePreviewModalAndClose()}
+              >
+                {previewSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                حفظ
+              </Button>
+            </div>
+          </footer>
         </DialogContent>
       </Dialog>
 
@@ -5435,104 +5403,42 @@ export default function MvValuationAccountingWorkspace({
 
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/95 px-3 py-3 sm:px-4">
                 <p className="min-w-0 flex-1 text-[11px] font-semibold text-slate-400">
-                  {pendingUploadPreview.status === "saving" && fileProcessOverlay
-                    ? `${fileProcessOverlay.phase} ${fileProcessOverlay.total > 0 ? `${fileProcessOverlay.current} / ${fileProcessOverlay.total}` : ""}`
-                    : "لن يتم تخزين الملف أو إنشاء كل الصور إلا بعد المتابعة."}
+                  المعالجة تتم تلقائياً بعد اختيار الملف.
                 </p>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 border-slate-700 bg-slate-900 px-3 text-[12px] text-white hover:bg-slate-800"
-                    onClick={closePendingUploadPreview}
-                  >
-                    {pendingUploadPreview.status === "saving" ? "إيقاف" : "إلغاء"}
-                  </Button>
-                  {pendingUploadPreview.kind === "excel" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 border-emerald-800 bg-emerald-950/60 px-3 text-[12px] font-extrabold text-emerald-100 hover:bg-emerald-900 disabled:opacity-60"
-                      disabled={pendingUploadPreview.status !== "ready"}
-                      onClick={() => void refreshPendingExcelPreview()}
-                    >
-                      {pendingUploadPreview.status === "processing" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <FileSpreadsheet className="h-4 w-4" />
-                      )}
-                      معاينة أخرى
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    className="h-9 gap-1.5 bg-amber-600 px-4 text-[12px] font-extrabold text-white hover:bg-amber-700 disabled:opacity-60"
-                    disabled={pendingUploadPreview.status !== "ready"}
-                    onClick={() => void continuePendingUpload()}
-                  >
-                    {pendingUploadPreview.status === "saving" ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4" />
-                    )}
-                    متابعة
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 border-slate-700 bg-slate-900 px-3 text-[12px] text-white hover:bg-slate-800"
+                  onClick={closePendingUploadPreview}
+                >
+                  إغلاق
+                </Button>
               </div>
             </>
           ) : null}
         </DialogContent>
       </Dialog>
 
-      {fileProcessOverlay && pendingUploadPreview?.status !== "saving" ? (
-        <div
-          className="pointer-events-auto fixed inset-0 z-[945] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-md"
-          dir="rtl"
-          role="status"
-          aria-live="polite"
-          aria-busy="true"
-        >
-          <div className="w-full max-w-sm rounded-2xl border border-white/25 bg-white/88 p-6 shadow-2xl ring-1 ring-slate-900/5 backdrop-blur-xl">
-            <div className="flex flex-col items-center gap-4 text-center">
-              <div className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center">
-                <span className="absolute inset-0 rounded-full border-2 border-sky-200/90 border-t-[#0C447C] animate-spin" />
-                <Loader2 className="relative h-8 w-8 text-[#0C447C]" aria-hidden />
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-[14px] font-black leading-snug text-slate-900">{fileProcessOverlay.phase}</p>
-                {fileProcessOverlay.fileName ? (
-                  <p className="truncate text-[11px] font-semibold text-slate-600" title={fileProcessOverlay.fileName}>
-                    {fileProcessOverlay.fileName}
-                  </p>
-                ) : null}
-                {fileProcessOverlay.total > 0 ? (
-                  <p className="text-[15px] font-extrabold tabular-nums text-[#0C447C]" dir="ltr">
-                    {fileProcessOverlay.current} / {fileProcessOverlay.total}
-                    <span className="ms-1.5 text-[11px] font-bold text-slate-500">صورة</span>
-                  </p>
-                ) : (
-                  <p className="text-[11px] font-semibold text-slate-500">جارٍ التحضير…</p>
-                )}
-              </div>
-              {fileProcessOverlay.total > 0 ? (
-                <Progress
-                  value={Math.min(
-                    100,
-                    Math.round((fileProcessOverlay.current / fileProcessOverlay.total) * 100),
-                  )}
-                  className="h-2.5 w-full bg-slate-200/90 [&>div]:bg-[#0C447C]"
-                />
-              ) : (
-                <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200/90">
-                  <div className="h-full w-2/5 animate-pulse rounded-full bg-[#0C447C]/55" />
-                </div>
-              )}
-              <p className="text-[10px] font-semibold tabular-nums text-slate-500" dir="ltr">
-                {Math.max(0, Math.floor((Date.now() - fileProcessOverlay.startedAt) / 1000))} ث
-              </p>
-            </div>
-          </div>
-        </div>
+      {fileProcessOverlay ? (
+        <MvUploadProgressToast
+          phase={fileProcessOverlay.phase}
+          label={
+            fileProcessOverlay.fileName
+              ? cleanAccountingText(fileProcessOverlay.fileName)
+              : "معالجة الملفات"
+          }
+          progress={
+            fileProcessOverlay.total > 0
+              ? Math.min(100, Math.round((fileProcessOverlay.current / fileProcessOverlay.total) * 100))
+              : 8
+          }
+          state="uploading"
+          detail={
+            fileProcessOverlay.total > 0
+              ? `${fileProcessOverlay.current} / ${fileProcessOverlay.total}`
+              : null
+          }
+        />
       ) : null}
     </MvWorkflowPageFrame>
   );

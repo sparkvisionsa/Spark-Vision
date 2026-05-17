@@ -152,7 +152,10 @@ export default function CreateDialog({
               </div>
               <RadioGroup
                 value={reportType}
-                onValueChange={(value) => setReportType(value as MvProjectReportType)}
+                onValueChange={(value) => {
+                  if (value !== "simple") return;
+                  setReportType(value as MvProjectReportType);
+                }}
                 className="grid gap-3 sm:grid-cols-2"
                 dir="rtl"
               >
@@ -164,6 +167,7 @@ export default function CreateDialog({
                     icon: FileText,
                     accent: "from-emerald-500 to-teal-500",
                     badge: null,
+                    disabled: false,
                   },
                   {
                     value: "advanced" as const,
@@ -172,18 +176,29 @@ export default function CreateDialog({
                     icon: Layers3,
                     accent: "from-amber-500 to-orange-500",
                     badge: t.soon,
+                    disabled: true,
                   },
                 ].map((option) => {
                   const Icon = option.icon;
                   const active = reportType === option.value;
+                  const disabled = option.disabled;
                   return (
                     <label
                       key={option.value}
+                      aria-disabled={disabled}
+                      onClick={(event) => {
+                        if (!disabled) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
                       className={cn(
-                        "group relative cursor-pointer overflow-hidden rounded-2xl border bg-white p-4 text-right shadow-sm transition",
+                        "group relative overflow-hidden rounded-2xl border bg-white p-4 text-right shadow-sm transition",
+                        disabled ? "cursor-not-allowed opacity-65" : "cursor-pointer",
                         active
                           ? "border-slate-900 shadow-lg shadow-slate-900/10"
-                          : "border-slate-200 hover:border-slate-300 hover:shadow-md",
+                          : disabled
+                            ? "border-slate-200"
+                            : "border-slate-200 hover:border-slate-300 hover:shadow-md",
                       )}
                     >
                       <div
@@ -194,7 +209,11 @@ export default function CreateDialog({
                         )}
                       />
                       <div className="flex items-start gap-3">
-                        <RadioGroupItem value={option.value} className="mt-1 border-slate-400 text-slate-950" />
+                        <RadioGroupItem
+                          value={option.value}
+                          disabled={disabled}
+                          className="mt-1 border-slate-400 text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <p className="font-bold text-slate-950">{option.title}</p>

@@ -397,7 +397,7 @@ export function MvAssetImageFoldersModal({
                 {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <UploadCloud className="h-5 w-5" />}
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-black text-slate-950">انشاء من ملف اكسيل</span>
+                <span className="block text-[13px] font-black text-slate-950">انشاء مجلدات الاصول من اكسيل</span>
                 <span className="mt-1 block text-[11px] leading-5 text-slate-500">
                   بعد الرفع ستظهر الشيتات تلقائياً، وسيتم اختيار أول شيت افتراضياً.
                 </span>

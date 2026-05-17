@@ -1,8 +1,8 @@
 import type { ActiveImportSheetRef, AssetImportResult } from "./asset-import-panel";
 
 export const MV_VALUATION_ACCOUNTING_APPROACHES = [
-  { id: "cost", label: "أسلوب التكلفة", shortLabel: "التكلفة" },
   { id: "market", label: "أسلوب السوق", shortLabel: "السوق" },
+  { id: "cost", label: "أسلوب التكلفة", shortLabel: "التكلفة" },
   { id: "comparisons", label: "المقارنات", shortLabel: "المقارنات" },
 ] as const;
 

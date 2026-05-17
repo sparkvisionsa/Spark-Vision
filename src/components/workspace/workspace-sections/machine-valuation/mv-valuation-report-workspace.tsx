@@ -20,10 +20,13 @@ import {
   Loader2,
   RotateCcw,
   Ruler,
+  Save,
   Settings2,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
@@ -43,9 +46,13 @@ import {
   emptyValuationAccountingStore,
   mergeValuationAccountingStores,
   readValuationAccountingStore,
+  valuationAccountingStoreForApi,
   writeValuationAccountingStore,
+  type MvValuationAccountingImage,
   type MvValuationAccountingStore,
 } from "./mv-valuation-accounting-store";
+import { MvReportImagesControlPanel } from "./mv-report-images-control-panel";
+import { mvAutoPdfDownloadStorageKey } from "./mv-home-routes";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
@@ -741,6 +748,7 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
 
 export default function MvValuationReportWorkspace({ projectId }: MvValuationReportWorkspaceProps) {
   const { navigate } = useMvInPageNavigation();
+  const { toast } = useToast();
   const { user, profile } = useAuthTracking();
   const sessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
   const initialBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey);
@@ -798,7 +806,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [assetImageWidth, setAssetImageWidth] = useState(initialLayout.assetImageWidth);
   const [valuationImageWidth, setValuationImageWidth] = useState(initialLayout.valuationImageWidth);
   const [imageOrder, setImageOrder] = useState<string[]>([]);
+  const [valuationImageOrder, setValuationImageOrder] = useState<string[]>([]);
   const [hiddenImageIds, setHiddenImageIds] = useState<Set<string>>(() => new Set());
+  const [pdfExportProgress, setPdfExportProgress] = useState<number | null>(null);
+  const [pdfExportLabel, setPdfExportLabel] = useState("");
+  const autoPdfTriggeredRef = useRef(false);
   const reportSectionsScrollRef = useRef<HTMLDivElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const reportPdfRef = useRef<HTMLElement | null>(null);
@@ -808,7 +820,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
   const reportImageWarmKeyRef = useRef("");
   const loadRunRef = useRef(0);
-  const [layoutBarExpanded, setLayoutBarExpanded] = useState(true);
+  const [layoutBarExpanded, setLayoutBarExpanded] = useState(false);
+  const [reportSaving, setReportSaving] = useState(false);
 
   const resetLayoutToDefaults = useCallback(() => {
     const d = defaultReportLayout;
@@ -1115,6 +1128,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const downloadAsPdf = useCallback(async () => {
     if (loading || preparingReport || reportMediaLoading) return;
     setDownloadingPdf(true);
+    setPdfExportProgress(3);
+    setPdfExportLabel("جاري تجهيز التقرير للتنزيل…");
     let restoreCaptureLayout: (() => void) | null = null;
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
@@ -1127,17 +1142,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         scrollEl.scrollLeft = 0;
       }
 
+      setPdfExportProgress(12);
+      setPdfExportLabel("تحميل صور التقرير…");
       await preloadReportImageCache(collectReportImageSources(root));
       setReportImageCacheVersion((v) => v + 1);
-      await waitNextFrame();
       await waitNextFrame();
       await waitForReportImages(root);
       await waitForReportFonts();
       restoreCaptureLayout = prepareReportCaptureLayout(root);
       await waitNextFrame();
-      await waitNextFrame();
-      await waitForReportImages(root);
-      await waitForReportFonts();
 
       const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
         import("jspdf"),
@@ -1150,10 +1163,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       let pdf: import("jspdf").jsPDF | null = null;
 
       for (let i = 0; i < sheets.length; i++) {
+        setPdfExportLabel(`تصدير الصفحة ${i + 1} من ${sheets.length}…`);
+        setPdfExportProgress(15 + Math.round(((i + 0.35) / sheets.length) * 80));
         const el = sheets[i]!;
         const landscape = el.dataset.mvReportOrientation === "landscape";
         const orientation = landscape ? "l" : "p";
-        const scale = landscape ? 2.75 : 2.5;
+        const scale = landscape ? 2.35 : 2.15;
         const { w, h } = getSheetPixelBox(el);
 
         const canvas = await html2canvas(el, {
@@ -1186,8 +1201,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
 
       if (pdf) {
+        setPdfExportProgress(98);
+        setPdfExportLabel("حفظ ملف PDF…");
         const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
         pdf.save(`${safeName}-valuation-report.pdf`);
+        setPdfExportProgress(100);
+        toast({ description: "تم تنزيل التقرير النهائي." });
       }
     } finally {
       restoreCaptureLayout?.();
@@ -1196,8 +1215,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         scrollEl.scrollLeft = prevLeft;
       }
       setDownloadingPdf(false);
+      setPdfExportProgress(null);
+      setPdfExportLabel("");
     }
-  }, [loading, preparingReport, project?.name, reportMediaLoading]);
+  }, [loading, preparingReport, project?.name, reportMediaLoading, toast]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (autoPdfTriggeredRef.current) return;
+    if (loading || preparingReport || reportMediaLoading || downloadingPdf) return;
+    const key = mvAutoPdfDownloadStorageKey(projectId);
+    if (window.sessionStorage.getItem(key) !== "1") return;
+    autoPdfTriggeredRef.current = true;
+    window.sessionStorage.removeItem(key);
+    void downloadAsPdf();
+  }, [downloadAsPdf, downloadingPdf, loading, preparingReport, projectId, reportMediaLoading]);
 
   useEffect(() => {
     const steps = readVisitedSimpleReportSteps(projectId);
@@ -1222,6 +1254,69 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         : [],
     [includeValuationAccountImages, valuationAccountStore.images],
   );
+  const valuationImageIdKey = valuationAccountImages.map((image) => image.id).join("|");
+
+  useEffect(() => {
+    const ids = valuationImageIdKey ? valuationImageIdKey.split("|") : [];
+    setValuationImageOrder((current) => {
+      const known = new Set(current);
+      return [...current.filter((id) => ids.includes(id)), ...ids.filter((id) => !known.has(id))];
+    });
+  }, [valuationImageIdKey]);
+
+  const orderedValuationImages = useMemo(() => {
+    const byId = new Map(valuationAccountImages.map((image) => [image.id, image]));
+    return valuationImageOrder
+      .map((id) => byId.get(id))
+      .filter((image): image is MvValuationAccountingImage => image != null);
+  }, [valuationAccountImages, valuationImageOrder]);
+
+  const persistValuationAccountingFromReport = useCallback(
+    async (nextStore: MvValuationAccountingStore) => {
+      writeValuationAccountingStore(projectId, nextStore);
+      setValuationAccountStore(nextStore);
+      try {
+        await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            valuationAccountingWorkspace: valuationAccountingStoreForApi(nextStore),
+          }),
+        });
+      } catch {
+        /* ignore */
+      }
+    },
+    [projectId],
+  );
+
+  const reorderValuationImages = useCallback(
+    (nextOrder: string[]) => {
+      setValuationImageOrder(nextOrder);
+      const byId = new Map(valuationAccountStore.images.map((image) => [image.id, image]));
+      const reordered = [
+        ...nextOrder.map((id) => byId.get(id)).filter(Boolean),
+        ...valuationAccountStore.images.filter((image) => !nextOrder.includes(image.id)),
+      ] as MvValuationAccountingImage[];
+      void persistValuationAccountingFromReport({ ...valuationAccountStore, images: reordered });
+    },
+    [persistValuationAccountingFromReport, valuationAccountStore],
+  );
+
+  const updateValuationImageWidth = useCallback(
+    (imageId: string, width: number) => {
+      const nextStore: MvValuationAccountingStore = {
+        ...valuationAccountStore,
+        images: valuationAccountStore.images.map((image) =>
+          image.id === imageId ? { ...image, displayWidthPercent: width } : image,
+        ),
+      };
+      void persistValuationAccountingFromReport(nextStore);
+    },
+    [persistValuationAccountingFromReport, valuationAccountStore],
+  );
+
   /** فقط الصور المعلّمة للتقرير في خطوة صور الأصول (جهاز أو تطبيق) */
   const selectedImages = useMemo(
     () => (includeAssetImages ? files.filter((file) => file.includeInReport === true) : []),
@@ -1303,12 +1398,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     const sources: string[] = [];
     if (companyBrand.logoSrc) sources.push(companyBrand.logoSrc);
     for (const file of orderedImages) sources.push(reportDriveFileImageSrc(projectId, file));
-    for (const image of valuationAccountImages) sources.push(reportValuationImageSrc(projectId, image));
+    for (const image of orderedValuationImages) sources.push(reportValuationImageSrc(projectId, image));
     for (const row of preparerDisplayRows) {
       if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
     }
     return sources.filter(Boolean);
-  }, [companyBrand.logoSrc, orderedImages, preparerDisplayRows, projectId, valuationAccountImages]);
+  }, [companyBrand.logoSrc, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
 
   const reportImageSourcesKey = useMemo(
     () =>
@@ -1470,6 +1565,45 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     },
     [persistProjectReportData, sessionKey],
   );
+
+  const saveReportSettingsNow = useCallback(async () => {
+    const p = projectRef.current;
+    if (!p) return;
+    setReportSaving(true);
+    if (reportDataPersistTimerRef.current) {
+      window.clearTimeout(reportDataPersistTimerRef.current);
+      reportDataPersistTimerRef.current = null;
+    }
+    const rd = withDraftDefaultReportData({
+      ...(p.reportData ?? {}),
+      reportNarrativeB1: narrativeB1,
+      reportNarrativeB2: narrativeB2,
+      reportNarrativeB3: narrativeB3,
+      reportNarrativeB4: narrativeB4,
+      reportIntroExtraHtml: introExtraHtml,
+      reportEditableSections: editableSections,
+    });
+    try {
+      await persistProjectReportData(rd);
+      toast({ description: "تم حفظ إعدادات التقرير في قاعدة البيانات." });
+    } catch {
+      toast({
+        variant: "destructive",
+        description: "تعذر حفظ إعدادات التقرير. حاول مرة أخرى.",
+      });
+    } finally {
+      setReportSaving(false);
+    }
+  }, [
+    editableSections,
+    introExtraHtml,
+    narrativeB1,
+    narrativeB2,
+    narrativeB3,
+    narrativeB4,
+    persistProjectReportData,
+    toast,
+  ]);
 
   const toggleDraftMode = useCallback(() => {
     setProject((p) => {
@@ -1660,7 +1794,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     imageInnerGap,
     assetImageWidth,
     valuationImageWidth,
-    valuationAccountImages,
+    valuationAccountImages: orderedValuationImages,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
     hideImage,
@@ -1717,7 +1851,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     };
   }, [loading, sectionIdsOrdered]);
 
-  const showReportPreparationModal = loading || preparingReport || downloadingPdf;
+  const showReportPreparationModal = loading || preparingReport;
 
   return (
     <MvWorkflowPageFrame
@@ -1739,7 +1873,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden lg:flex-row lg:items-stretch lg:gap-3">
         <aside
           className={cn(
-            "flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:max-h-full lg:w-[200px] xl:w-[220px]",
+            "flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:max-h-full lg:w-[220px] xl:w-[280px]",
             "max-h-[min(38vh,280px)] min-h-0 lg:max-h-none",
           )}
         >
@@ -1748,7 +1882,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-900 text-white">
                 <FileText className="h-3.5 w-3.5" />
               </div>
-              <p className="text-[11px] font-bold text-slate-800">التنقل</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-slate-800">التنقل</p>
+                <p className="truncate text-[9px] font-semibold text-slate-500">
+                  {draftMode ? "وضع مسودة" : "نسخة نهائية"}
+                </p>
+              </div>
             </div>
 
             <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-1.5 py-1.5">
@@ -1788,6 +1927,19 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 />
               ))}
             </nav>
+            <MvReportImagesControlPanel
+              projectId={projectId}
+              assetFiles={selectedImages}
+              assetOrder={imageOrder}
+              assetWidthPercent={assetImageWidth}
+              onAssetReorder={setImageOrder}
+              getAssetImageSrc={(file) => reportDriveFileImageSrc(projectId, file)}
+              onAssetWidthChange={setAssetImageWidth}
+              valuationImages={valuationAccountImages}
+              valuationOrder={valuationImageOrder}
+              onValuationReorder={reorderValuationImages}
+              onValuationWidthChange={updateValuationImageWidth}
+            />
           </div>
         </aside>
 
@@ -1875,6 +2027,16 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               >
                 {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
                 PDF
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 gap-1 bg-emerald-700 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-800"
+                disabled={reportSaving || loading || preparingReport}
+                onClick={() => void saveReportSettingsNow()}
+              >
+                {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                حفظ
               </Button>
               {reportMediaLoading ? (
                 <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-sky-50 px-2.5 text-[10px] font-bold text-sky-900">
@@ -2002,14 +2164,40 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
       {showReportPreparationModal ? (
         <div
-          className="fixed inset-0 z-[650] flex items-center justify-center bg-slate-950/15 px-4 backdrop-blur-[2px]"
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-[650] border-t border-sky-200/80 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] backdrop-blur-md"
           role="status"
           aria-live="polite"
-          aria-label="جاري إعداد التقرير النهائي"
+          aria-label="جاري تحميل التقرير"
         >
-          <div className="flex min-w-[240px] items-center justify-center gap-3 rounded-xl border border-slate-200/90 bg-white px-4 py-3 text-right shadow-2xl shadow-slate-950/15 ring-1 ring-white/70">
-            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#0C447C]" />
-            <span className="text-[13px] font-black text-slate-900">جاري إعداد التقرير النهائي</span>
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0C447C]" />
+            <p className="min-w-0 flex-1 text-[12px] font-black text-slate-900">جاري تحميل بيانات التقرير…</p>
+          </div>
+        </div>
+      ) : null}
+
+      {pdfExportProgress != null ? (
+        <div
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-[660] border-t border-emerald-200/90 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.14)] backdrop-blur-md"
+          role="status"
+          aria-live="polite"
+          aria-label={pdfExportLabel || "جاري تنزيل التقرير"}
+        >
+          <div className="ms-auto flex w-full max-w-3xl flex-col gap-2 text-right" dir="rtl">
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 flex-1 text-[12px] font-black text-slate-900">
+                {pdfExportLabel || "جاري تنزيل التقرير النهائي…"}
+              </p>
+              <p className="shrink-0 text-[11px] font-bold tabular-nums text-emerald-800" dir="ltr">
+                {pdfExportProgress}%
+              </p>
+            </div>
+            <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200/90" dir="rtl">
+              <div
+                className="absolute inset-y-0 right-0 rounded-full bg-emerald-700 transition-all duration-300"
+                style={{ width: `${pdfExportProgress}%` }}
+              />
+            </div>
           </div>
         </div>
       ) : null}

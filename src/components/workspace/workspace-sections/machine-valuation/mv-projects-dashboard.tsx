@@ -4,6 +4,7 @@ import { Tajawal } from "next/font/google";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowDownWideNarrow,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   LayoutGrid,
   Loader2,
   MapPinned,
+  FileDown,
   MoreHorizontal,
   Plus,
   Search,
@@ -26,7 +28,6 @@ import Link from "@/components/prefetch-link";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -80,10 +81,11 @@ import {
 } from "./mv-location-multi-select";
 import { MvEmptyState, MvStatusBadge, MvTopBar } from "./mv-ui";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+import { mvAutoPdfDownloadStorageKey } from "./mv-home-routes";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
-type ContactDialogTab = "locations" | "files";
+type ContactDialogTab = "locations" | "inspectors" | "files";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -212,13 +214,11 @@ function ProjectActionsMenu({
   project,
   onOpenAssetFolders,
   onOpenLocations,
-  onOpenInspectorAssignments,
   onDelete,
 }: {
   project: MvProject;
   onOpenAssetFolders: (project: MvProject) => void;
   onOpenLocations: (project: MvProject) => void;
-  onOpenInspectorAssignments: (project: MvProject) => void;
   onDelete: (projectId: string) => void;
 }) {
   return (
@@ -241,14 +241,19 @@ function ProjectActionsMenu({
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
           انشاء مجلدات الاصول
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => onOpenInspectorAssignments(project)}
+          onSelect={() => {
+            if (typeof window !== "undefined") {
+              window.sessionStorage.setItem(mvAutoPdfDownloadStorageKey(project._id), "1");
+              window.location.href = `/machine-valuation/${project._id}/workflow/report`;
+            }
+          }}
         >
-          <Users className="h-4 w-4 shrink-0 text-violet-700" />
-          اختيار المعاينين
+          <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
+          تنزيل التقرير النهائي
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] text-red-600 focus:text-red-600"
           onSelect={() => onDelete(project._id)}
@@ -402,6 +407,20 @@ function inspectorSelectionSummary(value: readonly string[], inspectors: readonl
   return `${normalized.length} معاينين محددين`;
 }
 
+function MultiSelectOptionCheck({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+        checked ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 bg-white text-transparent",
+      )}
+      aria-hidden
+    >
+      <Check className="h-3 w-3" />
+    </span>
+  );
+}
+
 function ProjectInspectorMultiSelect({
   inspectors,
   value,
@@ -452,45 +471,50 @@ function ProjectInspectorMultiSelect({
         <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">المعاينون</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {inspectors.length > 0 ? (
-          <DropdownMenuCheckboxItem
-            checked={allSelected}
-            onCheckedChange={(checked) => toggleAll(checked === true)}
-            onSelect={(event) => event.preventDefault()}
-            className="cursor-pointer text-[12px] font-bold"
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              toggleAll(!allSelected);
+            }}
+            className="cursor-pointer gap-2 text-[12px] font-bold"
           >
-            كل المعاينين
-          </DropdownMenuCheckboxItem>
+            <MultiSelectOptionCheck checked={allSelected} />
+            <span className="truncate">كل المعاينين</span>
+          </DropdownMenuItem>
         ) : (
           <div className="px-2 py-2 text-[12px] font-semibold text-slate-400">
             لا يوجد مستخدمون بدور معاين.
           </div>
         )}
         {inspectors.length > 0 ? <DropdownMenuSeparator /> : null}
-        {inspectors.map((inspector) => (
-          <DropdownMenuCheckboxItem
-            key={inspector.id}
-            checked={normalized.includes(inspector.id)}
-            onCheckedChange={(checked) => toggleInspector(inspector.id, checked === true)}
-            onSelect={(event) => event.preventDefault()}
-            className="cursor-pointer text-[12px]"
-          >
-            <span className="truncate" dir="auto">{inspectorOptionLabel(inspector)}</span>
-          </DropdownMenuCheckboxItem>
-        ))}
+        {inspectors.map((inspector) => {
+          const checked = normalized.includes(inspector.id);
+          return (
+            <DropdownMenuItem
+              key={inspector.id}
+              onSelect={(event) => {
+                event.preventDefault();
+                toggleInspector(inspector.id, !checked);
+              }}
+              className="cursor-pointer gap-2 text-[12px]"
+            >
+              <MultiSelectOptionCheck checked={checked} />
+              <span className="truncate" dir="auto">{inspectorOptionLabel(inspector)}</span>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function MvInspectorAssignmentsDialog({
-  open,
+function MvInspectorAssignmentsPanel({
+  active,
   project,
-  onOpenChange,
   onSaved,
 }: {
-  open: boolean;
+  active: boolean;
   project: MvProject | null;
-  onOpenChange: (open: boolean) => void;
   onSaved: (project: MvProject) => void;
 }) {
   const { toast } = useToast();
@@ -501,20 +525,25 @@ function MvInspectorAssignmentsDialog({
   const [selectedInspectorIds, setSelectedInspectorIds] = useState<string[]>([]);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
   const [projectSnapshot, setProjectSnapshot] = useState<MvProject | null>(project);
+  const projectId = project?._id;
 
   useEffect(() => {
-    if (!open || !project?._id) return;
-    let cancelled = false;
+    if (!active || !project) return;
     setProjectSnapshot(project);
     setDraftAssignments(project.inspectionAssignments ?? []);
     setSelectedInspectorIds([]);
     setSelectedLocationIds([MV_ALL_LOCATIONS_VALUE]);
+  }, [active, project]);
+
+  useEffect(() => {
+    if (!active || !projectId) return;
+    let cancelled = false;
     void (async () => {
       try {
         setLoading(true);
         const [projectRes, inspectorsRes] = await Promise.all([
-          fetch(`/api/mv/projects/${project._id}?picAssetMode=summary`, { credentials: "include" }),
-          fetch(`/api/mv/projects/${project._id}/inspectors`, { credentials: "include" }),
+          fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, { credentials: "include" }),
+          fetch(`/api/mv/projects/${projectId}/inspectors`, { credentials: "include" }),
         ]);
         if (cancelled) return;
         if (projectRes.ok) {
@@ -543,7 +572,7 @@ function MvInspectorAssignmentsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, project, onSaved, toast]);
+  }, [active, projectId, onSaved, toast]);
 
   const locations = projectSnapshot?.locations ?? [];
   const selectedInspectors = inspectors.filter((item) => selectedInspectorIds.includes(item.id));
@@ -589,7 +618,6 @@ function MvInspectorAssignmentsDialog({
         setDraftAssignments(data.project.inspectionAssignments ?? []);
       }
       toast({ description: "تم حفظ اختيار المعاينين." });
-      onOpenChange(false);
     } catch {
       toast({ variant: "destructive", description: "تعذر حفظ اختيار المعاينين." });
     } finally {
@@ -598,96 +626,94 @@ function MvInspectorAssignmentsDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
-        <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 text-right">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700">
-              <Users className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <DialogTitle className="truncate text-[15px] font-bold text-slate-900">اختيار المعاينين</DialogTitle>
-              <DialogDescription className="truncate text-[12px] text-slate-500">
-                {projectSnapshot?.name || project?.name || "المشروع"}
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="max-h-[calc(90vh-9.5rem)] overflow-y-auto px-5 py-4">
-          <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <ProjectInspectorMultiSelect
-                inspectors={inspectors}
-                value={selectedInspectorIds}
-                onChange={setSelectedInspectorIds}
-                disabled={loading}
-                loading={loading}
-              />
-              <MvLocationMultiSelect
-                locations={locations}
-                value={selectedLocationIds}
-                onChange={setSelectedLocationIds}
-                disabled={loading}
-                className="h-10"
-                label="نطاق عمل المعاين"
-              />
-            </div>
-            <Button
-              type="button"
-              className="h-10 rounded-lg bg-slate-950 px-4 text-[12px] font-bold text-white hover:bg-slate-800"
-              onClick={addAssignment}
-              disabled={selectedInspectors.length === 0 || loading}
-            >
-              إضافة
-            </Button>
-          </div>
-
-          <div className="mt-4 space-y-2">
-            {draftAssignments.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
-                لا توجد تعيينات معاينين بعد.
-              </div>
-            ) : (
-              draftAssignments.map((assignment) => (
-                <div
-                  key={assignment.id}
-                  className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-black text-slate-900">{assignment.inspectorName}</p>
-                    <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                      {mvLocationSelectionSummary(
-                        assignment.locationIds?.length ? assignment.locationIds : [MV_ALL_LOCATIONS_VALUE],
-                        locations,
-                      )}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 self-start rounded-lg px-2 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:text-red-700 sm:self-auto"
-                    onClick={() => setDraftAssignments((prev) => prev.filter((item) => item.id !== assignment.id))}
-                  >
-                    حذف
-                  </Button>
-                </div>
-              ))
-            )}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-violet-700 shadow-sm ring-1 ring-violet-100">
+            <Users className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-black text-slate-900">اختيار المعاينين</p>
+            <p className="truncate text-[11px] font-semibold text-slate-500">
+              {projectSnapshot?.name || project?.name || "المشروع"}
+            </p>
           </div>
         </div>
 
-        <DialogFooter className="gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
-          <Button type="button" variant="outline" className="h-10 rounded-xl border-slate-200 bg-white px-5" onClick={() => onOpenChange(false)} disabled={saving}>
-            إلغاء
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ProjectInspectorMultiSelect
+              inspectors={inspectors}
+              value={selectedInspectorIds}
+              onChange={setSelectedInspectorIds}
+              disabled={loading}
+              loading={loading}
+            />
+            <MvLocationMultiSelect
+              locations={locations}
+              value={selectedLocationIds}
+              onChange={setSelectedLocationIds}
+              disabled={loading}
+              className="h-10"
+              label="نطاق عمل المعاين"
+            />
+          </div>
+          <Button
+            type="button"
+            className="h-10 rounded-lg bg-slate-950 px-4 text-[12px] font-bold text-white hover:bg-slate-800"
+            onClick={addAssignment}
+            disabled={selectedInspectors.length === 0 || loading}
+          >
+            إضافة
           </Button>
-          <Button type="button" className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800" onClick={() => void saveAssignments()} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {draftAssignments.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
+              لا توجد تعيينات معاينين بعد.
+            </div>
+          ) : (
+            draftAssignments.map((assignment) => (
+              <div
+                key={assignment.id}
+                className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-black text-slate-900">{assignment.inspectorName}</p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                    {mvLocationSelectionSummary(
+                      assignment.locationIds?.length ? assignment.locationIds : [MV_ALL_LOCATIONS_VALUE],
+                      locations,
+                    )}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 self-start rounded-lg px-2 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:text-red-700 sm:self-auto"
+                  onClick={() => setDraftAssignments((prev) => prev.filter((item) => item.id !== assignment.id))}
+                >
+                  حذف
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+        <Button
+          type="button"
+          className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
+          onClick={() => void saveAssignments()}
+          disabled={saving}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ اختيار المعاينين"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -718,8 +744,6 @@ export default function MvProjectsDashboard() {
   const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
-  const [inspectorAssignmentsOpen, setInspectorAssignmentsOpen] = useState(false);
-  const [inspectorAssignmentsProject, setInspectorAssignmentsProject] = useState<MvProject | null>(null);
 
   /**
    * القائمة مُصفّاة من الخادم حسب شركة الجلسة؛ لا نعيد تصفية حسب `companyId` هنا
@@ -925,14 +949,17 @@ export default function MvProjectsDashboard() {
     setProjects((prev) => prev.map((project) => (project._id === updated._id ? { ...project, ...updated } : project)));
   }, []);
 
+  const handleInspectorAssignmentsSaved = useCallback(
+    (updated: MvProject) => {
+      mergeProjectIntoList(updated);
+      setContactDataProject(updated);
+    },
+    [mergeProjectIntoList],
+  );
+
   const openAssetFoldersModal = (project: MvProject) => {
     setAssetFoldersProject(project);
     setAssetFoldersOpen(true);
-  };
-
-  const openInspectorAssignmentsModal = (project: MvProject) => {
-    setInspectorAssignmentsProject(project);
-    setInspectorAssignmentsOpen(true);
   };
 
   const openContactDataModal = async (project: MvProject) => {
@@ -1365,7 +1392,6 @@ export default function MvProjectsDashboard() {
                                 project={project}
                                 onOpenAssetFolders={openAssetFoldersModal}
                                 onOpenLocations={openContactDataModal}
-                                onOpenInspectorAssignments={openInspectorAssignmentsModal}
                                 onDelete={(id) => void handleDeleteProject(id)}
                               />
                             </div>
@@ -1412,7 +1438,6 @@ export default function MvProjectsDashboard() {
                           project={project}
                           onOpenAssetFolders={openAssetFoldersModal}
                           onOpenLocations={openContactDataModal}
-                          onOpenInspectorAssignments={openInspectorAssignmentsModal}
                           onDelete={(id) => void handleDeleteProject(id)}
                         />
                       </div>
@@ -1497,16 +1522,20 @@ export default function MvProjectsDashboard() {
           <Tabs
             value={contactDialogTab}
             onValueChange={(value) => {
-              const next = value === "files" ? "files" : "locations";
+              const next: ContactDialogTab =
+                value === "files" ? "files" : value === "inspectors" ? "inspectors" : "locations";
               if (next === "files") setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
               setContactDialogTab(next);
             }}
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-2">
-              <TabsList className="h-9 rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200">
+              <TabsList className="h-auto min-h-9 flex-wrap justify-start rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200">
                 <TabsTrigger value="locations" className="h-7 rounded-md px-3 text-[12px] font-bold">
                   تحديد المواقع
+                </TabsTrigger>
+                <TabsTrigger value="inspectors" className="h-7 rounded-md px-3 text-[12px] font-bold">
+                  اختيار المعاينين
                 </TabsTrigger>
                 <TabsTrigger value="files" className="h-7 rounded-md px-3 text-[12px] font-bold">
                   إضافة ملفات للمعاين
@@ -1521,6 +1550,19 @@ export default function MvProjectsDashboard() {
                 onOpenInspectorFiles={(site) => void openInspectorFilesForSite(site)}
                 openingInspectorFilesSiteId={openingInspectorFilesSiteId}
               />
+            </TabsContent>
+            <TabsContent value="inspectors" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
+              {contactDataProject?._id ? (
+                <MvInspectorAssignmentsPanel
+                  active={contactDialogTab === "inspectors"}
+                  project={contactDataProject}
+                  onSaved={handleInspectorAssignmentsSaved}
+                />
+              ) : (
+                <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
+                  اختر مشروعاً أولاً.
+                </div>
+              )}
             </TabsContent>
             <TabsContent value="files" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
               {contactDataProject?._id ? (
@@ -1553,14 +1595,16 @@ export default function MvProjectsDashboard() {
             >
               {createdFlowProject ? "تخطي" : "إلغاء"}
             </Button>
-            <Button
-              type="button"
-              className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
-              onClick={() => void handleSaveContactData()}
-              disabled={savingContactData}
-            >
-              {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
-            </Button>
+            {contactDialogTab !== "inspectors" ? (
+              <Button
+                type="button"
+                className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
+                onClick={() => void handleSaveContactData()}
+                disabled={savingContactData}
+              >
+                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1603,16 +1647,6 @@ export default function MvProjectsDashboard() {
           ) : undefined
         }
         onSubmit={handleCreate}
-      />
-
-      <MvInspectorAssignmentsDialog
-        open={inspectorAssignmentsOpen}
-        project={inspectorAssignmentsProject}
-        onOpenChange={(open) => {
-          setInspectorAssignmentsOpen(open);
-          if (!open) setInspectorAssignmentsProject(null);
-        }}
-        onSaved={mergeProjectIntoList}
       />
 
       <MvAssetImageFoldersModal

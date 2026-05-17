@@ -52,6 +52,7 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "accept-ranges",
       "location",
       "etag",
+      "x-accel-buffering",
     ] as const;
     for (const name of passthrough) {
       const v = upstream.headers.get(name);

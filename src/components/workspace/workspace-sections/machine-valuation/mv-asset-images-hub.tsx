@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
+  ArrowUp,
   CheckSquare,
+  Clock,
   FileSpreadsheet,
   FileVideo,
   GripVertical,
@@ -16,6 +18,7 @@ import {
   MoreVertical,
   PlusSquare,
   RefreshCw,
+  Search,
   Square,
   Trash2,
   Upload,
@@ -25,8 +28,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +57,7 @@ import {
 } from "./mv-workflow-session-cache";
 import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 
 interface MvAssetImagesHubProps {
   projectId: string;
@@ -107,8 +113,58 @@ type WebkitDirectoryEntry = WebkitEntry & {
 
 const imageExtensions = /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg|tif|tiff)$/i;
 const numberFormatter = new Intl.NumberFormat("ar-SA");
+const dateTimeFormatter = new Intl.DateTimeFormat("ar-SA", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
 type AssetImagesSource = "app" | "device";
 type AppPreviewMediaTab = "images" | "videos";
+type AssetUploadJobState = "uploading" | "done" | "error";
+type AssetImagesSearchMode = "all" | "recent";
+type AssetImagesSearchKind = "all" | "folder" | "image";
+
+type AssetUploadJobKind = "folder" | "images";
+
+type AssetUploadJob = {
+  id: string;
+  kind: AssetUploadJobKind;
+  label: string;
+  phase: string;
+  progress: number;
+  current: number;
+  total: number;
+  folderName?: string;
+  state: AssetUploadJobState;
+};
+
+type AssetUploadProgressPatch = {
+  phase: string;
+  completedInGroup: number;
+  groupTotal: number;
+};
+
+type AppliedAssetImagesSearch = {
+  query: string;
+  mode: AssetImagesSearchMode;
+  kind: AssetImagesSearchKind;
+};
+
+type AssetImagesSearchResult = {
+  id: string;
+  kind: "folder" | "image";
+  title: string;
+  subtitle: string;
+  chips: string[];
+  normalizedTitle: string;
+  normalizedPath: string;
+  normalizedSearchText: string;
+  recentAtMs: number;
+  folderIdPath: string[];
+  selectFolderId: string;
+  file?: AssetImageViewFile;
+};
+
+type PreviewPhotoFolderEntry = { sub: MvSubProject; picAsset: PicAsset | null };
 
 function isExternalPicAssetVideo(image: PicAssetImage): boolean {
   const mt = (image as { mediaType?: unknown }).mediaType;
@@ -169,6 +225,73 @@ function fileNameFromPath(path: string) {
 function folderPathFromRelativePath(path: string) {
   const parts = normalizeRelativePath(path).split("/").filter(Boolean);
   return parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+}
+
+function normalizeAssetSearchText(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\p{L}\p{N}/._:-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function assetSearchTerms(query: string): string[] {
+  return normalizeAssetSearchText(query).split(" ").filter(Boolean);
+}
+
+function parseAssetDateMs(...values: Array<string | null | undefined>): number {
+  for (const value of values) {
+    if (!value) continue;
+    const ms = Date.parse(value);
+    if (Number.isFinite(ms)) return ms;
+  }
+  return 0;
+}
+
+function assetFileRecentAtMs(file: MvDriveFile): number {
+  return parseAssetDateMs(file.uploadedAt, file.updatedAt);
+}
+
+function formatAssetSearchDate(ms: number): string {
+  if (!ms) return "";
+  try {
+    return dateTimeFormatter.format(new Date(ms));
+  } catch {
+    return "";
+  }
+}
+
+function scoreAssetSearchResult(
+  result: AssetImagesSearchResult,
+  normalizedQuery: string,
+  terms: string[],
+): number {
+  if (terms.length === 0) return 0;
+  let score = 0;
+  if (result.normalizedTitle === normalizedQuery) score += 120;
+  if (result.normalizedTitle.startsWith(normalizedQuery)) score += 80;
+  if (result.normalizedTitle.includes(normalizedQuery)) score += 50;
+  if (result.normalizedPath.includes(normalizedQuery)) score += 30;
+  for (const term of terms) {
+    if (result.normalizedTitle.includes(term)) score += 18;
+    if (result.normalizedPath.includes(term)) score += 10;
+    if (result.normalizedSearchText.includes(term)) score += 4;
+  }
+  return score;
+}
+
+function relativePathParts(path: string, fallbackName: string) {
+  return normalizeRelativePath(path, fallbackName).split("/").filter(Boolean);
+}
+
+function folderPartsFromPickedImage(item: PickedImageFile) {
+  const parts = relativePathParts(item.relativePath, item.file.name);
+  return parts.length > 1 ? parts.slice(0, -1) : [];
 }
 
 function driveFileFolderPath(file: MvDriveFile): string {
@@ -344,6 +467,39 @@ const LOCAL_PREVIEW_ID_PREFIX = "sv-local:";
 
 /** سلسلة نقالة لسحب صورة من الشبكة أو الشجرة إلى مسار آخر (ليس لتضمين MIME للملفات) */
 const MV_ASSET_IMAGE_DRAG_KEY = "application/x-sv-mv-asset-image-id";
+const MV_ASSET_IMAGE_DRAG_IDS_KEY = "application/x-sv-mv-asset-image-ids";
+
+function parseAssetDragFileIds(event: DragEvent): string[] {
+  const raw = event.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_IDS_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const ids = parsed.filter((id): id is string => typeof id === "string" && id.length > 0);
+        if (ids.length > 0) return [...new Set(ids)];
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const single = event.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
+  return single ? [single] : [];
+}
+
+function writeAssetDragFileIds(event: DragEvent, ids: string[]) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return;
+  event.dataTransfer.setData(MV_ASSET_IMAGE_DRAG_KEY, unique[0]!);
+  if (unique.length > 1) {
+    event.dataTransfer.setData(MV_ASSET_IMAGE_DRAG_IDS_KEY, JSON.stringify(unique));
+  }
+  event.dataTransfer.effectAllowed = "move";
+}
+
+function assetDragPayloadActive(event: DragEvent) {
+  const types = Array.from(event.dataTransfer.types ?? []);
+  return types.includes(MV_ASSET_IMAGE_DRAG_KEY) || types.includes(MV_ASSET_IMAGE_DRAG_IDS_KEY);
+}
 
 function isLocalPreviewDriveId(id: string): boolean {
   return id.startsWith(LOCAL_PREVIEW_ID_PREFIX);
@@ -406,10 +562,16 @@ function mergeServerListWithStillPendingLocals(server: MvDriveFile[], locals: Mv
 
 const ASSET_UPLOAD_FILES_PER_REQUEST = 96;
 /** طلبات رفع متوازية للحمل الثقيل مع الحفاظ على حدّ معقول للتوازي */
-const ASSET_UPLOAD_PARALLEL_REQUESTS = 6;
+const ASSET_UPLOAD_PARALLEL_REQUESTS = 8;
 
 /** دفعات عرض المعاينات المحليّة في الواجهة حتى لا يتجمّد الخيط وقت إنشاء blob: عند مجلدات ضخمة */
-const PREVIEW_UI_CHUNK_SIZE = 28;
+const PREVIEW_UI_CHUNK_SIZE = 56;
+
+function shouldYieldPreviewUiChunk(chunkIndex: number, totalImages: number) {
+  if (totalImages <= PREVIEW_UI_CHUNK_SIZE) return false;
+  const chunkNumber = Math.floor(chunkIndex / PREVIEW_UI_CHUNK_SIZE);
+  return chunkNumber % 2 === 1;
+}
 
 function chunkPickedImages<T extends { file: File }>(items: readonly T[], chunkSize: number): T[][] {
   if (items.length === 0) return [];
@@ -514,15 +676,26 @@ async function uploadPickedImagesToPicFolderServer(
   picAssetFolderId: string,
   folderDisplayName: string,
   imageFiles: PickedImageFile[],
+  onUploadedCount?: (uploaded: number, total: number) => void,
 ): Promise<MvDriveFile[]> {
   const batches = chunkPickedImages(imageFiles, ASSET_UPLOAD_FILES_PER_REQUEST);
+  const total = imageFiles.length;
+  if (batches.length === 0) return [];
   if (batches.length === 1) {
-    return postAssetImagesFormDataToPicFolder(projectId, picAssetFolderId, folderDisplayName, batches[0]!);
+    const rows = await postAssetImagesFormDataToPicFolder(
+      projectId,
+      picAssetFolderId,
+      folderDisplayName,
+      batches[0]!,
+    );
+    onUploadedCount?.(total, total);
+    return rows;
   }
 
   const slots = Math.min(ASSET_UPLOAD_PARALLEL_REQUESTS, batches.length);
   const grouped: MvDriveFile[][] = new Array(batches.length);
   let nextBatch = 0;
+  let finishedBatches = 0;
 
   async function worker() {
     while (nextBatch < batches.length) {
@@ -533,6 +706,12 @@ async function uploadPickedImagesToPicFolderServer(
         folderDisplayName,
         batches[i]!,
       );
+      finishedBatches += 1;
+      const uploaded = Math.min(
+        total,
+        batches.slice(0, finishedBatches).reduce((sum, batch) => sum + batch.length, 0),
+      );
+      onUploadedCount?.(uploaded, total);
     }
   }
 
@@ -613,26 +792,78 @@ async function collectImagesFromEntry(
   return nested.flat();
 }
 
+function fileDropIdentityKey(file: File): string {
+  return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+}
+
+function pickedImagesFromFileList(files: FileList | readonly File[]): PickedImageFile[] {
+  const seen = new Set<string>();
+  const picked: PickedImageFile[] = [];
+  for (const file of Array.from(files)) {
+    if (!isLikelyImage(file)) continue;
+    const key = fileDropIdentityKey(file);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picked.push({
+      file,
+      relativePath: normalizeRelativePath(file.name, file.name),
+    });
+  }
+  return picked;
+}
+
 async function collectDroppedImages(dataTransfer: DataTransfer) {
   const items = Array.from(dataTransfer.items ?? []);
-  const picked: PickedImageFile[] = [];
-
-  for (const item of items) {
+  const fileItems = items.filter((item) => item.kind === "file");
+  const entries = fileItems.map((item) => {
     const entry = (
       item as DataTransferItem & {
         webkitGetAsEntry?: () => WebkitEntry | null;
       }
     ).webkitGetAsEntry?.();
-    if (entry) {
-      picked.push(...(await collectImagesFromEntry(entry)));
+    return { item, entry: entry ?? null };
+  });
+
+  const hasDirectory = entries.some((row) => row.entry?.isDirectory);
+
+  // عدة صور من مستكشف الملفات: FileList أوثق من webkitGetAsEntry (مشكلة شائعة على Windows)
+  if (!hasDirectory) {
+    const looseFiles = Array.from(dataTransfer.files ?? []).filter(isLikelyImage);
+    if (looseFiles.length > 0) {
+      return pickedImagesFromFileList(looseFiles);
     }
+  }
+
+  const picked: PickedImageFile[] = [];
+  const seen = new Set<string>();
+
+  const remember = (file: File, relativePath: string) => {
+    if (!isLikelyImage(file)) return;
+    const key = fileDropIdentityKey(file);
+    if (seen.has(key)) return;
+    seen.add(key);
+    picked.push({
+      file,
+      relativePath: normalizeRelativePath(relativePath, file.name),
+    });
+  };
+
+  for (const { item, entry } of entries) {
+    if (entry) {
+      const fromEntry = await collectImagesFromEntry(entry);
+      for (const row of fromEntry) {
+        remember(row.file, row.relativePath);
+      }
+      continue;
+    }
+
+    const file = item.getAsFile();
+    if (file) remember(file, file.name);
   }
 
   if (picked.length > 0) return picked;
 
-  return Array.from(dataTransfer.files ?? [])
-    .filter(isLikelyImage)
-    .map((file) => ({ file, relativePath: normalizeRelativePath(file.name, file.name) }));
+  return pickedImagesFromFileList(dataTransfer.files ?? []);
 }
 
 function selectedAncestors(path: string) {
@@ -653,6 +884,24 @@ function collectFolderImages(node: ImageFolderNode): AssetImageViewFile[] {
   ];
 }
 
+function countDescendantFolders(node: ImageFolderNode): number {
+  return node.folders.reduce((sum, folder) => sum + 1 + countDescendantFolders(folder), 0);
+}
+
+function folderContainsPath(node: ImageFolderNode, path: string): boolean {
+  if (node.path === path) return true;
+  return node.folders.some((folder) => folderContainsPath(folder, path));
+}
+
+function findFolderNodePath(node: ImageFolderNode, path: string): ImageFolderNode[] {
+  if (node.path === path) return [node];
+  for (const folder of node.folders) {
+    const nested = findFolderNodePath(folder, path);
+    if (nested.length > 0) return [node, ...nested];
+  }
+  return [];
+}
+
 function collectFolderVideos(node: ImageFolderNode): AssetImageViewFile[] {
   return [
     ...node.videos,
@@ -668,8 +917,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const { toast } = useToast();
   const filePickInputRef = useRef<HTMLInputElement>(null);
   const folderPickInputRef = useRef<HTMLInputElement>(null);
+  const assetSearchInputRef = useRef<HTMLInputElement>(null);
   /** blob: للمعاينة الفورية قبل اكتمال الرفع — يُحرَّر عند الاستبدال أو إلغاء التثبيت */
   const optimisticPreviewUrlsRef = useRef<Map<string, string>>(new Map());
+  const recentlyCreatedPreviewFoldersRef = useRef<Map<string, PreviewPhotoFolderEntry>>(new Map());
   const [files, setFiles] = useState<MvDriveFile[]>(() => {
     if (typeof window === "undefined") return [];
     const c = readMvWorkflowSessionJson<{ rows: MvDriveFile[] }>(
@@ -717,9 +968,60 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Set<string>>(() => new Set(["__pv_root__"]));
   const [creatingPreviewFolder, setCreatingPreviewFolder] = useState(false);
   const [draggingPreview, setDraggingPreview] = useState(false);
+  const [assetUploadJobs, setAssetUploadJobs] = useState<AssetUploadJob[]>([]);
   const [assetImportResult, setAssetImportResult] = useState<AssetImportResult | null>(null);
   const [assetImageFoldersModalOpen, setAssetImageFoldersModalOpen] = useState(false);
+  const [assetSearchOpen, setAssetSearchOpen] = useState(false);
+  const [assetSearchQuery, setAssetSearchQuery] = useState("");
+  const [assetSearchMode, setAssetSearchMode] = useState<AssetImagesSearchMode>("all");
+  const [assetSearchKind, setAssetSearchKind] = useState<AssetImagesSearchKind>("all");
+  const [appliedAssetSearch, setAppliedAssetSearch] = useState<AppliedAssetImagesSearch | null>(null);
   const filesById = useMemo(() => new Map(files.map((f) => [f._id, f])), [files]);
+
+  const startAssetUploadJob = useCallback(
+    (params: {
+      kind: AssetUploadJobKind;
+      label: string;
+      total: number;
+      phase?: string;
+      folderName?: string;
+    }) => {
+      const id = crypto.randomUUID();
+      setAssetUploadJobs((current) => [
+        ...current,
+        {
+          id,
+          kind: params.kind,
+          label: params.label,
+          phase: params.phase ?? "جاري التحضير…",
+          progress: 2,
+          current: 0,
+          total: params.total,
+          folderName: params.folderName,
+          state: "uploading",
+        },
+      ]);
+      return id;
+    },
+    [],
+  );
+
+  const activeAssetUploadJob = useMemo(() => {
+    if (assetUploadJobs.length === 0) return null;
+    return assetUploadJobs.find((job) => job.state === "uploading") ?? assetUploadJobs[assetUploadJobs.length - 1]!;
+  }, [assetUploadJobs]);
+
+  const updateAssetUploadJob = useCallback((id: string, patch: Partial<AssetUploadJob>) => {
+    setAssetUploadJobs((current) =>
+      current.map((job) => (job.id === id ? { ...job, ...patch } : job)),
+    );
+  }, []);
+
+  const removeAssetUploadJobLater = useCallback((id: string, delay = 2400) => {
+    window.setTimeout(() => {
+      setAssetUploadJobs((current) => current.filter((job) => job.id !== id));
+    }, delay);
+  }, []);
 
   const loadImages = useCallback(async (mode: "full" | "revalidate" = "full") => {
     const cacheKey = MV_WORKFLOW_SESSION.assetImageFiles(projectId);
@@ -828,8 +1130,32 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return false;
       };
       const children = sortSubProjectsForDisplay(subProjects.filter(isUnderPhotosRoot));
-      const entries = (
-        await mapWithConcurrency(children, 2, async (sub) => {
+      const mergeRecentlyCreated = (base: PreviewPhotoFolderEntry[]): PreviewPhotoFolderEntry[] => {
+        if (recentlyCreatedPreviewFoldersRef.current.size === 0) return base;
+        const presentSubIds = new Set(base.map((entry) => entry.sub._id));
+        const presentPicAssetIds = new Set(
+          base.map((entry) => entry.picAsset?._id).filter((id): id is string => Boolean(id)),
+        );
+        const merged = [...base];
+
+        for (const [key, entry] of Array.from(recentlyCreatedPreviewFoldersRef.current.entries())) {
+          const picAssetId = entry.picAsset?._id;
+          if (presentSubIds.has(entry.sub._id) || (picAssetId && presentPicAssetIds.has(picAssetId))) {
+            recentlyCreatedPreviewFoldersRef.current.delete(key);
+            continue;
+          }
+          merged.push(entry);
+        }
+
+        return merged;
+      };
+      const summaryEntries = mergeRecentlyCreated(
+        children.map((sub) => ({ sub, picAsset: sub.picAsset ?? null })),
+      );
+      setPreviewPhotoFolders(summaryEntries);
+      writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries: summaryEntries });
+      let entries = (
+        await mapWithConcurrency(children, 8, async (sub) => {
           const r = await fetchWithRetry(`/api/mv/projects/${projectId}/subprojects/${sub._id}`, {
             credentials: "include",
           });
@@ -840,6 +1166,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           return { sub, picAsset: row.picAsset ?? null };
         })
       ).filter(Boolean);
+      entries = mergeRecentlyCreated(entries);
       setPreviewPhotoFolders(entries);
       writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries });
       setSelectedPreviewFolderId((prev) => {
@@ -921,6 +1248,47 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [loadAssetImportSummary, refreshAssetImageSources]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.EventSource === "undefined") return;
+
+    let refreshTimer: number | null = null;
+    let needsFolders = false;
+    let needsImages = false;
+
+    const flushRefresh = () => {
+      const runFolders = needsFolders;
+      const runImages = needsImages;
+      needsFolders = false;
+      needsImages = false;
+      refreshTimer = null;
+      if (runFolders) void loadPreviewPhotoFolders("revalidate");
+      if (runImages) void loadImages("revalidate");
+    };
+
+    const scheduleRefresh = (folders: boolean, images: boolean) => {
+      needsFolders ||= folders;
+      needsImages ||= images;
+      if (refreshTimer !== null) return;
+      refreshTimer = window.setTimeout(flushRefresh, 220);
+    };
+
+    const events = new EventSource(`/api/mv/projects/${encodeURIComponent(projectId)}/events`, {
+      withCredentials: true,
+    });
+    const onFoldersChanged = () => scheduleRefresh(true, false);
+    const onImagesChanged = () => scheduleRefresh(false, true);
+
+    events.addEventListener("asset-folders-changed", onFoldersChanged);
+    events.addEventListener("asset-images-changed", onImagesChanged);
+
+    return () => {
+      events.removeEventListener("asset-folders-changed", onFoldersChanged);
+      events.removeEventListener("asset-images-changed", onImagesChanged);
+      events.close();
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    };
+  }, [loadImages, loadPreviewPhotoFolders, projectId]);
+
+  useEffect(() => {
     return () => {
       for (const u of optimisticPreviewUrlsRef.current.values()) {
         URL.revokeObjectURL(u);
@@ -928,6 +1296,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       optimisticPreviewUrlsRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!assetSearchOpen) return;
+    const timer = window.setTimeout(() => assetSearchInputRef.current?.focus(), 80);
+    return () => window.clearTimeout(timer);
+  }, [assetSearchOpen]);
 
   const revokeOptimisticUrls = useCallback((ids: Iterable<string>) => {
     for (const id of ids) {
@@ -997,7 +1371,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const { previewRoot, previewFoldersById } = useMemo(() => {
     const fb = new Map<string, ImageFolderNode>();
-    const rootNode = createFolderNode("صور الأصول من التطبيق", "__pv_root__");
+    const rootNode = createFolderNode("صور الأصول", "__pv_root__");
     rootNode.isSynthetic = true;
     fb.set(rootNode.path, rootNode);
 
@@ -1173,11 +1547,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const selectedCount = reportSelectedFileIds.size;
   const selectedPreviewNodeFiles = useMemo(() => {
     if (!selectedPreviewFolderNode) return [];
-    return collectFolderImages(selectedPreviewFolderNode);
+    if (selectedPreviewFolderNode.path === "__pv_root__") return [];
+    return selectedPreviewFolderNode.images;
   }, [selectedPreviewFolderNode, appPreviewMediaTab]);
   const selectedDeviceNodeFiles = useMemo(() => collectFolderImages(selectedFolder), [selectedFolder]);
 
-  /** صور المجلد المختار بما فيها المجلدات الفرعية — تُعرض في الشبكة كما في شجرة المعاينة */
+  /** صور المجلد المختار مباشرة فقط؛ الجذر يعرض المجلدات ولا يعرض صورًا منفردة. */
   const previewAppGridFiles = selectedPreviewNodeFiles;
   /** إعادة الترتيب بالسحب تبقى لمجلد أصل ورقي واحد فقط (بدون دمج صور من أبناء) */
   const previewGridCanReorder = Boolean(
@@ -1192,9 +1567,186 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return Boolean(effective && filesById.has(effective));
       }),
   );
-  const activeContentNode = assetImagesSource === "app" ? selectedPreviewFolderNode : selectedFolder;
+  const activeContentNode = selectedPreviewFolderNode;
   const activeContentFolders = activeContentNode?.folders ?? [];
-  const activeContentFiles = assetImagesSource === "app" ? previewAppGridFiles : selectedDeviceNodeFiles;
+  const activeContentFiles = previewAppGridFiles;
+  const activeBreadcrumbNodes = useMemo(
+    () => (activeContentNode ? findFolderNodePath(previewRoot, activeContentNode.path) : []),
+    [activeContentNode, previewRoot],
+  );
+  const activeParentBreadcrumbNode =
+    activeBreadcrumbNodes.length > 1 ? activeBreadcrumbNodes[activeBreadcrumbNodes.length - 2] : null;
+  const assetSearchRows = useMemo<AssetImagesSearchResult[]>(() => {
+    const rows: AssetImagesSearchResult[] = [];
+    const compactChips = (chips: Array<string | null | undefined | false>) =>
+      chips.filter((chip): chip is string => Boolean(chip && chip.trim()));
+
+    const visit = (
+      node: ImageFolderNode,
+      parentNames: string[],
+      parentIds: string[],
+      includeNode: boolean,
+    ): number => {
+      const nodeNames = includeNode ? [...parentNames, node.name] : parentNames;
+      const nodeIds = includeNode ? [...parentIds, node.path] : parentIds;
+      const nodeLocation = nodeNames.length > 0 ? nodeNames.join(" / ") : previewRoot.name;
+      let latestMs = 0;
+
+      for (const file of node.images) {
+        const title = fileNameFromPath(file.relativePath || file.name);
+        const pathLabel = file.relativePath || file.name;
+        const recentAtMs = assetFileRecentAtMs(file);
+        const recentLabel = formatAssetSearchDate(recentAtMs);
+        const chips = compactChips([
+          "صورة",
+          isDisplayOnlyPicAssetImage(file) ? "من بيانات الأصل" : "ملف محفوظ",
+          file.includeInReport === true ? "ضمن التقرير" : "خارج التقرير",
+          recentLabel ? `أضيفت ${recentLabel}` : null,
+        ]);
+        const searchText = [
+          title,
+          pathLabel,
+          nodeLocation,
+          node.name,
+          file.folderPath,
+          file.mimeType,
+          file._id,
+          file.downloadFileId,
+          file.sourceUrl,
+          file.picAssetId,
+          file.picAssetSubProjectId,
+          file.displayOrder,
+          file.sizeBytes,
+          chips.join(" "),
+        ].join(" ");
+
+        latestMs = Math.max(latestMs, recentAtMs);
+        rows.push({
+          id: `image:${file._id}`,
+          kind: "image",
+          title,
+          subtitle: nodeLocation,
+          chips,
+          normalizedTitle: normalizeAssetSearchText(title),
+          normalizedPath: normalizeAssetSearchText(pathLabel),
+          normalizedSearchText: normalizeAssetSearchText(searchText),
+          recentAtMs,
+          folderIdPath: nodeIds,
+          selectFolderId: node.path,
+          file,
+        });
+      }
+
+      for (const child of node.folders) {
+        latestMs = Math.max(latestMs, visit(child, nodeNames, nodeIds, true));
+      }
+
+      if (includeNode) {
+        const folderCount = countDescendantFolders(node);
+        const recentLabel = formatAssetSearchDate(latestMs);
+        const chips = compactChips([
+          "مجلد",
+          `${numberFormatter.format(node.imageCount)} صورة`,
+          folderCount > 0 ? `${numberFormatter.format(folderCount)} مجلد` : null,
+          node.sheetName ? `شيت ${node.sheetName}` : null,
+          recentLabel ? `آخر إضافة ${recentLabel}` : null,
+        ]);
+        const parentLocation = parentNames.length > 0 ? parentNames.join(" / ") : previewRoot.name;
+        const searchText = [
+          node.name,
+          node.path,
+          parentLocation,
+          node.sheetName,
+          node.importId,
+          node.imageCount,
+          folderCount,
+          chips.join(" "),
+        ].join(" ");
+
+        rows.push({
+          id: `folder:${node.path}`,
+          kind: "folder",
+          title: node.name,
+          subtitle: parentLocation,
+          chips,
+          normalizedTitle: normalizeAssetSearchText(node.name),
+          normalizedPath: normalizeAssetSearchText(`${parentLocation} / ${node.name} / ${node.path}`),
+          normalizedSearchText: normalizeAssetSearchText(searchText),
+          recentAtMs: latestMs,
+          folderIdPath: nodeIds,
+          selectFolderId: node.path,
+        });
+      }
+
+      return latestMs;
+    };
+
+    visit(previewRoot, [previewRoot.name], ["__pv_root__"], false);
+    return rows;
+  }, [previewRoot]);
+  const assetSearchStats = useMemo(
+    () => ({
+      folders: assetSearchRows.filter((row) => row.kind === "folder").length,
+      images: assetSearchRows.filter((row) => row.kind === "image").length,
+    }),
+    [assetSearchRows],
+  );
+  const assetSearchResults = useMemo(() => {
+    if (!appliedAssetSearch) return [];
+
+    const normalizedQuery = normalizeAssetSearchText(appliedAssetSearch.query);
+    const terms = assetSearchTerms(appliedAssetSearch.query);
+    const hasQuery = terms.length > 0;
+    const candidates = assetSearchRows.filter((row) => {
+      if (appliedAssetSearch.mode === "recent" && row.recentAtMs <= 0) return false;
+      if (appliedAssetSearch.kind !== "all" && row.kind !== appliedAssetSearch.kind) return false;
+      if (!hasQuery && appliedAssetSearch.mode === "all" && appliedAssetSearch.kind === "all") return false;
+      if (!hasQuery) return true;
+      return terms.every((term) => row.normalizedSearchText.includes(term));
+    });
+    const maxResults = hasQuery ? 120 : 80;
+
+    return candidates
+      .map((row) => ({
+        row,
+        score: scoreAssetSearchResult(row, normalizedQuery, terms),
+      }))
+      .sort((a, b) => {
+        if (hasQuery && b.score !== a.score) return b.score - a.score;
+        if (b.row.recentAtMs !== a.row.recentAtMs) return b.row.recentAtMs - a.row.recentAtMs;
+        if (a.row.kind !== b.row.kind) return a.row.kind === "folder" ? -1 : 1;
+        return a.row.title.localeCompare(b.row.title, "ar", { numeric: true, sensitivity: "base" });
+      })
+      .slice(0, maxResults)
+      .map(({ row }) => row);
+  }, [appliedAssetSearch, assetSearchRows]);
+  const appliedAssetSearchTitle = useMemo(() => {
+    if (!appliedAssetSearch) return "";
+    const query = appliedAssetSearch.query.trim();
+    const kindLabel =
+      appliedAssetSearch.kind === "folder"
+        ? "المجلدات فقط"
+        : appliedAssetSearch.kind === "image"
+          ? "الصور فقط"
+          : "";
+    const suffix = kindLabel ? ` - ${kindLabel}` : "";
+    if (appliedAssetSearch.mode === "recent" && query) return `المضاف مؤخراً المطابق لـ «${query}»${suffix}`;
+    if (appliedAssetSearch.mode === "recent") return `المضاف مؤخراً${suffix}`;
+    if (query) return `نتائج البحث عن «${query}»${suffix}`;
+    return `نتائج البحث${suffix}`;
+  }, [appliedAssetSearch]);
+  const applyAssetSearch = useCallback(() => {
+    const query = assetSearchQuery.trim();
+    if (assetSearchMode === "all" && assetSearchKind === "all" && !query) {
+      toast({ variant: "destructive", description: "اكتب عبارة بحث أو اختر المضاف مؤخراً أو حدد نوع النتائج قبل التطبيق." });
+      return;
+    }
+    setAppliedAssetSearch({ query, mode: assetSearchMode, kind: assetSearchKind });
+    setAssetSearchOpen(false);
+  }, [assetSearchKind, assetSearchMode, assetSearchQuery, toast]);
+  const clearAppliedAssetSearch = useCallback(() => {
+    setAppliedAssetSearch(null);
+  }, []);
 
   useEffect(() => {
     setExpandedPaths((current) => {
@@ -1301,13 +1853,76 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     [uploadImages],
   );
 
+  const rememberPreviewFolder = useCallback((created: MvSubProject) => {
+    const entry = { sub: created, picAsset: created.picAsset ?? null };
+    recentlyCreatedPreviewFoldersRef.current.set(created._id, entry);
+    setPreviewPhotoFolders((current) => {
+      const createdPicId = created.picAsset?._id;
+      const exists = current.some(
+        (row) => row.sub._id === created._id || (createdPicId ? row.picAsset?._id === createdPicId : false),
+      );
+      if (!exists) return [...current, entry];
+      return current.map((row) =>
+        row.sub._id === created._id || (createdPicId ? row.picAsset?._id === createdPicId : false) ? entry : row,
+      );
+    });
+  }, []);
+
+  const createPreviewFolderOnServer = useCallback(async (name: string, parentId: string) => {
+    const response = await fetch(`/api/mv/projects/${projectId}/subprojects`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, parent: parentId }),
+    });
+    if (!response.ok) throw new Error("create_failed");
+    return (await response.json()) as MvSubProject;
+  }, [projectId]);
+
   const uploadImagesToPicFolder = useCallback(
-    async (picFolderId: string, folderDisplayName: string, picked: PickedImageFile[]) => {
+    async (
+      picFolderId: string,
+      folderDisplayName: string,
+      picked: PickedImageFile[],
+      options?: { onProgress?: (patch: AssetUploadProgressPatch) => void },
+    ) => {
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
         toast({ variant: "destructive", description: "لم يتم العثور على صور صالحة للرفع." });
         return;
       }
+
+      const groupTotal = imageFiles.length;
+      let jobId: string | null = null;
+      if (!options?.onProgress) {
+        jobId = startAssetUploadJob({
+          kind: "images",
+          label: `${numberFormatter.format(groupTotal)} صورة`,
+          total: groupTotal,
+          phase: "رفع الصور…",
+          folderName: folderDisplayName,
+        });
+      }
+
+      const report = (patch: AssetUploadProgressPatch) => {
+        if (options?.onProgress) {
+          options.onProgress(patch);
+          return;
+        }
+        if (!jobId) return;
+        const progress =
+          patch.groupTotal > 0
+            ? Math.min(99, Math.round((patch.completedInGroup / patch.groupTotal) * 100))
+            : 0;
+        updateAssetUploadJob(jobId, {
+          phase: patch.phase,
+          current: patch.completedInGroup,
+          total: patch.groupTotal,
+          progress,
+          folderName: folderDisplayName,
+          label: `«${folderDisplayName}» — ${numberFormatter.format(patch.completedInGroup)} / ${numberFormatter.format(patch.groupTotal)} صورة`,
+        });
+      };
 
       const sessionLocalIds = imageFiles.map(() => `${LOCAL_PREVIEW_ID_PREFIX}${crypto.randomUUID()}`);
 
@@ -1339,7 +1954,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             };
           });
           setFiles((prev) => mergeUploadedIntoDriveFileList(prev, batch));
-          if (i + PREVIEW_UI_CHUNK_SIZE < imageFiles.length) {
+          const completedInGroup = Math.min(groupTotal, i + slice.length);
+          report({
+            phase: `معاينة صور «${folderDisplayName}» (${numberFormatter.format(completedInGroup)}/${numberFormatter.format(groupTotal)})`,
+            completedInGroup,
+            groupTotal,
+          });
+          if (shouldYieldPreviewUiChunk(i, imageFiles.length)) {
             await new Promise<void>((resolve) => {
               requestAnimationFrame(() => resolve());
             });
@@ -1352,27 +1973,324 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         picFolderId,
         folderDisplayName,
         imageFiles,
+        (uploaded, total) => {
+          report({
+            phase: `رفع «${folderDisplayName}» إلى الخادم (${numberFormatter.format(uploaded)}/${numberFormatter.format(total)})`,
+            completedInGroup: uploaded,
+            groupTotal: total,
+          });
+        },
       );
 
       try {
-        await streamLocalPreviewsToUi();
-        const uploadedRows = await persistToServer;
+        const [, uploadedRows] = await Promise.all([streamLocalPreviewsToUi(), persistToServer]);
+        if (jobId) {
+          updateAssetUploadJob(jobId, {
+            progress: 100,
+            state: "done",
+            phase: "اكتمل الرفع",
+            current: groupTotal,
+            total: groupTotal,
+          });
+        }
         setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
         revokeOptimisticUrls(sessionLocalIds);
-        toast({
-          description: `تم حفظ ${numberFormatter.format(uploadedRows.length)} صورة في المجلد.`,
-        });
-        await loadPreviewPhotoFolders("revalidate");
+        if (!options?.onProgress) {
+          toast({
+            description: `تم حفظ ${numberFormatter.format(uploadedRows.length)} صورة في المجلد.`,
+          });
+          await loadPreviewPhotoFolders("revalidate");
+          removeAssetUploadJobLater(jobId!);
+        }
       } catch (error) {
+        if (jobId) {
+          updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: "تعذر الرفع" });
+          removeAssetUploadJobLater(jobId, 6000);
+        }
         setFiles((prev) => prev.filter((f) => !sessionLocalIds.includes(f._id)));
         revokeOptimisticUrls(sessionLocalIds);
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر رفع الصور.",
-        });
+        if (!options?.onProgress) {
+          toast({
+            variant: "destructive",
+            description: error instanceof Error ? error.message : "تعذر رفع الصور.",
+          });
+        }
+        throw error;
+      } finally {
+        if (filePickInputRef.current) filePickInputRef.current.value = "";
+        if (folderPickInputRef.current) folderPickInputRef.current.value = "";
       }
     },
-    [loadPreviewPhotoFolders, projectId, revokeOptimisticUrls, toast],
+    [loadPreviewPhotoFolders, projectId, removeAssetUploadJobLater, revokeOptimisticUrls, startAssetUploadJob, toast, updateAssetUploadJob],
+  );
+
+  const ensurePreviewFolderPath = useCallback(
+    async (baseParentId: string, parts: string[], baseSelectionId = baseParentId) => {
+      let parentUploadId = baseParentId;
+      let parentSelectionId = baseSelectionId;
+      let folderName = "";
+      let selectionFolderId = "";
+
+      const known = new Map<
+        string,
+        { uploadFolderId: string; selectionFolderId: string; name: string }
+      >();
+      previewPhotoFolders.forEach((row) => {
+        const parent = row.sub.parent?.trim();
+        const name = cleanPathPart(row.sub.name);
+        if (!parent || !name) return;
+        known.set(`${parent}\u0000${name}`, {
+          uploadFolderId: row.picAsset?._id ?? row.sub._id,
+          selectionFolderId: row.sub._id,
+          name,
+        });
+      });
+
+      for (const rawPart of parts) {
+        const name = cleanPathPart(rawPart);
+        if (!name) continue;
+        folderName = name;
+        const existing =
+          known.get(`${parentUploadId}\u0000${name}`) ??
+          known.get(`${parentSelectionId}\u0000${name}`);
+        if (existing) {
+          parentUploadId = existing.uploadFolderId;
+          parentSelectionId = existing.selectionFolderId;
+          selectionFolderId = existing.selectionFolderId;
+          continue;
+        }
+
+        const createdFolder = await createPreviewFolderOnServer(name, parentUploadId);
+        rememberPreviewFolder(createdFolder);
+        const created = {
+          uploadFolderId: createdFolder.picAsset?._id ?? createdFolder._id,
+          selectionFolderId: createdFolder._id,
+          name,
+        };
+        known.set(`${parentUploadId}\u0000${name}`, created);
+        known.set(`${parentSelectionId}\u0000${name}`, created);
+        parentUploadId = created.uploadFolderId;
+        parentSelectionId = created.selectionFolderId;
+        selectionFolderId = created.selectionFolderId;
+      }
+
+      return {
+        uploadFolderId: parentUploadId,
+        selectionFolderId: selectionFolderId || parentSelectionId,
+        folderName: folderName || "صور الأصول",
+      };
+    },
+    [createPreviewFolderOnServer, previewPhotoFolders, rememberPreviewFolder],
+  );
+
+  const uploadImagesToActivePreviewLocation = useCallback(
+    async (picked: PickedImageFile[], targetNode = selectedPreviewFolderNode) => {
+      const imageFiles = picked.filter((item) => isLikelyImage(item.file));
+      if (imageFiles.length === 0) {
+        toast({ variant: "destructive", description: "لم يتم العثور على صور صالحة للرفع." });
+        return;
+      }
+
+      const targetFolderId = targetNode?.path ?? selectedPreviewFolderId;
+      const isRootSelected = targetFolderId === "__pv_root__";
+      const baseParentId = targetNode?.picAssetId ?? (isRootSelected ? photosRootId : null);
+      if (!baseParentId) {
+        toast({
+          variant: "destructive",
+          description: "اختر مجلدًا فعليًا داخل صور الأصول قبل الرفع.",
+        });
+        return;
+      }
+
+      const totalImages = imageFiles.length;
+      const isFolderBatchUpload = imageFiles.some((item) => folderPartsFromPickedImage(item).length > 0);
+      const firstFolderParts = imageFiles.map(folderPartsFromPickedImage).find((parts) => parts.length > 0);
+      const rootFolderLabel = firstFolderParts?.[0] ?? targetNode?.name ?? "صور الأصول";
+
+      const jobId = startAssetUploadJob({
+        kind: isFolderBatchUpload ? "folder" : "images",
+        label: isFolderBatchUpload
+          ? `مجلد «${rootFolderLabel}»`
+          : `${numberFormatter.format(totalImages)} صورة`,
+        total: totalImages,
+        phase: isFolderBatchUpload ? "تجهيز المجلد والصور…" : "رفع الصور…",
+        folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+      });
+
+      let serverUploadedCount = 0;
+      const pushGlobalProgress = (phase: string, folderName?: string, uploaded = serverUploadedCount) => {
+        serverUploadedCount = uploaded;
+        const progress = totalImages > 0 ? Math.min(99, Math.round((uploaded / totalImages) * 100)) : 0;
+        updateAssetUploadJob(jobId, {
+          phase,
+          current: uploaded,
+          total: totalImages,
+          progress,
+          folderName: folderName ?? rootFolderLabel,
+          label: isFolderBatchUpload
+            ? folderName && folderName !== rootFolderLabel
+              ? `«${rootFolderLabel}» / «${folderName}»`
+              : `مجلد «${rootFolderLabel}»`
+            : `${numberFormatter.format(uploaded)} / ${numberFormatter.format(totalImages)} صورة`,
+        });
+      };
+
+      pushGlobalProgress(
+        isFolderBatchUpload ? "تجهيز المجلد والصور…" : "تحضير رفع الصور…",
+        isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+        0,
+      );
+
+      const groups = new Map<
+        string,
+        {
+          uploadFolderId: string;
+          selectionFolderId: string;
+          folderName: string;
+          files: PickedImageFile[];
+        }
+      >();
+      const folderTargetCache = new Map<
+        string,
+        { uploadFolderId: string; selectionFolderId: string; folderName: string }
+      >();
+      let skippedRootFiles = 0;
+
+      for (const item of imageFiles) {
+        const folderParts = folderPartsFromPickedImage(item);
+        const fileName = fileNameFromPath(item.relativePath || item.file.name);
+        let target: {
+          uploadFolderId: string;
+          selectionFolderId: string;
+          folderName: string;
+        } | null = null;
+
+        if (folderParts.length > 0) {
+          const cacheKey = folderParts.join("\u0000");
+          const cached = folderTargetCache.get(cacheKey);
+          if (cached) {
+            target = cached;
+          } else {
+            const creatingLabel = folderParts[folderParts.length - 1] ?? rootFolderLabel;
+            pushGlobalProgress(`إنشاء المجلد «${creatingLabel}»…`, creatingLabel, serverUploadedCount);
+            target = await ensurePreviewFolderPath(
+              baseParentId,
+              folderParts,
+              targetNode?.path ?? baseParentId,
+            );
+            folderTargetCache.set(cacheKey, target);
+          }
+        } else if (targetNode?.picAssetId) {
+          target = {
+            uploadFolderId: targetNode.picAssetId,
+            selectionFolderId: targetNode.path,
+            folderName: targetNode.name,
+          };
+        } else {
+          skippedRootFiles += 1;
+          continue;
+        }
+
+        const key = target.uploadFolderId;
+        const group = groups.get(key) ?? {
+          uploadFolderId: target.uploadFolderId,
+          selectionFolderId: target.selectionFolderId,
+          folderName: target.folderName,
+          files: [],
+        };
+        group.files.push({
+          file: item.file,
+          relativePath: fileName,
+        });
+        groups.set(key, group);
+      }
+
+      if (skippedRootFiles > 0) {
+        toast({
+          variant: "destructive",
+          description: "لا يمكن رفع صور مباشرة في الجذر. اختر مجلدًا أو ارفع مجلدًا كاملًا.",
+        });
+      }
+
+      const uploadGroups = Array.from(groups.values());
+      if (uploadGroups.length === 0) {
+        updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: "لا توجد صور للرفع" });
+        removeAssetUploadJobLater(jobId, 4000);
+        return;
+      }
+
+      try {
+        pushGlobalProgress("بدء رفع الصور…", rootFolderLabel, serverUploadedCount);
+
+        for (const group of uploadGroups) {
+          const groupOffset = serverUploadedCount;
+          await uploadImagesToPicFolder(group.uploadFolderId, group.folderName, group.files, {
+            onProgress: (patch) => {
+              const onServer = patch.phase.includes("الخادم");
+              pushGlobalProgress(
+                patch.phase,
+                group.folderName,
+                onServer
+                  ? Math.min(totalImages, groupOffset + patch.completedInGroup)
+                  : serverUploadedCount,
+              );
+            },
+          });
+          serverUploadedCount = Math.min(totalImages, groupOffset + group.files.length);
+          pushGlobalProgress(
+            `اكتمل مجلد «${group.folderName}»`,
+            group.folderName,
+            serverUploadedCount,
+          );
+        }
+
+        updateAssetUploadJob(jobId, {
+          progress: 100,
+          state: "done",
+          phase: isFolderBatchUpload ? "اكتمل رفع المجلد" : "اكتمل رفع الصور",
+          current: totalImages,
+          total: totalImages,
+          folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+        });
+        toast({
+          description: isFolderBatchUpload
+            ? `تم حفظ ${numberFormatter.format(totalImages)} صورة في مجلد «${rootFolderLabel}».`
+            : `تم حفظ ${numberFormatter.format(totalImages)} صورة.`,
+        });
+        if (uploadGroups.length === 1) {
+          setSelectedPreviewFolderId(uploadGroups[0]!.selectionFolderId);
+        }
+        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        removeAssetUploadJobLater(jobId);
+      } catch (error) {
+        updateAssetUploadJob(jobId, {
+          progress: 100,
+          state: "error",
+          phase: "تعذر رفع المجلد",
+        });
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر رفع المجلد والصور.",
+        });
+        removeAssetUploadJobLater(jobId, 6000);
+      } finally {
+        if (filePickInputRef.current) filePickInputRef.current.value = "";
+        if (folderPickInputRef.current) folderPickInputRef.current.value = "";
+      }
+    },
+    [
+      ensurePreviewFolderPath,
+      loadImages,
+      loadPreviewPhotoFolders,
+      photosRootId,
+      removeAssetUploadJobLater,
+      selectedPreviewFolderId,
+      selectedPreviewFolderNode,
+      startAssetUploadJob,
+      toast,
+      updateAssetUploadJob,
+      uploadImagesToPicFolder,
+    ],
   );
 
   const handleActiveTargetInputFiles = useCallback(
@@ -1386,22 +2304,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             file.name,
           ),
         }));
-      if (
-        assetImagesSource === "app" &&
-        appPreviewMediaTab === "images" &&
-        selectedPreviewFolderNode?.picAssetId &&
-        selectedPreviewFolderNode.name
-      ) {
-        void uploadImagesToPicFolder(
-          selectedPreviewFolderNode.picAssetId,
-          selectedPreviewFolderNode.name,
-          picked,
-        );
-        return;
-      }
-      void uploadImages(picked);
+      void uploadImagesToActivePreviewLocation(picked);
     },
-    [appPreviewMediaTab, assetImagesSource, selectedPreviewFolderNode, uploadImages, uploadImagesToPicFolder],
+    [uploadImagesToActivePreviewLocation],
+  );
+
+  const selectionFolderIdForParent = useCallback(
+    (parentId: string) => {
+      if (photosRootId && parentId === photosRootId) return "__pv_root__";
+      const parentNode = Array.from(previewFoldersById.values()).find(
+        (node) => node.path === parentId || node.picAssetId === parentId,
+      );
+      return parentNode?.path ?? (previewFoldersById.has(parentId) ? parentId : "__pv_root__");
+    },
+    [photosRootId, previewFoldersById],
   );
 
   const createPreviewFolder = useCallback(async (parentId?: string | null) => {
@@ -1418,23 +2334,44 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (!name) return;
     try {
       setCreatingPreviewFolder(true);
-      const response = await fetch(`/api/mv/projects/${projectId}/subprojects`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, parent: targetParentId }),
+      const createdFolder = await createPreviewFolderOnServer(name, targetParentId);
+      rememberPreviewFolder(createdFolder);
+      const parentSelectionId = selectionFolderIdForParent(targetParentId);
+      setSelectedPreviewFolderId(parentSelectionId);
+      setExpandedPreviewIds((current) => {
+        const next = new Set(current);
+        next.add("__pv_root__");
+        next.add(parentSelectionId);
+        return next;
       });
-      if (!response.ok) throw new Error("fail");
-      const created = (await response.json()) as { _id: string };
-      await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-      setSelectedPreviewFolderId(created._id);
       toast({ description: "تم إنشاء المجلد." });
     } catch {
       toast({ variant: "destructive", description: "تعذر إنشاء المجلد." });
     } finally {
       setCreatingPreviewFolder(false);
     }
-  }, [loadImages, loadPreviewPhotoFolders, photosRootId, projectId, toast]);
+  }, [
+    createPreviewFolderOnServer,
+    photosRootId,
+    rememberPreviewFolder,
+    selectionFolderIdForParent,
+    toast,
+  ]);
+
+  const activeCreateParentId =
+    selectedPreviewFolderNode?.picAssetId ??
+    (selectedPreviewFolderId === "__pv_root__" ? photosRootId : null);
+
+  const createFolderInActiveLocation = useCallback(() => {
+    if (!activeCreateParentId) {
+      toast({
+        variant: "destructive",
+        description: "اختر مجلدًا فعليًا داخل صور الأصول أو افتح الجذر لإنشاء مجلد جديد.",
+      });
+      return;
+    }
+    void createPreviewFolder(activeCreateParentId);
+  }, [activeCreateParentId, createPreviewFolder, toast]);
 
   const toggleExpanded = useCallback((path: string) => {
     setExpandedPaths((current) => {
@@ -1772,6 +2709,57 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     [deleteFileIds, toast],
   );
 
+  const deletePreviewFolder = useCallback(
+    async (folder: ImageFolderNode) => {
+      if (folder.path === "__pv_root__" || folder.isSynthetic || !folder.picAssetId) {
+        toast({
+          variant: "destructive",
+          description: "لا يمكن حذف هذا المجلد الافتراضي.",
+        });
+        return;
+      }
+
+      const imageCount = collectFolderImages(folder).length;
+      const folderCount = countDescendantFolders(folder);
+      const warning =
+        imageCount > 0 || folderCount > 0
+          ? `المجلد «${folder.name}» يحتوي على ${numberFormatter.format(imageCount)} صورة و${numberFormatter.format(folderCount)} مجلد فرعي. هل تريد حذف المجلد وكل محتواه؟`
+          : `هل تريد حذف المجلد «${folder.name}»؟`;
+      if (!window.confirm(warning)) return;
+
+      const parentId = previewPhotoFolders.find((row) => row.sub._id === folder.path)?.sub.parent ?? null;
+      const nextSelection = parentId && previewFoldersById.has(parentId) ? parentId : "__pv_root__";
+
+      try {
+        setDeleting(true);
+        const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${folder.path}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("delete_failed");
+
+        if (selectedPreviewFolderId && folderContainsPath(folder, selectedPreviewFolderId)) {
+          setSelectedPreviewFolderId(nextSelection);
+        }
+        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        toast({ description: "تم حذف المجلد." });
+      } catch {
+        toast({ variant: "destructive", description: "تعذر حذف المجلد." });
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [
+      loadImages,
+      loadPreviewPhotoFolders,
+      previewFoldersById,
+      previewPhotoFolders,
+      projectId,
+      selectedPreviewFolderId,
+      toast,
+    ],
+  );
+
   const deleteSelectedItems = useCallback(() => {
     void deleteFileIds(reportSelectedFileIds, "تم حذف الصور المحددة للتقرير.");
   }, [deleteFileIds, reportSelectedFileIds]);
@@ -1971,6 +2959,24 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     setLightboxFile(file);
   }, []);
 
+  const resolveReportSelectedDragIds = useCallback(
+    (draggedId: string, scopeFiles: Array<AssetImageViewFile | MvDriveFile>) => {
+      const selected: string[] = [];
+      for (const file of scopeFiles) {
+        const displayOnly = isDisplayOnlyPicAssetImage(file as AssetImageViewFile);
+        const effectiveId = displayOnly ? effectiveDriveFileId(file as AssetImageViewFile) : file._id;
+        if (!effectiveId || isLocalPreviewDriveId(effectiveId)) continue;
+        const included = displayOnly
+          ? (file as AssetImageViewFile).includeInReport === true
+          : isReportImageIncluded(filesById.get(effectiveId) ?? (file as MvDriveFile));
+        if (included) selected.push(effectiveId);
+      }
+      if (selected.includes(draggedId) && selected.length > 1) return selected;
+      return [draggedId];
+    },
+    [filesById],
+  );
+
   const placeAssetImage = useCallback(
     async (
       fileId: string,
@@ -2041,8 +3047,28 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     [clearGridDragReorderIntent, loadImages, projectId, toast],
   );
 
+  const placeAssetImages = useCallback(
+    async (
+      fileIds: string[],
+      targetFolderPath: string,
+      insertBeforeFileId: string | null,
+      targetPicAssetFolderId?: string | null,
+    ) => {
+      const unique = [...new Set(fileIds.filter(Boolean))];
+      if (unique.length === 0) return;
+      if (unique.length === 1) {
+        await placeAssetImage(unique[0]!, targetFolderPath, insertBeforeFileId, targetPicAssetFolderId);
+        return;
+      }
+      for (const fileId of unique) {
+        await placeAssetImage(fileId, targetFolderPath, insertBeforeFileId, targetPicAssetFolderId);
+      }
+    },
+    [placeAssetImage],
+  );
+
   const onTreeDragOverAsset = useCallback((e: DragEvent) => {
-    if (!Array.from(e.dataTransfer.types ?? []).includes(MV_ASSET_IMAGE_DRAG_KEY)) return;
+    if (!assetDragPayloadActive(e)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
@@ -2053,11 +3079,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       e.preventDefault();
       e.stopPropagation();
       if (reorderSaving || dragging) return;
-      const fid = e.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
-      if (!fid) return;
-      void placeAssetImage(fid, targetPath, null);
+      const fids = parseAssetDragFileIds(e);
+      if (fids.length === 0) return;
+      void placeAssetImages(fids, targetPath, null);
     },
-    [dragging, placeAssetImage, reorderSaving],
+    [dragging, placeAssetImages, reorderSaving],
   );
 
   const handleDropBeforeTreeImage = useCallback(
@@ -2065,12 +3091,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       e.preventDefault();
       e.stopPropagation();
       if (reorderSaving || dragging) return;
-      const fid = e.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
-      if (!fid) return;
+      const fids = parseAssetDragFileIds(e);
+      if (fids.length === 0) return;
       const fp = folderPathFromRelativePath(anchor.relativePath || anchor.name);
-      void placeAssetImage(fid, fp, anchor._id);
+      void placeAssetImages(fids, fp, anchor._id);
     },
-    [dragging, placeAssetImage, reorderSaving],
+    [dragging, placeAssetImages, reorderSaving],
   );
 
   const handleDropBeforePreviewTreeImage = useCallback(
@@ -2078,12 +3104,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       e.preventDefault();
       e.stopPropagation();
       if (reorderSaving || draggingPreview) return;
-      const fid = e.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
-      if (!fid) return;
+      const fids = parseAssetDragFileIds(e);
+      if (fids.length === 0) return;
       const fp = driveFileFolderPath(anchor);
-      void placeAssetImage(fid, fp, anchor._id, anchor.picAssetId ?? undefined);
+      void placeAssetImages(fids, fp, anchor._id, anchor.picAssetId ?? undefined);
     },
-    [draggingPreview, placeAssetImage, reorderSaving],
+    [draggingPreview, placeAssetImages, reorderSaving],
   );
 
   const handleDropOnPreviewFolderRow = useCallback(
@@ -2091,16 +3117,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       e.preventDefault();
       e.stopPropagation();
       if (reorderSaving || draggingPreview) return;
-      const fid = e.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
-      if (!fid) return;
+      const fids = parseAssetDragFileIds(e);
+      if (fids.length === 0) return;
       const destNode = previewFoldersById.get(folderId);
       if (!destNode?.picAssetId) return;
       const firstFile = destNode.images[0];
       const targetPath =
         destNode && firstFile ? driveFileFolderPath(firstFile) : previewFolderBasePath(folderDisplayName);
-      void placeAssetImage(fid, targetPath, null, destNode.picAssetId);
+      void placeAssetImages(fids, targetPath, null, destNode.picAssetId);
     },
-    [draggingPreview, placeAssetImage, previewFoldersById, reorderSaving],
+    [draggingPreview, placeAssetImages, previewFoldersById, reorderSaving],
   );
 
   const selectPreviewFolder = useCallback((folderId: string, media: AppPreviewMediaTab = "images") => {
@@ -2114,6 +3140,21 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       next.add(folderId);
       return next;
     });
+  }, []);
+
+  const openAssetSearchResult = useCallback((result: AssetImagesSearchResult) => {
+    setAssetSearchOpen(false);
+    setAppliedAssetSearch(null);
+    setAssetImagesSource("app");
+    setAppPreviewMediaTab("images");
+    setSelectedPreviewFolderId(result.selectFolderId);
+    setExpandedPreviewIds((current) => {
+      const next = new Set(current);
+      next.add("__pv_root__");
+      result.folderIdPath.forEach((id) => next.add(id));
+      return next;
+    });
+    setLightboxFile(result.kind === "image" && result.file ? result.file : null);
   }, []);
 
   const togglePreviewFolderSelection = useCallback(
@@ -2172,21 +3213,27 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const deleteCurrentPreviewPathImages = useCallback(() => {
-    const nodeFiles = selectedPreviewFolderNode
-      ? collectFolderImages(selectedPreviewFolderNode).filter((file) => !isDisplayOnlyPicAssetImage(file))
-      : [];
-    if (nodeFiles.length === 0) return;
+    if (!selectedPreviewFolderNode || selectedPreviewFolderNode.path === "__pv_root__") {
+      toast({ variant: "destructive", description: "اختر مجلدًا داخل صور الأصول لحذف صوره." });
+      return;
+    }
+    const nodeFiles = selectedPreviewFolderNode.images.filter((file) => !isDisplayOnlyPicAssetImage(file));
+    if (nodeFiles.length === 0) {
+      toast({ variant: "destructive", description: "لا توجد صور مباشرة قابلة للحذف في هذا المجلد." });
+      return;
+    }
     void deleteFileIds(
       nodeFiles.map((f) => f._id),
       "تم حذف صور مجلد المعاينة الحالي.",
     );
-  }, [deleteFileIds, selectedPreviewFolderNode]);
+  }, [deleteFileIds, selectedPreviewFolderNode, toast]);
 
-  const renderTreeImage = (file: MvDriveFile, level = 0) => {
+  const renderTreeImage = (file: MvDriveFile, level = 0, scopeFiles: MvDriveFile[] = []) => {
     const selected = isReportImageIncluded(file);
     const canDragPlace = !isLocalPreviewDriveId(file._id) && !reorderSaving;
     const displayOnly = false;
     const canMutate = true;
+    const dragScope = scopeFiles.length > 0 ? scopeFiles : [file];
 
     return (
       <div
@@ -2198,8 +3245,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             return;
           }
           dragReorderFromIdx.current = null;
-          e.dataTransfer.setData(MV_ASSET_IMAGE_DRAG_KEY, file._id);
-          e.dataTransfer.effectAllowed = "move";
+          writeAssetDragFileIds(e, resolveReportSelectedDragIds(file._id, dragScope));
         }}
         onDragEnd={clearGridDragReorderIntent}
         onDragOver={(e: DragEvent) => {
@@ -2385,7 +3431,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         {expanded ? (
           <div className="mt-0.5 space-y-0.5">
             {node.folders.map((folder) => renderTreeFolder(folder, level + 1))}
-            {node.images.map((file) => renderTreeImage(file, level + 2))}
+            {node.images.map((file) => renderTreeImage(file, level + 2, node.images))}
           </div>
         ) : null}
       </div>
@@ -2400,7 +3446,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     return (
       <div className="space-y-0.5">
         {root.folders.map((folder) => renderTreeFolder(folder, 0))}
-        {root.images.map((file) => renderTreeImage(file, 0))}
+        {root.images.map((file) => renderTreeImage(file, 0, root.images))}
       </div>
     );
   };
@@ -2427,8 +3473,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             return;
           }
           dragReorderFromIdx.current = null;
-          e.dataTransfer.setData(MV_ASSET_IMAGE_DRAG_KEY, effectiveId!);
-          e.dataTransfer.effectAllowed = "move";
+          const scope = selectedPreviewFolderNode?.images ?? [file];
+          writeAssetDragFileIds(e, resolveReportSelectedDragIds(effectiveId!, scope));
         }}
         onDragEnd={clearGridDragReorderIntent}
         onDragOver={(e: DragEvent) => {
@@ -2534,14 +3580,26 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           className="flex items-center gap-1 rounded-md transition hover:bg-slate-50/80"
           style={{ paddingInlineStart: level * 12 }}
           onDragOver={(e: DragEvent) => {
+            if (treeMedia === "images" && isFileUploadDrag(e.dataTransfer)) {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "copy";
+              return;
+            }
             if (reorderSaving || draggingPreview) return;
             onTreeDragOverAsset(e);
           }}
-          onDrop={
-            reorderSaving || draggingPreview || !node.picAssetId || treeMedia === "videos"
-              ? undefined
-              : handleDropOnPreviewFolderRow(node.path, node.name)
-          }
+          onDrop={async (e: DragEvent) => {
+            if (treeMedia === "images" && isFileUploadDrag(e.dataTransfer)) {
+              e.preventDefault();
+              e.stopPropagation();
+              const picked = await collectDroppedImages(e.dataTransfer);
+              void uploadImagesToActivePreviewLocation(picked, node);
+              return;
+            }
+            if (reorderSaving || draggingPreview || !node.picAssetId || treeMedia === "videos") return;
+            handleDropOnPreviewFolderRow(node.path, node.name)(e);
+          }}
         >
           <button
             type="button"
@@ -2605,7 +3663,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44 text-right">
+            <DropdownMenuContent align="end" className="w-52 text-right">
               <DropdownMenuItem onSelect={() => selectPreviewFolder(node.path, treeMedia)} className="cursor-pointer text-[12px]">
                 <FolderOpen className="h-4 w-4 text-amber-600" />
                 فتح المجلد
@@ -2636,6 +3694,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   حذف صور المجلد
                 </DropdownMenuItem>
               ) : null}
+              {node.picAssetId && treeMedia === "images" ? (
+                <DropdownMenuItem
+                  onSelect={() => void deletePreviewFolder(node)}
+                  disabled={deleting}
+                  className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  حذف المجلد
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -2651,13 +3719,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   };
 
   const renderCombinedTree = () => {
-    const deviceExpanded = expandedPaths.has("");
     const appExpanded = expandedPreviewIds.has("__pv_root__");
     const appActive =
-      assetImagesSource === "app" &&
       selectedPreviewFolderId === "__pv_root__" &&
       appPreviewMediaTab === "images";
-    const deviceActive = assetImagesSource === "device" && selectedFolderPath === "";
 
     return (
       <div className="space-y-1">
@@ -2667,7 +3732,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               type="button"
               onClick={() => togglePreviewExpanded("__pv_root__")}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50"
-              aria-label={appExpanded ? "طي صور الأصول من التطبيق" : "فتح صور الأصول من التطبيق"}
+              aria-label={appExpanded ? "طي صور الأصول" : "فتح صور الأصول"}
             >
               {appExpanded ? <MinusSquare className="h-3.5 w-3.5" /> : <PlusSquare className="h-3.5 w-3.5" />}
             </button>
@@ -2683,7 +3748,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               )}
             >
               <FolderOpen className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-              <span className="min-w-0 flex-1 truncate">صور الأصول من التطبيق</span>
+              <span className="min-w-0 flex-1 truncate">صور الأصول</span>
               <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
                 {numberFormatter.format(previewRoot.imageCount)}
               </span>
@@ -2713,56 +3778,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 </>
               ) : (
                 <p className="px-2 py-3 text-center text-[11px] font-bold text-slate-400">
-                  لا توجد مجلدات من التطبيق بعد
-                </p>
-              )}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="rounded-md border border-sky-100 bg-white">
-          <div className="flex items-center gap-1 px-1 py-1">
-            <button
-              type="button"
-              onClick={() => toggleExpanded("")}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sky-600 hover:bg-sky-50"
-              aria-label={deviceExpanded ? "طي صور الأصول من الجهاز" : "فتح صور الأصول من الجهاز"}
-            >
-              {deviceExpanded ? <MinusSquare className="h-3.5 w-3.5" /> : <PlusSquare className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAssetImagesSource("device");
-                setAppPreviewMediaTab("images");
-                selectFolder("");
-              }}
-              className={cn(
-                "flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] font-extrabold transition",
-                deviceActive ? "bg-sky-100 text-sky-950" : "text-slate-800 hover:bg-slate-50",
-              )}
-            >
-              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-sky-600" />
-              <span className="min-w-0 flex-1 truncate">صور الأصول من الجهاز</span>
-              <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
-                {numberFormatter.format(root.imageCount)}
-              </span>
-            </button>
-          </div>
-          {deviceExpanded ? (
-            <div className="space-y-0.5 px-1 pb-1">
-              {awaitingInitialListFetch ? (
-                <div className="flex h-16 items-center justify-center text-slate-400">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                </div>
-              ) : root.folders.length > 0 || root.images.length > 0 ? (
-                <>
-                  {root.folders.map((folder) => renderTreeFolder(folder, 1))}
-                  {root.images.map((file) => renderTreeImage(file, 1))}
-                </>
-              ) : (
-                <p className="px-2 py-3 text-center text-[11px] font-bold text-slate-400">
-                  لا توجد صور من الجهاز بعد
+                  لا توجد مجلدات صور بعد
                 </p>
               )}
             </div>
@@ -2787,10 +3803,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         <DropdownMenuItem
           onSelect={() => {
             void loadImages("revalidate");
-            if (assetImagesSource === "app") {
-              void loadPreviewPhotoFolders("revalidate");
-              void loadAssetImportSummary();
-            }
+            void loadPreviewPhotoFolders("revalidate");
+            void loadAssetImportSummary();
           }}
           disabled={loading || deleting}
           className="cursor-pointer text-[12px]"
@@ -2807,11 +3821,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           حذف الصور المحددة للتقرير
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => (assetImagesSource === "app" ? deleteCurrentPreviewPathImages() : deleteCurrentPathImages())}
+          onSelect={deleteCurrentPreviewPathImages}
           disabled={
-            assetImagesSource === "app" ?
-              selectedPreviewNodeFiles.length === 0 || deleting
-            : selectedFolder.imageCount === 0 || deleting
+            activeContentFiles.length === 0 || deleting || selectedPreviewFolderId === "__pv_root__"
           }
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
@@ -2821,6 +3833,52 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       </DropdownMenuContent>
     </DropdownMenu>
   );
+
+  const activePathBar = activeContentNode ? (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0 rounded-lg border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+          disabled={!activeParentBreadcrumbNode}
+          onClick={() => {
+            if (activeParentBreadcrumbNode) selectPreviewFolder(activeParentBreadcrumbNode.path, "images");
+          }}
+          title="رجوع خطوة للأعلى"
+          aria-label="رجوع خطوة للأعلى"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </Button>
+        <div className="flex min-w-0 items-center gap-1 text-[11px] font-bold text-slate-500">
+          {activeBreadcrumbNodes.map((node, idx) => {
+            const isLast = idx === activeBreadcrumbNodes.length - 1;
+            return (
+              <div key={`crumb-${node.path}`} className="flex min-w-0 items-center gap-1">
+                {idx > 0 ? <span className="text-slate-300">/</span> : null}
+                <button
+                  type="button"
+                  onClick={() => selectPreviewFolder(node.path, "images")}
+                  className={cn(
+                    "max-w-[180px] truncate rounded-md px-2 py-1 transition hover:bg-emerald-50 hover:text-emerald-800",
+                    isLast ? "bg-emerald-50 text-emerald-900" : "text-slate-600",
+                  )}
+                  dir="auto"
+                  title={node.name}
+                >
+                  {idx === 0 ? "صور الأصول" : node.name}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tabular-nums text-slate-500">
+        {numberFormatter.format(activeContentNode.imageCount)} صورة
+      </span>
+    </div>
+  ) : null;
 
   return (
     <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
@@ -2844,7 +3902,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 className="hidden"
                 multiple
                 accept="image/*"
-                onChange={(event) => handleInputFiles(event.target.files)}
+                onChange={(event) => handleActiveTargetInputFiles(event.target.files)}
               />
               <input
                 ref={folderPickInputRef}
@@ -2854,7 +3912,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 {...({
                   webkitdirectory: "",
                 } as Record<string, unknown>)}
-                onChange={(event) => handleInputFiles(event.target.files)}
+                onChange={(event) => handleActiveTargetInputFiles(event.target.files)}
               />
               <div
                 className={cn("transition-colors", draggingPreview && "bg-emerald-50/50")}
@@ -2868,19 +3926,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   if (!isFileUploadDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDraggingPreview(false);
-                  if (!selectedPreviewFolderId || !selectedPreviewFolderNode?.picAssetId) {
-                    toast({
-                      variant: "destructive",
-                      description: "اختر مجلد أصل من الشجرة ثم أفلت الصور.",
-                    });
-                    return;
-                  }
                   const picked = await collectDroppedImages(event.dataTransfer);
-                  void uploadImagesToPicFolder(
-                    selectedPreviewFolderNode.picAssetId,
-                    selectedPreviewFolderNode.name,
-                    picked,
-                  );
+                  void uploadImagesToActivePreviewLocation(picked);
                 }}
               >
                 <div
@@ -2907,10 +3954,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         type="button"
                         variant="outline"
                         size="sm"
-                        title="إنشاء مجلد جديد داخل صور المعاينة"
-                        aria-label="إنشاء مجلد جديد داخل صور المعاينة"
-                        disabled={!photosRootId || creatingPreviewFolder}
-                        onClick={() => void createPreviewFolder()}
+                        title="إنشاء مجلد جديد داخل المكان الحالي"
+                        aria-label="إنشاء مجلد جديد داخل المكان الحالي"
+                        disabled={!activeCreateParentId || creatingPreviewFolder}
+                        onClick={createFolderInActiveLocation}
                         className="h-9 shrink-0 gap-2 border-emerald-200 bg-white px-3 text-[12px] font-bold text-slate-700 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-40"
                       >
                         {creatingPreviewFolder ? (
@@ -2952,6 +3999,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 shrink-0 gap-2 border-slate-200 bg-white px-3 text-[12px] font-extrabold text-slate-800 shadow-sm hover:border-emerald-300 hover:bg-emerald-50"
+                        onClick={() => {
+                          setAssetSearchQuery(appliedAssetSearch?.query ?? "");
+                          setAssetSearchMode(appliedAssetSearch?.mode ?? "all");
+                          setAssetSearchKind(appliedAssetSearch?.kind ?? "all");
+                          setAssetSearchOpen(true);
+                        }}
+                      >
+                        <Search className="h-4 w-4 shrink-0 text-emerald-600" />
+                        بحث
+                      </Button>
                     </div>
 
                     <div className="ms-auto flex shrink-0 items-center gap-2">
@@ -2985,7 +4048,103 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 </aside>
 
                 <main className="min-w-0 p-3 sm:p-4" dir="rtl">
-                  {!activeContentNode ? (
+                  {!appliedAssetSearch ? activePathBar : null}
+                  {appliedAssetSearch ? (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 shadow-sm">
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-black text-slate-900" dir="auto">
+                            {appliedAssetSearchTitle}
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                            {numberFormatter.format(assetSearchResults.length)} نتيجة مطبقة على مساحة العمل
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                          className="h-8 rounded-lg border-slate-200 bg-white px-3 text-[11px] font-bold"
+                            onClick={() => {
+                              setAssetSearchQuery(appliedAssetSearch?.query ?? "");
+                              setAssetSearchMode(appliedAssetSearch?.mode ?? "all");
+                              setAssetSearchKind(appliedAssetSearch?.kind ?? "all");
+                              setAssetSearchOpen(true);
+                            }}
+                          >
+                            <Search className="h-3.5 w-3.5" />
+                            تعديل البحث
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-lg border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-600"
+                            onClick={clearAppliedAssetSearch}
+                          >
+                            مسح
+                          </Button>
+                        </div>
+                      </div>
+
+                      {assetSearchResults.length > 0 ? (
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                          {assetSearchResults.map((result) => (
+                            <button
+                              key={result.id}
+                              type="button"
+                              onClick={() => openAssetSearchResult(result)}
+                              className="group flex aspect-square min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-right shadow-sm transition hover:border-emerald-300 hover:shadow-md"
+                            >
+                              {result.file ? (
+                                <span className="relative block min-h-0 flex-1 overflow-hidden bg-slate-100">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={resolveThumbSrc(result.file) || undefined}
+                                    alt=""
+                                    className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                                    loading="lazy"
+                                  />
+                                </span>
+                              ) : (
+                                <span className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-amber-50/60 p-3 text-center">
+                                  <FolderOpen className="h-10 w-10 text-amber-500 transition group-hover:scale-105" />
+                                  <span className="line-clamp-2 text-[12px] font-black text-slate-800" dir="auto">
+                                    {result.title}
+                                  </span>
+                                </span>
+                              )}
+
+                              <span className="block w-full min-w-0 px-2 py-2">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span className="truncate text-[11px] font-black text-slate-700" dir="auto">
+                                    {result.title}
+                                  </span>
+                                  <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                                    {result.kind === "folder" ? "مجلد" : "صورة"}
+                                  </span>
+                                </span>
+                                <span className="mt-1 block truncate text-[10px] font-semibold text-slate-500" dir="auto">
+                                  {result.subtitle}
+                                </span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white">
+                          <div className="text-center">
+                            <Search className="mx-auto h-10 w-10 text-slate-300" />
+                            <p className="mt-2 text-[13px] font-black text-slate-700">لا توجد نتائج لهذا البحث</p>
+                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                              عدّل عبارة البحث أو اختر المضاف مؤخراً من زر البحث.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : !activeContentNode ? (
                     <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white">
                       <div className="text-center">
                         <Folder className="mx-auto h-10 w-10 text-slate-300" />
@@ -3008,28 +4167,127 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     <div className="space-y-3">
                       {activeContentFolders.length > 0 ? (
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                          {activeContentFolders.map((folder) => (
-                            <button
-                              key={`${assetImagesSource}-folder-${folder.path}`}
-                              type="button"
-                              onClick={() =>
-                                assetImagesSource === "app"
-                                  ? selectPreviewFolder(folder.path, appPreviewMediaTab)
-                                  : selectFolder(folder.path)
-                              }
-                              className="group flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-amber-200 bg-white p-3 text-center shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 hover:shadow-md"
-                            >
-                              <FolderOpen className="h-10 w-10 text-amber-500 transition group-hover:scale-105" />
-                              <span className="line-clamp-2 text-[12px] font-extrabold text-slate-700" dir="auto">
-                                {folder.name}
-                              </span>
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500">
-                                {numberFormatter.format(
-                                  folder.imageCount,
-                                )}
-                              </span>
-                            </button>
-                          ))}
+                          {activeContentFolders.map((folder) => {
+                            const folderFiles = collectFolderImages(folder);
+                            const folderSelected = folderFiles.length > 0 && folderFiles.every(isReportImageIncluded);
+                            const folderPartiallySelected = !folderSelected && folderFiles.some(isReportImageIncluded);
+
+                            return (
+                              <article
+                                key={`content-folder-${folder.path}`}
+                                onDragOver={(event) => {
+                                  if (isFileUploadDrag(event.dataTransfer)) {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    event.dataTransfer.dropEffect = "copy";
+                                    return;
+                                  }
+                                  if (!folder.picAssetId || reorderSaving || draggingPreview) return;
+                                  onTreeDragOverAsset(event);
+                                }}
+                                onDrop={async (event) => {
+                                  if (isFileUploadDrag(event.dataTransfer)) {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    const picked = await collectDroppedImages(event.dataTransfer);
+                                    void uploadImagesToActivePreviewLocation(picked, folder);
+                                    return;
+                                  }
+                                  if (!folder.picAssetId || reorderSaving || draggingPreview) return;
+                                  handleDropOnPreviewFolderRow(folder.path, folder.name)(event);
+                                }}
+                                className="group relative flex aspect-square flex-col rounded-lg border border-amber-200 bg-white text-center shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 hover:shadow-md"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => selectPreviewFolder(folder.path, appPreviewMediaTab)}
+                                  className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-3"
+                                >
+                                  <FolderOpen className="h-10 w-10 text-amber-500 transition group-hover:scale-105" />
+                                  <span className="line-clamp-2 text-[12px] font-extrabold text-slate-700" dir="auto">
+                                    {folder.name}
+                                  </span>
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-500">
+                                    {numberFormatter.format(folder.imageCount)}
+                                  </span>
+                                </button>
+
+                                <div className="absolute left-2 top-2 flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => togglePreviewFolderSelection(folder.path)}
+                                    className={cn(
+                                      "flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-500 shadow-sm transition hover:bg-white",
+                                      (folderSelected || folderPartiallySelected) && "text-emerald-700",
+                                    )}
+                                    aria-label={folderSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                  >
+                                    {folderSelected ? (
+                                      <CheckSquare className="h-4 w-4" />
+                                    ) : folderPartiallySelected ? (
+                                      <MinusSquare className="h-4 w-4" />
+                                    ) : (
+                                      <Square className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
+                                        aria-label="إجراءات المجلد"
+                                      >
+                                        <MoreVertical className="h-4 w-4" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-52 text-right">
+                                      <DropdownMenuItem
+                                        onSelect={() => selectPreviewFolder(folder.path, appPreviewMediaTab)}
+                                        className="cursor-pointer text-[12px]"
+                                      >
+                                        <FolderOpen className="h-4 w-4 text-amber-600" />
+                                        فتح المجلد
+                                      </DropdownMenuItem>
+                                      {folder.picAssetId ? (
+                                        <DropdownMenuItem
+                                          onSelect={() => void createPreviewFolder(folder.picAssetId)}
+                                          disabled={creatingPreviewFolder}
+                                          className="cursor-pointer text-[12px]"
+                                        >
+                                          <FolderPlus className="h-4 w-4 text-emerald-600" />
+                                          إنشاء مجلد داخل هذا المجلد
+                                        </DropdownMenuItem>
+                                      ) : null}
+                                      <DropdownMenuItem
+                                        onSelect={() => togglePreviewFolderSelection(folder.path)}
+                                        className="cursor-pointer text-[12px]"
+                                      >
+                                        {folderSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+                                        {folderSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onSelect={() => deleteFolderImages(folder)}
+                                        className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                        حذف صور المجلد
+                                      </DropdownMenuItem>
+                                      {folder.picAssetId ? (
+                                        <DropdownMenuItem
+                                          onSelect={() => void deletePreviewFolder(folder)}
+                                          disabled={deleting}
+                                          className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                          حذف المجلد
+                                        </DropdownMenuItem>
+                                      ) : null}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </article>
+                            );
+                          })}
                         </div>
                       ) : null}
 
@@ -3046,27 +4304,30 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                           : canMutate
                             ? isReportImageIncluded(effective!)
                             : false;
-                        const canDragReorder =
-                          assetImagesSource === "app" &&
-                          previewGridCanReorder &&
+                        const canDragPlace =
                           !displayOnly &&
                           canMutate &&
-                          !isLocalPreviewDriveId(effectiveId!);
+                          Boolean(effectiveId) &&
+                          !isLocalPreviewDriveId(effectiveId!) &&
+                          !reorderSaving;
+                        const canDragReorder = previewGridCanReorder && canDragPlace;
                         return (
                           <div
                             key={file._id}
                             role="listitem"
-                            draggable={canDragReorder}
+                            draggable={canDragPlace}
                             onDragStart={(e: DragEvent) => {
-                              if (!canDragReorder) return;
-                              onDragStartImageReorder(imageIdx);
-                              e.dataTransfer.setData(MV_ASSET_IMAGE_DRAG_KEY, effectiveId!);
-                              e.dataTransfer.effectAllowed = "move";
+                              if (!canDragPlace || !effectiveId) return;
+                              if (canDragReorder) onDragStartImageReorder(imageIdx);
+                              writeAssetDragFileIds(
+                                e,
+                                resolveReportSelectedDragIds(effectiveId, activeContentFiles),
+                              );
                             }}
                             onDragEnd={clearGridDragReorderIntent}
                             onDragOver={(e: DragEvent) => {
                               if (reorderSaving || draggingPreview) return;
-                              if (!Array.from(e.dataTransfer.types).includes(MV_ASSET_IMAGE_DRAG_KEY)) return;
+                              if (!assetDragPayloadActive(e)) return;
                               e.preventDefault();
                               e.stopPropagation();
                               e.dataTransfer.dropEffect = "move";
@@ -3084,7 +4345,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                 void reorderPreviewFolderImagesByDrag(fromIdx, imageIdx);
                                 return;
                               }
-                              const fid = e.dataTransfer.getData(MV_ASSET_IMAGE_DRAG_KEY);
+                              const fids = parseAssetDragFileIds(e);
                               dragReorderFromIdx.current = null;
                               const anchor = activeContentFiles[imageIdx];
                               const anchorEffectiveId =
@@ -3092,23 +4353,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                   ? effectiveDriveFileId(anchor)
                                   : anchor?._id;
                               const anchorEffective = anchorEffectiveId ? filesById.get(anchorEffectiveId) : undefined;
-                              if (!fid || !anchorEffectiveId || !anchorEffective) return;
-                              if (fid === anchorEffectiveId) return;
+                              if (fids.length === 0 || !anchorEffectiveId || !anchorEffective) return;
                               const targetPath = driveFileFolderPath(anchorEffective);
                               if (!targetPath) return;
-                              void placeAssetImage(
-                                fid,
+                              void placeAssetImages(
+                                fids.filter((id) => id !== anchorEffectiveId),
                                 targetPath,
                                 anchorEffectiveId,
-                                assetImagesSource === "app"
-                                  ? (anchorEffective as AssetImageViewFile).picAssetId ?? undefined
-                                  : undefined,
+                                (anchorEffective as AssetImageViewFile).picAssetId ?? undefined,
                               );
                             }}
                             className={cn(
                               "group overflow-hidden rounded-lg border bg-white text-right shadow-sm transition hover:border-emerald-300 hover:shadow-md",
                               imageSelected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200",
-                              canDragReorder && "cursor-grab active:cursor-grabbing",
+                              canDragPlace && "cursor-grab active:cursor-grabbing",
                             )}
                           >
                             <div className="relative">
@@ -3237,6 +4495,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       </MvWorkflowPageScrollBody>
 
+      {activeAssetUploadJob ? (
+        <MvUploadProgressToast
+          phase={activeAssetUploadJob.phase}
+          label={activeAssetUploadJob.label}
+          progress={activeAssetUploadJob.progress}
+          state={activeAssetUploadJob.state}
+          detail={
+            activeAssetUploadJob.total > 0
+              ? activeAssetUploadJob.kind === "folder" && activeAssetUploadJob.folderName
+                ? `المجلد: ${activeAssetUploadJob.folderName} · ${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)}`
+                : `${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)} صورة`
+              : null
+          }
+        />
+      ) : null}
+
       <MvAssetImageFoldersModal
         open={assetImageFoldersModalOpen}
         onOpenChange={setAssetImageFoldersModalOpen}
@@ -3247,6 +4521,141 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         }}
       />
+
+      <Dialog open={assetSearchOpen} onOpenChange={setAssetSearchOpen}>
+        <DialogContent
+          dir="rtl"
+          className="max-h-[88vh] max-w-3xl overflow-hidden rounded-2xl border-slate-200 bg-white p-0 text-right shadow-2xl"
+        >
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+            <DialogTitle className="flex items-center gap-2 text-[16px] font-black text-slate-950">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                <Search className="h-4 w-4" />
+              </span>
+              بحث صور الأصول
+            </DialogTitle>
+            <DialogDescription className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
+              اكتب عبارة البحث أو اختر المضاف مؤخراً، ثم اضغط تطبيق لعرض النتائج في مساحة الصفحة.
+            </DialogDescription>
+          </div>
+
+          <div className="space-y-3 px-5 py-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                ref={assetSearchInputRef}
+                value={assetSearchQuery}
+                onChange={(event) => setAssetSearchQuery(event.target.value)}
+                placeholder="ابحث باسم الأصل، المجلد، الصورة، الشيت، المسار، أو أي معلومة..."
+                className="h-11 rounded-xl border-slate-200 bg-white pr-10 text-[13px] font-semibold shadow-sm focus-visible:ring-emerald-200"
+                dir="auto"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setAssetSearchMode("all")}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-extrabold transition",
+                    assetSearchMode === "all"
+                      ? "bg-white text-slate-950 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800",
+                  )}
+                >
+                  <Search className="h-3.5 w-3.5" />
+                  كل شيء
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssetSearchMode("recent")}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-extrabold transition",
+                    assetSearchMode === "recent"
+                      ? "bg-white text-slate-950 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800",
+                  )}
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  المضاف مؤخراً
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                  {numberFormatter.format(assetSearchStats.folders)} مجلد
+                </span>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                  {numberFormatter.format(assetSearchStats.images)} صورة
+                </span>
+              </div>
+            </div>
+
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => setAssetSearchKind("all")}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-extrabold transition",
+                  assetSearchKind === "all"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800",
+                )}
+              >
+                <Search className="h-3.5 w-3.5" />
+                الكل
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetSearchKind("folder")}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-extrabold transition",
+                  assetSearchKind === "folder"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800",
+                )}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                مجلدات فقط
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetSearchKind("image")}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-lg px-3 text-[11px] font-extrabold transition",
+                  assetSearchKind === "image"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800",
+                )}
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                صور فقط
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-xl border-slate-200 bg-white px-5 text-[12px] font-bold"
+              onClick={() => setAssetSearchOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              className="h-10 min-w-[130px] rounded-xl bg-emerald-700 px-5 text-[12px] font-extrabold text-white hover:bg-emerald-800"
+              onClick={applyAssetSearch}
+              disabled={assetSearchMode === "all" && assetSearchKind === "all" && !assetSearchQuery.trim()}
+            >
+              <Search className="h-4 w-4" />
+              تطبيق البحث
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={lightboxFile != null} onOpenChange={(open) => !open && setLightboxFile(null)}>
         <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden border-0 bg-slate-950 p-0 text-white">
