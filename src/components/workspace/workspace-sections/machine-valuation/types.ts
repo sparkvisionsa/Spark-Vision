@@ -11,6 +11,45 @@ export type MvCellFontFamily =
 
 export type MvCellTextAlign = "start" | "center" | "end";
 
+/** قسم نطاق العمل ضمن قوالب التقرير الافتراضية للشركة. */
+export interface MvCompanyReportScopeDefaults {
+  complianceStatement?: string;
+  independenceStatement?: string;
+  intendedUseStatement?: string;
+  scopeOfWorkDetails?: string;
+  valuationBasisDefinition?: string;
+  valuePremiseDefinition?: string;
+  useRestriction?: string;
+  externalSpecialistUse?: string;
+  esgConsiderations?: string;
+  informationSources?: string;
+}
+
+/** قسم الأصل والمنهجية والمعاينة ضمن قوالب التقرير الافتراضية للشركة. */
+export interface MvCompanyReportMethodologyDefaults {
+  assetSubjectDescription?: string;
+  assetDetailedDescription?: string;
+  methodologyRationale?: string;
+  costApproachDetails?: string;
+  salvageValueDescription?: string;
+  physicalDepreciationDescription?: string;
+  functionalObsolescenceDescription?: string;
+  economicObsolescenceDescription?: string;
+}
+
+/** قسم الافتراضات ضمن قوالب التقرير الافتراضية للشركة. */
+export interface MvCompanyReportAssumptionsDefaults {
+  generalAssumptions?: string;
+  specialAssumptions?: string;
+}
+
+/** قوالب التقرير النهائي الافتراضية على مستوى الشركة. */
+export interface MvCompanyReportDefaults {
+  scope?: MvCompanyReportScopeDefaults;
+  methodology?: MvCompanyReportMethodologyDefaults;
+  assumptions?: MvCompanyReportAssumptionsDefaults;
+}
+
 export interface MvCellStyle {
   backgroundColor?: string;
   textColor?: string;
@@ -37,6 +76,12 @@ export interface MvReportEditableSection {
   id: string;
   title: string;
   body: string;
+  /**
+   * مرتكز يتم بعده إدراج هذا القسم المخصّص (مثل `mv-toc-9` لإدراجه بعد الغرض،
+   * أو `report-cover` للإدراج بعد الغلاف). عند عدم التحديد، يُلحَق في النهاية
+   * قبل المرفقات للحفاظ على التوافق مع المشاريع القديمة.
+   */
+  insertAfterAnchorId?: string;
 }
 
 export type MvReportInsertedBlockKind = "heading" | "paragraph" | "image";
@@ -48,6 +93,20 @@ export interface MvReportInsertedBlock {
   content?: string;
   imageDataUrl?: string;
   caption?: string;
+  /**
+   * Determines whether the block renders BEFORE the section's main narrative
+   * or AFTER it. Inferred at insert time from the click position relative to
+   * the section's body so the block lands roughly where the user clicked.
+   * Defaults to "after" for backwards compatibility.
+   */
+  position?: "before" | "after";
+  /**
+   * صورة: محاذاة على الصفحة. تتيح للمستخدم وضع الصورة في اليمين/المنتصف/اليسار
+   * بدون الحاجة لتغيير ترتيب الكتل.
+   */
+  align?: "start" | "center" | "end";
+  /** صورة: عرض الصورة بالمئة من عرض القسم. */
+  widthPercent?: number;
 }
 
 export interface MvProjectReportData {
@@ -94,8 +153,12 @@ export interface MvProjectReportData {
   currencyLabel?: string;
   methodologyRationale?: string;
   costApproachDetails?: string;
+  /** @deprecated فريق التقييم لم يعد قسماً منفصلاً — يُستعمل صفوف المقيمين والتوقيعات من لوحة الشركة. */
   valuationTeam?: MvReportTeamMember[];
+  /** @deprecated استخدم `generalAssumptions`. يُبقى للتوافق العكسي. */
   importantAssumptions?: string;
+  /** افتراضات عامة (سابقاً «افتراضات مهمة») — تُقرأ من لوحة الشركة افتراضياً. */
+  generalAssumptions?: string;
   specialAssumptions?: string;
   finalValue?: number | null;
   finalValueWords?: string;
@@ -121,6 +184,11 @@ export interface MvProjectReportData {
   reportEditableSections?: MvReportEditableSection[];
   /** كتل مضافة من قائمة النقر داخل صفحات التقرير. */
   reportInsertedBlocks?: MvReportInsertedBlock[];
+  /**
+   * مرتكزات الأقسام المخفية من التقرير (يستخدمها المستخدم لحذف قسم كامل
+   * بدلاً من تصفير قيمه). الترتيب يبقى ثابتاً وما يليها ينزاح للأعلى تلقائياً.
+   */
+  reportHiddenAnchorIds?: string[];
 }
 
 export interface MvProjectLocation {
@@ -133,6 +201,8 @@ export interface MvProjectLocation {
   mapUrl?: string;
   primaryPhone?: string;
   secondaryPhone?: string;
+  /** ملاحظات حرة على موقع المعاينة (دالة بالواجهة بدل الرقم الاحتياطي) */
+  notes?: string;
 }
 
 export type MvProjectContactType = "primary" | "secondary";
@@ -185,6 +255,11 @@ export interface MvProject {
   name: string;
   /** معرّف الشركة (نفس `companies._id`) */
   companyId?: string | null;
+  /**
+   * الرقم التسلسلي للتقرير داخل الشركة (1, 2, 3, ...).
+   * ثابت بعد الإنشاء؛ يُستخدم كمعرّف مرئي للتقرير.
+   */
+  displayNumber?: number | null;
   createdAt: string;
   updatedAt: string;
   subProjectCount?: number;

@@ -46,8 +46,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Building2, Loader2, MoreVertical, PenLine, Plus, Trash2, Upload, Users } from "lucide-react";
+import {
+  Building2,
+  ClipboardList,
+  FileText,
+  Info,
+  Loader2,
+  MoreVertical,
+  PenLine,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Upload,
+  Users,
+} from "lucide-react";
 
 export type CompanyAdminDashboardVariant = "standalone" | "embedded";
 
@@ -70,6 +85,228 @@ type CompanyUserRow = {
   lastLoginAt?: string | null;
   valuationReportSignatureDataUrl?: string | null;
 };
+
+/**
+ * Templates rendered (and editable) on the new "بيانات إعداد التقرير النهائي"
+ * tab. Values feed the report preview as fallback narrative when the project
+ * itself has not provided an override.
+ */
+type CompanyReportDefaultsForm = {
+  scope: {
+    complianceStatement: string;
+    independenceStatement: string;
+    intendedUseStatement: string;
+    scopeOfWorkDetails: string;
+    valuationBasisDefinition: string;
+    valuePremiseDefinition: string;
+    useRestriction: string;
+    externalSpecialistUse: string;
+    esgConsiderations: string;
+    informationSources: string;
+  };
+  methodology: {
+    assetSubjectDescription: string;
+    assetDetailedDescription: string;
+    methodologyRationale: string;
+    costApproachDetails: string;
+    salvageValueDescription: string;
+    physicalDepreciationDescription: string;
+    functionalObsolescenceDescription: string;
+    economicObsolescenceDescription: string;
+  };
+  assumptions: {
+    generalAssumptions: string;
+    specialAssumptions: string;
+  };
+};
+
+function emptyReportDefaults(): CompanyReportDefaultsForm {
+  return {
+    scope: {
+      complianceStatement: "",
+      independenceStatement: "",
+      intendedUseStatement: "",
+      scopeOfWorkDetails: "",
+      valuationBasisDefinition: "",
+      valuePremiseDefinition: "",
+      useRestriction: "",
+      externalSpecialistUse: "",
+      esgConsiderations: "",
+      informationSources: "",
+    },
+    methodology: {
+      assetSubjectDescription: "",
+      assetDetailedDescription: "",
+      methodologyRationale: "",
+      costApproachDetails: "",
+      salvageValueDescription: "",
+      physicalDepreciationDescription: "",
+      functionalObsolescenceDescription: "",
+      economicObsolescenceDescription: "",
+    },
+    assumptions: {
+      generalAssumptions: "",
+      specialAssumptions: "",
+    },
+  };
+}
+
+/**
+ * Reduces inbound API payloads into a fully-populated form so unmounted text
+ * areas never render with `undefined`.
+ */
+function normalizeReportDefaults(
+  raw: Partial<CompanyReportDefaultsForm> | null | undefined,
+): CompanyReportDefaultsForm {
+  const base = emptyReportDefaults();
+  if (!raw) return base;
+  const merge = <T extends Record<string, string>>(target: T, src: Partial<T> | undefined): T => {
+    if (!src) return target;
+    const out = { ...target } as Record<string, string>;
+    for (const key of Object.keys(target)) {
+      const value = src[key as keyof T];
+      if (typeof value === "string") out[key] = value;
+    }
+    return out as T;
+  };
+  return {
+    scope: merge(base.scope, raw.scope as Partial<typeof base.scope> | undefined),
+    methodology: merge(base.methodology, raw.methodology as Partial<typeof base.methodology> | undefined),
+    assumptions: merge(base.assumptions, raw.assumptions as Partial<typeof base.assumptions> | undefined),
+  };
+}
+
+type ReportDefaultsField = {
+  key: string;
+  label: string;
+  helper?: string;
+  rows?: number;
+};
+
+const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
+  {
+    key: "complianceStatement",
+    label: "3.0 الامتثال لمعايير التقييم الدولية",
+    helper: "بيان امتثال التقييم لمعايير IVS وأنظمة الهيئة السعودية للمقيمين المعتمدين (تقييم).",
+    rows: 5,
+  },
+  {
+    key: "independenceStatement",
+    label: "4.0 إقرار بالاستقلالية وعدم تضارب المصالح",
+    helper:
+      "إقرار باستقلالية فريق التقييم — يدعم تعويض {companyName} باسم الشركة تلقائياً عند العرض.",
+    rows: 5,
+  },
+  {
+    key: "intendedUseStatement",
+    label: "10.0 الاستخدام المقصود",
+    helper: "نص افتراضي يصف الجهة المستفيدة وغرض الاستخدام من التقرير.",
+    rows: 4,
+  },
+  {
+    key: "scopeOfWorkDetails",
+    label: "8.0 نطاق العمل",
+    helper:
+      "ما يتم الاتفاق عليه قبل البدء: المقابلات والمعاينة وأبحاث السوق ومراجعة المستندات وما إلى ذلك.",
+    rows: 7,
+  },
+  {
+    key: "valuationBasisDefinition",
+    label: "11.0 أساس القيمة — التعريف الكامل",
+    helper: "تعريف القيمة السوقية أو ما يماثلها وفق معايير IVS.",
+    rows: 5,
+  },
+  {
+    key: "valuePremiseDefinition",
+    label: "12.0 فرضية القيمة — المرجع المعياري",
+    helper: "نص قصير يحيل إلى مرجع IVS لفرضية القيمة.",
+    rows: 2,
+  },
+  {
+    key: "useRestriction",
+    label: "13.0 القيود على الاستخدام أو التوزيع أو النشر",
+    helper: "تحديد الأطراف المصرّح لها بالاستخدام وحدود نشر التقرير.",
+    rows: 5,
+  },
+  {
+    key: "externalSpecialistUse",
+    label: "14.0 الاستعانة بأخصائيين خارجيين",
+    helper: "بيان مدى الاعتماد على متخصصين خارج فريق التقييم.",
+    rows: 4,
+  },
+  {
+    key: "esgConsiderations",
+    label: "15.0 العوامل البيئية والاجتماعية والحوكمة (ESG)",
+    helper: "أثر العوامل البيئية والاجتماعية والحوكمة على رأي القيمة.",
+    rows: 4,
+  },
+  {
+    key: "informationSources",
+    label: "17.0 طبيعة ومصادر المعلومات المعتمد عليها",
+    helper: "المدخلات من العميل، أبحاث السوق، المصادر العامة والمتخصصة، إلخ.",
+    rows: 6,
+  },
+];
+
+const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
+  {
+    key: "assetSubjectDescription",
+    label: "18.0 الأصل محل التقييم — وصف عام",
+    helper: "نص افتراضي يلي العنوان «18.0 الأصل محل التقييم»؛ يُستبدل تلقائياً بالقيم الديناميكية للمشروع.",
+    rows: 4,
+  },
+  {
+    key: "assetDetailedDescription",
+    label: "18.1 الوصف الجزئي",
+    helper: "نص افتراضي يلي العنوان «18.1 الوصف الجزئي» — يُحال إلى المرفقات للتفاصيل.",
+    rows: 5,
+  },
+  {
+    key: "methodologyRationale",
+    label: "21.0 منهجية التقييم والتحليل",
+    rows: 6,
+  },
+  {
+    key: "costApproachDetails",
+    label: "22.0 تطبيق أسلوب التكلفة",
+    rows: 7,
+  },
+  {
+    key: "salvageValueDescription",
+    label: "22.1 القيمة المتبقية (القيمة التخريدية)",
+    rows: 5,
+  },
+  {
+    key: "physicalDepreciationDescription",
+    label: "22.2 الإهلاك المادي",
+    rows: 7,
+  },
+  {
+    key: "functionalObsolescenceDescription",
+    label: "22.3 التقادم الوظيفي",
+    rows: 4,
+  },
+  {
+    key: "economicObsolescenceDescription",
+    label: "22.4 التقادم الاقتصادي",
+    rows: 4,
+  },
+];
+
+const REPORT_DEFAULTS_ASSUMPTIONS_FIELDS: ReportDefaultsField[] = [
+  {
+    key: "generalAssumptions",
+    label: "افتراضات عامة",
+    helper: "افتراضات مهمة عامة تنطبق على كل تقرير — يمكن استبدالها لكل مشروع عند الحاجة.",
+    rows: 10,
+  },
+  {
+    key: "specialAssumptions",
+    label: "افتراضات خاصة",
+    helper: "افتراضات إضافية ترتبط بطبيعة مشاريع الشركة.",
+    rows: 6,
+  },
+];
 
 const ROLE_LABELS: Record<string, string> = {
   company_admin: "مدير الشركة",
@@ -278,6 +515,53 @@ function MemberSignatureCell({
   );
 }
 
+function ReportDefaultsCard({
+  title,
+  description,
+  icon,
+  fields,
+  values,
+  onChange,
+}: {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  fields: ReportDefaultsField[];
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+      <header className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-3.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-[#0C447C] shadow-sm">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-[14px] font-bold text-slate-900">{title}</h3>
+          <p className="mt-0.5 text-[11px] font-medium text-slate-500">{description}</p>
+        </div>
+      </header>
+      <div className="grid gap-4 p-5 lg:grid-cols-2">
+        {fields.map((field) => (
+          <label key={field.key} className="grid gap-2 text-right">
+            <span className="text-[12px] font-bold text-slate-700">{field.label}</span>
+            <Textarea
+              value={values[field.key] ?? ""}
+              onChange={(event) => onChange(field.key, event.target.value)}
+              rows={field.rows ?? 5}
+              dir="rtl"
+              className="min-h-32 rounded-xl border-slate-200 bg-white px-3 py-2 text-[12.5px] font-medium leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100"
+            />
+            {field.helper ? (
+              <span className="text-[10.5px] font-medium leading-5 text-slate-500">{field.helper}</span>
+            ) : null}
+          </label>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdminDashboardVariant }) {
   const { user, csrfToken, loading } = useAuthTracking();
   const [data, setData] = useState<{
@@ -307,6 +591,12 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
   const [editNewPassword, setEditNewPassword] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<CompanyUserRow | null>(null);
   const [userActionBusy, setUserActionBusy] = useState(false);
+
+  const [reportDefaults, setReportDefaults] = useState<CompanyReportDefaultsForm>(() => emptyReportDefaults());
+  const [reportDefaultsLoaded, setReportDefaultsLoaded] = useState(false);
+  const [reportDefaultsSaving, setReportDefaultsSaving] = useState(false);
+  const [reportDefaultsDirty, setReportDefaultsDirty] = useState(false);
+  const [reportDefaultsBaseline, setReportDefaultsBaseline] = useState<CompanyReportDefaultsForm | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -348,6 +638,74 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
       setBrandingBusy(false);
     }
   };
+
+  const loadReportDefaults = useCallback(async () => {
+    try {
+      const payload = await apiJson<{ reportDefaults?: Partial<CompanyReportDefaultsForm> | null }>(
+        "/api/company/admin/report-defaults",
+        csrfToken,
+      );
+      const normalized = normalizeReportDefaults(payload.reportDefaults ?? null);
+      setReportDefaults(normalized);
+      setReportDefaultsBaseline(normalized);
+      setReportDefaultsDirty(false);
+      setReportDefaultsLoaded(true);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "تعذر تحميل قوالب التقرير.");
+    }
+  }, [csrfToken]);
+
+  useEffect(() => {
+    if (!loading && user?.role === "company_admin" && !reportDefaultsLoaded) {
+      void loadReportDefaults();
+    }
+  }, [loadReportDefaults, loading, reportDefaultsLoaded, user?.role]);
+
+  const updateReportDefaultsField = useCallback(
+    (section: keyof CompanyReportDefaultsForm, key: string, value: string) => {
+      setReportDefaults((current) => ({
+        ...current,
+        [section]: { ...current[section], [key]: value },
+      }));
+      setReportDefaultsDirty(true);
+    },
+    [],
+  );
+
+  const persistReportDefaults = useCallback(async () => {
+    setReportDefaultsSaving(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      const payload = await apiJson<{ reportDefaults?: Partial<CompanyReportDefaultsForm> | null }>(
+        "/api/company/admin/report-defaults",
+        csrfToken,
+        {
+          method: "PATCH",
+          body: JSON.stringify(reportDefaults),
+        },
+      );
+      if (payload.reportDefaults) {
+        const normalized = normalizeReportDefaults(payload.reportDefaults);
+        setReportDefaults(normalized);
+        setReportDefaultsBaseline(normalized);
+      } else {
+        setReportDefaultsBaseline(reportDefaults);
+      }
+      setReportDefaultsDirty(false);
+      setStatus("تم حفظ قوالب التقرير.");
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل حفظ القوالب.");
+    } finally {
+      setReportDefaultsSaving(false);
+    }
+  }, [csrfToken, reportDefaults]);
+
+  const resetReportDefaults = useCallback(() => {
+    if (!reportDefaultsBaseline) return;
+    setReportDefaults(reportDefaultsBaseline);
+    setReportDefaultsDirty(false);
+  }, [reportDefaultsBaseline]);
 
   const persistMemberSignature = useCallback(
     async (userId: string, url: string | null) => {
@@ -555,6 +913,12 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
               className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
             >
               المقيمون والتوقيعات
+            </TabsTrigger>
+            <TabsTrigger
+              value="report-defaults"
+              className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+            >
+              بيانات إعداد التقرير النهائي
             </TabsTrigger>
           </TabsList>
 
@@ -767,6 +1131,88 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                   </Table>
                 )}
               </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="report-defaults" className="mt-0 outline-none">
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm md:p-7">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-[#0C447C]">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-[15px] font-bold text-slate-900">قوالب أقسام التقرير النهائي</h2>
+                      <p className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
+                        تُستخدم هذه القوالب كنصوص افتراضية في صفحة «إعداد التقرير» لكل المشاريع داخل الشركة.
+                        البيانات الديناميكية للمشروع (الغرض، الأصل، التواريخ، …) تُدمج تلقائياً في المخرَج النهائي
+                        بأسلوب نصي وعناوين بدلاً من نموذج حقول.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 rounded-xl"
+                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                      onClick={resetReportDefaults}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      تراجع
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-1.5 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
+                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                      onClick={() => void persistReportDefaults()}
+                    >
+                      {reportDefaultsSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      حفظ القوالب
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {!reportDefaultsLoaded ? (
+                <div className="flex items-center justify-center rounded-3xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                </div>
+              ) : (
+                <>
+                  <ReportDefaultsCard
+                    title="نطاق العمل والقيود"
+                    description="القسم 8.0 — 17.0: نطاق العمل، أساس القيمة، قيود الاستخدام والاستعانة بأخصائيين ومصادر المعلومات."
+                    icon={<ClipboardList className="h-5 w-5" />}
+                    fields={REPORT_DEFAULTS_SCOPE_FIELDS}
+                    values={reportDefaults.scope as unknown as Record<string, string>}
+                    onChange={(key, value) => updateReportDefaultsField("scope", key, value)}
+                  />
+                  <ReportDefaultsCard
+                    title="الأصل والمنهجية والمعاينة"
+                    description="القسم 18.0 — 22.0: وصف الأصل، منهجية التقييم، تطبيق أسلوب التكلفة."
+                    icon={<FileText className="h-5 w-5" />}
+                    fields={REPORT_DEFAULTS_METHODOLOGY_FIELDS}
+                    values={reportDefaults.methodology as unknown as Record<string, string>}
+                    onChange={(key, value) => updateReportDefaultsField("methodology", key, value)}
+                  />
+                  <ReportDefaultsCard
+                    title="الافتراضات"
+                    description="القسم 23.0: افتراضات عامة وافتراضات خاصة."
+                    icon={<Info className="h-5 w-5" />}
+                    fields={REPORT_DEFAULTS_ASSUMPTIONS_FIELDS}
+                    values={reportDefaults.assumptions as unknown as Record<string, string>}
+                    onChange={(key, value) => updateReportDefaultsField("assumptions", key, value)}
+                  />
+                </>
+              )}
             </div>
           </TabsContent>
         </Tabs>

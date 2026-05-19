@@ -20,6 +20,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  RefreshCw,
   RotateCcw,
   Save,
   Scissors,
@@ -95,14 +96,15 @@ const IMAGE_ACCEPT = "image/*,.png,.jpg,.jpeg,.webp";
 const CROP_TABLE_SELECTOR = 'table[data-account-crop-table="1"]';
 const DEFAULT_QUALITY_SCALE = 4;
 const DEFAULT_PDF_RENDER_SCALE = 3;
-/** أقل قليلاً من 3.1 لتسريع التحويل مع بقاء الجودة مناسبة للتقرير */
-const PDF_UPLOAD_RENDER_SCALE = 2.1;
-const PDF_UPLOAD_MAX_PAGE_PIXELS = 18_000_000;
-/** صفحات PDF تُعرض بالتوازي (worker واحد لكن عمليات الرسم متوازية) */
-const PDF_PARALLEL_PAGES = 4;
-const PDF_UPLOAD_PARALLEL_UPLOADS = 4;
+/** رسم صفحات PDF المرفوعة — أقل من 2.1 السابق لتقليل زمن الرندر والرفع مع بقاء وضوح مقبول في التقرير */
+const PDF_UPLOAD_RENDER_SCALE = 1.72;
+const PDF_UPLOAD_MAX_PAGE_PIXELS = 16_000_000;
+/** صفحات PDF تُرسم على دفعات متزامنة (كل دفعة = حتى N صفحة) */
+const PDF_PARALLEL_PAGES = 8;
+/** جودة JPEG لصفحات PDF المستخرجة على الخادم — أسرع من PNG وأخف للرفع */
+const PDF_PAGE_EXPORT_JPEG_QUALITY = 0.88;
 /** صور Excel تُولَّد على دفعات لتقليل زمن الانتظار */
-const EXCEL_IMAGE_CONCURRENCY = 2;
+const EXCEL_IMAGE_CONCURRENCY = 4;
 const DEFAULT_EXCEL_ROWS_PER_IMAGE = 15;
 const EXCEL_ROWS_PER_IMAGE_OPTIONS = [5, 10, 15, 20] as const;
 const DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE = 20;
@@ -115,9 +117,24 @@ const EXCEL_PDF_ROW_HEIGHT_PX = 42;
 const EXCEL_PDF_CELL_FONT_PX = 18;
 const EXCEL_PDF_CELL_PAD_X_PX = 12;
 const EXCEL_PDF_CONTENT_PADDING_PX = 2;
-const EXCEL_PDF_RENDER_SCALE = 3;
+/** كان المسار الكامل 3x للـ PNG؛ الحفظ يستخدم EXCEL_PDF_COMMIT_RENDER_SCALE + JPEG */
+const EXCEL_PDF_COMMIT_RENDER_SCALE = 2.35;
+const EXCEL_PDF_COMMIT_JPEG_QUALITY = 0.9;
+/**
+ * Scale used when generating the temporary modal preview after the user picks
+ * an Excel/PDF file. The preview is displayed inside a small dialog, never
+ * stored, and never embedded in the final report — so the heavy 3x sampling
+ * used by the persistent renderer is wasted there. A 1.25x sample combined
+ * with JPEG encoding makes the preview ~10–25× faster to generate.
+ */
+const EXCEL_PDF_PREVIEW_RENDER_SCALE = 1.25;
+/** Quality of the JPEG used for the preview-only render. */
+const EXCEL_PDF_PREVIEW_JPEG_QUALITY = 0.86;
 const EXCEL_PDF_MAX_CANVAS_DIMENSION_PX = 32_000;
 const EXCEL_PDF_MAX_CANVAS_PIXELS = 32_000_000;
+/** Scale used to render the PDF page preview in the upload dialog. The full
+ *  resolution capture happens later when the user commits the upload. */
+const PDF_PREVIEW_RENDER_SCALE = 1.4;
 
 type CropSelection = { x: number; y: number; width: number; height: number };
 type PdfPageImageFile = { file: File; pageNumber: number; pageCount: number };
@@ -192,6 +209,12 @@ function dataUrlToUint8Array(dataUrl: string) {
   return bytes;
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const mimeMatch = /^data:([^;,]+)/.exec(dataUrl);
+  const type = mimeMatch?.[1]?.trim() || "image/png";
+  return new Blob([dataUrlToUint8Array(dataUrl)], { type });
+}
+
 function safeImageFileBaseName(name: string) {
   const base = name.replace(/\.[^.]+$/i, "").trim() || "pdf-page";
   return base.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 110);
@@ -229,7 +252,12 @@ function cropImageFileName(sourceName: string) {
   return `${baseName || "excel-crop"}-crop.png`;
 }
 
-function canvasToPngFile(canvas: HTMLCanvasElement, fileName: string): Promise<File> {
+function canvasToJpegFile(
+  canvas: HTMLCanvasElement,
+  fileName: string,
+  quality: number = PDF_PAGE_EXPORT_JPEG_QUALITY,
+): Promise<File> {
+  const safeName = /\.(jpe?g)$/i.test(fileName) ? fileName : `${fileName.replace(/\.png$/i, "")}.jpg`;
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -237,10 +265,10 @@ function canvasToPngFile(canvas: HTMLCanvasElement, fileName: string): Promise<F
           reject(new Error("تعذر إنشاء صورة من صفحة PDF."));
           return;
         }
-        resolve(new File([blob], fileName, { type: "image/png" }));
+        resolve(new File([blob], safeName, { type: "image/jpeg" }));
       },
-      "image/png",
-      1,
+      "image/jpeg",
+      quality,
     );
   });
 }
@@ -342,7 +370,7 @@ async function renderPdfPageToPngFile(
     padding: Math.max(8, Math.round(10 * scale)),
     threshold: 248,
   });
-  const imageFile = await canvasToPngFile(trimmed.canvas, `${baseName}${suffix}.png`);
+  const imageFile = await canvasToJpegFile(trimmed.canvas, `${baseName}${suffix}.jpg`);
   if (trimmed.cropped) {
     trimmed.canvas.width = 1;
     trimmed.canvas.height = 1;
@@ -385,45 +413,46 @@ async function processPdfToValuationImages(
       }
       if (renderBatch.length === 0) break;
       const rendered = await Promise.all(renderBatch);
-      for (let u = 0; u < rendered.length; u += PDF_UPLOAD_PARALLEL_UPLOADS) {
+      if (control?.shouldStop?.()) break;
+      const ids = await Promise.all(
+        rendered.map((item) =>
+          uploadProjectFileAndReturnId(projectId, item.file, { valuationAccounting: true }),
+        ),
+      );
+      for (let i = 0; i < rendered.length; i += 1) {
         if (control?.shouldStop?.()) break;
-        const chunk = rendered.slice(u, u + PDF_UPLOAD_PARALLEL_UPLOADS);
-        const ids = await Promise.all(chunk.map((item) => uploadProjectFileAndReturnId(projectId, item.file, { valuationAccounting: true })));
-        for (let i = 0; i < chunk.length; i += 1) {
-          if (control?.shouldStop?.()) break;
-          const pageImage = chunk[i]!;
-          const uploadedId = ids[i]!;
-          const pageLabel =
-            pageImage.pageCount > 1
-              ? `${cleanFileName} — صفحة ${pageImage.pageNumber}`
-              : `${cleanFileName} — صورة كاملة`;
-          const image: MvValuationAccountingImage = {
-            id: createId("account-image"),
-            approachId: activeApproach,
-            sourceId: pdfSource.id,
-            sourceKind: "pdf",
-            sourceFileName: cleanFileName,
-            name: `${approachLabel(activeApproach)} - ${pageLabel}`,
-            fileId: uploadedId,
-            createdAt: new Date().toISOString(),
-            displayWidthPercent: 90,
-            displayMaxHeightPx: 1100,
-            qualityScale: PDF_UPLOAD_RENDER_SCALE,
-            includeInReport: true,
-            autoGenerated: true,
-            autoPageIndex: pageImage.pageNumber,
-            autoPageCount: pageImage.pageCount,
-            crop: {
-              pageNumber: pageImage.pageNumber,
-              x: 0,
-              y: 0,
-              width: 1,
-              height: 1,
-            },
-          };
-          out.push(image);
-          control?.onImage?.(image);
-        }
+        const pageImage = rendered[i]!;
+        const uploadedId = ids[i]!;
+        const pageLabel =
+          pageImage.pageCount > 1
+            ? `${cleanFileName} — صفحة ${pageImage.pageNumber}`
+            : `${cleanFileName} — صورة كاملة`;
+        const image: MvValuationAccountingImage = {
+          id: createId("account-image"),
+          approachId: activeApproach,
+          sourceId: pdfSource.id,
+          sourceKind: "pdf",
+          sourceFileName: cleanFileName,
+          name: `${approachLabel(activeApproach)} - ${pageLabel}`,
+          fileId: uploadedId,
+          createdAt: new Date().toISOString(),
+          displayWidthPercent: 90,
+          displayMaxHeightPx: 1100,
+          qualityScale: PDF_UPLOAD_RENDER_SCALE,
+          includeInReport: true,
+          autoGenerated: true,
+          autoPageIndex: pageImage.pageNumber,
+          autoPageCount: pageImage.pageCount,
+          crop: {
+            pageNumber: pageImage.pageNumber,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+          },
+        };
+        out.push(image);
+        control?.onImage?.(image);
       }
       await flushProgress(onProgress, end, pageCount, "تحويل ورفع صفحات PDF");
     }
@@ -450,7 +479,10 @@ async function buildPdfUploadPreview(file: File): Promise<{
   const pdf = await pdfjs.getDocument({ data: bytes }).promise;
   try {
     const page = await pdf.getPage(1);
-    let scale = PDF_UPLOAD_RENDER_SCALE;
+    // The dialog only needs a thumbnail-sized preview — the full-resolution
+    // capture happens later when the user commits the upload, so render at a
+    // light scale here. This shaves a few seconds off heavy PDFs.
+    let scale = PDF_PREVIEW_RENDER_SCALE;
     let viewport = page.getViewport({ scale });
     const pagePixels = viewport.width * viewport.height;
     if (pagePixels > PDF_UPLOAD_MAX_PAGE_PIXELS) {
@@ -470,7 +502,9 @@ async function buildPdfUploadPreview(file: File): Promise<{
       padding: Math.max(8, Math.round(10 * scale)),
       threshold: 248,
     });
-    const previewDataUrl = trimmed.canvas.toDataURL("image/png");
+    // JPEG keeps the modal feeling instant; the final saved image still uses
+    // the high-fidelity pipeline at commit time.
+    const previewDataUrl = trimmed.canvas.toDataURL("image/jpeg", 0.85);
     if (trimmed.cropped) {
       trimmed.canvas.width = 1;
       trimmed.canvas.height = 1;
@@ -1427,12 +1461,19 @@ async function readExcelSheetsForPdf(
   options?: { firstSheetOnly?: boolean; sheetRows?: number },
 ): Promise<ExcelPdfSheet[]> {
   const XLSX = await import("xlsx");
-  const workbook = XLSX.read(await file.arrayBuffer(), {
+  // When we only need the first sheet (preview path), tell SheetJS to skip
+  // parsing the other sheets entirely. On multi-sheet workbooks this is a
+  // major saving — `XLSX.read` would otherwise decode every worksheet.
+  const readOptions: Parameters<typeof XLSX.read>[1] = {
     type: "array",
     cellDates: true,
     raw: false,
-    sheetStubs: true,
-  });
+    sheetStubs: !options?.firstSheetOnly,
+  };
+  if (options?.firstSheetOnly) {
+    (readOptions as Record<string, unknown>).sheets = 0;
+  }
+  const workbook = XLSX.read(await file.arrayBuffer(), readOptions);
 
   const sheets: ExcelPdfSheet[] = [];
   const sheetNames = options?.firstSheetOnly ? workbook.SheetNames.slice(0, 1) : workbook.SheetNames;
@@ -1520,7 +1561,9 @@ function renderExcelPdfPageDataUrl(
   sheet: ExcelPdfSheet,
   rowStart: number,
   rowEnd: number,
+  options?: { preview?: boolean },
 ): string {
+  const preview = options?.preview === true;
   const rows = sheet.rows.slice(Math.max(0, rowStart), Math.max(rowStart + 1, rowEnd));
   const visibleRows = rows.length > 0 ? rows : [Array.from({ length: Math.max(1, sheet.columnCount) }, () => "")];
   const colCount = Math.max(sheet.columnCount, ...visibleRows.map((row) => row.length), 1);
@@ -1530,10 +1573,15 @@ function renderExcelPdfPageDataUrl(
   const measureCtx = measureCanvas.getContext("2d");
   if (!measureCtx) throw new Error("تعذر إنشاء صورة معاينة Excel.");
   measureCtx.font = cellFont;
+  // For previews we measure only the first 8 rows of each column — the
+  // dialog shows a small thumbnail and re-measuring every visible row was a
+  // hidden quadratic cost on big sheets. The persistent renderer keeps the
+  // full per-row measurement so the saved image stays pixel-accurate.
+  const measurementSample = preview ? visibleRows.slice(0, 8) : visibleRows;
   const columnWidths = Array.from({ length: colCount }, (_, index) => {
     const base = sheet.columnWidths[index] ?? EXCEL_PDF_DEFAULT_COLUMN_WIDTH_PX;
     let measured = base;
-    for (const row of visibleRows) {
+    for (const row of measurementSample) {
       const text = row[index] ?? "";
       if (text) {
         measured = Math.max(measured, measureCtx.measureText(text).width + EXCEL_PDF_CELL_PAD_X_PX * 2);
@@ -1549,8 +1597,12 @@ function renderExcelPdfPageDataUrl(
   const tableHeight = Math.max(EXCEL_PDF_ROW_HEIGHT_PX, visibleRows.length * EXCEL_PDF_ROW_HEIGHT_PX);
   const cssWidth = tableWidth + EXCEL_PDF_CONTENT_PADDING_PX * 2 + 1;
   const cssHeight = tableHeight + EXCEL_PDF_CONTENT_PADDING_PX * 2 + 1;
+  // The preview render uses a tiny sample density (1.25x) — that's 5.76× fewer
+  // pixels than the persistent renderer's 3x, which combined with JPEG
+  // encoding below is where most of the wall-clock saving comes from.
+  const targetScale = preview ? EXCEL_PDF_PREVIEW_RENDER_SCALE : EXCEL_PDF_COMMIT_RENDER_SCALE;
   const pixelScale = Math.min(
-    EXCEL_PDF_RENDER_SCALE,
+    targetScale,
     Math.sqrt(EXCEL_PDF_MAX_CANVAS_PIXELS / Math.max(1, cssWidth * cssHeight)),
     EXCEL_PDF_MAX_CANVAS_DIMENSION_PX / Math.max(1, cssWidth),
     EXCEL_PDF_MAX_CANVAS_DIMENSION_PX / Math.max(1, cssHeight),
@@ -1626,7 +1678,20 @@ function renderExcelPdfPageDataUrl(
     tableWidth,
     tableHeight,
   );
-  return canvas.toDataURL("image/png");
+  // JPEG encoding for previews is dramatically faster than PNG on large
+  // canvases (the typical reason "tooks forever to show the modal").
+  if (preview) {
+    const dataUrl = canvas.toDataURL("image/jpeg", EXCEL_PDF_PREVIEW_JPEG_QUALITY);
+    // Free the offscreen canvas pixels immediately so a big workbook doesn't
+    // keep ~tens of MB of bitmap memory around while the modal is open.
+    canvas.width = 1;
+    canvas.height = 1;
+    return dataUrl;
+  }
+  const dataUrl = canvas.toDataURL("image/jpeg", EXCEL_PDF_COMMIT_JPEG_QUALITY);
+  canvas.width = 1;
+  canvas.height = 1;
+  return dataUrl;
 }
 
 function excelPdfPageRanges(sheet: ExcelPdfSheet, rowsPerImage: number) {
@@ -1649,6 +1714,7 @@ async function buildExcelPdfPreviewFromOriginalFile(file: File, rowsPerImage: nu
     firstSheet,
     0,
     Math.min(firstSheet.rows.length, normalizedRows),
+    { preview: true },
   );
   return {
     previewDataUrl,
@@ -1700,7 +1766,7 @@ async function buildExcelPdfFromOriginalFile(
     const drawH = image.naturalHeight * fit;
     pdf.addImage(
       pages[i]!.dataUrl,
-      "PNG",
+      "JPEG",
       (pageW - drawW) / 2,
       (pageH - drawH) / 2,
       drawW,
@@ -1815,7 +1881,7 @@ async function buildAutomaticExcelImages({
           padY,
           qualityScale,
         });
-        const blob = await fetch(dataUrl).then((response) => response.blob());
+        const blob = dataUrlToBlob(dataUrl);
         const pageLabel = job.rangesLength > 1 ? `-${job.pageIndex + 1}-of-${job.rangesLength}` : "";
         const file = new File(
           [blob],
@@ -2560,6 +2626,7 @@ export default function MvValuationAccountingWorkspace({
   const [pendingPreviewNatural, setPendingPreviewNatural] = useState<{ w: number; h: number } | null>(null);
   const [excelPreparingSourceIds, setExcelPreparingSourceIds] = useState<string[]>([]);
   const pendingUploadTokenRef = useRef(0);
+  const pendingUploadPreviewRef = useRef<PendingUploadPreview | null>(null);
   const uploadStopRequestedRef = useRef(false);
 
   const [excelGridOpen, setExcelGridOpen] = useState(false);
@@ -2639,6 +2706,10 @@ export default function MvValuationAccountingWorkspace({
     setPendingPreviewPixelPerfect(false);
     setPendingPreviewZoom(1);
   }, [pendingUploadPreview?.id]);
+
+  useEffect(() => {
+    pendingUploadPreviewRef.current = pendingUploadPreview;
+  }, [pendingUploadPreview]);
 
   const pushFileProcess = useCallback(
     (patch: { phase: string; current: number; total: number; fileName?: string }) => {
@@ -2721,7 +2792,7 @@ export default function MvValuationAccountingWorkspace({
         serverSaveTimerRef.current = setTimeout(() => {
           serverSaveTimerRef.current = null;
           void flushAccountingWorkspaceToServer();
-        }, 650);
+        }, 280);
         return next;
       });
     },
@@ -2733,7 +2804,8 @@ export default function MvValuationAccountingWorkspace({
       clearTimeout(serverSaveTimerRef.current);
       serverSaveTimerRef.current = null;
     }
-    pendingAccountingSaveRef.current = readValuationAccountingStore(projectId);
+    pendingAccountingSaveRef.current =
+      pendingAccountingSaveRef.current ?? readValuationAccountingStore(projectId);
     setEditorSaving(true);
     try {
       await flushAccountingWorkspaceToServer();
@@ -2754,7 +2826,8 @@ export default function MvValuationAccountingWorkspace({
       clearTimeout(serverSaveTimerRef.current);
       serverSaveTimerRef.current = null;
     }
-    pendingAccountingSaveRef.current = readValuationAccountingStore(projectId);
+    pendingAccountingSaveRef.current =
+      pendingAccountingSaveRef.current ?? readValuationAccountingStore(projectId);
     setPreviewSaving(true);
     try {
       await flushAccountingWorkspaceToServer();
@@ -3226,7 +3299,7 @@ export default function MvValuationAccountingWorkspace({
       kind: MvValuationAccountingFileKind,
       selectedFiles: File[],
       targetApproach: MvValuationAccountingApproachId = activeApproach,
-      options?: { originalExcelFiles?: File[] },
+      options?: { originalExcelFiles?: File[]; excelChunkRowsPerPdfPage?: number },
     ) => {
       const files = selectedFiles.filter((file) => file.size > 0);
       if (files.length === 0) return false;
@@ -3343,6 +3416,9 @@ export default function MvValuationAccountingWorkspace({
                 fileName: cleanAccountingText(originalExcelFile.name),
               });
               const storedExcelFileId = await uploadValuationExcelFileAndReturnId(projectId, originalExcelFile);
+              const chunkRows = normalizeExcelPdfRowsPerImage(
+                options?.excelChunkRowsPerPdfPage ?? DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE,
+              );
               const excelDraftSource: MvValuationAccountingSourceFile = {
                 id: createId("account-source"),
                 approachId: targetApproach,
@@ -3353,7 +3429,7 @@ export default function MvValuationAccountingWorkspace({
                 sizeBytes: originalExcelFile.size,
                 createdAt: new Date().toISOString(),
                 fileId: storedExcelFileId,
-                excelRowsPerImage: DEFAULT_EXCEL_ROWS_PER_IMAGE,
+                excelRowsPerImage: Math.min(20, Math.max(5, chunkRows)),
               };
               nextSources.push(excelDraftSource);
               persistStore((current) => ({
@@ -3365,7 +3441,7 @@ export default function MvValuationAccountingWorkspace({
             }
             if (uploadStopRequestedRef.current) break;
             pushFileProcess({
-              phase: originalExcelFile ? "حفظ ملف PDF الناتج من Excel…" : "رفع ملف PDF الأصلي…",
+              phase: originalExcelFile ? "الحسابات في الخادم…" : "حفظ ملف الحسابات في ",
               current: 0,
               total: 0,
               fileName: cleanFileName,
@@ -3476,13 +3552,7 @@ export default function MvValuationAccountingWorkspace({
             ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
           ],
         }));
-        const firstGeneratedImage = nextImages[0] ?? null;
-        if (firstGeneratedImage) {
-          /** بعد رفع Excel/PDF/صورة: نعرض الصورة فقط في معاينة بسيطة
-           *  دون فتح مودال القص تلقائيًا. */
-          setPreviewImage(firstGeneratedImage);
-        }
-        toast({
+        setPreviewImage(null);        toast({
           description:
             kind === "excel"
               ? `تم رفع ${files.length} ملف Excel وتوليد ${generatedExcelImageCount} صورة تلقائياً في ${approachLabel(targetApproach)}.`
@@ -3554,15 +3624,15 @@ export default function MvValuationAccountingWorkspace({
         title: cleanFirstName,
         message:
           kind === "excel"
-            ? "جاري تحويل Excel إلى PDF مؤقت للمعاينة فقط..."
-            : "جاري تجهيز معاينة PDF...",
+            ? "جاري تجهيز صورة الحسابات للمعاينة…"
+            : "جاري تجهيز صورة الحسابات للمعاينة…",
       });
       setUploadingKind(kind);
       setFileProcessOverlay({
         phase:
           kind === "excel"
-            ? "جاري تحويل Excel إلى PDF مؤقت للمعاينة فقط..."
-            : "جاري تجهيز معاينة PDF...",
+            ? "جاري تجهيز صورة الحسابات للمعاينة…"
+            : "جاري تجهيز صورة الحسابات للمعاينة…",
         current: 0,
         total: 0,
         fileName: cleanFirstName,
@@ -3584,8 +3654,8 @@ export default function MvValuationAccountingWorkspace({
             title: cleanFirstName,
             message:
               files.length > 1
-                ? `تم تجهيز عينة من أول ملف. عند المتابعة سيتم حفظ ملفات Excel الأصلية وملفات PDF الناتجة وصور كل الملفات (${files.length}).`
-                : "تم تجهيز عينة الصورة النهائية. عند المتابعة سيتم حفظ ملف Excel الأصلي وملف PDF الناتج وكل الصور.",
+                ? `معاينة سريعة من أول ملف. عدّل عدد الصفوف ثم اضغط «توليد مرة أخرى» إن لزم، وبعدها «الحفظ» لمعالجة كل الملفات (${files.length}).`
+                : "معاينة سريعة للصفحة الأولى. عدّل عدد الصفوف في الصورة ثم «توليد مرة أخرى» أو «الحفظ» لحفظ الملفات وتوليد كل الصور على الخادم.",
             previewDataUrl: preview.previewDataUrl,
             estimatedImageCount: preview.estimatedImageCount,
             sheetName: preview.sheetName,
@@ -3633,31 +3703,25 @@ export default function MvValuationAccountingWorkspace({
         }
       }
     },
-    [
-      excelPreviewCellFont,
-      excelPreviewColMul,
-      excelPreviewHeaderFont,
-      excelPreviewPadX,
-      excelPreviewPadY,
-      excelPreviewRowHeight,
-      qualityScale,
-      toast,
-    ],
+    [toast],
   );
 
   const refreshPendingExcelPreview = useCallback(async () => {
-    const pending = pendingUploadPreview;
+    const pending = pendingUploadPreviewRef.current;
     if (!pending || pending.kind !== "excel" || pending.files.length === 0) return;
+    const token = pendingUploadTokenRef.current + 1;
+    pendingUploadTokenRef.current = token;
     const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
+    const previewId = pending.id;
     setPendingUploadPreview({
       ...pending,
       status: "processing",
-      message: "جاري تحديث معاينة Excel حسب عدد الصفوف...",
+      message: "جاري تحديث صورة الحسابات حسب عدد الصفوف…",
       excelRowsPerImage: rowsPerImage,
     });
     setUploadingKind("excel");
     setFileProcessOverlay({
-      phase: "جاري تحديث معاينة Excel حسب عدد الصفوف...",
+      phase: "جاري تحديث صورة الحسابات حسب عدد الصفوف…",
       current: 0,
       total: 0,
       fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
@@ -3666,15 +3730,16 @@ export default function MvValuationAccountingWorkspace({
     await waitFrame();
     try {
       const preview = await buildExcelPdfPreviewFromOriginalFile(pending.files[0]!, rowsPerImage);
+      if (pendingUploadTokenRef.current !== token) return;
       setPendingUploadPreview((current) =>
-        current?.id === pending.id
+        current?.id === previewId
           ? {
               ...current,
               status: "ready",
               message:
                 current.files.length > 1
-                  ? `تم تحديث العينة. عند المتابعة سيتم حفظ ملفات Excel الأصلية وملفات PDF الناتجة وصور كل الملفات (${current.files.length}).`
-                  : "تم تحديث العينة. عند المتابعة سيتم حفظ ملف Excel الأصلي وملف PDF الناتج وكل الصور.",
+                  ? `تم تحديث المعاينة. اضغط «الحفظ» لمعالجة وحفظ كل الملفات (${current.files.length}).`
+                  : "تم تحديث المعاينة. اضغط «الحفظ» لحفظ الملفات وتوليد كل الصور على الخادم.",
               previewDataUrl: preview.previewDataUrl,
               estimatedImageCount: preview.estimatedImageCount,
               sheetName: preview.sheetName,
@@ -3685,72 +3750,37 @@ export default function MvValuationAccountingWorkspace({
           : current,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "تعذر تحديث معاينة Excel.";
+      if (pendingUploadTokenRef.current !== token) return;
+      const message = error instanceof Error ? error.message : "تعذر تحديث معاينة الحسابات.";
       setPendingUploadPreview((current) =>
-        current?.id === pending.id
-          ? { ...current, status: "error", message, error: message }
-          : current,
+        current?.id === previewId ? { ...current, status: "error", message, error: message } : current,
       );
       toast({ variant: "destructive", description: message });
     } finally {
-      setUploadingKind(null);
-      setFileProcessOverlay(null);
+      if (pendingUploadTokenRef.current === token) {
+        setUploadingKind(null);
+        setFileProcessOverlay(null);
+      }
     }
-  }, [pendingUploadPreview, toast]);
+  }, [toast]);
 
   const handleUpload = useCallback(
     async (kind: MvValuationAccountingFileKind, list: FileList | null) => {
       const files = Array.from(list ?? []).filter((file) => file.size > 0);
       if (files.length === 0) return;
-      if (kind === "image" || kind === "pdf") {
-        await commitUpload(kind, files, activeApproach);
+      if (kind === "excel") {
+        void prepareUploadPreview("excel", files, activeApproach);
         return;
       }
-      const rowsPerImage = DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE;
-      const pdfFiles: File[] = [];
-      try {
-        uploadStopRequestedRef.current = false;
-        setUploadingKind("excel");
-        setFileProcessOverlay({
-          phase: "جاري تحويل Excel ورفع الصور تلقائياً…",
-          current: 0,
-          total: files.length,
-          fileName: cleanAccountingText(files[0]?.name ?? ""),
-          startedAt: Date.now(),
-        });
-        await waitFrame();
-        for (let index = 0; index < files.length; index += 1) {
-          if (uploadStopRequestedRef.current) break;
-          const file = files[index]!;
-          pushFileProcess({
-            phase: "جاري تحويل Excel إلى PDF…",
-            current: index,
-            total: files.length,
-            fileName: cleanAccountingText(file.name),
-          });
-          await waitFrame();
-          const converted = await buildExcelPdfFromOriginalFile(file, { rowsPerImage });
-          pdfFiles.push(converted.pdfFile);
-        }
-        if (uploadStopRequestedRef.current || pdfFiles.length === 0) return;
-        await commitUpload("pdf", pdfFiles, activeApproach, { originalExcelFiles: files });
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر رفع ملف Excel.",
-        });
-      } finally {
-        setUploadingKind(null);
-        setFileProcessOverlay(null);
-      }
+      await commitUpload(kind, files, activeApproach);
     },
-    [activeApproach, commitUpload, pushFileProcess, toast],
+    [activeApproach, commitUpload, prepareUploadPreview],
   );
 
   const continuePendingUpload = useCallback(async () => {
-    const pending = pendingUploadPreview;
+    const pending = pendingUploadPreviewRef.current;
     if (!pending || pending.status !== "ready") return;
-    setPendingUploadPreview({ ...pending, status: "saving", message: "جاري إنشاء كل الصور وحفظها..." });
+    setPendingUploadPreview({ ...pending, status: "saving", message: "جاري حفظ الملفات وتوليد الصور على الخادم…" });
     if (pending.kind === "excel") {
       const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
       const pdfFiles: File[] = [];
@@ -3758,7 +3788,7 @@ export default function MvValuationAccountingWorkspace({
         uploadStopRequestedRef.current = false;
         setUploadingKind("excel");
         setFileProcessOverlay({
-          phase: "جاري إنشاء PDF من Excel...",
+          phase: "جاري تجهيز صور الحسابات للحفظ…",
           current: 0,
           total: pending.files.length,
           fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
@@ -3768,7 +3798,7 @@ export default function MvValuationAccountingWorkspace({
           if (uploadStopRequestedRef.current) break;
           const file = pending.files[index]!;
           pushFileProcess({
-            phase: "جاري إنشاء PDF من Excel...",
+            phase: "جاري تجهيز صور الحسابات للحفظ…",
             current: index,
             total: pending.files.length,
             fileName: cleanAccountingText(file.name),
@@ -3777,7 +3807,7 @@ export default function MvValuationAccountingWorkspace({
           const converted = await buildExcelPdfFromOriginalFile(file, { rowsPerImage });
           pdfFiles.push(converted.pdfFile);
           pushFileProcess({
-            phase: "تم إنشاء PDF من Excel",
+            phase: "تم تجهيز صور الحسابات",
             current: index + 1,
             total: pending.files.length,
             fileName: cleanAccountingText(file.name),
@@ -3786,19 +3816,21 @@ export default function MvValuationAccountingWorkspace({
         }
         if (uploadStopRequestedRef.current) {
           setPendingUploadPreview({ ...pending, status: "ready" });
+          setFileProcessOverlay(null);
+          setUploadingKind(null);
           return;
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "تعذر إنشاء PDF من Excel.";
+        const message = error instanceof Error ? error.message : "تعذر تجهيز صور الحسابات.";
         toast({ variant: "destructive", description: message });
         setPendingUploadPreview({ ...pending, status: "ready", message });
-        return;
-      } finally {
-        setUploadingKind(null);
         setFileProcessOverlay(null);
+        setUploadingKind(null);
+        return;
       }
       const ok = await commitUpload("pdf", pdfFiles, pending.approachId, {
         originalExcelFiles: pending.files,
+        excelChunkRowsPerPdfPage: rowsPerImage,
       });
       if (ok) {
         closePendingUploadPreview();
@@ -3816,7 +3848,7 @@ export default function MvValuationAccountingWorkspace({
       return;
     }
     setPendingUploadPreview({ ...pending, status: "ready" });
-  }, [closePendingUploadPreview, commitUpload, pendingUploadPreview, pushFileProcess, toast]);
+  }, [closePendingUploadPreview, commitUpload, pushFileProcess, toast]);
 
   const applyExcelCapture = useCallback(async () => {
     if (!editorSource || editorSource.kind !== "excel" || !activeSheet) return;
@@ -5217,7 +5249,9 @@ export default function MvValuationAccountingWorkspace({
                       <span className="truncate">{cleanAccountingText(pendingUploadPreview.title)}</span>
                     </DialogTitle>
                     <DialogDescription className="mt-1 text-[12px] font-semibold text-slate-300">
-                      {pendingUploadPreview.message}
+                      {pendingUploadPreview.status === "saving" && fileProcessOverlay
+                        ? fileProcessOverlay.phase
+                        : pendingUploadPreview.message}
                     </DialogDescription>
                   </div>
                   <Button
@@ -5401,25 +5435,83 @@ export default function MvValuationAccountingWorkspace({
                 ) : null}
               </div>
 
-              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-800 bg-slate-950/95 px-3 py-3 sm:px-4">
-                <p className="min-w-0 flex-1 text-[11px] font-semibold text-slate-400">
-                  المعالجة تتم تلقائياً بعد اختيار الملف.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 border-slate-700 bg-slate-900 px-3 text-[12px] text-white hover:bg-slate-800"
-                  onClick={closePendingUploadPreview}
-                >
-                  إغلاق
-                </Button>
+              <div className="flex shrink-0 flex-col border-t border-slate-800 bg-slate-950/95">
+                {pendingUploadPreview.status === "saving" && fileProcessOverlay ? (
+                  <div className="px-3 pb-3 pt-3 sm:px-4">
+                    <MvUploadProgressToast
+                      variant="embedded"
+                      phase={fileProcessOverlay.phase}
+                      label={
+                        fileProcessOverlay.fileName
+                          ? cleanAccountingText(fileProcessOverlay.fileName)
+                          : "معالجة الملفات"
+                      }
+                      progress={
+                        fileProcessOverlay.total > 0
+                          ? Math.min(
+                              100,
+                              Math.round((fileProcessOverlay.current / fileProcessOverlay.total) * 100),
+                            )
+                          : 8
+                      }
+                      state="uploading"
+                      detail={
+                        fileProcessOverlay.total > 0
+                          ? `${fileProcessOverlay.current} / ${fileProcessOverlay.total}`
+                          : null
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-end gap-2 px-3 py-3 sm:px-4">
+                    <p className="w-full text-[11px] font-semibold text-slate-400 sm:w-auto sm:min-w-0 sm:flex-1">
+                      {pendingUploadPreview.kind === "excel" ? (
+                        <>عدّل «صفوف الصورة» ثم «توليد مرة أخرى» إن لزم، وبعدها «الحفظ».</>
+                      ) : (
+                        <>عند «الحفظ» تُجرى المعالجة الكاملة على الخادم.</>
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 border-slate-700 bg-slate-900 px-3 text-[12px] text-white hover:bg-slate-800"
+                      onClick={closePendingUploadPreview}
+                    >
+                      إغلاق
+                    </Button>
+                    {pendingUploadPreview.kind === "excel" ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 gap-1.5 border border-slate-600 bg-slate-800 px-3 text-[12px] font-bold text-white hover:bg-slate-700 disabled:opacity-50"
+                        disabled={
+                          pendingUploadPreview.status === "processing" ||
+                          pendingUploadPreview.status === "saving" ||
+                          pendingUploadPreview.status === "error"
+                        }
+                        onClick={() => void refreshPendingExcelPreview()}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                        توليد مرة أخرى
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      className="h-9 min-w-[7.5rem] gap-1 bg-emerald-600 px-4 text-[12px] font-black text-white hover:bg-emerald-700 disabled:opacity-50"
+                      disabled={pendingUploadPreview.status !== "ready"}
+                      onClick={() => void continuePendingUpload()}
+                    >
+                      الحفظ
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           ) : null}
         </DialogContent>
       </Dialog>
 
-      {fileProcessOverlay ? (
+      {fileProcessOverlay && !pendingUploadPreview ? (
         <MvUploadProgressToast
           phase={fileProcessOverlay.phase}
           label={

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import {
   Download,
@@ -33,8 +34,40 @@ import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { MvEmptyState, MvTopBar } from "./mv-ui";
 import { MvProjectFoldersMenu } from "./mv-simple-report-navigation";
 import type { MvDriveFile, MvProject, MvSubProject } from "./types";
-import { MvPicAssetPanel } from "./mv-pic-asset-panel";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+
+/** تحميل كسول لتقليل حجم الحزمة عند مستكشف الملفات الذي لا يعرض لوحة الصور فورًا */
+const MvPicAssetPanel = dynamic(
+  () => import("./mv-pic-asset-panel").then((m) => ({ default: m.MvPicAssetPanel })),
+  {
+    loading: () => (
+      <section className="rounded-2xl border border-slate-200/70 bg-white px-4 py-6 text-center text-[11px] text-slate-500 shadow-sm">
+        جاري تحميل لوحة الصور…
+      </section>
+    ),
+    ssr: false,
+  },
+);
+
+/**
+ * الشريط العلوي داخل مساحة عمل تقييم الآلات يكون `sticky top-14` افتراضيًا لمطابقة
+ * شريط التطبيق — لكن منطقة التمرير الفعلية تبدأ أسفله، فيتضاعف الإزاحة ويُغطي المحتوى.
+ * نظل على `sticky top=0` داخل حاوية التمرير تمامًا كجدول المشاريع.
+ */
+function DriveExplorerStickyTopBar({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "sticky top-0 z-30 shrink-0 border-b",
+        "bg-[var(--color-background-primary)]/95 shadow-[0_1px_0_0_rgba(15,23,42,0.06)] backdrop-blur",
+        "supports-[backdrop-filter]:bg-[var(--color-background-primary)]/85",
+      )}
+      style={{ borderColor: "var(--color-border-tertiary)" }}
+    >
+      {children}
+    </div>
+  );
+}
 
 interface MvDriveExplorerProps {
   projectId: string;
@@ -127,7 +160,8 @@ export default function MvDriveExplorer({
   const rootExplorerHref = `/machine-valuation/${projectId}/files`;
 
   const load = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; signal?: AbortSignal }) => {
+      const signal = opts?.signal;
       try {
         if (!opts?.silent) setLoading(true);
 
@@ -142,15 +176,17 @@ export default function MvDriveExplorer({
         const detailPromise = currentSubProjectId
           ? fetch(
               `/api/mv/projects/${projectId}/subprojects/${encodeURIComponent(currentSubProjectId)}`,
-              { credentials: "include" },
+              { credentials: "include", signal },
             )
           : Promise.resolve(null as Response | null);
 
         const [projectRes, filesRes, subDetailRes] = await Promise.all([
-          fetch(projectUrl, { credentials: "include" }),
-          fetch(`/api/mv/projects/${projectId}/files${filesQuery}`, { credentials: "include" }),
+          fetch(projectUrl, { credentials: "include", signal }),
+          fetch(`/api/mv/projects/${projectId}/files${filesQuery}`, { credentials: "include", signal }),
           detailPromise,
         ]);
+
+        if (signal?.aborted) return;
 
         if (projectRes.ok) {
           try {
@@ -158,12 +194,14 @@ export default function MvDriveExplorer({
               project: MvProject;
               subProjects: MvSubProject[];
             };
-            setProject(projectData.project);
-            setSubProjects(projectData.subProjects ?? []);
+            if (!signal?.aborted) {
+              setProject(projectData.project);
+              setSubProjects(projectData.subProjects ?? []);
+            }
           } catch {
             /* non-JSON or parse error — keep prior state */
           }
-        } else {
+        } else if (!signal?.aborted) {
           setProject(null);
           setSubProjects([]);
         }
@@ -171,25 +209,37 @@ export default function MvDriveExplorer({
         if (subDetailRes && subDetailRes.ok) {
           try {
             const row = (await subDetailRes.json()) as MvSubProject;
-            setActiveFolderDetail(row);
+            if (!signal?.aborted) setActiveFolderDetail(row);
           } catch {
-            setActiveFolderDetail(null);
+            if (!signal?.aborted) setActiveFolderDetail(null);
           }
-        } else {
+        } else if (!signal?.aborted) {
           setActiveFolderDetail(null);
         }
 
         if (filesRes.ok) {
           try {
-            setFiles((await filesRes.json()) as MvDriveFile[]);
+            const rows = (await filesRes.json()) as MvDriveFile[];
+            if (!signal?.aborted) setFiles(rows);
           } catch {
-            setFiles([]);
+            if (!signal?.aborted) setFiles([]);
           }
-        } else {
+        } else if (!signal?.aborted) {
           setFiles([]);
         }
+      } catch (e) {
+        const aborted =
+          (e instanceof DOMException && e.name === "AbortError") ||
+          (e instanceof Error && e.name === "AbortError");
+        if (aborted) return;
+        if (!opts?.silent && !signal?.aborted) {
+          setProject(null);
+          setSubProjects([]);
+          setFiles([]);
+          setActiveFolderDetail(null);
+        }
       } finally {
-        if (!opts?.silent) setLoading(false);
+        if (!opts?.silent && !signal?.aborted) setLoading(false);
       }
     },
     [currentSubProjectId, projectId],
@@ -205,7 +255,9 @@ export default function MvDriveExplorer({
   }, [load]);
 
   useEffect(() => {
-    void load();
+    const ac = new AbortController();
+    void load({ signal: ac.signal });
+    return () => ac.abort();
   }, [load]);
 
   const currentFolder = useMemo(() => {
@@ -270,6 +322,11 @@ export default function MvDriveExplorer({
       ? `/machine-valuation/${projectId}/${currentFolder.parent}`
       : rootExplorerHref;
   }, [currentFolder, projectId, rootExplorerHref]);
+
+  const foldersMenuTrailing = useMemo(
+    () => <MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />,
+    [projectId, rootFolders],
+  );
 
   const handleCreateFolder = useCallback(
     async (name: string) => {
@@ -411,9 +468,11 @@ export default function MvDriveExplorer({
 
   if (loading) {
     return (
-      <div className="min-h-screen" dir="rtl">
-        <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" />
-        <div className="space-y-2 px-3 py-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+        <DriveExplorerStickyTopBar>
+          <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" sticky={false} />
+        </DriveExplorerStickyTopBar>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
           <div className="h-9 animate-pulse rounded-xl bg-white/80" />
           <div className="h-28 animate-pulse rounded-xl bg-white/80" />
           <div className="h-52 animate-pulse rounded-xl bg-white/80" />
@@ -424,17 +483,20 @@ export default function MvDriveExplorer({
 
   if (currentSubProjectId && !currentFolder) {
     return (
-      <div className="min-h-screen bg-[var(--color-background-primary)]" dir="rtl">
-        <MvTopBar
-          breadcrumbs={[
-            { label: project?.name ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
-            { label: "ملفات المشروع", href: rootExplorerHref },
-            { label: "غير موجود" },
-          ]}
-          saveState="idle"
-          trailing={<MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />}
-        />
-        <div className="px-3 py-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+        <DriveExplorerStickyTopBar>
+          <MvTopBar
+            breadcrumbs={[
+              { label: project?.name ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
+              { label: "ملفات المشروع", href: rootExplorerHref },
+              { label: "غير موجود" },
+            ]}
+            saveState="idle"
+            sticky={false}
+            trailing={<MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />}
+          />
+        </DriveExplorerStickyTopBar>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <MvEmptyState
             icon={<FolderOpen className="h-6 w-6" />}
             title="المجلد غير موجود"
@@ -455,15 +517,21 @@ export default function MvDriveExplorer({
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-background-primary)]" dir="rtl">
-      <MvTopBar
-        breadcrumbs={breadcrumbs}
-        saveState={uploading ? "saving" : "idle"}
-        trailing={<MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />}
-      />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+      <DriveExplorerStickyTopBar>
+        <MvTopBar
+          breadcrumbs={breadcrumbs}
+          saveState={uploading ? "saving" : "idle"}
+          sticky={false}
+          trailing={foldersMenuTrailing}
+        />
+      </DriveExplorerStickyTopBar>
 
       <div
-        className={cn("mx-auto max-w-7xl space-y-2.5 px-3 py-2.5 transition", dragging && "scale-[1.003]")}
+        className={cn(
+          "mx-auto min-h-0 w-full max-w-7xl flex-1 space-y-2.5 overflow-y-auto overflow-x-hidden px-3 py-2.5 transition",
+          dragging && "scale-[1.003]",
+        )}
         onDragOver={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -574,22 +642,24 @@ export default function MvDriveExplorer({
 
         <section className="rounded-2xl border border-slate-200/80 bg-white p-2.5 shadow-sm">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              <Link
-                href={`/machine-valuation/${projectId}/inspector-files`}
-                className="group flex rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50/95 to-white p-3 shadow-sm transition hover:border-violet-300 hover:shadow-md"
-              >
-                <div className="flex w-full items-start gap-2 text-right">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700 ring-1 ring-violet-200/80">
-                    <Folder className="h-5 w-5 fill-current" />
+              {!currentSubProjectId ? (
+                <Link
+                  href={`/machine-valuation/${projectId}/inspector-files`}
+                  className="group flex rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50/95 to-white p-3 shadow-sm transition hover:border-violet-300 hover:shadow-md"
+                >
+                  <div className="flex w-full items-start gap-2 text-right">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700 ring-1 ring-violet-200/80">
+                      <Folder className="h-5 w-5 fill-current" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[12px] font-bold text-violet-950">ملفات المعاين</p>
+                      <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-violet-800/90">
+                        صور وملفات المعاين الميداني — من هنا أو من قائمة مجلدات المشروع
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-bold text-violet-950">ملفات المعاين</p>
-                    <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-violet-800/90">
-                      صور وملفات المعاين الميداني — افتح من هنا
-                    </p>
-                  </div>
-                </div>
-              </Link>
+                </Link>
+              ) : null}
               {childFolders.map((folder) => (
                 <div
                   key={folder._id}
@@ -715,7 +785,9 @@ export default function MvDriveExplorer({
               })}
               {childFolders.length === 0 && files.length === 0 ? (
                 <div className="col-span-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-[11px] text-slate-500">
-                  لا مجلدات ولا ملفات في هذا الموقع — يمكنك فتح «ملفات المعاين» أعلاه أو إنشاء مجلد.
+                  {currentSubProjectId
+                    ? "لا مجلدات فرعية ولا ملفات هنا بعد — أنشئ مجلدًا أو ارفع ملفات من الأعلى."
+                    : "لا مجلدات ولا ملفات بعد — يمكن إنشاء مجلد، أو الدخول لملفات المعاين من البطاقة أعلاه."}
                 </div>
               ) : null}
             </div>

@@ -84,16 +84,8 @@ export function hasMeaningfulSimpleReportData(
       data.clientRepresentativeName ||
       data.intendedUsers ||
       data.intendedUse ||
-      data.valuationFirmName ||
-      data.leadValuerName ||
-      data.scopeOfWorkDetails ||
-      data.informationSources ||
-      data.assetSubjectDescription ||
       data.inspectionLocation ||
-      data.methodologyRationale ||
-      (Array.isArray(data.valuationTeam) && data.valuationTeam.length > 0) ||
-      data.importantAssumptions ||
-      data.specialAssumptions ||
+      data.inspectionMapUrl ||
       data.finalValue != null,
   );
 }

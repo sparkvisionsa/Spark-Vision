@@ -13,6 +13,8 @@ export interface MvProjectContactForm {
 export interface MvProjectInspectionSiteForm extends MvProjectContactForm {
   id: string;
   name: string;
+  /** ملاحظات على موقع المعاينة؛ تُحفظ ضمن المواقع ولا يُحمَّل إلى جهات اتصال ثانوية. */
+  notes: string;
 }
 
 export interface MvProjectResolvedLocation {
@@ -45,6 +47,18 @@ const INSPECTION_SITE_ORDINALS = [
   "التاسع",
   "العاشر",
 ];
+
+/** لترقيم المواقع العربي الأول / الثاني / … في وسوم النماذج. */
+export function inspectionSiteOrdinalWord(index: number): string {
+  return INSPECTION_SITE_ORDINALS[index] ?? `رقم ${index + 1}`;
+}
+
+/** تسمية حقل الاسم الذي يعبِّر عن المواقع ديناميكياً. */
+export function siteDescriptionFieldLabel(index: number): string {
+  return `وصف الموقع ${inspectionSiteOrdinalWord(index)}`;
+}
+
+const INSPECTION_SITE_NOTES_MAX = 2000;
 
 function textValue(value: unknown, maxLength: number): string {
   if (value == null) return "";
@@ -195,6 +209,7 @@ export function normalizeProjectLocation(raw: unknown): MvProjectLocation {
       record.secondaryPhone ?? record.secondaryContactPhone ?? record.backupPhone ?? record.alternatePhone,
       60,
     ) || undefined,
+    notes: textValue(record.notes ?? record.note, INSPECTION_SITE_NOTES_MAX) || undefined,
   };
 }
 
@@ -247,6 +262,7 @@ export function createProjectInspectionSiteForm(index = 0): MvProjectInspectionS
     id: createDraftInspectionSiteId(),
     name: defaultInspectionSiteName(index),
     ...EMPTY_PROJECT_CONTACT_FORM,
+    notes: "",
   };
 }
 
@@ -269,6 +285,7 @@ export function projectContactDataFromForm(form: MvProjectContactForm): {
       id: "single",
       name: defaultInspectionSiteName(0),
       ...form,
+      notes: "",
     },
   ]);
 }
@@ -342,7 +359,11 @@ export function projectInspectionSitesFromData(
       longitude: formatCoordinate(location?.longitude),
       mapUrl: location?.mapUrl ?? "",
       primaryPhone: primary?.phone ?? location?.primaryPhone ?? "",
-      secondaryPhone: secondary?.phone ?? location?.secondaryPhone ?? "",
+      secondaryPhone: "",
+      notes:
+        typeof location?.notes === "string" && location.notes.trim()
+          ? textValue(location.notes, INSPECTION_SITE_NOTES_MAX)
+          : "",
     };
   });
 }
@@ -363,7 +384,7 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
     const siteId = textValue(form.id, 80) || createInspectionSiteId(index);
     const name = textValue(form.name, 120) || defaultInspectionSiteName(index);
     const primaryPhone = textValue(form.primaryPhone, 60);
-    const secondaryPhone = textValue(form.secondaryPhone, 60);
+    const notes = textValue(form.notes ?? "", INSPECTION_SITE_NOTES_MAX);
     const hasSiteData =
       region ||
       city ||
@@ -371,7 +392,7 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
       longitude !== null ||
       mapUrl ||
       primaryPhone ||
-      secondaryPhone ||
+      notes ||
       name !== defaultInspectionSiteName(index);
 
     if (!hasSiteData) return;
@@ -386,13 +407,10 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
       longitude,
       ...(mapUrl ? { mapUrl } : {}),
       ...(primaryPhone ? { primaryPhone } : {}),
-      ...(secondaryPhone ? { secondaryPhone } : {}),
+      ...(notes ? { notes } : {}),
     });
     if (primaryPhone) {
       contacts.push({ type: "primary", phone: primaryPhone, locationId: siteId, locationIndex, locationName: name });
-    }
-    if (secondaryPhone) {
-      contacts.push({ type: "secondary", phone: secondaryPhone, locationId: siteId, locationIndex, locationName: name });
     }
   });
 

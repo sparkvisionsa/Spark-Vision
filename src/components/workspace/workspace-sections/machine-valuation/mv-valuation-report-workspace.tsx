@@ -12,16 +12,22 @@ import {
   type RefObject,
 } from "react";
 import {
-  ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   ClipboardList,
+  Download,
   Eye,
   FileText,
   ImageIcon,
+  ListTree,
   Loader2,
+  PencilRuler,
   RotateCcw,
   Ruler,
   Save,
   Settings2,
+  Sliders,
+  X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -52,7 +58,7 @@ import {
   type MvValuationAccountingStore,
 } from "./mv-valuation-accounting-store";
 import { MvReportImagesControlPanel } from "./mv-report-images-control-panel";
-import { mvAutoPdfDownloadStorageKey } from "./mv-home-routes";
+import { mvAutoPdfDownloadStorageKey, postReportPdfExportToParent } from "./mv-home-routes";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
@@ -77,6 +83,15 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
       transform: none !important;
       filter: none !important;
       transition: none !important;
+      -webkit-font-smoothing: antialiased !important;
+      -moz-osx-font-smoothing: grayscale !important;
+    }
+    [data-mv-report-sheet] * {
+      -webkit-font-smoothing: antialiased !important;
+    }
+    [data-mv-report-sheet] img,
+    [data-mv-report-sheet] picture img {
+      image-rendering: auto !important;
     }
   `;
   clonedDoc.head.appendChild(stableCaptureStyle);
@@ -126,6 +141,23 @@ function getSheetPixelBox(el: HTMLElement) {
   const w = Math.max(Math.ceil(rect.width), 1);
   const h = Math.max(Math.ceil(rect.height), 1);
   return { w, h };
+}
+
+/**
+ * دقة لقطة الشاشة لمخرجات PDF: أعلى scale يعني نصًا وألوانًا أوضح (وملفًا أكبر وحملًا أكبر على الذاكرة).
+ * يُقيَّد عند ورق ضخمة جدًا بالبيكسل لتفادي تجاوز حد المتصفح/العملية.
+ */
+const REPORT_PDF_CAPTURE_SCALE_PORTRAIT = 3.05;
+const REPORT_PDF_CAPTURE_SCALE_LANDSCAPE = 2.92;
+/** ~١٢–٥٠ مليون بكسل تقليدياً آمِن على سطح المكتب الحديث */
+const REPORT_PDF_CAPTURE_MAX_MEGAPIXELS = 48;
+
+function resolveReportPdfCaptureScale(boxW: number, boxH: number, landscape: boolean): number {
+  const preferred = landscape ? REPORT_PDF_CAPTURE_SCALE_LANDSCAPE : REPORT_PDF_CAPTURE_SCALE_PORTRAIT;
+  const areaPixels = Math.max(1, boxW * boxH);
+  const cap = Math.sqrt((REPORT_PDF_CAPTURE_MAX_MEGAPIXELS * 1_000_000) / areaPixels);
+  const next = Math.max(1.65, Math.min(preferred, cap));
+  return Math.round(next * 1000) / 1000;
 }
 
 function prepareReportCaptureLayout(root: HTMLElement) {
@@ -203,31 +235,18 @@ function prepareReportCaptureLayout(root: HTMLElement) {
   };
 }
 
-const REPORT_IMAGE_DOWNLOAD_CONCURRENCY = 2;
-const REPORT_IMAGE_RETRY_DELAYS_MS = [650, 1400, 2800, 5200];
-const REPORT_READY_ANIMATION_SETTLE_MS = 160;
-const REPORT_INITIAL_IMAGE_WAIT_MS = 900;
-const REPORT_INITIAL_FONT_WAIT_MS = 700;
-const REPORT_BACKGROUND_IMAGE_WARM_DELAY_MS = 1800;
+/**
+ * Concurrency for parallel image downloads. Higher values shave seconds off
+ * initial preview load when the asset gallery has many photos.
+ */
+const REPORT_IMAGE_DOWNLOAD_CONCURRENCY = 8;
+const REPORT_IMAGE_RETRY_DELAYS_MS = [400, 900, 1800, 3400];
+const REPORT_BACKGROUND_IMAGE_WARM_DELAY_MS = 40;
 const reportImageObjectUrlCache = new Map<string, string>();
 const reportImagePromiseCache = new Map<string, Promise<string>>();
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
-  let timer: number | null = null;
-  try {
-    await Promise.race([
-      promise.catch(() => undefined),
-      new Promise<void>((resolve) => {
-        timer = window.setTimeout(resolve, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer != null) window.clearTimeout(timer);
-  }
 }
 
 function normalizeReportImageSrc(rawSrc: string) {
@@ -461,8 +480,9 @@ function ReportViewportFit({
           dir="rtl"
           className="inline-block align-top will-change-transform"
           style={{
-            transform: `scale(${layout.s})`,
+            transform: `translateZ(0) scale(${layout.s})`,
             transformOrigin: "top left",
+            backfaceVisibility: "hidden",
           }}
         >
           {children}
@@ -587,32 +607,65 @@ function ReportTocItem({
   icon,
   title,
   onClick,
+  collapsed = false,
 }: {
   active: boolean;
   icon: ReactNode;
   title: string;
   onClick: () => void;
+  collapsed?: boolean;
 }) {
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+        className={cn(
+          "group relative mx-auto flex h-7 w-7 items-center justify-center rounded-md transition",
+          active
+            ? "bg-[#0C447C] text-white shadow-sm ring-1 ring-[#0C447C]/40"
+            : "text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
+        )}
+      >
+        <span className="[&_svg]:h-3 [&_svg]:w-3">{icon}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "group flex w-full items-center gap-1.5 rounded-lg border px-2 py-1.5 text-right transition-colors duration-200",
+        "group relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-right transition",
         active
-          ? "border-sky-300 bg-sky-50 text-sky-950"
-          : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white",
+          ? "bg-sky-50 text-[#0a1f33]"
+          : "text-slate-600 hover:bg-slate-50/80 hover:text-slate-900",
       )}
     >
+      {active ? (
+        <span
+          className="absolute right-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-[#0C447C]"
+          aria-hidden
+        />
+      ) : null}
       <span
         className={cn(
           "flex h-5 w-5 shrink-0 items-center justify-center rounded",
-          active ? "bg-sky-800 text-white" : "bg-slate-100 text-slate-500",
+          active ? "bg-[#0C447C] text-white" : "bg-slate-100 text-slate-500",
         )}
       >
         {icon}
       </span>
-      <span className="min-w-0 truncate text-[11px] font-extrabold">{title}</span>
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate text-[10.5px] leading-snug",
+          active ? "font-black" : "font-bold",
+        )}
+      >
+        {title}
+      </span>
     </button>
   );
 }
@@ -633,15 +686,21 @@ function ControlSlider({
   min: number;
   max: number;
   step: number;
-  suffix: string;
+  suffix?: string;
   onChange: (value: number) => void;
 }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   return (
-    <label className="grid min-w-0 flex-1 gap-1 rounded-lg border border-slate-200/70 bg-white px-2 py-1.5 text-right shadow-sm transition hover:border-slate-300">
-      <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
-        <span className="text-sky-800 opacity-90 [&_svg]:h-3 [&_svg]:w-3">{icon}</span>
-        <span className="min-w-0 truncate leading-tight">{label}</span>
+    <label className="grid min-w-0 gap-1 rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-right transition hover:border-slate-300">
+      <span className="flex items-center justify-between gap-2 text-[10px] font-bold text-slate-600">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="text-[#0C447C] opacity-80 [&_svg]:h-3 [&_svg]:w-3">{icon}</span>
+          <span className="min-w-0 truncate leading-tight">{label}</span>
+        </span>
+        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-black tabular-nums text-[#0C447C]">
+          {Math.round(value)}
+          {suffix ?? ""}
+        </span>
       </span>
       <div className="flex items-center gap-2">
         <Slider
@@ -667,9 +726,8 @@ function ControlSlider({
             const n = Number(e.target.value);
             if (Number.isFinite(n)) onChange(clamp(n));
           }}
-          className="h-8 w-[3.25rem] shrink-0 rounded-lg border border-slate-200 bg-white px-1 text-center text-[11px] font-black tabular-nums text-sky-950 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
+          className="h-7 w-[3rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 text-center text-[10.5px] font-black tabular-nums text-[#0C447C] outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
         />
-        <span className="w-8 shrink-0 text-center text-[10px] font-bold text-slate-500">{suffix}</span>
       </div>
     </label>
   );
@@ -683,6 +741,14 @@ type ReportLayoutPrefs = {
   imageInnerGap: number;
   assetImageWidth: number;
   valuationImageWidth: number;
+  /** نصف قطر حواف الصور (px). 0 = حواف حادة. */
+  imageCornerRadius: number;
+  /** ارتفاع السطر داخل الفقرات (×). */
+  paragraphLineHeight: number;
+  /** مقياس حجم خط عناوين الأقسام (×). */
+  headingScale: number;
+  /** قوة ظل الصور (0 = بدون ظل، 1..4 = مستويات تدرج). */
+  imageShadow: number;
 };
 
 type ValuationReportSessionBundle = {
@@ -711,6 +777,10 @@ const defaultReportLayout: ReportLayoutPrefs = {
   imageInnerGap: 4,
   assetImageWidth: 32,
   valuationImageWidth: 86,
+  imageCornerRadius: 6,
+  paragraphLineHeight: 1.75,
+  headingScale: 1,
+  imageShadow: 0,
 };
 
 const legacyDefaultReportLayout: ReportLayoutPrefs = {
@@ -721,6 +791,10 @@ const legacyDefaultReportLayout: ReportLayoutPrefs = {
   imageInnerGap: 4,
   assetImageWidth: 32,
   valuationImageWidth: 86,
+  imageCornerRadius: 0,
+  paragraphLineHeight: 1.75,
+  headingScale: 1,
+  imageShadow: 0,
 };
 
 function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | undefined): ReportLayoutPrefs {
@@ -739,6 +813,10 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
     imageInnerGap: n("imageInnerGap", defaultReportLayout.imageInnerGap),
     assetImageWidth: n("assetImageWidth", defaultReportLayout.assetImageWidth),
     valuationImageWidth: n("valuationImageWidth", defaultReportLayout.valuationImageWidth),
+    imageCornerRadius: n("imageCornerRadius", defaultReportLayout.imageCornerRadius),
+    paragraphLineHeight: n("paragraphLineHeight", defaultReportLayout.paragraphLineHeight),
+    headingScale: n("headingScale", defaultReportLayout.headingScale),
+    imageShadow: n("imageShadow", defaultReportLayout.imageShadow),
   };
   const isLegacyDefault = (Object.keys(legacyDefaultReportLayout) as (keyof ReportLayoutPrefs)[]).every(
     (key) => layout[key] === legacyDefaultReportLayout[key],
@@ -760,15 +838,26 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const draftModeOverrideRef = useRef<boolean | null>(null);
   const [files, setFiles] = useState<MvDriveFile[]>(() => initialBundle?.files ?? []);
   const [loading, setLoading] = useState(() => initialBundle?.project == null);
-  const [preparingReport, setPreparingReport] = useState(true);
   const [reportMediaLoading, setReportMediaLoading] = useState(false);
-  const reportPreparationRunRef = useRef(0);
   const [valuationAccountStore, setValuationAccountStore] =
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
   const [companySignatories, setCompanySignatories] = useState<ReportSignatureRow[]>([]);
   const [companyBrand, setCompanyBrand] = useState<{ name: string; logoSrc: string | null }>({
     name: "",
     logoSrc: null,
+  });
+  /**
+   * Templates pulled from the company-admin tab. They feed narrative paragraphs
+   * in the report preview as fallback text when the per-project field is empty.
+   */
+  const [companyReportDefaults, setCompanyReportDefaults] = useState<{
+    scope: Record<string, string>;
+    methodology: Record<string, string>;
+    assumptions: Record<string, string>;
+  }>({
+    scope: {},
+    methodology: {},
+    assumptions: {},
   });
   const [preparerFieldEdits, setPreparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
@@ -805,6 +894,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [imageInnerGap, setImageInnerGap] = useState(initialLayout.imageInnerGap);
   const [assetImageWidth, setAssetImageWidth] = useState(initialLayout.assetImageWidth);
   const [valuationImageWidth, setValuationImageWidth] = useState(initialLayout.valuationImageWidth);
+  const [imageCornerRadius, setImageCornerRadius] = useState(initialLayout.imageCornerRadius);
+  const [paragraphLineHeight, setParagraphLineHeight] = useState(initialLayout.paragraphLineHeight);
+  const [headingScale, setHeadingScale] = useState(initialLayout.headingScale);
+  const [imageShadow, setImageShadow] = useState(initialLayout.imageShadow);
   const [imageOrder, setImageOrder] = useState<string[]>([]);
   const [valuationImageOrder, setValuationImageOrder] = useState<string[]>([]);
   const [hiddenImageIds, setHiddenImageIds] = useState<Set<string>>(() => new Set());
@@ -820,8 +913,27 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
   const reportImageWarmKeyRef = useRef("");
   const loadRunRef = useRef(0);
-  const [layoutBarExpanded, setLayoutBarExpanded] = useState(false);
   const [reportSaving, setReportSaving] = useState(false);
+  /** Toggles the right-side floating settings drawer (page metrics + images). */
+  const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
+  const [settingsDrawerTab, setSettingsDrawerTab] = useState<"layout" | "images">("layout");
+  /** Persists user preference for the navigation sidebar collapsed/expanded state. */
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("mv-report-nav-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("mv-report-nav-collapsed", navCollapsed ? "1" : "0");
+    } catch {
+      // Ignore storage errors (private mode, quota, etc.).
+    }
+  }, [navCollapsed]);
 
   const resetLayoutToDefaults = useCallback(() => {
     const d = defaultReportLayout;
@@ -832,6 +944,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     setImageInnerGap(d.imageInnerGap);
     setAssetImageWidth(d.assetImageWidth);
     setValuationImageWidth(d.valuationImageWidth);
+    setImageCornerRadius(d.imageCornerRadius);
+    setParagraphLineHeight(d.paragraphLineHeight);
+    setHeadingScale(d.headingScale);
+    setImageShadow(d.imageShadow);
   }, []);
 
   const load = useCallback(async () => {
@@ -841,23 +957,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     )?.project != null;
     if (!hasSession) setLoading(true);
     try {
-      const [projectRes, filesRes, previewRes] = await Promise.all([
-        fetch(`/api/mv/projects/${projectId}`, { credentials: "include" }),
+      const projectSummaryUrl = `/api/mv/projects/${projectId}?picAssetMode=summary`;
+      const [projectRes, filesRes] = await Promise.all([
+        fetch(projectSummaryUrl, { credentials: "include" }),
         fetch(`/api/mv/projects/${projectId}/asset-image-files`, { credentials: "include" }),
-        fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, { credentials: "include" }),
       ]);
       if (runId !== loadRunRef.current) return;
 
-      const [projectData, driveRowsRaw, previewData] = await Promise.all([
-        projectRes.ok ? (projectRes.json() as Promise<{ project?: MvProject }>) : Promise.resolve(null),
+      const [projectPayload, driveRowsRaw] = await Promise.all([
+        projectRes.ok ? (projectRes.json() as Promise<{ project?: MvProject; subProjects?: MvSubProject[] }>) : Promise.resolve(null),
         filesRes.ok ? (filesRes.json() as Promise<MvDriveFile[]>) : Promise.resolve([] as MvDriveFile[]),
-        previewRes.ok
-          ? (previewRes.json() as Promise<{ subProjects?: MvSubProject[] }>)
-          : Promise.resolve(null),
       ]);
       if (runId !== loadRunRef.current) return;
 
-      const fetchedProject = withDraftDefaultProject(projectData?.project ?? null);
+      const fetchedProject = withDraftDefaultProject(projectPayload?.project ?? null);
+      const previewSubs = Array.isArray(projectPayload?.subProjects) ? projectPayload!.subProjects! : [];
       const driveRows = Array.isArray(driveRowsRaw) ? driveRowsRaw : [];
       const quickProject =
         projectRes.ok && fetchedProject
@@ -885,17 +999,16 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         return nextP;
       });
       setLoading(false);
-      setReportMediaLoading(
-        (Array.isArray(previewData?.subProjects) ? previewData!.subProjects! : []).some((s) => Boolean(s.picAsset?._id)),
-      );
+      setReportMediaLoading(previewSubs.some((s) => Boolean(s.picAsset?._id)));
 
       let picRows: (MvDriveFile & { sourceUrl?: string })[] = [];
       try {
-        const subs = Array.isArray(previewData?.subProjects) ? previewData!.subProjects! : [];
-        const photoSubs = subs.filter((s) => Boolean(s.picAsset?._id));
+        const photoSubs = previewSubs.filter((s) => Boolean(s.picAsset?._id));
         if (photoSubs.length > 0) {
+          // Run sub-project detail fetches in parallel with high concurrency to
+          // minimise the time before report images become available.
           const details = (
-            await mapWithConcurrency(photoSubs, 2, async (s) => {
+            await mapWithConcurrency(photoSubs, 8, async (s) => {
               const r = await fetchWithRetry(
                 `/api/mv/projects/${projectId}/subprojects/${encodeURIComponent(s._id)}`,
                 { credentials: "include" },
@@ -957,6 +1070,23 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setReportMediaLoading(false);
       const merged = [...driveRows, ...picRows];
       setFiles(merged);
+      // Eagerly warm the image cache for the merged set so the preview renders
+      // with real images immediately instead of swapping in after the warm
+      // timer fires.
+      const eagerSources = merged
+        .map((f) => {
+          const fileWithSource = f as MvDriveFile & { sourceUrl?: string };
+          return (
+            fileWithSource.sourceUrl ||
+            `/api/mv/projects/${projectId}/files/${encodeURIComponent(String(fileWithSource._id))}/download`
+          );
+        })
+        .filter((src): src is string => Boolean(src));
+      if (eagerSources.length > 0) {
+        void preloadReportImageCache(eagerSources).then(() => {
+          if (runId === loadRunRef.current) setReportImageCacheVersion((v) => v + 1);
+        });
+      }
       setProject((prev) => {
         const nextP =
           projectRes.ok && fetchedProject
@@ -1015,9 +1145,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [],
   );
 
+  /**
+   * Kick off the company-defaults request immediately on mount — it does not
+   * depend on the project payload and running it in parallel with the main
+   * `load()` shaves a round-trip off the initial render time.
+   */
   useEffect(() => {
-    if (loading || !project) return;
-
     let cancelled = false;
     void (async () => {
       try {
@@ -1032,6 +1165,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             roleLabel?: string;
             signatureImageDataUrl?: string;
           }>;
+          reportDefaults?: {
+            scope?: Record<string, string | undefined>;
+            methodology?: Record<string, string | undefined>;
+            assumptions?: Record<string, string | undefined>;
+          } | null;
         };
         setCompanyBrand({
           name: typeof data.companyName === "string" ? data.companyName.trim() : "",
@@ -1049,6 +1187,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 : "",
           })),
         );
+        const pickStrings = (
+          source: Record<string, string | undefined> | undefined,
+        ): Record<string, string> => {
+          if (!source || typeof source !== "object") return {};
+          const out: Record<string, string> = {};
+          for (const [key, value] of Object.entries(source)) {
+            if (typeof value === "string" && value.trim()) out[key] = value;
+          }
+          return out;
+        };
+        setCompanyReportDefaults({
+          scope: pickStrings(data.reportDefaults?.scope),
+          methodology: pickStrings(data.reportDefaults?.methodology),
+          assumptions: pickStrings(data.reportDefaults?.assumptions),
+        });
       } catch {
         /* ignore */
       }
@@ -1057,7 +1210,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     return () => {
       cancelled = true;
     };
-  }, [loading, project?._id]);
+  }, []);
 
   const serverAccountingKey = useMemo(
     () => JSON.stringify(project?.valuationAccountingWorkspace ?? null),
@@ -1097,6 +1250,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         imageInnerGap,
         assetImageWidth,
         valuationImageWidth,
+        imageCornerRadius,
+        paragraphLineHeight,
+        headingScale,
+        imageShadow,
       },
     });
   }, [
@@ -1118,15 +1275,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     imageInnerGap,
     assetImageWidth,
     valuationImageWidth,
+    imageCornerRadius,
+    paragraphLineHeight,
+    headingScale,
+    imageShadow,
   ]);
 
   const openReportPreview = useCallback(() => {
-    if (loading || preparingReport || reportMediaLoading) return;
+    if (loading || reportMediaLoading) return;
     setPreviewOpen(true);
-  }, [loading, preparingReport, reportMediaLoading]);
+  }, [loading, reportMediaLoading]);
 
   const downloadAsPdf = useCallback(async () => {
-    if (loading || preparingReport || reportMediaLoading) return;
+    if (loading || reportMediaLoading) return;
+    const hostedInIframe = typeof window !== "undefined" && window.parent !== window.self;
     setDownloadingPdf(true);
     setPdfExportProgress(3);
     setPdfExportLabel("جاري تجهيز التقرير للتنزيل…");
@@ -1134,6 +1296,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
     const prevLeft = scrollEl?.scrollLeft ?? 0;
+    let exportOk = false;
     try {
       const root = reportPdfRef.current;
       if (!root) return;
@@ -1168,8 +1331,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         const el = sheets[i]!;
         const landscape = el.dataset.mvReportOrientation === "landscape";
         const orientation = landscape ? "l" : "p";
-        const scale = landscape ? 2.35 : 2.15;
         const { w, h } = getSheetPixelBox(el);
+        const scale = resolveReportPdfCaptureScale(w, h, landscape);
 
         const canvas = await html2canvas(el, {
           scale,
@@ -1206,7 +1369,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
         pdf.save(`${safeName}-valuation-report.pdf`);
         setPdfExportProgress(100);
-        toast({ description: "تم تنزيل التقرير النهائي." });
+        exportOk = true;
+        if (!hostedInIframe) {
+          toast({ description: "تم تنزيل التقرير النهائي." });
+        }
+      }
+    } catch (error) {
+      if (!hostedInIframe) {
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر تصدير التقرير إلى PDF.",
+        });
       }
     } finally {
       restoreCaptureLayout?.();
@@ -1217,19 +1390,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setDownloadingPdf(false);
       setPdfExportProgress(null);
       setPdfExportLabel("");
+      if (hostedInIframe) {
+        postReportPdfExportToParent(projectId, exportOk);
+      }
     }
-  }, [loading, preparingReport, project?.name, reportMediaLoading, toast]);
+  }, [loading, project?.name, projectId, reportMediaLoading, toast]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (autoPdfTriggeredRef.current) return;
-    if (loading || preparingReport || reportMediaLoading || downloadingPdf) return;
+    if (loading || reportMediaLoading || downloadingPdf) return;
     const key = mvAutoPdfDownloadStorageKey(projectId);
     if (window.sessionStorage.getItem(key) !== "1") return;
     autoPdfTriggeredRef.current = true;
     window.sessionStorage.removeItem(key);
     void downloadAsPdf();
-  }, [downloadAsPdf, downloadingPdf, loading, preparingReport, projectId, reportMediaLoading]);
+  }, [downloadAsPdf, downloadingPdf, loading, projectId, reportMediaLoading]);
 
   useEffect(() => {
     const steps = readVisitedSimpleReportSteps(projectId);
@@ -1434,48 +1610,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       window.clearTimeout(timer);
     };
   }, [loading, reportImageSources, reportImageSourcesKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const runId = ++reportPreparationRunRef.current;
-    let cancelled = false;
-
-    if (loading || !project) {
-      setPreparingReport(true);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setPreparingReport(true);
-
-    void (async () => {
-      await waitNextFrame();
-      await waitNextFrame();
-      if (cancelled || runId !== reportPreparationRunRef.current) return;
-
-      const root = reportPdfRef.current;
-      await Promise.all([
-        settleWithin(waitForReportFonts(), REPORT_INITIAL_FONT_WAIT_MS),
-        root
-          ? settleWithin(waitForReportImages(root, REPORT_INITIAL_IMAGE_WAIT_MS), REPORT_INITIAL_IMAGE_WAIT_MS + 100)
-          : Promise.resolve(),
-      ]);
-      await sleep(REPORT_READY_ANIMATION_SETTLE_MS);
-      await waitNextFrame();
-
-      if (!cancelled && runId === reportPreparationRunRef.current) {
-        setPreparingReport(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    loading,
-    project?._id,
-  ]);
 
   const projectName = project?.name ?? projectId;
   const primarySignatory = preparerDisplayRows[0];
@@ -1734,13 +1868,44 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     previewOpen,
   ]);
 
-  const addEditableSection = useCallback(() => {
-    setEditableSections((list) => {
-      const next = [...list, { id: newId(), title: "قسم جديد", body: "" }];
-      onReportDataPatch({ reportEditableSections: next });
-      return next;
-    });
-  }, [onReportDataPatch]);
+  /**
+   * Adds a new custom editable section. When `insertAfterAnchorId` is supplied
+   * (from the "+" cue between any two sections), the new section is rendered
+   * directly after that anchor — otherwise it appends at the end (legacy).
+   */
+  const addEditableSection = useCallback(
+    (insertAfterAnchorId?: string) => {
+      setEditableSections((list) => {
+        const next = [
+          ...list,
+          { id: newId(), title: "قسم جديد", body: "", insertAfterAnchorId },
+        ];
+        onReportDataPatch({ reportEditableSections: next });
+        return next;
+      });
+    },
+    [onReportDataPatch],
+  );
+
+  /**
+   * Moves a custom section so it renders after a different anchor (via the "+"
+   * cue drop target). Keeps the section data intact — only the placement
+   * metadata changes.
+   */
+  const moveEditableSectionTo = useCallback(
+    (sectionId: string, insertAfterAnchorId?: string) => {
+      setEditableSections((list) => {
+        const idx = list.findIndex((s) => s.id === sectionId);
+        if (idx < 0) return list;
+        const updated = { ...list[idx], insertAfterAnchorId };
+        const next = list.filter((_, i) => i !== idx);
+        next.push(updated);
+        onReportDataPatch({ reportEditableSections: next });
+        return next;
+      });
+    },
+    [onReportDataPatch],
+  );
 
   const removeEditableSection = useCallback((id: string) => {
     setEditableSections((list) => {
@@ -1794,15 +1959,23 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     imageInnerGap,
     assetImageWidth,
     valuationImageWidth,
+    imageCornerRadius,
+    paragraphLineHeight,
+    headingScale,
+    imageShadow,
     valuationAccountImages: orderedValuationImages,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
     hideImage,
+    setImageOrder,
     navigate,
     editableSections,
     updateEditableSection,
     removeEditableSection,
     addEditableSection,
+    moveEditableSectionTo,
+    companyReportDefaults,
+    onTocAnchorClick: (anchorId: string) => scrollToSection(anchorId as ReportSectionId),
   };
 
   const scrollToSection = useCallback((id: ReportSectionId) => {
@@ -1851,7 +2024,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     };
   }, [loading, sectionIdsOrdered]);
 
-  const showReportPreparationModal = loading || preparingReport;
+  const showReportPreparationModal = loading;
 
   return (
     <MvWorkflowPageFrame
@@ -1869,311 +2042,559 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         ]}
       />
 
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2 pt-1.5 sm:px-3">
-        <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden lg:flex-row lg:items-stretch lg:gap-3">
-        <aside
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-2 pb-2 pt-1.5 sm:px-3">
+        {/* === Slim premium toolbar === */}
+        <div
           className={cn(
-            "flex w-full shrink-0 flex-col lg:h-full lg:min-h-0 lg:max-h-full lg:w-[220px] xl:w-[280px]",
-            "max-h-[min(38vh,280px)] min-h-0 lg:max-h-none",
+            "mv-report-chrome mb-1.5 flex shrink-0 items-center gap-1 rounded-xl border border-slate-200/80 bg-white/95 px-1.5 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur",
+            "sm:gap-1.5 sm:px-2",
           )}
         >
-          <div className="flex h-full max-h-[min(38vh,280px)] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white lg:max-h-none lg:min-h-0 lg:flex-1">
-            <div className="flex shrink-0 items-center gap-2 border-b border-slate-100 px-2.5 py-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-900 text-white">
-                <FileText className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-bold text-slate-800">التنقل</p>
-                <p className="truncate text-[9px] font-semibold text-slate-500">
-                  {draftMode ? "وضع مسودة" : "نسخة نهائية"}
-                </p>
-              </div>
-            </div>
-
-            <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-1.5 py-1.5">
-              <ReportTocItem
-                active={activeSection === "report-cover"}
-                icon={<ClipboardList className="h-3 w-3" />}
-                title="الغلاف"
-                onClick={() => scrollToSection("report-cover")}
-              />
-              <ReportTocItem
-                active={activeSection === "report-toc"}
-                icon={<FileText className="h-3 w-3" />}
-                title="الفهرس"
-                onClick={() => scrollToSection("report-toc")}
-              />
-              <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-1 py-1">
-                <p className="px-1 pb-0.5 text-[9px] font-bold text-slate-500">أقسام التقرير</p>
-                <div className="max-h-[min(30vh,220px)] space-y-0.5 overflow-y-auto overscroll-contain lg:max-h-[min(52vh,420px)]">
-                  {MV_REPORT_TOC_ROWS.map((row) => (
-                    <ReportTocItem
-                      key={`${row.num}-${row.title}`}
-                      active={activeSection === row.anchor}
-                      icon={<span className="text-[8px] font-black tabular-nums">{row.num}</span>}
-                      title={row.title}
-                      onClick={() => scrollToSection(row.anchor)}
-                    />
-                  ))}
-                </div>
-              </div>
-              {editableSections.map((s) => (
-                <ReportTocItem
-                  key={s.id}
-                  active={activeSection === `custom:${s.id}`}
-                  icon={<FileText className="h-3 w-3" />}
-                  title={s.title.trim() || "قسم إضافي"}
-                  onClick={() => scrollToSection(`custom:${s.id}`)}
-                />
-              ))}
-            </nav>
-            <MvReportImagesControlPanel
-              projectId={projectId}
-              assetFiles={selectedImages}
-              assetOrder={imageOrder}
-              assetWidthPercent={assetImageWidth}
-              onAssetReorder={setImageOrder}
-              getAssetImageSrc={(file) => reportDriveFileImageSrc(projectId, file)}
-              onAssetWidthChange={setAssetImageWidth}
-              valuationImages={valuationAccountImages}
-              valuationOrder={valuationImageOrder}
-              onValuationReorder={reorderValuationImages}
-              onValuationWidthChange={updateValuationImageWidth}
-            />
-          </div>
-        </aside>
-
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-none rounded-xl border border-slate-200/80 bg-slate-100/40 lg:min-h-0">
-          <div
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             className={cn(
-              "mv-report-chrome sticky top-0 z-[120] shrink-0 border-b border-slate-200/70 bg-white/95 backdrop-blur-md supports-[backdrop-filter]:bg-white/90",
-              loading ? "rounded-xl" : "rounded-t-xl",
+              "h-7 w-7 shrink-0 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
+              !navCollapsed && "bg-slate-100/70 text-[#0C447C]",
             )}
+            title={navCollapsed ? "إظهار قائمة التنقل" : "إخفاء قائمة التنقل"}
+            aria-label="قائمة الأقسام"
+            aria-pressed={!navCollapsed}
+            onClick={() => setNavCollapsed((v) => !v)}
           >
-            <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100/90 px-2 py-1.5 sm:px-2.5">
-              <button
-                type="button"
-                onClick={() => setLayoutBarExpanded((v) => !v)}
-                className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-right transition hover:bg-slate-50"
-                aria-expanded={layoutBarExpanded}
-              >
-                <span className="text-[11px] font-bold text-slate-700">مقاسات الصفحة</span>
-                <ChevronDown
-                  className={cn("h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200", layoutBarExpanded && "rotate-180")}
-                />
-              </button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0 text-slate-600 hover:bg-slate-100 hover:text-sky-800"
-                title="إعادة المقاسات للافتراضي"
-                aria-label="إعادة المقاسات للافتراضي"
-                onClick={resetLayoutToDefaults}
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex h-8 shrink-0 items-center gap-2 rounded-full border px-2.5 text-[11px] font-black transition disabled:cursor-not-allowed disabled:opacity-60",
-                  draftMode
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
-                    : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200",
-                )}
-                disabled={loading || preparingReport}
-                title={
-                  draftMode
-                    ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
-                    : "وضع المسودة مغلق: لا توجد علامة مائية وتظهر التوقيعات."
-                }
-                onClick={toggleDraftMode}
-                aria-pressed={draftMode}
-              >
-                <span>مسودة</span>
-                <span
-                  className={cn(
-                    "relative h-4 w-8 rounded-full transition-colors",
-                    draftMode ? "bg-emerald-500" : "bg-slate-300",
-                  )}
-                  aria-hidden
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform",
-                      draftMode ? "-translate-x-[0.95rem]" : "translate-x-[-0.125rem]",
-                    )}
-                  />
-                </span>
-              </button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1 border-sky-200 bg-white px-2.5 text-[11px] font-bold text-sky-950 hover:bg-sky-50"
-                disabled={loading || preparingReport || reportMediaLoading}
-                onClick={openReportPreview}
-              >
-                <Eye className="h-3.5 w-3.5" />
-                معاينة
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1 border-slate-200 bg-white px-2.5 text-[11px] font-bold hover:bg-slate-50"
-                disabled={downloadingPdf || loading || preparingReport || reportMediaLoading}
-                onClick={() => void downloadAsPdf()}
-              >
-                {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-                PDF
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="h-8 gap-1 bg-emerald-700 px-2.5 text-[11px] font-bold text-white hover:bg-emerald-800"
-                disabled={reportSaving || loading || preparingReport}
-                onClick={() => void saveReportSettingsNow()}
-              >
-                {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                حفظ
-              </Button>
-              {reportMediaLoading ? (
-                <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-sky-50 px-2.5 text-[10px] font-bold text-sky-900">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  جاري تحميل صور التقرير
-                </span>
-              ) : null}
-            </div>
+            <ListTree className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 shrink-0 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
+              settingsDrawerOpen && "bg-slate-100/70 text-[#0C447C]",
+            )}
+            title="مقاسات وتنسيق الصفحة"
+            aria-label="إعدادات التقرير"
+            aria-pressed={settingsDrawerOpen}
+            onClick={() => {
+              setSettingsDrawerTab("layout");
+              setSettingsDrawerOpen((v) => !v);
+            }}
+          >
+            <Sliders className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-7 w-7 shrink-0 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
+              settingsDrawerOpen && settingsDrawerTab === "images" && "bg-slate-100/70 text-[#0C447C]",
+            )}
+            title="ترتيب وحجم الصور"
+            aria-label="إدارة الصور"
+            onClick={() => {
+              setSettingsDrawerTab("images");
+              setSettingsDrawerOpen(true);
+            }}
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+          </Button>
 
-            {layoutBarExpanded ? (
-              <div className="p-2 sm:p-2.5">
-                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
-                  <ControlSlider
-                    icon={<Ruler className="h-3.5 w-3.5 text-sky-800" />}
-                    label="هامش يمين/يسار"
-                    value={marginX}
-                    min={0}
-                    max={120}
-                    step={2}
-                    suffix="px"
-                    onChange={setMarginX}
-                  />
-                  <ControlSlider
-                    icon={<Ruler className="h-3.5 w-3.5 text-sky-800" />}
-                    label="هامش أعلى/أسفل"
-                    value={marginY}
-                    min={0}
-                    max={140}
-                    step={2}
-                    suffix="px"
-                    onChange={setMarginY}
-                  />
-                  <ControlSlider
-                    icon={<Settings2 className="h-3.5 w-3.5 text-sky-800" />}
-                    label="فراغ بين الأقسام"
-                    value={sectionGap}
-                    min={0}
-                    max={72}
-                    step={2}
-                    suffix="px"
-                    onChange={setSectionGap}
-                  />
-                  <ControlSlider
-                    icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
-                    label="فراغ مجموعات الصور"
-                    value={imageGroupGap}
-                    min={0}
-                    max={120}
-                    step={2}
-                    suffix="px"
-                    onChange={setImageGroupGap}
-                  />
-                  <ControlSlider
-                    icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
-                    label="فراغ بين صور المجموعة"
-                    value={imageInnerGap}
-                    min={0}
-                    max={40}
-                    step={2}
-                    suffix="px"
-                    onChange={setImageInnerGap}
-                  />
-                  <ControlSlider
-                    icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
-                    label="عرض صور الأصول"
-                    value={assetImageWidth}
-                    min={24}
-                    max={100}
-                    step={2}
-                    suffix="%"
-                    onChange={setAssetImageWidth}
-                  />
-                  <ControlSlider
-                    icon={<ImageIcon className="h-3.5 w-3.5 text-sky-800" />}
-                    label="عرض صور الإجراءات"
-                    value={valuationImageWidth}
-                    min={40}
-                    max={100}
-                    step={2}
-                    suffix="%"
-                    onChange={setValuationImageWidth}
-                  />
-                </div>
-              </div>
+          <span className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
+
+          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
+            <span
+              className={cn(
+                "inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[9.5px] font-black",
+                draftMode
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  draftMode ? "bg-amber-500" : "bg-emerald-500",
+                )}
+                aria-hidden
+              />
+              {draftMode ? "مسودة" : "نهائي"}
+            </span>
+            {reportMediaLoading ? (
+              <span className="inline-flex h-5 items-center gap-1 rounded-full bg-sky-50 px-2 text-[9.5px] font-bold text-sky-900">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                تحميل الصور
+              </span>
             ) : null}
           </div>
 
-          <div
-            ref={reportSectionsScrollRef}
+          <span className="ms-auto inline-flex sm:ms-0" />
+
+          {/* Draft toggle: compact pill */}
+          <button
+            type="button"
             className={cn(
-              "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
-              "touch-pan-y [-webkit-overflow-scrolling:touch]",
-              loading ? "rounded-xl border border-slate-200 bg-white" : "rounded-b-xl bg-[#e2e8f0]/55",
+              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[10.5px] font-black transition disabled:cursor-not-allowed disabled:opacity-60",
+              draftMode
+                ? "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+            )}
+            disabled={loading}
+            title={
+              draftMode
+                ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
+                : "وضع المسودة مغلق: تظهر التوقيعات بدون علامة مائية."
+            }
+            onClick={toggleDraftMode}
+            aria-pressed={draftMode}
+          >
+            <span
+              className={cn(
+                "relative h-3 w-6 rounded-full transition-colors",
+                draftMode ? "bg-amber-500" : "bg-slate-300",
+              )}
+              aria-hidden
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-2 w-2 rounded-full bg-white shadow-sm transition-transform",
+                  draftMode ? "-translate-x-[0.7rem]" : "translate-x-[-0.125rem]",
+                )}
+              />
+            </span>
+            <span className="hidden sm:inline">مسودة</span>
+          </button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1 border-slate-200 bg-white px-2 text-[10.5px] font-bold text-slate-700 hover:bg-slate-50 hover:text-[#0C447C]"
+            disabled={loading || reportMediaLoading}
+            onClick={openReportPreview}
+            title="معاينة بصيغة PDF قبل التنزيل"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">معاينة</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1 border-slate-200 bg-white px-2 text-[10.5px] font-bold text-slate-700 hover:bg-slate-50 hover:text-[#0C447C]"
+            disabled={downloadingPdf || loading || reportMediaLoading}
+            onClick={() => void downloadAsPdf()}
+            title="تنزيل التقرير بصيغة PDF"
+          >
+            {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">PDF</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 shrink-0 gap-1 bg-emerald-700 px-2.5 text-[10.5px] font-black text-white shadow-sm hover:bg-emerald-800"
+            disabled={reportSaving || loading}
+            onClick={() => void saveReportSettingsNow()}
+            title="حفظ التغييرات على التقرير"
+          >
+            {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            حفظ
+          </Button>
+        </div>
+
+        {/* === Workspace body (sidebar + canvas) === */}
+        <div className="relative flex min-h-0 w-full flex-1 gap-1.5 overflow-hidden lg:gap-2">
+          <aside
+            className={cn(
+              "shrink-0 transition-[width] duration-200 ease-out",
+              "max-h-[min(38vh,280px)] min-h-0 w-full lg:max-h-none lg:h-full",
+              navCollapsed ? "lg:w-12" : "lg:w-[230px] xl:w-[260px]",
             )}
           >
-            <article
-              ref={(el) => {
-                reportPdfRef.current = el;
-              }}
-              className={cn(
-                "mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950",
-                loading && "shadow-none",
+            <div className="flex h-full max-h-[min(38vh,280px)] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur lg:max-h-none">
+              {!navCollapsed ? (
+                <div className="flex shrink-0 items-center justify-between gap-1 border-b border-slate-100 px-2 py-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#0C447C] text-white">
+                      <ListTree className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 truncate text-[10.5px] font-black text-slate-800">
+                      أقسام التقرير
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNavCollapsed(true)}
+                    title="طي القائمة"
+                    aria-label="طي قائمة التنقل"
+                    className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 lg:flex"
+                  >
+                    <ChevronsRight className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="hidden shrink-0 items-center justify-center border-b border-slate-100 py-1.5 lg:flex">
+                  <button
+                    type="button"
+                    onClick={() => setNavCollapsed(false)}
+                    title="فتح القائمة"
+                    aria-label="فتح قائمة التنقل"
+                    className="flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
+                  >
+                    <ChevronsLeft className="h-3 w-3" />
+                  </button>
+                </div>
               )}
-              style={{
-                padding: loading ? undefined : `${marginY}px ${marginX}px`,
-              }}
-            >
-            {loading ? (
-              <div className="flex min-h-[min(560px,60vh)] items-center justify-center text-slate-400">
-                <Loader2 className="h-6 w-6 animate-spin" />
-              </div>
-            ) : (
-              <ReportViewportFit
-                scrollRef={reportSectionsScrollRef}
-                gutterPx={Math.max(0, Math.round(marginX * 2))}
+
+              <nav
+                className={cn(
+                  "min-h-0 flex-1 overflow-y-auto overscroll-contain",
+                  navCollapsed ? "space-y-1 px-1 py-1.5" : "space-y-0.5 px-1.5 py-1.5",
+                )}
               >
-                <MvValuationReportDocumentBody {...reportDocumentProps} />
-              </ReportViewportFit>
-            )}
-          </article>
-          </div>
-        </main>
+                <ReportTocItem
+                  active={activeSection === "report-cover"}
+                  icon={<ClipboardList className="h-3 w-3" />}
+                  title="الغلاف"
+                  onClick={() => scrollToSection("report-cover")}
+                  collapsed={navCollapsed}
+                />
+                <ReportTocItem
+                  active={activeSection === "report-toc"}
+                  icon={<FileText className="h-3 w-3" />}
+                  title="الفهرس"
+                  onClick={() => scrollToSection("report-toc")}
+                  collapsed={navCollapsed}
+                />
+                {!navCollapsed ? (
+                  <p className="px-1 pt-1.5 pb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    الأقسام
+                  </p>
+                ) : (
+                  <span className="my-1.5 block h-px w-full bg-slate-100" aria-hidden />
+                )}
+                {MV_REPORT_TOC_ROWS.map((row) => (
+                  <ReportTocItem
+                    key={`${row.num}-${row.title}`}
+                    active={activeSection === row.anchor}
+                    icon={<span className="text-[8px] font-black tabular-nums">{row.num}</span>}
+                    title={row.title}
+                    onClick={() => scrollToSection(row.anchor)}
+                    collapsed={navCollapsed}
+                  />
+                ))}
+                {editableSections.length > 0 && !navCollapsed ? (
+                  <p className="px-1 pt-1.5 pb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    أقسام إضافية
+                  </p>
+                ) : null}
+                {editableSections.map((s) => (
+                  <ReportTocItem
+                    key={s.id}
+                    active={activeSection === `custom:${s.id}`}
+                    icon={<FileText className="h-3 w-3" />}
+                    title={s.title.trim() || "قسم إضافي"}
+                    onClick={() => scrollToSection(`custom:${s.id}`)}
+                    collapsed={navCollapsed}
+                  />
+                ))}
+              </nav>
+            </div>
+          </aside>
+
+          <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-gradient-to-b from-slate-100/40 via-slate-50/30 to-slate-100/40 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div
+              ref={reportSectionsScrollRef}
+              className={cn(
+                "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
+                "touch-pan-y [-webkit-overflow-scrolling:touch]",
+                loading ? "bg-white" : "bg-transparent",
+              )}
+            >
+              <article
+                ref={(el) => {
+                  reportPdfRef.current = el;
+                }}
+                className={cn(
+                  "mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950",
+                  loading && "shadow-none",
+                )}
+                style={{
+                  padding: loading ? undefined : `${marginY}px ${marginX}px`,
+                }}
+              >
+                {loading ? (
+                  <div className="flex min-h-[min(560px,60vh)] items-center justify-center text-slate-400">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : (
+                  <ReportViewportFit
+                    scrollRef={reportSectionsScrollRef}
+                    gutterPx={Math.max(0, Math.round(marginX * 2))}
+                  >
+                    <MvValuationReportDocumentBody {...reportDocumentProps} />
+                  </ReportViewportFit>
+                )}
+              </article>
+            </div>
+          </main>
+
+          {/* === Settings drawer (margins + images) === */}
+          {settingsDrawerOpen ? (
+            <>
+              {/* Backdrop only on mobile so desktop keeps the canvas visible alongside the drawer. */}
+              <button
+                type="button"
+                aria-label="إغلاق لوحة الإعدادات"
+                onClick={() => setSettingsDrawerOpen(false)}
+                className="mv-report-chrome fixed inset-0 z-[120] bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
+              />
+              <div
+                role="dialog"
+                aria-label="إعدادات التقرير"
+                className={cn(
+                  "mv-report-chrome absolute inset-y-0 left-0 z-[130] flex w-[min(360px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 shadow-[0_8px_32px_rgba(15,23,42,0.10)] backdrop-blur",
+                  "lg:relative lg:inset-auto lg:shrink-0 lg:bg-white",
+                )}
+              >
+                <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded bg-[#0C447C] text-white">
+                      <Sliders className="h-3 w-3" />
+                    </span>
+                    <span className="text-[11px] font-black text-slate-800">إعدادات التقرير</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsDrawerOpen(false)}
+                    title="إغلاق"
+                    aria-label="إغلاق"
+                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <div className="shrink-0 border-b border-slate-100 px-2 py-1.5">
+                  <div className="flex gap-0.5 rounded-md bg-slate-100/70 p-0.5 ring-1 ring-slate-200/70">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsDrawerTab("layout")}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1.5 rounded px-1.5 py-1 text-[10.5px] font-black transition",
+                        settingsDrawerTab === "layout"
+                          ? "bg-white text-[#0C447C] shadow-sm"
+                          : "text-slate-500 hover:bg-white/50",
+                      )}
+                    >
+                      <PencilRuler className="h-3 w-3" />
+                      مقاسات الصفحة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettingsDrawerTab("images")}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1.5 rounded px-1.5 py-1 text-[10.5px] font-black transition",
+                        settingsDrawerTab === "images"
+                          ? "bg-white text-[#0C447C] shadow-sm"
+                          : "text-slate-500 hover:bg-white/50",
+                      )}
+                    >
+                      <ImageIcon className="h-3 w-3" />
+                      الصور
+                    </button>
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
+                  {settingsDrawerTab === "layout" ? (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <p className="text-[10px] font-bold text-slate-500">
+                          عدّل المقاسات وفراغات الأقسام والصور.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 gap-1 px-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
+                          title="إعادة المقاسات للافتراضي"
+                          onClick={resetLayoutToDefaults}
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          افتراضي
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-1.5">
+                        <ControlSlider
+                          icon={<Ruler className="h-3.5 w-3.5" />}
+                          label="هامش يمين/يسار"
+                          value={marginX}
+                          min={0}
+                          max={120}
+                          step={2}
+                          suffix="px"
+                          onChange={setMarginX}
+                        />
+                        <ControlSlider
+                          icon={<Ruler className="h-3.5 w-3.5" />}
+                          label="هامش أعلى/أسفل"
+                          value={marginY}
+                          min={0}
+                          max={140}
+                          step={2}
+                          suffix="px"
+                          onChange={setMarginY}
+                        />
+                        <ControlSlider
+                          icon={<Settings2 className="h-3.5 w-3.5" />}
+                          label="فراغ بين الأقسام"
+                          value={sectionGap}
+                          min={0}
+                          max={72}
+                          step={2}
+                          suffix="px"
+                          onChange={setSectionGap}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="فراغ مجموعات الصور"
+                          value={imageGroupGap}
+                          min={0}
+                          max={120}
+                          step={2}
+                          suffix="px"
+                          onChange={setImageGroupGap}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="فراغ بين صور المجموعة"
+                          value={imageInnerGap}
+                          min={0}
+                          max={40}
+                          step={2}
+                          suffix="px"
+                          onChange={setImageInnerGap}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="عرض صور الأصول"
+                          value={assetImageWidth}
+                          min={24}
+                          max={100}
+                          step={2}
+                          suffix="%"
+                          onChange={setAssetImageWidth}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="عرض صور الإجراءات"
+                          value={valuationImageWidth}
+                          min={40}
+                          max={100}
+                          step={2}
+                          suffix="%"
+                          onChange={setValuationImageWidth}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="استدارة حواف الصور"
+                          value={imageCornerRadius}
+                          min={0}
+                          max={24}
+                          step={1}
+                          suffix="px"
+                          onChange={setImageCornerRadius}
+                        />
+                        <ControlSlider
+                          icon={<ImageIcon className="h-3.5 w-3.5" />}
+                          label="ظل الصور"
+                          value={imageShadow}
+                          min={0}
+                          max={4}
+                          step={1}
+                          onChange={setImageShadow}
+                        />
+                        <ControlSlider
+                          icon={<FileText className="h-3.5 w-3.5" />}
+                          label="ارتفاع السطر في الفقرات"
+                          value={Math.round(paragraphLineHeight * 100)}
+                          min={140}
+                          max={220}
+                          step={5}
+                          suffix="%"
+                          onChange={(v) => setParagraphLineHeight(v / 100)}
+                        />
+                        <ControlSlider
+                          icon={<FileText className="h-3.5 w-3.5" />}
+                          label="مقياس عناوين الأقسام"
+                          value={Math.round(headingScale * 100)}
+                          min={85}
+                          max={120}
+                          step={5}
+                          suffix="%"
+                          onChange={(v) => setHeadingScale(v / 100)}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <MvReportImagesControlPanel
+                      projectId={projectId}
+                      assetFiles={selectedImages}
+                      assetOrder={imageOrder}
+                      assetWidthPercent={assetImageWidth}
+                      onAssetReorder={setImageOrder}
+                      getAssetImageSrc={(file) => reportDriveFileImageSrc(projectId, file)}
+                      onAssetWidthChange={setAssetImageWidth}
+                      valuationImages={valuationAccountImages}
+                      valuationOrder={valuationImageOrder}
+                      onValuationReorder={reorderValuationImages}
+                      onValuationWidthChange={updateValuationImageWidth}
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
 
       {showReportPreparationModal ? (
-        <div
-          className="pointer-events-none fixed inset-x-0 bottom-0 z-[650] border-t border-sky-200/80 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] backdrop-blur-md"
-          role="status"
-          aria-live="polite"
-          aria-label="جاري تحميل التقرير"
-        >
-          <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0C447C]" />
-            <p className="min-w-0 flex-1 text-[12px] font-black text-slate-900">جاري تحميل بيانات التقرير…</p>
+        <>
+          {/* Full-screen frosted blur over the page chrome — keeps the
+              workspace visible but signals that interaction should pause. */}
+          <div
+            className="mv-report-chrome fixed inset-0 z-[640] bg-white/45 backdrop-blur-md"
+            aria-hidden
+          />
+          {/* Slim top toast with the loading state, mirroring the design
+              language of the redesigned toolbar (small icon, compact pill). */}
+          <div
+            className="mv-report-chrome pointer-events-none fixed inset-x-0 top-14 z-[650] flex justify-center px-2 sm:top-20"
+            role="status"
+            aria-live="polite"
+            aria-label="جاري تحميل التقرير"
+          >
+            <div
+              dir="rtl"
+              className="pointer-events-auto inline-flex w-auto max-w-[min(560px,calc(100%-1rem))] items-center gap-2 rounded-full border border-sky-200/80 bg-white/95 px-3 py-1.5 shadow-[0_8px_24px_rgba(12,68,124,0.16)] ring-1 ring-sky-100/70 backdrop-blur-md"
+            >
+              <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-sky-300/40" aria-hidden />
+                <Loader2 className="relative h-3.5 w-3.5 animate-spin text-[#0C447C]" />
+              </span>
+              <p className="min-w-0 flex-1 truncate text-[11.5px] font-black text-slate-900">
+                جاري تحميل بيانات التقرير…
+              </p>
+              {reportMediaLoading ? (
+                <span className="hidden shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[9.5px] font-bold text-sky-900 sm:inline">
+                  تحميل الصور
+                </span>
+              ) : null}
+            </div>
           </div>
-        </div>
+        </>
       ) : null}
 
       {pdfExportProgress != null ? (
@@ -2212,7 +2633,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         >
           <DialogHeader className="shrink-0 border-b border-[#0C447C]/10 bg-gradient-to-l from-white via-sky-50/30 to-[#e8f0fa] px-4 py-3 text-right sm:px-5 sm:py-3.5">
             <DialogTitle className="text-base font-black text-[#0a1f33] sm:text-lg">معاينة التقرير النهائية</DialogTitle>
-            <p className="mt-1 text-[11px] font-semibold text-slate-500">نفس الشكل الذي سيتم تنزيله بصيغة PDF</p>
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+              نفس الشكل المُصدَّر كـ PDF — يتم التقاط كل صفحة بدقة أعلى من الشاشة الاعتيادية لخطوط أوضح وصور أقل ضبابية؛ حجم التنزيل قد يزيد قليلاً.
+            </p>
           </DialogHeader>
           <div
             ref={previewScrollRef}
@@ -2236,7 +2659,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           </div>
         </DialogContent>
       </Dialog>
-      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !preparingReport && !previewOpen} />
+      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen} />
     </MvWorkflowPageFrame>
   );
 }

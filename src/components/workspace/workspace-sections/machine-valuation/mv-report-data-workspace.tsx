@@ -20,7 +20,7 @@ import {
   MvReportDataForm,
   type MvReportCollapsibleSectionId,
 } from "./mv-report-data-form";
-import type { MvProject, MvProjectReportData, MvReportTeamMember, MvSubProject } from "./types";
+import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
@@ -74,8 +74,8 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   currencyLabel: "",
   methodologyRationale: "",
   costApproachDetails: "",
-  valuationTeam: [],
   importantAssumptions: "",
+  generalAssumptions: "",
   specialAssumptions: "",
   finalValue: null,
   finalValueWords: "",
@@ -83,21 +83,6 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   receivedClientDocumentsHtml: "",
   sceRegistrationCertificateHtml: "",
 };
-
-function normalizeReportTeam(value: MvProjectReportData["valuationTeam"]): MvReportTeamMember[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item, index) => ({
-      id: item?.id || `member-${index + 1}`,
-      name: item?.name ?? "",
-      title: item?.title ?? "",
-      membershipNo: item?.membershipNo ?? "",
-      role: item?.role ?? "",
-    }))
-    .filter((item) =>
-      Boolean(item.name.trim() || item.title.trim() || item.membershipNo.trim() || item.role.trim()),
-    );
-}
 
 function normalizeReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
   const finalValue =
@@ -108,7 +93,6 @@ function normalizeReportData(data: MvProjectReportData | undefined | null): MvPr
     includeAssetImages: data?.includeAssetImages !== false,
     includeValuationAccountImages: data?.includeValuationAccountImages !== false,
     reportPresentationDraft: data?.reportPresentationDraft !== false,
-    valuationTeam: normalizeReportTeam(data?.valuationTeam),
     finalValue,
     finalValueWords:
       finalValue == null

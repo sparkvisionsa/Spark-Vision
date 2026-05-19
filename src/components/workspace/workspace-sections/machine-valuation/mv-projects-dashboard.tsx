@@ -71,6 +71,7 @@ import {
   type MvProjectInspectionSiteForm,
 } from "./mv-project-contact-data";
 import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
+import { prefetchMvLocationCatalog } from "./use-mv-location-catalog";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
 import {
@@ -81,7 +82,7 @@ import {
 } from "./mv-location-multi-select";
 import { MvEmptyState, MvStatusBadge, MvTopBar } from "./mv-ui";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { mvAutoPdfDownloadStorageKey } from "./mv-home-routes";
+import { mvAutoPdfDownloadStorageKey, MV_REPORT_PDF_PARENT_MESSAGE } from "./mv-home-routes";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
@@ -214,11 +215,13 @@ function ProjectActionsMenu({
   project,
   onOpenAssetFolders,
   onOpenLocations,
+  onDownloadFinalReport,
   onDelete,
 }: {
   project: MvProject;
   onOpenAssetFolders: (project: MvProject) => void;
   onOpenLocations: (project: MvProject) => void;
+  onDownloadFinalReport: (project: MvProject) => void;
   onDelete: (projectId: string) => void;
 }) {
   return (
@@ -244,12 +247,7 @@ function ProjectActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => {
-            if (typeof window !== "undefined") {
-              window.sessionStorage.setItem(mvAutoPdfDownloadStorageKey(project._id), "1");
-              window.location.href = `/machine-valuation/${project._id}/workflow/report`;
-            }
-          }}
+          onSelect={() => onDownloadFinalReport(project)}
         >
           <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
           تنزيل التقرير النهائي
@@ -741,9 +739,17 @@ export default function MvProjectsDashboard() {
   const [contactFilesLocationIds, setContactFilesLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
   const [openingInspectorFilesSiteId, setOpeningInspectorFilesSiteId] = useState<string | null>(null);
   const [savingContactData, setSavingContactData] = useState(false);
+  /** لتصيير قوائم المنطقة/المدينة داخل طبقة الحوار وليس خلف الغلافة التي تعطل النقرات */
+  const [inspectionPickersPortalHost, setInspectionPickersPortalHost] = useState<HTMLElement | null>(null);
+  const bindInspectionPickersPortalHost = useCallback((node: HTMLElement | null) => {
+    setInspectionPickersPortalHost((prev) => (prev === node ? prev : node));
+  }, []);
   const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
+  const [backgroundPdfExport, setBackgroundPdfExport] = useState<{ projectId: string; nonce: number } | null>(
+    null,
+  );
 
   /**
    * القائمة مُصفّاة من الخادم حسب شركة الجلسة؛ لا نعيد تصفية حسب `companyId` هنا
@@ -826,6 +832,14 @@ export default function MvProjectsDashboard() {
   useEffect(() => {
     setCurrentPage(1);
   }, [projectQuery, statusFilter, sortRecentlyWorked, pageSize]);
+
+  useEffect(() => {
+    prefetchMvLocationCatalog();
+  }, []);
+
+  useEffect(() => {
+    if (contactDataOpen) prefetchMvLocationCatalog();
+  }, [contactDataOpen]);
 
   const metrics = useMemo(() => {
     const withAssets = visibleProjects.filter((project) => (project.sheetCount ?? 0) > 0).length;
@@ -1109,6 +1123,50 @@ export default function MvProjectsDashboard() {
     }
   };
 
+  const startBackgroundFinalReportDownload = useCallback(
+    (project: MvProject) => {
+      if (typeof window === "undefined") return;
+      sessionStorage.setItem(mvAutoPdfDownloadStorageKey(project._id), "1");
+      setBackgroundPdfExport({ projectId: project._id, nonce: Date.now() });
+      toast({
+        description:
+          `${(project.name || "المشروع").trim()} — جاري تجهيز ملف PDF في الخلفية؛ سيبدأ التحميل تلقائياً على جهازك.`,
+      });
+    },
+    [toast],
+  );
+
+  useEffect(() => {
+    function onReportPdfExportMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data as { type?: string; projectId?: string; ok?: boolean };
+      if (payload?.type !== MV_REPORT_PDF_PARENT_MESSAGE) return;
+      setBackgroundPdfExport((curr) =>
+        curr && payload.projectId === curr.projectId ? null : curr,
+      );
+      if (payload.ok === true) {
+        toast({ description: "تم تنزيل التقرير النهائي." });
+      } else {
+        toast({
+          variant: "destructive",
+          description:
+            "لم يكتمل التنزيل من صفحة المشاريع. افتح صفحة «إعداد التقرير» لمشروعك وحاول التنزيل من هناك.",
+        });
+      }
+    }
+    window.addEventListener("message", onReportPdfExportMessage);
+    return () => window.removeEventListener("message", onReportPdfExportMessage);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!backgroundPdfExport) return;
+    const { projectId, nonce } = backgroundPdfExport;
+    const id = window.setTimeout(() => {
+      setBackgroundPdfExport((curr) => (curr?.nonce === nonce && curr.projectId === projectId ? null : curr));
+    }, 240_000);
+    return () => clearTimeout(id);
+  }, [backgroundPdfExport]);
+
   const handleDeleteProject = async (projectId: string) => {
     const target = visibleProjects.find((p) => p._id === projectId);
     if (!window.confirm(`حذف المشروع «${target?.name || projectId}»؟ سيتم حذف جميع البيانات المرتبطة به ولا يمكن التراجع.`)) return;
@@ -1296,18 +1354,19 @@ export default function MvProjectsDashboard() {
             </div>
           ) : (
             <>
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="w-full min-w-[980px] table-fixed border-collapse text-right">
+              <div className="hidden overflow-x-auto xl:block">
+                <table className="w-full min-w-[920px] table-fixed border-collapse text-right">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500">
-                      <th className="w-[32%] px-4 py-3">المشروع</th>
-                      <th className="w-[120px] px-3 py-3">الحالة</th>
-                      <th className="w-[140px] px-3 py-3">النوع</th>
-                      <th className="w-[88px] px-2 py-3 text-center">أصول</th>
-                      <th className="w-[88px] px-2 py-3 text-center">فرعية</th>
-                      <th className="w-[160px] px-3 py-3">التقدم</th>
-                      <th className="w-[130px] px-3 py-3">آخر تحديث</th>
-                      <th className="w-[110px] px-3 py-3 text-center" />
+                      <th className="w-[56px] px-2 py-3 text-center" title="الرقم التسلسلي للتقرير داخل الشركة">#</th>
+                      <th className="w-[28%] px-3 py-3">المشروع</th>
+                      <th className="w-[100px] px-2 py-3">الحالة</th>
+                      <th className="w-[120px] px-2 py-3">النوع</th>
+                      <th className="w-[76px] px-2 py-3 text-center">أصول</th>
+                      <th className="w-[76px] px-2 py-3 text-center">فرعية</th>
+                      <th className="w-[140px] px-2 py-3">التقدم</th>
+                      <th className="w-[116px] px-2 py-3">آخر تحديث</th>
+                      <th className="w-[116px] px-2 py-3 text-center" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1322,9 +1381,19 @@ export default function MvProjectsDashboard() {
                       const sheets = project.sheetCount ?? 0;
                       const subs = project.subProjectCount ?? 0;
 
+                      const displayNumber =
+                        typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
+                          ? project.displayNumber
+                          : null;
+
                       return (
                         <tr key={project._id} className="bg-white text-right transition-colors hover:bg-slate-50">
-                          <td className="px-4 py-3 align-middle">
+                          <td className="px-2 py-3 text-center align-middle">
+                            <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md bg-sky-50 px-2 text-[12px] font-black tabular-nums text-[#0C447C]">
+                              {displayNumber == null ? "—" : numberFormatter.format(displayNumber)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 align-middle">
                             <ProjectWorkspaceLink
                               projectId={project._id}
                               title={project.name || "—"}
@@ -1333,7 +1402,7 @@ export default function MvProjectsDashboard() {
                             />
                           </td>
 
-                          <td className="px-3 py-3 align-middle">
+                          <td className="px-2 py-3 align-middle">
                             <MvStatusBadge
                               label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
                               tone={getStatusTone(workflowStatus)}
@@ -1341,8 +1410,8 @@ export default function MvProjectsDashboard() {
                             />
                           </td>
 
-                          <td className="px-3 py-3 align-middle text-[12px] font-semibold text-slate-600">
-                            {reportLabel}
+                          <td className="px-2 py-3 align-middle text-[12px] font-semibold text-slate-600">
+                            <span className="block truncate">{reportLabel}</span>
                           </td>
 
                           <td className="px-2 py-3 text-center align-middle">
@@ -1357,7 +1426,7 @@ export default function MvProjectsDashboard() {
                             </span>
                           </td>
 
-                          <td className="px-3 py-3 align-middle">
+                          <td className="px-2 py-3 align-middle">
                             <div className="flex items-center gap-2">
                               <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
                                 <div
@@ -1371,17 +1440,17 @@ export default function MvProjectsDashboard() {
                             </div>
                           </td>
 
-                          <td className="px-3 py-3 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
-                            {formatDateLabel(project.updatedAt)}
+                          <td className="px-2 py-3 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
+                            <span className="block truncate">{formatDateLabel(project.updatedAt)}</span>
                           </td>
 
-                          <td className="px-3 py-3 align-middle">
-                            <div className="flex items-center justify-center gap-1.5">
+                          <td className="px-2 py-3 align-middle">
+                            <div className="flex items-center justify-center gap-1">
                               <Button
                                 asChild
                                 variant="outline"
                                 size="sm"
-                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
                               >
                                 <Link href={projectWorkspaceHref(project._id)}>
                                   فتح
@@ -1392,6 +1461,7 @@ export default function MvProjectsDashboard() {
                                 project={project}
                                 onOpenAssetFolders={openAssetFoldersModal}
                                 onOpenLocations={openContactDataModal}
+                                onDownloadFinalReport={startBackgroundFinalReportDownload}
                                 onDelete={(id) => void handleDeleteProject(id)}
                               />
                             </div>
@@ -1403,7 +1473,7 @@ export default function MvProjectsDashboard() {
                 </table>
               </div>
 
-              <div className="grid gap-2 bg-slate-50 p-2 lg:hidden">
+              <div className="grid gap-2 bg-slate-50 p-2 sm:grid-cols-2 xl:hidden">
                 {paginatedProjects.map((project) => {
                   const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
                   const progress = projectProgressPct(project);
@@ -1412,11 +1482,20 @@ export default function MvProjectsDashboard() {
                     reportType === "simple" || reportType === "advanced"
                       ? MV_REPORT_TYPE_LABEL_AR[reportType]
                       : null;
+                  const mobileDisplayNumber =
+                    typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
+                      ? project.displayNumber
+                      : null;
 
                   return (
                     <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-center gap-1.5">
+                            <span className="inline-flex h-5 min-w-[1.75rem] items-center justify-center rounded-md bg-sky-50 px-1.5 text-[10px] font-black tabular-nums text-[#0C447C]">
+                              #{mobileDisplayNumber == null ? "—" : numberFormatter.format(mobileDisplayNumber)}
+                            </span>
+                          </div>
                           <ProjectWorkspaceLink
                             projectId={project._id}
                             title={project.name || "—"}
@@ -1438,6 +1517,7 @@ export default function MvProjectsDashboard() {
                           project={project}
                           onOpenAssetFolders={openAssetFoldersModal}
                           onOpenLocations={openContactDataModal}
+                          onDownloadFinalReport={startBackgroundFinalReportDownload}
                           onDelete={(id) => void handleDeleteProject(id)}
                         />
                       </div>
@@ -1505,7 +1585,10 @@ export default function MvProjectsDashboard() {
           setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
         }}
       >
-        <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-4xl" dir="rtl">
+        <DialogContent
+          className="flex max-h-[90vh] flex-col overflow-visible border-slate-200 p-0 shadow-2xl sm:max-w-4xl"
+          dir="rtl"
+        >
           <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-5 py-4 text-right">
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
@@ -1519,16 +1602,20 @@ export default function MvProjectsDashboard() {
               </div>
             </div>
           </DialogHeader>
-          <Tabs
-            value={contactDialogTab}
-            onValueChange={(value) => {
-              const next: ContactDialogTab =
-                value === "files" ? "files" : value === "inspectors" ? "inspectors" : "locations";
-              if (next === "files") setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
-              setContactDialogTab(next);
-            }}
-            className="flex min-h-0 flex-1 flex-col"
+          <div
+            ref={bindInspectionPickersPortalHost}
+            className="relative z-0 flex min-h-0 flex-1 flex-col overflow-visible"
           >
+            <Tabs
+              value={contactDialogTab}
+              onValueChange={(value) => {
+                const next: ContactDialogTab =
+                  value === "files" ? "files" : value === "inspectors" ? "inspectors" : "locations";
+                if (next === "files") setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
+                setContactDialogTab(next);
+              }}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
             <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-2">
               <TabsList className="h-auto min-h-9 flex-wrap justify-start rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200">
                 <TabsTrigger value="locations" className="h-7 rounded-md px-3 text-[12px] font-bold">
@@ -1547,6 +1634,7 @@ export default function MvProjectsDashboard() {
                 value={contactDataForm}
                 onChange={setContactDataForm}
                 disabled={savingContactData}
+                pickerPopoverHost={inspectionPickersPortalHost}
                 onOpenInspectorFiles={(site) => void openInspectorFilesForSite(site)}
                 openingInspectorFilesSiteId={openingInspectorFilesSiteId}
               />
@@ -1584,7 +1672,8 @@ export default function MvProjectsDashboard() {
                 </div>
               )}
             </TabsContent>
-          </Tabs>
+            </Tabs>
+          </div>
           <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
             <Button
               type="button"
@@ -1663,6 +1752,16 @@ export default function MvProjectsDashboard() {
         showSkip
         skipLabel="تخطي والمتابعة"
       />
+
+      {backgroundPdfExport ? (
+        <iframe
+          key={backgroundPdfExport.nonce}
+          title="تصدير التقرير"
+          src={`/machine-valuation/${encodeURIComponent(backgroundPdfExport.projectId)}/workflow/report`}
+          className="pointer-events-none fixed left-0 top-0 z-[-5] h-[1600px] w-[2400px] -translate-x-[3000px] border-0 opacity-0"
+          aria-hidden
+        />
+      ) : null}
     </div>
   );
 }
