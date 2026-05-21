@@ -45,7 +45,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -86,7 +85,7 @@ import { mvAutoPdfDownloadStorageKey, MV_REPORT_PDF_PARENT_MESSAGE } from "./mv-
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
-type ContactDialogTab = "locations" | "inspectors" | "files";
+type ContactDialogTab = "locations" | "inspectors";
 
 const tajawal = Tajawal({
   subsets: ["arabic"],
@@ -238,7 +237,7 @@ function ProjectActionsMenu({
       <DropdownMenuContent align="end" className="w-56 text-right">
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenLocations(project)}>
           <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
-          تحديد مواقع المعاينة
+          تحديد المواقع والمعاينين
         </DropdownMenuItem>
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
@@ -625,20 +624,8 @@ function MvInspectorAssignmentsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-violet-700 shadow-sm ring-1 ring-violet-100">
-            <Users className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-black text-slate-900">اختيار المعاينين</p>
-            <p className="truncate text-[11px] font-semibold text-slate-500">
-              {projectSnapshot?.name || project?.name || "المشروع"}
-            </p>
-          </div>
-        </div>
-
-        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="grid gap-2 sm:grid-cols-2">
             <ProjectInspectorMultiSelect
               inspectors={inspectors}
@@ -666,9 +653,9 @@ function MvInspectorAssignmentsPanel({
           </Button>
         </div>
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
           {draftAssignments.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-[13px] font-semibold text-slate-400">
               لا توجد تعيينات معاينين بعد.
             </div>
           ) : (
@@ -701,7 +688,7 @@ function MvInspectorAssignmentsPanel({
         </div>
       </div>
 
-      <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+      <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50/80 px-3 py-2">
         <Button
           type="button"
           className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
@@ -736,7 +723,9 @@ export default function MvProjectsDashboard() {
     createProjectInspectionSiteForm(0),
   ]);
   const [contactDialogTab, setContactDialogTab] = useState<ContactDialogTab>("locations");
-  const [contactFilesLocationIds, setContactFilesLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
+  const [inspectorFilesOpen, setInspectorFilesOpen] = useState(false);
+  const [inspectorFilesProject, setInspectorFilesProject] = useState<MvProject | null>(null);
+  const [inspectorFilesSiteId, setInspectorFilesSiteId] = useState<string | null>(null);
   const [openingInspectorFilesSiteId, setOpeningInspectorFilesSiteId] = useState<string | null>(null);
   const [savingContactData, setSavingContactData] = useState(false);
   /** لتصيير قوائم المنطقة/المدينة داخل طبقة الحوار وليس خلف الغلافة التي تعطل النقرات */
@@ -749,6 +738,17 @@ export default function MvProjectsDashboard() {
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
   const [backgroundPdfExport, setBackgroundPdfExport] = useState<{ projectId: string; nonce: number } | null>(
     null,
+  );
+  const inspectorFilesLocationOptions = useMemo(() => {
+    if (!inspectorFilesProject || !inspectorFilesSiteId) return inspectorFilesProject?.locations ?? [];
+    const target = (inspectorFilesProject.locations ?? []).find(
+      (location, index) => mvLocationId(location, index) === inspectorFilesSiteId,
+    );
+    return target ? [{ ...target, id: target.id || inspectorFilesSiteId }] : [];
+  }, [inspectorFilesProject, inspectorFilesSiteId]);
+  const inspectorFilesInitialLocationIds = useMemo(
+    () => (inspectorFilesSiteId ? [inspectorFilesSiteId] : [MV_ALL_LOCATIONS_VALUE]),
+    [inspectorFilesSiteId],
   );
 
   /**
@@ -980,7 +980,6 @@ export default function MvProjectsDashboard() {
     setContactDataProject(project);
     setContactDataForm(projectInspectionSitesFromData(project.locations, project.contacts));
     setContactDialogTab("locations");
-    setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
     setContactDataOpen(true);
 
     try {
@@ -1015,8 +1014,8 @@ export default function MvProjectsDashboard() {
     } = {},
   ): Promise<MvProject | null> => {
     const {
-      closeDialog = true,
-      continueCreatedFlow = true,
+      closeDialog = false,
+      continueCreatedFlow = false,
       showToast = true,
     } = options;
     if (!contactDataProject) return null;
@@ -1094,26 +1093,44 @@ export default function MvProjectsDashboard() {
       }
 
       setContactDataProject(updatedProject);
-      setContactFilesLocationIds([site.id]);
-      setContactDialogTab("files");
+      setInspectorFilesProject(updatedProject);
+      setInspectorFilesSiteId(site.id);
+      setInspectorFilesOpen(true);
     } finally {
       setOpeningInspectorFilesSiteId(null);
     }
   };
 
-  const handleSkipInspectionLocations = () => {
+  const handleContactBackToCreate = () => {
     setContactDataOpen(false);
     setContactDialogTab("locations");
-    setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
-    if (createdFlowProject) {
+    setCreateOpen(true);
+  };
+
+  const handleSaveContactAndClose = async () => {
+    const updatedProject = await handleSaveContactData({ closeDialog: true, continueCreatedFlow: false });
+    if (!updatedProject) return;
+    setCreatedFlowProject((current) => (current?._id === updatedProject._id ? null : current));
+    setContactDataProject(null);
+  };
+
+  const handleSaveContactAndContinue = async () => {
+    const updatedProject = await handleSaveContactData({ closeDialog: false, continueCreatedFlow: false });
+    if (!updatedProject) return;
+    setContactDataOpen(false);
+    setContactDialogTab("locations");
+    if (createdFlowProject?._id === updatedProject._id) {
+      setCreatedFlowProject(updatedProject);
+      setAssetFoldersProject(updatedProject);
       setAssetFoldersOpen(true);
       return;
     }
     setContactDataProject(null);
+    navigate(`/machine-valuation/${updatedProject._id}/workflow/report-data`);
   };
 
-  const finishCreatedProjectSetup = () => {
-    const projectId = createdFlowProject?._id;
+  const finishAssetFoldersAndContinue = () => {
+    const projectId = createdFlowProject?._id ?? assetFoldersProject?._id;
     setAssetFoldersOpen(false);
     setAssetFoldersProject(null);
     setCreatedFlowProject(null);
@@ -1575,30 +1592,22 @@ export default function MvProjectsDashboard() {
             setContactDataOpen(true);
             return;
           }
-          if (createdFlowProject) {
-            handleSkipInspectionLocations();
-            return;
-          }
           setContactDataOpen(false);
           setContactDataProject(null);
           setContactDialogTab("locations");
-          setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
         }}
       >
         <DialogContent
           className="flex max-h-[90vh] flex-col overflow-visible border-slate-200 p-0 shadow-2xl sm:max-w-4xl"
           dir="rtl"
         >
-          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-5 py-4 text-right">
+          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
                 <MapPinned className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">تحديد مواقع المعاينة</DialogTitle>
-                <DialogDescription className="truncate text-[12px] text-slate-500">
-                  {contactDataProject?.name || "المشروع"}
-                </DialogDescription>
+                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">تحديد المواقع والمعاينين</DialogTitle>
               </div>
             </div>
           </DialogHeader>
@@ -1609,27 +1618,33 @@ export default function MvProjectsDashboard() {
             <Tabs
               value={contactDialogTab}
               onValueChange={(value) => {
-                const next: ContactDialogTab =
-                  value === "files" ? "files" : value === "inspectors" ? "inspectors" : "locations";
-                if (next === "files") setContactFilesLocationIds([MV_ALL_LOCATIONS_VALUE]);
+                const next: ContactDialogTab = value === "inspectors" ? "inspectors" : "locations";
                 setContactDialogTab(next);
               }}
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-            <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-2">
-              <TabsList className="h-auto min-h-9 flex-wrap justify-start rounded-lg bg-white p-1 shadow-sm ring-1 ring-slate-200">
-                <TabsTrigger value="locations" className="h-7 rounded-md px-3 text-[12px] font-bold">
+            <div className="border-b border-slate-200 bg-white px-4">
+              <TabsList
+                dir="rtl"
+                className="grid h-12 w-full grid-cols-2 items-end rounded-none bg-transparent p-0 text-slate-500"
+              >
+                <TabsTrigger
+                  value="locations"
+                  dir="rtl"
+                  className="relative h-12 w-full rounded-none border-b-2 border-transparent bg-transparent px-2 pb-3 pt-2 text-center text-[12px] font-black text-slate-500 shadow-none transition hover:text-slate-800 data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
+                >
                   تحديد المواقع
                 </TabsTrigger>
-                <TabsTrigger value="inspectors" className="h-7 rounded-md px-3 text-[12px] font-bold">
+                <TabsTrigger
+                  value="inspectors"
+                  dir="rtl"
+                  className="relative h-12 w-full rounded-none border-b-2 border-transparent bg-transparent px-2 pb-3 pt-2 text-center text-[12px] font-black text-slate-500 shadow-none transition hover:text-slate-800 data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
+                >
                   اختيار المعاينين
-                </TabsTrigger>
-                <TabsTrigger value="files" className="h-7 rounded-md px-3 text-[12px] font-bold">
-                  إضافة ملفات للمعاين
                 </TabsTrigger>
               </TabsList>
             </div>
-            <TabsContent value="locations" className="m-0 min-h-0 flex-1 overflow-y-auto px-5 py-4 data-[state=inactive]:hidden">
+            <TabsContent value="locations" className="m-0 min-h-0 flex-1 overflow-y-auto p-3 data-[state=inactive]:hidden">
               <MvInspectionLocationsFields
                 value={contactDataForm}
                 onChange={setContactDataForm}
@@ -1652,49 +1667,87 @@ export default function MvProjectsDashboard() {
                 </div>
               )}
             </TabsContent>
-            <TabsContent value="files" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-              {contactDataProject?._id ? (
-                <MvInspectorFilesPanel
-                  projectId={contactDataProject._id}
-                  initialProject={contactDataProject}
-                  embedded
-                  initialLocationIds={contactFilesLocationIds}
-                  locationSelectionLocked={!contactFilesLocationIds.includes(MV_ALL_LOCATIONS_VALUE)}
-                  className="h-[min(62vh,620px)]"
-                  onProjectLoaded={(project) => {
-                    mergeProjectIntoList(project);
-                    setContactDataProject(project);
-                  }}
-                />
-              ) : (
-                <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
-                  اختر مشروعاً أولاً.
-                </div>
-              )}
-            </TabsContent>
             </Tabs>
           </div>
-          <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10 rounded-xl border-slate-200 bg-white px-5"
-              onClick={createdFlowProject ? handleSkipInspectionLocations : () => setContactDataOpen(false)}
-              disabled={savingContactData}
-            >
-              {createdFlowProject ? "تخطي" : "إلغاء"}
-            </Button>
-            {contactDialogTab !== "inspectors" ? (
+          <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 bg-slate-50/80 px-4 py-2">
+            {createdFlowProject ? (
               <Button
                 type="button"
-                className="h-10 min-w-[120px] rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
-                onClick={() => void handleSaveContactData()}
+                variant="outline"
+                className="h-10 rounded-xl border-slate-200 bg-white px-5"
+                onClick={handleContactBackToCreate}
                 disabled={savingContactData}
               >
-                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
+                رجوع
               </Button>
             ) : null}
+            <div className="flex flex-1 flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl border-slate-200 bg-white px-5 text-[12px] font-bold"
+                onClick={() => void handleSaveContactAndClose()}
+                disabled={savingContactData}
+              >
+                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ وإغلاق"}
+              </Button>
+              <Button
+                type="button"
+                className="h-10 min-w-[170px] rounded-xl bg-slate-950 px-5 text-[12px] font-bold text-white hover:bg-slate-800"
+                onClick={() => void handleSaveContactAndContinue()}
+                disabled={savingContactData}
+              >
+                {savingContactData ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : createdFlowProject ? (
+                  "حفظ والانتقال لمجلدات الأصول"
+                ) : (
+                  "حفظ وفتح بيانات التقرير"
+                )}
+              </Button>
+            </div>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={inspectorFilesOpen}
+        onOpenChange={(open) => {
+          setInspectorFilesOpen(open);
+          if (!open) {
+            setInspectorFilesProject(null);
+            setInspectorFilesSiteId(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="flex max-h-[90vh] flex-col overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-5xl"
+          dir="rtl"
+        >
+          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
+            <DialogTitle className="text-[15px] font-black text-slate-950">إرفاق ملفات</DialogTitle>
+          </DialogHeader>
+          {inspectorFilesProject?._id ? (
+            <MvInspectorFilesPanel
+              key={`${inspectorFilesProject._id}:${inspectorFilesSiteId ?? "all"}`}
+              projectId={inspectorFilesProject._id}
+              initialProject={inspectorFilesProject}
+              embedded
+              initialLocationIds={inspectorFilesInitialLocationIds}
+              locationOptions={inspectorFilesLocationOptions}
+              locationSelectionLocked={Boolean(inspectorFilesSiteId)}
+              className="h-[min(72vh,720px)]"
+              onProjectLoaded={(project) => {
+                mergeProjectIntoList(project);
+                setInspectorFilesProject(project);
+                setContactDataProject((current) => (current?._id === project._id ? project : current));
+              }}
+            />
+          ) : (
+            <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
+              اختر مشروعاً أولاً.
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1742,15 +1795,32 @@ export default function MvProjectsDashboard() {
         open={assetFoldersOpen}
         onOpenChange={(open) => {
           setAssetFoldersOpen(open);
-          if (!open && createdFlowProject) {
-            finishCreatedProjectSetup();
-            return;
+          if (!open) {
+            setAssetFoldersProject(null);
+            setCreatedFlowProject(null);
           }
-          if (!open) setAssetFoldersProject(null);
         }}
         projectId={createdFlowProject?._id ?? assetFoldersProject?._id ?? null}
-        showSkip
-        skipLabel="تخطي والمتابعة"
+        onGenerated={async () => {
+          await fetchProjects();
+        }}
+        onBack={() => {
+          const project = createdFlowProject ?? assetFoldersProject;
+          setAssetFoldersOpen(false);
+          setAssetFoldersProject(null);
+          if (!project) return;
+          setContactDataProject(project);
+          setContactDataForm(projectInspectionSitesFromData(project.locations, project.contacts));
+          setContactDialogTab("locations");
+          setContactDataOpen(true);
+        }}
+        onSaveAndClose={() => {
+          setAssetFoldersOpen(false);
+          setAssetFoldersProject(null);
+          setCreatedFlowProject(null);
+          setContactDataProject(null);
+        }}
+        onSaveAndContinue={finishAssetFoldersAndContinue}
       />
 
       {backgroundPdfExport ? (

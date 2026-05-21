@@ -103,11 +103,15 @@ const PDF_UPLOAD_MAX_PAGE_PIXELS = 16_000_000;
 const PDF_PARALLEL_PAGES = 8;
 /** جودة JPEG لصفحات PDF المستخرجة على الخادم — أسرع من PNG وأخف للرفع */
 const PDF_PAGE_EXPORT_JPEG_QUALITY = 0.88;
+const VALUATION_ACCOUNTING_SOURCE_PDF_UPLOAD_MAX_BYTES = 3.5 * 1024 * 1024;
+const VALUATION_ACCOUNTING_EXCEL_SOURCE_BACKGROUND_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 /** صور Excel تُولَّد على دفعات لتقليل زمن الانتظار */
 const EXCEL_IMAGE_CONCURRENCY = 4;
+const EXCEL_AUTO_IMAGE_RENDER_SCALE = 2.1;
+const EXCEL_AUTO_IMAGE_JPEG_QUALITY = 0.9;
 const DEFAULT_EXCEL_ROWS_PER_IMAGE = 15;
-const EXCEL_ROWS_PER_IMAGE_OPTIONS = [5, 10, 15, 20] as const;
-const DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE = 20;
+const EXCEL_ROWS_PER_IMAGE_OPTIONS = [5, 10, 15, 20, 30, 50, 100, 200] as const;
+const DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE = 50;
 const MIN_EXCEL_PDF_ROWS_PER_IMAGE = 1;
 const MAX_EXCEL_PDF_ROWS_PER_IMAGE = 200;
 const EXCEL_PDF_MIN_COLUMN_WIDTH_PX = 64;
@@ -117,8 +121,8 @@ const EXCEL_PDF_ROW_HEIGHT_PX = 42;
 const EXCEL_PDF_CELL_FONT_PX = 18;
 const EXCEL_PDF_CELL_PAD_X_PX = 12;
 const EXCEL_PDF_CONTENT_PADDING_PX = 2;
-/** كان المسار الكامل 3x للـ PNG؛ الحفظ يستخدم EXCEL_PDF_COMMIT_RENDER_SCALE + JPEG */
-const EXCEL_PDF_COMMIT_RENDER_SCALE = 2.35;
+/** حفظ صور Excel مباشرة كـ JPEG بدون إنشاء PDF وسيط. */
+const EXCEL_PDF_COMMIT_RENDER_SCALE = 1.85;
 const EXCEL_PDF_COMMIT_JPEG_QUALITY = 0.9;
 /**
  * Scale used when generating the temporary modal preview after the user picks
@@ -132,6 +136,7 @@ const EXCEL_PDF_PREVIEW_RENDER_SCALE = 1.25;
 const EXCEL_PDF_PREVIEW_JPEG_QUALITY = 0.86;
 const EXCEL_PDF_MAX_CANVAS_DIMENSION_PX = 32_000;
 const EXCEL_PDF_MAX_CANVAS_PIXELS = 32_000_000;
+const EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY = 4;
 /** Scale used to render the PDF page preview in the upload dialog. The full
  *  resolution capture happens later when the user commits the upload. */
 const PDF_PREVIEW_RENDER_SCALE = 1.4;
@@ -245,6 +250,11 @@ function cleanAccountingText(value: string) {
     .replace(/[_]{2,}/g, " ")
     .replace(/\s+/g, " ")
     .trim() || value.trim();
+}
+
+function isPayloadTooLargeUploadError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /413|FUNCTION_PAYLOAD_TOO_LARGE|payload too large|request entity too large|حد الاستضافة|حجم الملف/i.test(message);
 }
 
 function cropImageFileName(sourceName: string) {
@@ -626,9 +636,8 @@ function formatBytes(value: number) {
 
 function normalizeExcelRowsPerImage(value: unknown) {
   const n = typeof value === "number" ? Math.round(value) : Number(value);
-  return EXCEL_ROWS_PER_IMAGE_OPTIONS.includes(n as (typeof EXCEL_ROWS_PER_IMAGE_OPTIONS)[number])
-    ? n
-    : DEFAULT_EXCEL_ROWS_PER_IMAGE;
+  if (!Number.isFinite(n)) return DEFAULT_EXCEL_ROWS_PER_IMAGE;
+  return Math.max(1, Math.min(200, Math.round(n)));
 }
 
 function excelSheetSettingsKey(sheetId: string, sheetName: string) {
@@ -1328,9 +1337,9 @@ async function renderValuationExcelRowsImageDataUrl({
   const cssWidth = Math.ceil(tableWidth + bleed * 2 + 2);
   const cssHeight = Math.ceil(tableHeight + bleed * 2 + 2);
   const requestedScale = Math.max(
-    2.5,
-    qualityScale * 1.35,
-    typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+    EXCEL_AUTO_IMAGE_RENDER_SCALE,
+    Math.min(2.4, qualityScale * 0.55),
+    typeof window !== "undefined" ? Math.min(2.2, window.devicePixelRatio || 1) : 1,
   );
   const maxCanvasSide = 30000;
   const maxCanvasPixels = 120_000_000;
@@ -1408,7 +1417,10 @@ async function renderValuationExcelRowsImageDataUrl({
     y += h;
   });
 
-  return canvas.toDataURL("image/png");
+  const dataUrl = canvas.toDataURL("image/jpeg", EXCEL_AUTO_IMAGE_JPEG_QUALITY);
+  canvas.width = 1;
+  canvas.height = 1;
+  return dataUrl;
 }
 
 function normalizeExcelPdfRowsPerImage(value: unknown) {
@@ -1472,6 +1484,9 @@ async function readExcelSheetsForPdf(
   };
   if (options?.firstSheetOnly) {
     (readOptions as Record<string, unknown>).sheets = 0;
+    if (options.sheetRows && options.sheetRows > 0) {
+      (readOptions as Record<string, unknown>).sheetRows = normalizeExcelPdfRowsPerImage(options.sheetRows) + 8;
+    }
   }
   const workbook = XLSX.read(await file.arrayBuffer(), readOptions);
 
@@ -1789,6 +1804,124 @@ async function buildExcelPdfFromOriginalFile(
   };
 }
 
+type ExcelPdfImageJob = {
+  sheet: ExcelPdfSheet;
+  range: { start: number; end: number };
+  pageIndex: number;
+  sheetPageIndex: number;
+  sheetPageCount: number;
+  totalPages: number;
+};
+
+async function buildExcelImagesDirectlyFromOriginalFile({
+  projectId,
+  file,
+  source,
+  rowsPerImage,
+  onProgress,
+  control,
+}: {
+  projectId: string;
+  file: File;
+  source: MvValuationAccountingSourceFile;
+  rowsPerImage: number;
+  onProgress?: AccountFileProgressCb;
+  control?: UploadControl;
+}): Promise<MvValuationAccountingImage[]> {
+  const sheets = await readExcelSheetsForPdf(file);
+  const cleanSourceName = cleanAccountingText(source.name);
+  const normalizedRows = normalizeExcelPdfRowsPerImage(rowsPerImage);
+  const jobs: ExcelPdfImageJob[] = [];
+
+  for (const sheet of sheets) {
+    const ranges = excelPdfPageRanges(sheet, normalizedRows);
+    for (let sheetPageIndex = 0; sheetPageIndex < ranges.length; sheetPageIndex += 1) {
+      jobs.push({
+        sheet,
+        range: ranges[sheetPageIndex]!,
+        pageIndex: jobs.length + 1,
+        sheetPageIndex: sheetPageIndex + 1,
+        sheetPageCount: ranges.length,
+        totalPages: 0,
+      });
+    }
+  }
+
+  const total = jobs.length;
+  if (total === 0) throw new Error("تعذر توليد صور من ملف Excel.");
+  jobs.forEach((job) => {
+    job.totalPages = total;
+  });
+
+  await flushProgress(onProgress, 0, total, "توليد ورفع صور Excel");
+  const images: MvValuationAccountingImage[] = [];
+  let done = 0;
+
+  for (let start = 0; start < jobs.length; start += EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY) {
+    if (control?.shouldStop?.()) break;
+    const batch = jobs.slice(start, start + EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY);
+    const batchImages = await Promise.all(
+      batch.map(async (job) => {
+        if (control?.shouldStop?.()) return null;
+        const dataUrl = renderExcelPdfPageDataUrl(job.sheet, job.range.start, job.range.end);
+        const blob = dataUrlToBlob(dataUrl);
+        const sheetSuffix =
+          job.sheetPageCount > 1
+            ? `-${String(job.sheetPageIndex).padStart(2, "0")}-of-${job.sheetPageCount}`
+            : "";
+        const imageFile = new File(
+          [blob],
+          `${safeImageFileBaseName(cleanSourceName)}-${safeImageFileBaseName(job.sheet.name)}${sheetSuffix}.jpg`,
+          { type: blob.type || "image/jpeg" },
+        );
+        const fileId = await uploadProjectFileAndReturnId(projectId, imageFile, {
+          valuationAccounting: true,
+        });
+        const pageText =
+          job.sheetPageCount > 1
+            ? ` - صورة ${job.sheetPageIndex} من ${job.sheetPageCount}`
+            : "";
+        const image: MvValuationAccountingImage = {
+          id: createId("account-image"),
+          approachId: source.approachId,
+          sourceId: source.id,
+          sourceKind: "excel",
+          sourceFileName: cleanSourceName,
+          name: `${approachLabel(source.approachId)} - ${cleanSourceName} - ${cleanAccountingText(job.sheet.name)}${pageText}`,
+          fileId,
+          createdAt: new Date().toISOString(),
+          displayWidthPercent: 90,
+          displayMaxHeightPx: 1100,
+          qualityScale: EXCEL_PDF_COMMIT_RENDER_SCALE,
+          includeInReport: true,
+          autoGenerated: true,
+          autoPageIndex: job.pageIndex,
+          autoPageCount: job.totalPages,
+          autoRowsPerImage: normalizedRows,
+          crop: {
+            sheetName: job.sheet.name,
+            pageNumber: job.sheetPageIndex,
+            x: 1,
+            y: job.range.start + 1,
+            width: Math.max(1, job.sheet.columnCount),
+            height: Math.max(1, job.range.end - job.range.start),
+          },
+        };
+        control?.onImage?.(image);
+        return image;
+      }),
+    );
+
+    for (const image of batchImages) {
+      if (image) images.push(image);
+    }
+    done += batch.length;
+    await flushProgress(onProgress, Math.min(done, total), total, "توليد ورفع صور Excel");
+  }
+
+  return images;
+}
+
 type ExcelAutoImageJob = {
   sheet: ValuationExcelSheetDetails;
   visibleHeaders: string[];
@@ -1885,8 +2018,8 @@ async function buildAutomaticExcelImages({
         const pageLabel = job.rangesLength > 1 ? `-${job.pageIndex + 1}-of-${job.rangesLength}` : "";
         const file = new File(
           [blob],
-          `${safeImageFileBaseName(job.cleanSourceName)}-${safeImageFileBaseName(job.sheet.name)}${pageLabel}.png`,
-          { type: "image/png" },
+          `${safeImageFileBaseName(job.cleanSourceName)}-${safeImageFileBaseName(job.sheet.name)}${pageLabel}.jpg`,
+          { type: blob.type || "image/jpeg" },
         );
         const fileId = await uploadProjectFileAndReturnId(projectId, file, { valuationAccounting: true });
         const pageText = job.rangesLength > 1 ? ` - صورة ${job.pageIndex + 1} من ${job.rangesLength}` : "";
@@ -3324,6 +3457,7 @@ export default function MvValuationAccountingWorkspace({
         const nextImages: MvValuationAccountingImage[] = [];
         let convertedPdfPageCount = 0;
         let generatedExcelImageCount = 0;
+        let skippedOversizedPdfSourceUploads = 0;
         const excelGenerationErrors: string[] = [];
         for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
           const file = files[fileIndex]!;
@@ -3446,9 +3580,33 @@ export default function MvValuationAccountingWorkspace({
               total: 0,
               fileName: cleanFileName,
             });
-            const pdfFileId = await uploadProjectFileAndReturnId(projectId, file, {
-              valuationAccounting: true,
-            });
+            let pdfFileId: string | undefined;
+            if (file.size > VALUATION_ACCOUNTING_SOURCE_PDF_UPLOAD_MAX_BYTES) {
+              skippedOversizedPdfSourceUploads += 1;
+              pushFileProcess({
+                phase: "تجاوز حفظ نسخة PDF كبيرة؛ جاري توليد الصور النهائية...",
+                current: 0,
+                total: 0,
+                fileName: cleanFileName,
+              });
+              await waitFrame();
+            } else {
+              try {
+                pdfFileId = await uploadProjectFileAndReturnId(projectId, file, {
+                  valuationAccounting: true,
+                });
+              } catch (error) {
+                if (!isPayloadTooLargeUploadError(error)) throw error;
+                skippedOversizedPdfSourceUploads += 1;
+                pushFileProcess({
+                  phase: "تجاوز حفظ نسخة PDF كبيرة؛ جاري توليد الصور النهائية...",
+                  current: 0,
+                  total: 0,
+                  fileName: cleanFileName,
+                });
+                await waitFrame();
+              }
+            }
             const pdfSource: MvValuationAccountingSourceFile = {
               id: createId("account-source"),
               approachId: targetApproach,
@@ -3458,7 +3616,7 @@ export default function MvValuationAccountingWorkspace({
               mimeType: file.type || "application/pdf",
               sizeBytes: file.size,
               createdAt: new Date().toISOString(),
-              fileId: pdfFileId,
+              ...(pdfFileId ? { fileId: pdfFileId } : {}),
             };
             nextSources.push(pdfSource);
             persistStore((current) => ({
@@ -3552,7 +3710,8 @@ export default function MvValuationAccountingWorkspace({
             ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
           ],
         }));
-        setPreviewImage(null);        toast({
+        setPreviewImage(null);
+        toast({
           description:
             kind === "excel"
               ? `تم رفع ${files.length} ملف Excel وتوليد ${generatedExcelImageCount} صورة تلقائياً في ${approachLabel(targetApproach)}.`
@@ -3560,6 +3719,12 @@ export default function MvValuationAccountingWorkspace({
               ? `تم تحويل PDF إلى ${convertedPdfPageCount} صورة عالية الجودة وربطها بـ ${approachLabel(targetApproach)}.`
               : `تم رفع ${files.length} ملف إلى ${approachLabel(targetApproach)}.`,
         });
+        if (skippedOversizedPdfSourceUploads > 0) {
+          toast({
+            description:
+              "تم توليد الصور النهائية، لكن تم تخطي حفظ نسخة PDF وسيطة كبيرة لأنها تتجاوز حد الاستضافة.",
+          });
+        }
         if (excelGenerationErrors.length > 0) {
           toast({
             variant: "destructive",
@@ -3783,12 +3948,14 @@ export default function MvValuationAccountingWorkspace({
     setPendingUploadPreview({ ...pending, status: "saving", message: "جاري حفظ الملفات وتوليد الصور على الخادم…" });
     if (pending.kind === "excel") {
       const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
-      const pdfFiles: File[] = [];
+      const nextSources: MvValuationAccountingSourceFile[] = [];
+      const nextImages: MvValuationAccountingImage[] = [];
+      let generatedImageCount = 0;
       try {
         uploadStopRequestedRef.current = false;
         setUploadingKind("excel");
         setFileProcessOverlay({
-          phase: "جاري تجهيز صور الحسابات للحفظ…",
+          phase: "جاري حفظ Excel وتوليد الصور مباشرة…",
           current: 0,
           total: pending.files.length,
           fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
@@ -3797,20 +3964,79 @@ export default function MvValuationAccountingWorkspace({
         for (let index = 0; index < pending.files.length; index += 1) {
           if (uploadStopRequestedRef.current) break;
           const file = pending.files[index]!;
+          const cleanFileName = cleanAccountingText(file.name);
           pushFileProcess({
-            phase: "جاري تجهيز صور الحسابات للحفظ…",
+            phase: "توليد صور Excel مباشرة…",
             current: index,
             total: pending.files.length,
-            fileName: cleanAccountingText(file.name),
+            fileName: cleanFileName,
           });
           await waitFrame();
-          const converted = await buildExcelPdfFromOriginalFile(file, { rowsPerImage });
-          pdfFiles.push(converted.pdfFile);
+          const source: MvValuationAccountingSourceFile = {
+            id: createId("account-source"),
+            approachId: pending.approachId,
+            kind: "excel",
+            name: cleanFileName,
+            originalName: file.name,
+            mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            sizeBytes: file.size,
+            createdAt: new Date().toISOString(),
+            excelRowsPerImage: rowsPerImage,
+          };
+          nextSources.push(source);
+          persistStore((current) => ({
+            ...current,
+            sources: current.sources.some((item) => item.id === source.id)
+              ? current.sources
+              : [...current.sources, source],
+          }));
+          const images = await buildExcelImagesDirectlyFromOriginalFile({
+            projectId,
+            file,
+            source,
+            rowsPerImage,
+            onProgress: async (done, total, phase) => {
+              pushFileProcess({
+                phase,
+                current: done,
+                total,
+                fileName: cleanFileName,
+              });
+              await waitFrame();
+            },
+            control: {
+              shouldStop: () => uploadStopRequestedRef.current,
+              onImage: (image) => {
+                persistStore((current) => ({
+                  ...current,
+                  images: current.images.some((item) => item.id === image.id)
+                    ? current.images
+                    : [...current.images, image],
+                }));
+              },
+            },
+          });
+          generatedImageCount += images.length;
+          nextImages.push(...images);
+          if (file.size <= VALUATION_ACCOUNTING_EXCEL_SOURCE_BACKGROUND_UPLOAD_MAX_BYTES) {
+            void uploadValuationExcelFileAndReturnId(projectId, file)
+              .then((fileId) => {
+                persistStore((current) => ({
+                  ...current,
+                  sources: current.sources.map((item) =>
+                    item.id === source.id ? { ...item, fileId } : item,
+                  ),
+                }));
+              })
+              .catch(() => {
+                // Source Excel is optional in the fast path; generated images are the durable output.
+              });
+          }
           pushFileProcess({
-            phase: "تم تجهيز صور الحسابات",
+            phase: "تم حفظ صور Excel",
             current: index + 1,
             total: pending.files.length,
-            fileName: cleanAccountingText(file.name),
+            fileName: cleanFileName,
           });
           await waitFrame();
         }
@@ -3820,24 +4046,30 @@ export default function MvValuationAccountingWorkspace({
           setUploadingKind(null);
           return;
         }
+        persistStore((current) => ({
+          ...current,
+          sources: [
+            ...current.sources,
+            ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
+          ],
+          images: [
+            ...current.images,
+            ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
+          ],
+        }));
+        toast({
+          description: `تم حفظ ${pending.files.length} ملف Excel وتوليد ${generatedImageCount} صورة مباشرة بدون حفظ PDF وسيط.`,
+        });
+        closePendingUploadPreview();
+        return;
       } catch (error) {
-        const message = error instanceof Error ? error.message : "تعذر تجهيز صور الحسابات.";
+        const message = error instanceof Error ? error.message : "تعذر حفظ Excel وتوليد الصور.";
         toast({ variant: "destructive", description: message });
         setPendingUploadPreview({ ...pending, status: "ready", message });
         setFileProcessOverlay(null);
         setUploadingKind(null);
         return;
       }
-      const ok = await commitUpload("pdf", pdfFiles, pending.approachId, {
-        originalExcelFiles: pending.files,
-        excelChunkRowsPerPdfPage: rowsPerImage,
-      });
-      if (ok) {
-        closePendingUploadPreview();
-        return;
-      }
-      setPendingUploadPreview({ ...pending, status: "ready" });
-      return;
     }
 
     const ok = await commitUpload(pending.kind, pending.files, pending.approachId, {
@@ -3848,7 +4080,7 @@ export default function MvValuationAccountingWorkspace({
       return;
     }
     setPendingUploadPreview({ ...pending, status: "ready" });
-  }, [closePendingUploadPreview, commitUpload, pushFileProcess, toast]);
+  }, [closePendingUploadPreview, commitUpload, persistStore, projectId, pushFileProcess, toast]);
 
   const applyExcelCapture = useCallback(async () => {
     if (!editorSource || editorSource.kind !== "excel" || !activeSheet) return;

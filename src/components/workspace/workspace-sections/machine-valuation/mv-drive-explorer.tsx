@@ -267,6 +267,7 @@ export default function MvDriveExplorer({
     }
     return subProjects.find((folder) => folder._id === currentSubProjectId) ?? null;
   }, [activeFolderDetail, currentSubProjectId, subProjects]);
+  const currentFolderIsPicAsset = Boolean(currentFolder?.picAsset);
 
   const childFolders = useMemo(() => {
     const direct = subProjects.filter(
@@ -533,6 +534,7 @@ export default function MvDriveExplorer({
           dragging && "scale-[1.003]",
         )}
         onDragOver={(event) => {
+          if (currentFolderIsPicAsset) return;
           event.preventDefault();
           setDragging(true);
         }}
@@ -540,7 +542,7 @@ export default function MvDriveExplorer({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          if (uploading) return;
+          if (uploading || currentFolderIsPicAsset) return;
           void handleUploadFiles(event.dataTransfer.files);
         }}
       >
@@ -590,16 +592,18 @@ export default function MvDriveExplorer({
                 </Button>
               ) : null}
 
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 rounded-lg border-slate-200 px-3 text-[11px]"
-                onClick={() => inputRef.current?.click()}
-                disabled={uploading}
-              >
-                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                رفع ملفات
-              </Button>
+              {!currentFolderIsPicAsset ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 rounded-lg border-slate-200 px-3 text-[11px]"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  رفع ملفات
+                </Button>
+              ) : null}
 
               <Button
                 type="button"
@@ -617,14 +621,16 @@ export default function MvDriveExplorer({
                 تحديث من الخادم
               </Button>
 
-              <Button
-                type="button"
-                className="h-8 rounded-lg bg-[#0C447C] px-3 text-[11px] text-white hover:bg-[#0a3a66]"
-                onClick={() => setDialogOpen(true)}
-              >
-                <FolderPlus className="h-3.5 w-3.5" />
-                إنشاء مجلد
-              </Button>
+              {!currentFolderIsPicAsset ? (
+                <Button
+                  type="button"
+                  className="h-8 rounded-lg bg-[#0C447C] px-3 text-[11px] text-white hover:bg-[#0a3a66]"
+                  onClick={() => setDialogOpen(true)}
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  إنشاء مجلد
+                </Button>
+              ) : null}
             </div>
           </div>
         </section>

@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { mvBackendOriginForProxy } from "@/lib/mv-backend-origin";
 
 /**
- * Streams multipart uploads to Nest without using next.config rewrites.
- * Rewrites can break large multipart bodies; this route runs on the Node server
- * and forwards the raw stream to the backend.
+ * Streams multipart uploads to Nest without buffering the whole request in
+ * Next.js memory. Serverless platforms can still enforce their own hard body
+ * limit, so large valuation-accounting images are compressed before this route.
  */
 export const runtime = "nodejs";
 
@@ -32,36 +32,18 @@ async function proxyFilesRequest(
     if (value) headers.set(name, value);
   }
 
-  let body: ArrayBuffer | undefined;
-  if (method !== "GET") {
-    try {
-      body = await request.arrayBuffer();
-    } catch (err) {
-      console.error("[api/mv/projects/.../files] read body failed", err);
-      return NextResponse.json(
-        {
-          error: "bad_request",
-          message: "تعذر قراءة الملفات المرفوعة. جرّب ملفًا أصغر أو أعد المحاولة.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (body.byteLength === 0) {
-      return NextResponse.json(
-        { error: "bad_request", message: "لم يصل أي محتوى للرفع." },
-        { status: 400 },
-      );
-    }
-  }
+  const body = method === "GET" ? undefined : request.body;
 
   try {
-    const upstream = await fetch(target, {
+    const init: RequestInit & { duplex?: "half" } = {
       method,
       headers,
       body,
       redirect: "manual",
-    });
+    };
+    if (body) init.duplex = "half";
+
+    const upstream = await fetch(target, init);
 
     const outHeaders = new Headers();
     const contentType = upstream.headers.get("content-type");
@@ -73,7 +55,7 @@ async function proxyFilesRequest(
       headers: outHeaders,
     });
   } catch (err) {
-    console.error("[api/mv/projects/.../files] proxy POST failed", err);
+    console.error("[api/mv/projects/.../files] proxy failed", err);
     return NextResponse.json(
       {
         error: "upstream_unreachable",

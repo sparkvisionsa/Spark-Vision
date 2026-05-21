@@ -144,7 +144,7 @@ function normalizeSource(value: unknown): MvValuationAccountingSourceFile | null
         : undefined,
     excelRowsPerImage:
       typeof item.excelRowsPerImage === "number"
-        ? Math.min(20, Math.max(5, Math.round(item.excelRowsPerImage)))
+        ? Math.min(200, Math.max(1, Math.round(item.excelRowsPerImage)))
         : undefined,
     excelVisibleColumnsBySheet:
       item.excelVisibleColumnsBySheet && typeof item.excelVisibleColumnsBySheet === "object"
@@ -205,7 +205,7 @@ function normalizeImage(value: unknown): MvValuationAccountingImage | null {
       typeof item.autoPageCount === "number" ? Math.max(1, Math.round(item.autoPageCount)) : undefined,
     autoRowsPerImage:
       typeof item.autoRowsPerImage === "number"
-        ? Math.min(20, Math.max(5, Math.round(item.autoRowsPerImage)))
+        ? Math.min(200, Math.max(1, Math.round(item.autoRowsPerImage)))
         : undefined,
     crop: item.crop,
   };

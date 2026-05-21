@@ -44,6 +44,7 @@ import type {
   MvDriveFile,
   MvProject,
   MvProjectReportData,
+  MvReportPageOrientationPreference,
   MvReportEditableSection,
   MvSubProject,
   PicAssetImage,
@@ -83,8 +84,26 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
       transform: none !important;
       filter: none !important;
       transition: none !important;
+      box-sizing: border-box !important;
+      overflow: hidden !important;
       -webkit-font-smoothing: antialiased !important;
       -moz-osx-font-smoothing: grayscale !important;
+    }
+    [data-mv-report-sheet][data-mv-report-orientation="portrait"] {
+      width: 210mm !important;
+      height: 297mm !important;
+      min-width: 210mm !important;
+      max-width: 210mm !important;
+      min-height: 297mm !important;
+      max-height: 297mm !important;
+    }
+    [data-mv-report-sheet][data-mv-report-orientation="landscape"] {
+      width: 297mm !important;
+      height: 210mm !important;
+      min-width: 297mm !important;
+      max-width: 297mm !important;
+      min-height: 210mm !important;
+      max-height: 210mm !important;
     }
     [data-mv-report-sheet] * {
       -webkit-font-smoothing: antialiased !important;
@@ -136,10 +155,21 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
 }
 
 /** يضمن التقاط الصفحات العريضة والمحتوى الممتد دون قص في html2canvas */
+const CSS_PX_PER_MM = 96 / 25.4;
+
+function expectedA4CssBox(landscape: boolean) {
+  return {
+    w: Math.round((landscape ? 297 : 210) * CSS_PX_PER_MM),
+    h: Math.round((landscape ? 210 : 297) * CSS_PX_PER_MM),
+  };
+}
+
 function getSheetPixelBox(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
-  const w = Math.max(Math.ceil(rect.width), 1);
-  const h = Math.max(Math.ceil(rect.height), 1);
+  const landscape = el.dataset.mvReportOrientation === "landscape";
+  const expected = expectedA4CssBox(landscape);
+  const w = Math.max(Math.ceil(rect.width), el.offsetWidth, expected.w, 1);
+  const h = Math.max(Math.ceil(rect.height), el.offsetHeight, expected.h, 1);
   return { w, h };
 }
 
@@ -353,6 +383,15 @@ function waitNextFrame() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+function primeReportImagesForCapture(root: HTMLElement) {
+  root.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+    img.loading = "eager";
+    img.decoding = "sync";
+    const src = img.currentSrc || img.getAttribute("src") || img.src;
+    if (src && img.src !== src) img.src = src;
+  });
+}
+
 async function waitForReportFonts() {
   if (typeof document === "undefined" || !("fonts" in document)) return;
   try {
@@ -363,29 +402,59 @@ async function waitForReportFonts() {
 }
 
 async function waitForReportImages(root: HTMLElement, timeoutMs = 12000) {
-  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img")).filter(
-    (img) => img.src && !img.complete,
-  );
+  const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img")).filter((img) => Boolean(img.src));
   if (imgs.length === 0) return;
   await Promise.allSettled(
     imgs.map(
       (img) =>
-        new Promise<void>((resolve) => {
-          let finished = false;
-          const finish = () => {
-            if (finished) return;
-            finished = true;
-            window.clearTimeout(timer);
-            img.removeEventListener("load", finish);
-            img.removeEventListener("error", finish);
-            resolve();
-          };
-          const timer = window.setTimeout(finish, timeoutMs);
-          img.addEventListener("load", finish, { once: true });
-          img.addEventListener("error", finish, { once: true });
-        }),
+        (async () => {
+          if (!img.complete) {
+            await new Promise<void>((resolve) => {
+              let finished = false;
+              const finish = () => {
+                if (finished) return;
+                finished = true;
+                window.clearTimeout(timer);
+                img.removeEventListener("load", finish);
+                img.removeEventListener("error", finish);
+                resolve();
+              };
+              const timer = window.setTimeout(finish, timeoutMs);
+              img.addEventListener("load", finish, { once: true });
+              img.addEventListener("error", finish, { once: true });
+            });
+          }
+          if (typeof img.decode === "function") {
+            try {
+              await Promise.race([img.decode(), sleep(Math.min(timeoutMs, 2500))]);
+            } catch {
+              // Decode failures should not block capture; html2canvas can still render placeholders/fallbacks.
+            }
+          }
+        })(),
     ),
   );
+}
+
+async function waitForReportStableLayout(root: HTMLElement, timeoutMs = 2600) {
+  const startedAt = performance.now();
+  let previous = "";
+  while (performance.now() - startedAt < timeoutMs) {
+    await waitNextFrame();
+    const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
+    const next = sheets
+      .map((sheet) => {
+        const box = getSheetPixelBox(sheet);
+        const rect = sheet.getBoundingClientRect();
+        return `${box.w}x${box.h}@${Math.round(rect.top)}:${Math.round(rect.left)}`;
+      })
+      .join("|");
+    if (next && next === previous) {
+      await waitNextFrame();
+      return;
+    }
+    previous = next;
+  }
 }
 
 function collectReportImageSources(root: HTMLElement) {
@@ -507,6 +576,67 @@ interface MvValuationReportWorkspaceProps {
 }
 
 type ReportSectionId = string;
+type ReportPageOrientations = Record<string, MvReportPageOrientationPreference>;
+
+const MV_REPORT_NAV_GROUPS: Array<{
+  title: string;
+  anchor: ReportSectionId;
+  icon: ReactNode;
+  activeAnchors: string[];
+}> = [
+  {
+    title: "أقسام الغلاف",
+    anchor: "report-cover",
+    icon: <ClipboardList className="h-3 w-3" />,
+    activeAnchors: [
+      "report-cover",
+      "report-toc",
+      ...MV_REPORT_TOC_ROWS.filter((row) => row.anchor.startsWith("mv-toc-") && row.anchor !== "mv-toc-24").map(
+        (row) => row.anchor,
+      ),
+    ],
+  },
+  {
+    title: "قسم رأي القيمة ومعدو التقرير",
+    anchor: "mv-toc-24",
+    icon: <FileText className="h-3 w-3" />,
+    activeAnchors: ["mv-toc-24"],
+  },
+  {
+    title: "قسم حسابات القيمة",
+    anchor: "mv-annex-1",
+    icon: <FileText className="h-3 w-3" />,
+    activeAnchors: ["mv-annex-1"],
+  },
+  {
+    title: "قسم صور الأصول",
+    anchor: "mv-annex-2",
+    icon: <ImageIcon className="h-3 w-3" />,
+    activeAnchors: ["mv-annex-2"],
+  },
+  {
+    title: "قسم ملفات أخرى",
+    anchor: "mv-annex-3",
+    icon: <FileText className="h-3 w-3" />,
+    activeAnchors: ["mv-annex-3"],
+  },
+  {
+    title: "قسم شهادة التسجيل",
+    anchor: "mv-annex-sce",
+    icon: <FileText className="h-3 w-3" />,
+    activeAnchors: ["mv-annex-sce"],
+  },
+  {
+    title: "صفحة الخاتمة",
+    anchor: "mv-report-closing",
+    icon: <FileText className="h-3 w-3" />,
+    activeAnchors: ["mv-report-closing"],
+  },
+];
+
+function isReportNavGroupActive(activeSection: ReportSectionId, activeAnchors: string[]) {
+  return activeAnchors.some((anchor) => activeSection === anchor || activeSection.startsWith(`${anchor}-`));
+}
 
 type ReportSignatureRow = {
   id: string;
@@ -563,7 +693,20 @@ function normalizeEditableSections(raw: unknown): MvReportEditableSection[] {
       id: typeof s.id === "string" ? s.id : newId(),
       title: typeof s.title === "string" ? s.title : "قسم جديد",
       body: typeof s.body === "string" ? s.body : "",
+      ...(typeof s.insertAfterAnchorId === "string" && s.insertAfterAnchorId.trim()
+        ? { insertAfterAnchorId: s.insertAfterAnchorId.trim() }
+        : {}),
     }));
+}
+
+function normalizeReportPageOrientations(raw: unknown): ReportPageOrientations {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: ReportPageOrientations = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key) continue;
+    if (value === "portrait" || value === "landscape") out[key] = value;
+  }
+  return out;
 }
 
 function isReportDraftMode(data: MvProjectReportData | undefined | null) {
@@ -741,6 +884,9 @@ type ReportLayoutPrefs = {
   imageInnerGap: number;
   assetImageWidth: number;
   valuationImageWidth: number;
+  assetImagesPerPage: number;
+  assetImagesPerRow: number;
+  assetImagesUniformSize: boolean;
   /** نصف قطر حواف الصور (px). 0 = حواف حادة. */
   imageCornerRadius: number;
   /** ارتفاع السطر داخل الفقرات (×). */
@@ -767,16 +913,20 @@ type ValuationReportSessionBundle = {
   reportNarrativeB3?: string;
   reportNarrativeB4?: string;
   reportIntroExtraHtml?: string;
+  reportPageOrientations?: ReportPageOrientations;
 };
 
 const defaultReportLayout: ReportLayoutPrefs = {
-  marginX: 8,
-  marginY: 32,
+  marginX: 0,
+  marginY: 20,
   sectionGap: 22,
   imageGroupGap: 12,
   imageInnerGap: 4,
   assetImageWidth: 32,
   valuationImageWidth: 86,
+  assetImagesPerPage: 9,
+  assetImagesPerRow: 3,
+  assetImagesUniformSize: false,
   imageCornerRadius: 6,
   paragraphLineHeight: 1.75,
   headingScale: 1,
@@ -784,13 +934,16 @@ const defaultReportLayout: ReportLayoutPrefs = {
 };
 
 const legacyDefaultReportLayout: ReportLayoutPrefs = {
-  marginX: 24,
-  marginY: 48,
+  marginX: 0,
+  marginY: 28,
   sectionGap: 28,
   imageGroupGap: 12,
   imageInnerGap: 4,
   assetImageWidth: 32,
   valuationImageWidth: 86,
+  assetImagesPerPage: 9,
+  assetImagesPerRow: 3,
+  assetImagesUniformSize: false,
   imageCornerRadius: 0,
   paragraphLineHeight: 1.75,
   headingScale: 1,
@@ -813,6 +966,10 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
     imageInnerGap: n("imageInnerGap", defaultReportLayout.imageInnerGap),
     assetImageWidth: n("assetImageWidth", defaultReportLayout.assetImageWidth),
     valuationImageWidth: n("valuationImageWidth", defaultReportLayout.valuationImageWidth),
+    assetImagesPerPage: n("assetImagesPerPage", defaultReportLayout.assetImagesPerPage),
+    assetImagesPerRow: n("assetImagesPerRow", defaultReportLayout.assetImagesPerRow),
+    assetImagesUniformSize:
+      typeof o.assetImagesUniformSize === "boolean" ? o.assetImagesUniformSize : defaultReportLayout.assetImagesUniformSize,
     imageCornerRadius: n("imageCornerRadius", defaultReportLayout.imageCornerRadius),
     paragraphLineHeight: n("paragraphLineHeight", defaultReportLayout.paragraphLineHeight),
     headingScale: n("headingScale", defaultReportLayout.headingScale),
@@ -830,14 +987,26 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const { user, profile } = useAuthTracking();
   const sessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
   const initialBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey);
+  const initialProjectSummary = readMvWorkflowSessionJson<{
+    project?: MvProject | null;
+    subProjects?: MvSubProject[];
+    fetchedAt?: number;
+  }>(MV_WORKFLOW_SESSION.projectSummary(projectId));
+  const initialAssetImageFiles = readMvWorkflowSessionJson<{ rows?: MvDriveFile[] }>(
+    MV_WORKFLOW_SESSION.assetImageFiles(projectId),
+  );
+  const initialProject = withDraftDefaultProject(initialBundle?.project ?? initialProjectSummary?.project ?? null);
+  const initialFiles =
+    initialBundle?.files ??
+    (Array.isArray(initialAssetImageFiles?.rows) ? initialAssetImageFiles.rows : []);
   const initialLayout = readLayoutFromBundle(initialBundle ?? undefined);
-  const [project, setProject] = useState<MvProject | null>(() => withDraftDefaultProject(initialBundle?.project));
+  const [project, setProject] = useState<MvProject | null>(() => initialProject);
   const projectRef = useRef<MvProject | null>(project);
   const reportDataPersistTimerRef = useRef<number | null>(null);
   const reportDataPersistRequestRef = useRef(0);
   const draftModeOverrideRef = useRef<boolean | null>(null);
-  const [files, setFiles] = useState<MvDriveFile[]>(() => initialBundle?.files ?? []);
-  const [loading, setLoading] = useState(() => initialBundle?.project == null);
+  const [files, setFiles] = useState<MvDriveFile[]>(() => initialFiles);
+  const [loading, setLoading] = useState(() => initialProject == null);
   const [reportMediaLoading, setReportMediaLoading] = useState(false);
   const [valuationAccountStore, setValuationAccountStore] =
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
@@ -894,22 +1063,33 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [imageInnerGap, setImageInnerGap] = useState(initialLayout.imageInnerGap);
   const [assetImageWidth, setAssetImageWidth] = useState(initialLayout.assetImageWidth);
   const [valuationImageWidth, setValuationImageWidth] = useState(initialLayout.valuationImageWidth);
+  const [assetImagesPerPage, setAssetImagesPerPage] = useState(initialLayout.assetImagesPerPage);
+  const [assetImagesPerRow, setAssetImagesPerRow] = useState(initialLayout.assetImagesPerRow);
+  const [assetImagesUniformSize, setAssetImagesUniformSize] = useState(initialLayout.assetImagesUniformSize);
   const [imageCornerRadius, setImageCornerRadius] = useState(initialLayout.imageCornerRadius);
   const [paragraphLineHeight, setParagraphLineHeight] = useState(initialLayout.paragraphLineHeight);
   const [headingScale, setHeadingScale] = useState(initialLayout.headingScale);
   const [imageShadow, setImageShadow] = useState(initialLayout.imageShadow);
   const [imageOrder, setImageOrder] = useState<string[]>([]);
   const [valuationImageOrder, setValuationImageOrder] = useState<string[]>([]);
+  const [reportPageOrientations, setReportPageOrientations] = useState<ReportPageOrientations>(() =>
+    normalizeReportPageOrientations(
+      initialBundle?.project?.reportData?.reportPageOrientations ?? initialBundle?.reportPageOrientations,
+    ),
+  );
   const [hiddenImageIds, setHiddenImageIds] = useState<Set<string>>(() => new Set());
   const [pdfExportProgress, setPdfExportProgress] = useState<number | null>(null);
   const [pdfExportLabel, setPdfExportLabel] = useState("");
   const autoPdfTriggeredRef = useRef(false);
   const reportSectionsScrollRef = useRef<HTMLDivElement>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
+  const assetImagesPreviewScrollRef = useRef<HTMLDivElement>(null);
   const reportPdfRef = useRef<HTMLElement | null>(null);
   const previewReportRef = useRef<HTMLElement | null>(null);
+  const assetImagesPreviewReportRef = useRef<HTMLElement | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [assetImagesPreviewOpen, setAssetImagesPreviewOpen] = useState(false);
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
   const reportImageWarmKeyRef = useRef("");
   const loadRunRef = useRef(0);
@@ -917,6 +1097,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   /** Toggles the right-side floating settings drawer (page metrics + images). */
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const [settingsDrawerTab, setSettingsDrawerTab] = useState<"layout" | "images">("layout");
+  const [settingsImagesTab, setSettingsImagesTab] = useState<"assets" | "valuation">("assets");
+  const [desktopReportChrome, setDesktopReportChrome] = useState(false);
   /** Persists user preference for the navigation sidebar collapsed/expanded state. */
   const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -935,6 +1117,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }
   }, [navCollapsed]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setDesktopReportChrome(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+
   const resetLayoutToDefaults = useCallback(() => {
     const d = defaultReportLayout;
     setMarginX(d.marginX);
@@ -944,6 +1135,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     setImageInnerGap(d.imageInnerGap);
     setAssetImageWidth(d.assetImageWidth);
     setValuationImageWidth(d.valuationImageWidth);
+    setAssetImagesPerPage(d.assetImagesPerPage);
+    setAssetImagesPerRow(d.assetImagesPerRow);
+    setAssetImagesUniformSize(d.assetImagesUniformSize);
     setImageCornerRadius(d.imageCornerRadius);
     setParagraphLineHeight(d.paragraphLineHeight);
     setHeadingScale(d.headingScale);
@@ -952,27 +1146,31 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const load = useCallback(async () => {
     const runId = ++loadRunRef.current;
-    const hasSession = readMvWorkflowSessionJson<ValuationReportSessionBundle>(
+    const reportSessionProject = readMvWorkflowSessionJson<ValuationReportSessionBundle>(
       MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId),
-    )?.project != null;
-    if (!hasSession) setLoading(true);
+    )?.project;
+    const summarySessionProject = readMvWorkflowSessionJson<{ project?: MvProject | null }>(
+      MV_WORKFLOW_SESSION.projectSummary(projectId),
+    )?.project;
+    const hasFastProject = reportSessionProject != null || summarySessionProject != null || projectRef.current != null;
+    if (!hasFastProject) setLoading(true);
     try {
       const projectSummaryUrl = `/api/mv/projects/${projectId}?picAssetMode=summary`;
-      const [projectRes, filesRes] = await Promise.all([
-        fetch(projectSummaryUrl, { credentials: "include" }),
-        fetch(`/api/mv/projects/${projectId}/asset-image-files`, { credentials: "include" }),
-      ]);
+      const projectRequest = fetch(projectSummaryUrl, { credentials: "include" });
+      const filesRequest = fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
+        credentials: "include",
+      }).catch(() => null);
+
+      const projectRes = await projectRequest;
       if (runId !== loadRunRef.current) return;
 
-      const [projectPayload, driveRowsRaw] = await Promise.all([
-        projectRes.ok ? (projectRes.json() as Promise<{ project?: MvProject; subProjects?: MvSubProject[] }>) : Promise.resolve(null),
-        filesRes.ok ? (filesRes.json() as Promise<MvDriveFile[]>) : Promise.resolve([] as MvDriveFile[]),
-      ]);
+      const projectPayload = projectRes.ok
+        ? ((await projectRes.json()) as { project?: MvProject; subProjects?: MvSubProject[] })
+        : null;
       if (runId !== loadRunRef.current) return;
 
       const fetchedProject = withDraftDefaultProject(projectPayload?.project ?? null);
       const previewSubs = Array.isArray(projectPayload?.subProjects) ? projectPayload!.subProjects! : [];
-      const driveRows = Array.isArray(driveRowsRaw) ? driveRowsRaw : [];
       const quickProject =
         projectRes.ok && fetchedProject
           ? {
@@ -986,20 +1184,41 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             }
           : null;
 
-      setFiles(driveRows);
+      const cachedReportBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey);
+      const cachedAssetRows = readMvWorkflowSessionJson<{ rows?: MvDriveFile[] }>(
+        MV_WORKFLOW_SESSION.assetImageFiles(projectId),
+      );
+      const cachedFiles =
+        cachedReportBundle?.files ??
+        (Array.isArray(cachedAssetRows?.rows) ? cachedAssetRows.rows : []);
       setProject((prev) => {
         const nextP = quickProject ?? prev;
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, {
           ...prevBundle,
           project: nextP,
-          files: driveRows,
+          files: cachedFiles,
           fetchedAt: Date.now(),
         });
+        if (nextP) {
+          writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
+            project: nextP,
+            subProjects: previewSubs,
+            fetchedAt: Date.now(),
+          });
+        }
         return nextP;
       });
       setLoading(false);
-      setReportMediaLoading(previewSubs.some((s) => Boolean(s.picAsset?._id)));
+      setReportMediaLoading(true);
+
+      const filesRes = await filesRequest;
+      if (runId !== loadRunRef.current) return;
+      const driveRowsRaw = filesRes?.ok
+        ? ((await filesRes.json().catch(() => [])) as unknown)
+        : [];
+      const driveRows = Array.isArray(driveRowsRaw) ? (driveRowsRaw as MvDriveFile[]) : [];
+      setFiles(driveRows);
 
       let picRows: (MvDriveFile & { sourceUrl?: string })[] = [];
       try {
@@ -1107,6 +1326,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           files: merged,
           fetchedAt: Date.now(),
         });
+        if (nextP) {
+          writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
+            project: nextP,
+            subProjects: previewSubs,
+            fetchedAt: Date.now(),
+          });
+        }
         return nextP;
       });
     } finally {
@@ -1136,6 +1362,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (typeof rd.reportNarrativeB3 === "string") setNarrativeB3(rd.reportNarrativeB3);
     if (typeof rd.reportNarrativeB4 === "string") setNarrativeB4(rd.reportNarrativeB4);
     if (typeof rd.reportIntroExtraHtml === "string") setIntroExtraHtml(rd.reportIntroExtraHtml);
+    if (rd.reportPageOrientations && typeof rd.reportPageOrientations === "object") {
+      setReportPageOrientations(normalizeReportPageOrientations(rd.reportPageOrientations));
+    }
   }, [loading, project?._id]);
 
   useEffect(
@@ -1242,6 +1471,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       reportNarrativeB3: narrativeB3,
       reportNarrativeB4: narrativeB4,
       reportIntroExtraHtml: introExtraHtml,
+      reportPageOrientations,
       reportLayout: {
         marginX,
         marginY,
@@ -1250,6 +1480,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         imageInnerGap,
         assetImageWidth,
         valuationImageWidth,
+        assetImagesPerPage,
+        assetImagesPerRow,
+        assetImagesUniformSize,
         imageCornerRadius,
         paragraphLineHeight,
         headingScale,
@@ -1266,6 +1499,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     narrativeB3,
     narrativeB4,
     introExtraHtml,
+    reportPageOrientations,
     loading,
     sessionKey,
     marginX,
@@ -1275,6 +1509,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     imageInnerGap,
     assetImageWidth,
     valuationImageWidth,
+    assetImagesPerPage,
+    assetImagesPerRow,
+    assetImagesUniformSize,
     imageCornerRadius,
     paragraphLineHeight,
     headingScale,
@@ -1310,10 +1547,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       await preloadReportImageCache(collectReportImageSources(root));
       setReportImageCacheVersion((v) => v + 1);
       await waitNextFrame();
+      await waitNextFrame();
+      primeReportImagesForCapture(root);
       await waitForReportImages(root);
       await waitForReportFonts();
       restoreCaptureLayout = prepareReportCaptureLayout(root);
       await waitNextFrame();
+      await waitForReportStableLayout(root);
+      primeReportImagesForCapture(root);
+      await waitForReportImages(root);
 
       const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
         import("jspdf"),
@@ -1346,6 +1588,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           height: h,
           windowWidth: w,
           windowHeight: h,
+          imageTimeout: 30000,
+          removeContainer: true,
           ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
           onclone: applyMvReportCaptureClone,
         });
@@ -1361,6 +1605,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         }
 
         pdf.addImage(imgData, "PNG", 0, 0, pdfW, pdfH, undefined, "NONE");
+        canvas.width = 1;
+        canvas.height = 1;
       }
 
       if (pdf) {
@@ -1488,6 +1734,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           image.id === imageId ? { ...image, displayWidthPercent: width } : image,
         ),
       };
+      void persistValuationAccountingFromReport(nextStore);
+    },
+    [persistValuationAccountingFromReport, valuationAccountStore],
+  );
+
+  const hideValuationImage = useCallback(
+    (imageId: string) => {
+      const nextStore: MvValuationAccountingStore = {
+        ...valuationAccountStore,
+        images: valuationAccountStore.images.map((image) =>
+          image.id === imageId ? { ...image, includeInReport: false } : image,
+        ),
+      };
+      setValuationImageOrder((current) => current.filter((id) => id !== imageId));
       void persistValuationAccountingFromReport(nextStore);
     },
     [persistValuationAccountingFromReport, valuationAccountStore],
@@ -1716,6 +1976,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       reportNarrativeB4: narrativeB4,
       reportIntroExtraHtml: introExtraHtml,
       reportEditableSections: editableSections,
+      reportPageOrientations,
     });
     try {
       await persistProjectReportData(rd);
@@ -1736,6 +1997,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     narrativeB3,
     narrativeB4,
     persistProjectReportData,
+    reportPageOrientations,
     toast,
   ]);
 
@@ -1759,6 +2021,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       return next;
     });
   }, [persistProjectReportData, sessionKey]);
+
+  const updateReportPageOrientation = useCallback(
+    (pageKey: string, orientation: MvReportPageOrientationPreference) => {
+      setReportPageOrientations((current) => {
+        const next = { ...current, [pageKey]: orientation };
+        onReportDataPatch({ reportPageOrientations: next });
+        return next;
+      });
+    },
+    [onReportDataPatch],
+  );
 
   const updateIntroExtraHtml = useCallback(
     (html: string) => {
@@ -1959,14 +2232,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     imageInnerGap,
     assetImageWidth,
     valuationImageWidth,
+    assetImagesPerPage,
+    assetImagesPerRow,
+    assetImagesUniformSize,
     imageCornerRadius,
     paragraphLineHeight,
     headingScale,
     imageShadow,
+    reportPageOrientations,
+    onReportPageOrientationChange: updateReportPageOrientation,
     valuationAccountImages: orderedValuationImages,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
     hideImage,
+    hideValuationImage,
     setImageOrder,
     navigate,
     editableSections,
@@ -2024,7 +2303,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     };
   }, [loading, sectionIdsOrdered]);
 
-  const showReportPreparationModal = loading;
+  const showReportPreparationModal = false;
+  const navPanelGutterPx = desktopReportChrome ? (navCollapsed ? 44 : 188) : 0;
+  const settingsPanelGutterPx = desktopReportChrome && settingsDrawerOpen ? 304 : 0;
+  const reportChromeGutterPx = navPanelGutterPx + settingsPanelGutterPx;
+
+  useEffect(() => {
+    if (!assetImagesPreviewOpen) return;
+    const timer = window.setTimeout(() => {
+      const root = assetImagesPreviewReportRef.current;
+      const sc = assetImagesPreviewScrollRef.current;
+      const el = root?.querySelector<HTMLElement>("#mv-annex-2");
+      if (!root || !sc || !el) return;
+      const rootRect = root.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      sc.scrollTop += elRect.top - rootRect.top - 16;
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [assetImagesPreviewOpen]);
 
   return (
     <MvWorkflowPageFrame
@@ -2042,7 +2338,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         ]}
       />
 
-      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-2 pb-2 pt-1.5 sm:px-3">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-0.5 pb-1 pt-1 sm:px-1">
         {/* === Slim premium toolbar === */}
         <div
           className={cn(
@@ -2095,6 +2391,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             aria-label="إدارة الصور"
             onClick={() => {
               setSettingsDrawerTab("images");
+              setSettingsImagesTab("assets");
               setSettingsDrawerOpen(true);
             }}
           >
@@ -2121,7 +2418,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               />
               {draftMode ? "مسودة" : "نهائي"}
             </span>
-            {reportMediaLoading ? (
+            {loading ? (
+              <span className="inline-flex h-5 items-center gap-1 rounded-full bg-slate-100 px-2 text-[9.5px] font-bold text-slate-700">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                تحديث البيانات
+              </span>
+            ) : reportMediaLoading ? (
               <span className="inline-flex h-5 items-center gap-1 rounded-full bg-sky-50 px-2 text-[9.5px] font-bold text-sky-900">
                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
                 تحميل الصور
@@ -2204,12 +2506,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         </div>
 
         {/* === Workspace body (sidebar + canvas) === */}
-        <div className="relative flex min-h-0 w-full flex-1 gap-1.5 overflow-hidden lg:gap-2">
+        <div className="relative flex min-h-0 w-full flex-1 gap-0 overflow-hidden">
           <aside
             className={cn(
-              "shrink-0 transition-[width] duration-200 ease-out",
-              "max-h-[min(38vh,280px)] min-h-0 w-full lg:max-h-none lg:h-full",
-              navCollapsed ? "lg:w-12" : "lg:w-[230px] xl:w-[260px]",
+              "mv-report-chrome absolute right-0 top-0 z-[90] shrink-0 transition-[width] duration-200 ease-out print:hidden",
+              "max-h-[min(42vh,300px)] min-h-0 lg:max-h-none lg:h-full",
+              navCollapsed ? "hidden lg:block lg:w-10" : "w-[min(250px,calc(100%-0.5rem))] lg:w-[180px] xl:w-[188px]",
             )}
           >
             <div className="flex h-full max-h-[min(38vh,280px)] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur lg:max-h-none">
@@ -2253,34 +2555,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   navCollapsed ? "space-y-1 px-1 py-1.5" : "space-y-0.5 px-1.5 py-1.5",
                 )}
               >
-                <ReportTocItem
-                  active={activeSection === "report-cover"}
-                  icon={<ClipboardList className="h-3 w-3" />}
-                  title="الغلاف"
-                  onClick={() => scrollToSection("report-cover")}
-                  collapsed={navCollapsed}
-                />
-                <ReportTocItem
-                  active={activeSection === "report-toc"}
-                  icon={<FileText className="h-3 w-3" />}
-                  title="الفهرس"
-                  onClick={() => scrollToSection("report-toc")}
-                  collapsed={navCollapsed}
-                />
-                {!navCollapsed ? (
-                  <p className="px-1 pt-1.5 pb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    الأقسام
-                  </p>
-                ) : (
-                  <span className="my-1.5 block h-px w-full bg-slate-100" aria-hidden />
-                )}
-                {MV_REPORT_TOC_ROWS.map((row) => (
+                {MV_REPORT_NAV_GROUPS.map((row) => (
                   <ReportTocItem
-                    key={`${row.num}-${row.title}`}
-                    active={activeSection === row.anchor}
-                    icon={<span className="text-[8px] font-black tabular-nums">{row.num}</span>}
+                    key={row.anchor}
+                    active={isReportNavGroupActive(activeSection, row.activeAnchors)}
+                    icon={row.icon}
                     title={row.title}
-                    onClick={() => scrollToSection(row.anchor)}
+                    onClick={() => {
+                      scrollToSection(row.anchor);
+                      if (row.anchor === "mv-annex-2") {
+                        setSettingsImagesTab("assets");
+                        setSettingsDrawerTab("images");
+                        setSettingsDrawerOpen(true);
+                      }
+                    }}
                     collapsed={navCollapsed}
                   />
                 ))}
@@ -2309,7 +2597,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               className={cn(
                 "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
                 "touch-pan-y [-webkit-overflow-scrolling:touch]",
-                loading ? "bg-white" : "bg-transparent",
+                "transition-[padding] duration-200 ease-out",
+                !navCollapsed && "lg:pr-[188px]",
+                navCollapsed && "lg:pr-11",
+                settingsDrawerOpen && "lg:pl-[304px]",
+                "bg-transparent",
               )}
             >
               <article
@@ -2318,24 +2610,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 }}
                 className={cn(
                   "mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950",
-                  loading && "shadow-none",
                 )}
                 style={{
-                  padding: loading ? undefined : `${marginY}px ${marginX}px`,
+                  padding: `${marginY}px ${marginX}px`,
                 }}
               >
-                {loading ? (
-                  <div className="flex min-h-[min(560px,60vh)] items-center justify-center text-slate-400">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                  </div>
-                ) : (
-                  <ReportViewportFit
-                    scrollRef={reportSectionsScrollRef}
-                    gutterPx={Math.max(0, Math.round(marginX * 2))}
-                  >
-                    <MvValuationReportDocumentBody {...reportDocumentProps} />
-                  </ReportViewportFit>
-                )}
+                <ReportViewportFit
+                  scrollRef={reportSectionsScrollRef}
+                  gutterPx={Math.max(0, Math.round(marginX * 2) + reportChromeGutterPx)}
+                >
+                  <MvValuationReportDocumentBody {...reportDocumentProps} />
+                </ReportViewportFit>
               </article>
             </div>
           </main>
@@ -2354,8 +2639,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 role="dialog"
                 aria-label="إعدادات التقرير"
                 className={cn(
-                  "mv-report-chrome absolute inset-y-0 left-0 z-[130] flex w-[min(360px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 shadow-[0_8px_32px_rgba(15,23,42,0.10)] backdrop-blur",
-                  "lg:relative lg:inset-auto lg:shrink-0 lg:bg-white",
+                  "mv-report-chrome absolute inset-y-0 left-0 z-[130] flex w-[min(340px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 shadow-[0_8px_32px_rgba(15,23,42,0.10)] backdrop-blur",
+                  "lg:w-[300px]",
+                  "lg:bg-white",
                 )}
               >
                 <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
@@ -2541,12 +2827,33 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   ) : (
                     <MvReportImagesControlPanel
                       projectId={projectId}
+                      activeTab={settingsImagesTab}
+                      onTabChange={setSettingsImagesTab}
                       assetFiles={selectedImages}
                       assetOrder={imageOrder}
                       assetWidthPercent={assetImageWidth}
+                      assetImagesPerPage={assetImagesPerPage}
+                      assetImagesPerRow={assetImagesPerRow}
+                      assetImagesUniformSize={assetImagesUniformSize}
                       onAssetReorder={setImageOrder}
                       getAssetImageSrc={(file) => reportDriveFileImageSrc(projectId, file)}
                       onAssetWidthChange={setAssetImageWidth}
+                      onAssetImagesPerPageChange={setAssetImagesPerPage}
+                      onAssetImagesPerRowChange={(count) => {
+                        const next = Math.min(20, Math.max(1, Math.round(count)));
+                        setAssetImagesPerRow(next);
+                        setAssetImageWidth(Math.round((100 / next) * 100) / 100);
+                      }}
+                      onAssetImagesUniformSizeChange={setAssetImagesUniformSize}
+                      imageGroupGap={imageGroupGap}
+                      imageInnerGap={imageInnerGap}
+                      imageCornerRadius={imageCornerRadius}
+                      imageShadow={imageShadow}
+                      onImageGroupGapChange={setImageGroupGap}
+                      onImageInnerGapChange={setImageInnerGap}
+                      onImageCornerRadiusChange={setImageCornerRadius}
+                      onImageShadowChange={setImageShadow}
+                      onAssetPreview={() => setAssetImagesPreviewOpen(true)}
                       valuationImages={valuationAccountImages}
                       valuationOrder={valuationImageOrder}
                       onValuationReorder={reorderValuationImages}
@@ -2631,11 +2938,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           className="!fixed !inset-3 !left-3 !right-3 !top-3 !bottom-3 flex h-[calc(100dvh-1.5rem)] !max-h-none w-auto !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-slate-200/90 bg-gradient-to-b from-[#e8edf4] via-white to-[#f0f4fa] p-0 shadow-2xl ring-1 ring-slate-900/10 sm:!inset-5 sm:h-[calc(100dvh-2.5rem)]"
           dir="rtl"
         >
-          <DialogHeader className="shrink-0 border-b border-[#0C447C]/10 bg-gradient-to-l from-white via-sky-50/30 to-[#e8f0fa] px-4 py-3 text-right sm:px-5 sm:py-3.5">
+          <DialogHeader className="relative shrink-0 border-b border-[#0C447C]/10 bg-gradient-to-l from-white via-sky-50/30 to-[#e8f0fa] px-4 py-3 pe-36 text-right sm:px-5 sm:py-3.5 sm:pe-40">
             <DialogTitle className="text-base font-black text-[#0a1f33] sm:text-lg">معاينة التقرير النهائية</DialogTitle>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">
               نفس الشكل المُصدَّر كـ PDF — يتم التقاط كل صفحة بدقة أعلى من الشاشة الاعتيادية لخطوط أوضح وصور أقل ضبابية؛ حجم التنزيل قد يزيد قليلاً.
             </p>
+            <Button
+              type="button"
+              size="sm"
+              className="absolute left-4 top-3 h-8 gap-1.5 bg-[#0C447C] px-3 text-[11px] font-black text-white shadow-sm hover:bg-[#09345f] sm:left-5"
+              disabled={downloadingPdf || loading || reportMediaLoading}
+              onClick={() => void downloadAsPdf()}
+              title="Download PDF"
+            >
+              {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              PDF
+            </Button>
           </DialogHeader>
           <div
             ref={previewScrollRef}
@@ -2651,7 +2969,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             >
               <ReportViewportFit
                 scrollRef={previewScrollRef}
-                gutterPx={Math.max(24, Math.round(marginX * 2))}
+                gutterPx={Math.max(0, Math.round(marginX * 2))}
               >
                 <MvValuationReportDocumentBody {...reportDocumentProps} />
               </ReportViewportFit>
@@ -2659,7 +2977,40 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           </div>
         </DialogContent>
       </Dialog>
-      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen} />
+      <Dialog
+        open={assetImagesPreviewOpen}
+        onOpenChange={setAssetImagesPreviewOpen}
+      >
+        <DialogContent
+          className="!fixed !inset-4 flex h-[calc(100dvh-2rem)] !max-h-none w-auto !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-slate-200/90 bg-gradient-to-b from-[#e8edf4] via-white to-[#f0f4fa] p-0 shadow-2xl sm:!inset-6 sm:h-[calc(100dvh-3rem)]"
+          dir="rtl"
+        >
+          <DialogHeader className="shrink-0 border-b border-[#0C447C]/10 bg-white px-4 py-3 text-right">
+            <DialogTitle className="text-base font-black text-[#0a1f33]">معاينة صفحة صور الأصول</DialogTitle>
+          </DialogHeader>
+          <div
+            ref={assetImagesPreviewScrollRef}
+            className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[#cbd5e1]/25 p-3 sm:p-5"
+          >
+            <article
+              ref={(el) => {
+                assetImagesPreviewReportRef.current = el;
+              }}
+              className="mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950 [&_.mv-report-chrome]:!hidden"
+              style={{ padding: `${marginY}px ${marginX}px` }}
+              aria-label="معاينة صفحة صور الأصول"
+            >
+              <ReportViewportFit
+                scrollRef={assetImagesPreviewScrollRef}
+                gutterPx={Math.max(0, Math.round(marginX * 2))}
+              >
+                <MvValuationReportDocumentBody {...reportDocumentProps} />
+              </ReportViewportFit>
+            </article>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen && !assetImagesPreviewOpen} />
     </MvWorkflowPageFrame>
   );
 }

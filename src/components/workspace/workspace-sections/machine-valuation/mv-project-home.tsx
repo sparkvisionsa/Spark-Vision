@@ -19,6 +19,7 @@ import {
   writeVisitedSimpleReportSteps,
 } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 
 interface MvProjectHomeProps {
@@ -87,6 +88,13 @@ export default function MvProjectHome({ projectId }: MvProjectHomeProps) {
       };
       setProject(data.project);
       setSubProjects(data.subProjects ?? []);
+      if (data.project) {
+        writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
+          project: data.project,
+          subProjects: data.subProjects ?? [],
+          fetchedAt: Date.now(),
+        });
+      }
     } finally {
       setLoading(false);
     }

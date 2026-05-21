@@ -109,6 +109,8 @@ export interface MvReportInsertedBlock {
   widthPercent?: number;
 }
 
+export type MvReportPageOrientationPreference = "portrait" | "landscape";
+
 export interface MvProjectReportData {
   reportReference?: string;
   reportTitle?: string;
@@ -189,6 +191,8 @@ export interface MvProjectReportData {
    * بدلاً من تصفير قيمه). الترتيب يبقى ثابتاً وما يليها ينزاح للأعلى تلقائياً.
    */
   reportHiddenAnchorIds?: string[];
+  /** اتجاهات صفحات التقرير اليدوية، مفاتيحها anchor الصفحة أو معرف الصورة. */
+  reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
 }
 
 export interface MvProjectLocation {

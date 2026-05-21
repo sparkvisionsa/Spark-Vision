@@ -9,7 +9,7 @@ import { MvTopBar, type MvBreadcrumbSegment } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
-import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson } from "./mv-workflow-session-cache";
+import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 
 export type MvSimpleReportStepId =
   | "report-data"
@@ -370,6 +370,13 @@ export function MvProjectReportHeader({
         if (cancelled) return;
         if (!project) setLoadedProject(data.project ?? null);
         if (!subProjects) setLoadedSubProjects(data.subProjects ?? []);
+        if (data.project) {
+          writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
+            project: data.project,
+            subProjects: data.subProjects ?? [],
+            fetchedAt: Date.now(),
+          });
+        }
       } catch {
         if (!cancelled) {
           if (!project) setLoadedProject(null);

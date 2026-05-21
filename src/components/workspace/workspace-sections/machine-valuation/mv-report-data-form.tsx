@@ -88,6 +88,12 @@ const VALUATION_BASIS_OPTIONS = [
   "القيمة التأمينية",
   "أخرى",
 ];
+const PROFESSIONAL_REPORT_TYPE_OPTIONS = [
+  "تقرير مفصل",
+  "ملخص تقرير",
+  "مراجعه مع قيمة جديدة",
+  "مراجعه بدون قيمة جديدة",
+];
 
 function selectDisplay(value: string | undefined | null, fallback = "غير محدد") {
   return value && value.trim() ? value : fallback;
@@ -313,15 +319,13 @@ export function MvReportDataForm({
               placeholder="اختر أساس القيمة"
               onChange={(value) => onReportDataChange({ valuationBasis: value })}
             />
-            <ReportField label="نوع التقرير المهني">
-              <Input
-                value={reportData.reportTypeLabel ?? ""}
-                onChange={(event) => onReportDataChange({ reportTypeLabel: event.target.value })}
-                className={inputClass}
-                dir="auto"
-                placeholder="تقرير مفصل"
-              />
-            </ReportField>
+            <ReportSelect
+              label="نوع التقرير المهني"
+              value={reportData.reportTypeLabel ?? ""}
+              options={PROFESSIONAL_REPORT_TYPE_OPTIONS}
+              placeholder="اختر نوع التقرير المهني"
+              onChange={(value) => onReportDataChange({ reportTypeLabel: value })}
+            />
             <ReportField label="المعايير والإصدارات المطبقة">
               <Input
                 value={reportData.standardsVersion ?? ""}

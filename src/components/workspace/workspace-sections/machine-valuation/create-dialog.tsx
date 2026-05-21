@@ -11,9 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { LanguageContext } from "@/components/layout-provider";
-import { cn } from "@/lib/utils";
 import { FileText, Layers3, Loader2 } from "lucide-react";
 import type { MvProjectReportType } from "./types";
 
@@ -25,12 +23,12 @@ const copy = {
     subPlaceholder: "Sub-project name…",
     projectDesc: "Enter a name for the new project.",
     subDesc: "Enter a name for the new sub-project.",
-    reportType: "Report type",
     simpleReport: "Simple report",
-    simpleReportHint: "Four-step report path for data, photos, valuation, and preview.",
+    simpleReportHint: "The project will open the streamlined path: locations, asset folders, report data, photos, valuation, and final preview.",
+    simpleReportBadge: "Default path",
     advancedReport: "Advanced report",
-    advancedReportHint: "Reserved for the advanced workflow that will be configured later.",
-    soon: "Soon",
+    advancedReportHint: "Reserved for the advanced workflow and cannot be selected now.",
+    advancedReportBadge: "Soon",
     ok: "Create",
     cancel: "Cancel",
   },
@@ -41,12 +39,12 @@ const copy = {
     subPlaceholder: "اسم المشروع الفرعي…",
     projectDesc: "أدخل اسمًا للمشروع الجديد.",
     subDesc: "أدخل اسمًا للمشروع الفرعي الجديد.",
-    reportType: "نوع التقرير",
     simpleReport: "تقرير مبسط",
-    simpleReportHint: "مسار من أربع خطوات: بيانات التقرير، الصور، التقييم، والمعاينة.",
+    simpleReportHint: "سيبدأ المشروع بالمسار المختصر: المواقع، مجلدات الأصول، بيانات التقرير، الصور، التقييم، ثم المعاينة النهائية.",
+    simpleReportBadge: "المسار الافتراضي",
     advancedReport: "تقرير متقدم",
-    advancedReportHint: "محجوز للمسار المتقدم الذي سيتم ضبطه لاحقاً.",
-    soon: "قريباً",
+    advancedReportHint: "محجوز للمسار المتقدم وغير قابل للاختيار حالياً.",
+    advancedReportBadge: "قريباً",
     ok: "إنشاء",
     cancel: "إلغاء",
   },
@@ -83,13 +81,11 @@ export default function CreateDialog({
   const t = isArabic ? copy.ar : copy.en;
 
   const [name, setName] = useState("");
-  const [reportType, setReportType] = useState<MvProjectReportType>("simple");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setName("");
-      setReportType("simple");
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open]);
@@ -98,7 +94,7 @@ export default function CreateDialog({
     const trimmed = name.trim();
     if (!trimmed) return;
     if (variant === "project") {
-      onSubmit(trimmed, { reportType });
+      onSubmit(trimmed, { reportType: "simple" as MvProjectReportType });
       return;
     }
     onSubmit(trimmed, undefined);
@@ -111,12 +107,12 @@ export default function CreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden rounded-[1.75rem] border-slate-200 bg-[linear-gradient(145deg,#ffffff,#f8fbff)] p-0 shadow-2xl sm:max-w-2xl">
-        <div className="rounded-t-[1.75rem] border-b border-slate-200/80 bg-[radial-gradient(circle_at_top_right,rgba(14,165,233,0.14),transparent_34%),linear-gradient(135deg,#f8fafc,#ffffff)] px-6 py-5 text-right">
-        <DialogHeader>
-          <DialogTitle className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">{title}</DialogTitle>
-          <DialogDescription className="text-[12px] leading-6 text-slate-500">{desc}</DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl sm:max-w-2xl">
+        <div className="border-b border-slate-200/80 bg-slate-50 px-6 py-5 text-right">
+          <DialogHeader>
+            <DialogTitle className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">{title}</DialogTitle>
+            <DialogDescription className="text-[12px] leading-6 text-slate-500">{desc}</DialogDescription>
+          </DialogHeader>
         </div>
 
         <form
@@ -143,101 +139,42 @@ export default function CreateDialog({
           </div>
 
           {variant === "project" ? (
-            <div className="space-y-3 text-right">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[12px] font-bold text-slate-800">{t.reportType}</p>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">
-                  {isArabic ? "اختيار واحد" : "Single choice"}
-                </span>
+            <div className="grid gap-3 text-right sm:grid-cols-2">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                    <FileText className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[13px] font-black text-slate-950">{t.simpleReport}</p>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-800 ring-1 ring-emerald-100">
+                        {t.simpleReportBadge}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px] leading-6 text-slate-600">{t.simpleReportHint}</p>
+                  </div>
+                </div>
               </div>
-              <RadioGroup
-                value={reportType}
-                onValueChange={(value) => {
-                  if (value !== "simple") return;
-                  setReportType(value as MvProjectReportType);
-                }}
-                className="grid gap-3 sm:grid-cols-2"
-                dir="rtl"
+              <div
+                aria-disabled="true"
+                className="select-none rounded-xl border border-slate-200 bg-slate-50/80 p-4 opacity-65"
               >
-                {[
-                  {
-                    value: "simple" as const,
-                    title: t.simpleReport,
-                    hint: t.simpleReportHint,
-                    icon: FileText,
-                    accent: "from-emerald-500 to-teal-500",
-                    badge: null,
-                    disabled: false,
-                  },
-                  {
-                    value: "advanced" as const,
-                    title: t.advancedReport,
-                    hint: t.advancedReportHint,
-                    icon: Layers3,
-                    accent: "from-amber-500 to-orange-500",
-                    badge: t.soon,
-                    disabled: true,
-                  },
-                ].map((option) => {
-                  const Icon = option.icon;
-                  const active = reportType === option.value;
-                  const disabled = option.disabled;
-                  return (
-                    <label
-                      key={option.value}
-                      aria-disabled={disabled}
-                      onClick={(event) => {
-                        if (!disabled) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      className={cn(
-                        "group relative overflow-hidden rounded-2xl border bg-white p-4 text-right shadow-sm transition",
-                        disabled ? "cursor-not-allowed opacity-65" : "cursor-pointer",
-                        active
-                          ? "border-slate-900 shadow-lg shadow-slate-900/10"
-                          : disabled
-                            ? "border-slate-200"
-                            : "border-slate-200 hover:border-slate-300 hover:shadow-md",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "absolute inset-x-0 top-0 h-1 bg-gradient-to-l opacity-70 transition",
-                          option.accent,
-                          active ? "opacity-100" : "opacity-50",
-                        )}
-                      />
-                      <div className="flex items-start gap-3">
-                        <RadioGroupItem
-                          value={option.value}
-                          disabled={disabled}
-                          className="mt-1 border-slate-400 text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="font-bold text-slate-950">{option.title}</p>
-                            {option.badge ? (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                                {option.badge}
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 text-[11px] leading-5 text-slate-500">{option.hint}</p>
-                        </div>
-                        <span
-                          className={cn(
-                            "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-sm",
-                            option.accent,
-                          )}
-                        >
-                          <Icon className="h-5 w-5" />
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
-              </RadioGroup>
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
+                    <Layers3 className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[13px] font-black text-slate-700">{t.advancedReport}</p>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
+                        {t.advancedReportBadge}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px] leading-6 text-slate-500">{t.advancedReportHint}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
 

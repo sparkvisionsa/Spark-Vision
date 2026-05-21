@@ -1,8 +1,19 @@
 "use client";
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ClipboardEvent,
+  type DragEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
-import { ArrowUp, EyeOff, FileText, GripVertical, Heading2, ImageIcon, Trash2, X } from "lucide-react";
+import { ArrowUp, EyeOff, FileText, GripVertical, Heading2, ImageIcon, RotateCw, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
@@ -12,6 +23,7 @@ import type {
   MvReportEditableSection,
   MvReportInsertedBlock,
   MvReportInsertedBlockKind,
+  MvReportPageOrientationPreference,
 } from "./types";
 import {
   MV_VALUATION_ACCOUNTING_APPROACHES,
@@ -199,6 +211,29 @@ function SectionShell({
   );
 }
 
+function PageRotateButton({
+  orientation,
+  onClick,
+  label = "تدوير الصفحة",
+}: {
+  orientation: MvReportPageOrientationPreference;
+  onClick: () => void;
+  label?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mv-report-chrome inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50 print:hidden"
+      title={orientation === "landscape" ? "تحويل الصفحة إلى طول" : "تحويل الصفحة إلى عرض"}
+      aria-label={label}
+    >
+      <RotateCw className="h-3.5 w-3.5" />
+      {orientation === "landscape" ? "طول" : "عرض"}
+    </button>
+  );
+}
+
 /**
  * صورة أصل واحدة داخل المرفق 2 — مع دعم السحب والإفلات لإعادة الترتيب
  * وزر حذف عند التمرير. لا توجد أسهم في الأعلى — الترتيب يتم بالسحب فقط.
@@ -207,22 +242,31 @@ function AssetPhotoFigure({
   file,
   projectId,
   widthPercent,
+  widthCss,
   cornerRadius,
   resolveImageSrc,
   onReorder,
   onDelete,
+  pageOrientation,
+  onRotatePage,
+  uniformSize,
 }: {
   file: MvDriveFile;
   projectId: string;
   widthPercent: number;
+  widthCss?: string;
   cornerRadius: number;
   resolveImageSrc?: (src: string) => string;
   onReorder: (fromId: string, toId: string) => void;
   onDelete: () => void;
+  pageOrientation: MvReportPageOrientationPreference;
+  onRotatePage: () => void;
+  uniformSize: boolean;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [dragging, setDragging] = useState(false);
   const src = resolveImageSrc ? resolveImageSrc(downloadHref(projectId, file)) : downloadHref(projectId, file);
+  const maxImageHeightMm = widthPercent >= 80 ? (pageOrientation === "landscape" ? 148 : 232) : widthPercent >= 50 ? 104 : 68;
   return (
     <figure
       draggable
@@ -252,7 +296,7 @@ function AssetPhotoFigure({
         dragging && "opacity-60",
         dragOver && "ring-2 ring-sky-400 ring-offset-1 ring-offset-white",
       )}
-      style={{ width: `${widthPercent}%` }}
+      style={{ width: widthCss ?? `${widthPercent}%` }}
     >
       <div className="mv-report-chrome absolute left-0.5 top-0.5 z-10 flex gap-0.5 opacity-100 lg:opacity-0 lg:transition lg:group-hover:opacity-100">
         <span
@@ -264,6 +308,15 @@ function AssetPhotoFigure({
         </span>
         <button
           type="button"
+          onClick={onRotatePage}
+          className="flex h-6 w-6 items-center justify-center rounded border border-sky-100 bg-white/95 text-sky-700 shadow-sm hover:bg-sky-50"
+          aria-label="تدوير الصفحة"
+          title={pageOrientation === "landscape" ? "تحويل الصفحة إلى طول" : "تحويل الصفحة إلى عرض"}
+        >
+          <RotateCw className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
           onClick={onDelete}
           className="flex h-6 w-6 items-center justify-center rounded border border-red-100 bg-white/95 text-red-600 shadow-sm hover:bg-red-50"
           aria-label="إخفاء الصورة"
@@ -273,18 +326,33 @@ function AssetPhotoFigure({
         </button>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt=""
-        draggable={false}
-        className="block w-full bg-slate-100 object-cover"
+      <div
+        className={cn(
+          "flex w-full items-center justify-center bg-slate-100",
+          uniformSize ? "overflow-hidden" : "",
+        )}
         style={{
-          aspectRatio: "4 / 3",
+          aspectRatio: uniformSize ? "4 / 3" : undefined,
+          maxHeight: uniformSize ? undefined : `${maxImageHeightMm}mm`,
           borderRadius: cornerRadius || "var(--mv-image-radius, 0px)",
           filter: "var(--mv-image-shadow, none)",
         }}
-        loading="lazy"
-      />
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className={cn(
+            "block bg-slate-100 object-contain",
+            uniformSize ? "h-full w-full" : "h-auto w-full",
+          )}
+          style={{
+            maxHeight: uniformSize ? "100%" : `${maxImageHeightMm}mm`,
+            imageRendering: "auto",
+          }}
+          loading="lazy"
+        />
+      </div>
     </figure>
   );
 }
@@ -528,6 +596,42 @@ async function readInsertedReportImageDataUrl(file: File) {
     return compressed || raw;
   } catch {
     return raw;
+  }
+}
+
+async function readFirstPdfPageAsReportImageDataUrl(file: File) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    let scale = 2.6;
+    let viewport = page.getViewport({ scale });
+    const maxPixels = 18_000_000;
+    const pixels = viewport.width * viewport.height;
+    if (pixels > maxPixels) {
+      scale *= Math.sqrt(maxPixels / pixels);
+      viewport = page.getViewport({ scale });
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("تعذر تحويل ملف PDF إلى صورة.");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+    const dataUrl = canvas.toDataURL("image/png");
+    canvas.width = 1;
+    canvas.height = 1;
+    return dataUrl;
+  } finally {
+    await pdf.destroy();
   }
 }
 
@@ -942,6 +1046,9 @@ export interface MvValuationReportDocumentBodyProps {
   imageInnerGap: number;
   assetImageWidth: number;
   valuationImageWidth: number;
+  assetImagesPerPage?: number;
+  assetImagesPerRow?: number;
+  assetImagesUniformSize?: boolean;
   /** نصف قطر حواف الصور (px) — عرض فقط، لا يؤثر على جودة التقرير. */
   imageCornerRadius?: number;
   /** ارتفاع السطر في الفقرات (×) — عرض فقط. */
@@ -950,10 +1057,14 @@ export interface MvValuationReportDocumentBodyProps {
   headingScale?: number;
   /** قوة ظل الصور (0..4) — عرض فقط. */
   imageShadow?: number;
+  /** اتجاهات الصفحات اليدوية: مفاتيحها anchor الصفحة أو valuation:imageId. */
+  reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
+  onReportPageOrientationChange?: (pageKey: string, orientation: MvReportPageOrientationPreference) => void;
   valuationAccountImages: MvValuationAccountingImage[];
   resolveImageSrc?: (src: string) => string;
   moveImage: (fileId: string, direction: -1 | 1) => void;
   hideImage: (fileId: string) => void;
+  hideValuationImage?: (imageId: string) => void;
   /**
    * يضبط ترتيب صور الأصول كاملاً — يُستخدم لإعادة الترتيب عبر السحب والإفلات.
    * يحل محل الأسهم القديمة في أعلى كل صورة.
@@ -1018,14 +1129,20 @@ export function MvValuationReportDocumentBody({
   imageInnerGap,
   assetImageWidth,
   valuationImageWidth,
+  assetImagesPerPage = 9,
+  assetImagesPerRow = 3,
+  assetImagesUniformSize = false,
   imageCornerRadius = 0,
   paragraphLineHeight = 1.75,
   headingScale = 1,
   imageShadow = 0,
+  reportPageOrientations = {},
+  onReportPageOrientationChange,
   valuationAccountImages,
   resolveImageSrc,
   moveImage,
   hideImage,
+  hideValuationImage,
   setImageOrder,
   navigate,
   editableSections,
@@ -1165,9 +1282,13 @@ export function MvValuationReportDocumentBody({
   const sceRegistrationHtml =
     reportData.sceRegistrationCertificateHtml?.trim() || MV_DEFAULT_SCE_REGISTRATION_HTML;
 
-  const assetColumnsPerPage = Math.max(1, Math.floor(100 / Math.max(assetImageWidth, 1)));
-  const assetRowsPerPage = assetColumnsPerPage <= 1 ? 1 : 3;
-  const assetPhotoChunks = chunkArray(orderedImages, Math.max(1, assetColumnsPerPage * assetRowsPerPage));
+  const assetPhotosPerPage = Math.min(24, Math.max(1, Math.round(assetImagesPerPage || 9)));
+  const assetPhotosPerRow = Math.min(20, Math.max(1, Math.round(assetImagesPerRow || 3)));
+  const assetPhotoWidthCss =
+    assetPhotosPerRow <= 1
+      ? "100%"
+      : `calc((100% - ${Math.max(0, imageInnerGap) * (assetPhotosPerRow - 1)}px) / ${assetPhotosPerRow})`;
+  const assetPhotoChunks = chunkArray(orderedImages, assetPhotosPerPage);
 
   const valuationSheets = includeValuationAccountImages
     ? MV_VALUATION_ACCOUNTING_APPROACHES.flatMap((approach) => {
@@ -1192,7 +1313,11 @@ export function MvValuationReportDocumentBody({
     position: "before" | "after";
   } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const scePdfInputRef = useRef<HTMLInputElement>(null);
+  const sceImageInputRef = useRef<HTMLInputElement>(null);
   const pendingImageAnchorRef = useRef<string>("report-cover");
+  const [sceDropActive, setSceDropActive] = useState(false);
+  const [scePdfBusy, setScePdfBusy] = useState(false);
   /**
    * IDs of built-in section anchors hidden by the user. We CSS-hide them so the
    * layout naturally collapses (content beneath flows up). Bringing them back
@@ -1214,6 +1339,26 @@ export function MvValuationReportDocumentBody({
   const updateInsertedBlocks = (next: MvReportInsertedBlock[]) => {
     insertedBlocksRef.current = next;
     onReportDataPatch({ reportInsertedBlocks: next });
+  };
+
+  const addInsertedImageBlock = (
+    anchorId: string,
+    imageDataUrl: string,
+    position: "before" | "after" = "after",
+    widthPercent = 80,
+  ) => {
+    const block: MvReportInsertedBlock = {
+      id: newReportBlockId(),
+      anchorId,
+      kind: "image",
+      position,
+      imageDataUrl,
+      caption: "",
+      align: "center",
+      widthPercent,
+    };
+    updateInsertedBlocks([...insertedBlocksRef.current, block]);
+    setInsertMenu(null);
   };
 
   const addInsertedBlock = (
@@ -1414,6 +1559,45 @@ export function MvValuationReportDocumentBody({
     imageInputRef.current?.click();
   };
 
+  const addSceImageFile = async (file: File) => {
+    const dataUrl = await readInsertedReportImageDataUrl(file);
+    if (dataUrl) addInsertedImageBlock("mv-annex-sce", dataUrl, "after", 96);
+  };
+
+  const addScePdfFile = async (file: File) => {
+    setScePdfBusy(true);
+    try {
+      const dataUrl = await readFirstPdfPageAsReportImageDataUrl(file);
+      if (dataUrl) addInsertedImageBlock("mv-annex-sce", dataUrl, "after", 96);
+    } finally {
+      setScePdfBusy(false);
+    }
+  };
+
+  const handleScePickedFile = (file: File | null | undefined) => {
+    if (!file) return;
+    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+      void addScePdfFile(file);
+      return;
+    }
+    if (file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name)) {
+      void addSceImageFile(file);
+    }
+  };
+
+  const handleScePaste = (event: ClipboardEvent<HTMLElement>) => {
+    const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+    if (!file) return;
+    event.preventDefault();
+    void addSceImageFile(file);
+  };
+
+  const handleSceDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setSceDropActive(false);
+    handleScePickedFile(event.dataTransfer.files?.[0]);
+  };
+
   useEffect(() => {
     if (!insertMenu) return;
     const closeMenu = (event: globalThis.MouseEvent) => {
@@ -1526,6 +1710,27 @@ export function MvValuationReportDocumentBody({
     hiddenAnchorIds.length > 0
       ? hiddenAnchorIds.map((id) => `[id="${id}"]`).join(",") + "{display:none !important;}"
       : "";
+  const reportRenderCss = `
+    ${hiddenSectionsCss}
+    .mv-report-canvas-root [data-mv-report-sheet] {
+      color: #020617;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: geometricPrecision;
+    }
+    .mv-report-canvas-root [data-mv-report-sheet] :where(p, li, td, th, [contenteditable], input, textarea):not(.mv-report-chrome *) {
+      color: #020617;
+      letter-spacing: 0;
+    }
+  `;
+  const pageOrientation = (
+    pageKey: string,
+    fallback: MvReportPageOrientationPreference = "portrait",
+  ): MvReportPageOrientationPreference => reportPageOrientations[pageKey] ?? fallback;
+  const togglePageOrientation = (pageKey: string, fallback: MvReportPageOrientationPreference = "portrait") => {
+    const current = pageOrientation(pageKey, fallback);
+    onReportPageOrientationChange?.(pageKey, current === "landscape" ? "portrait" : "landscape");
+  };
   return (
     <div
       dir="rtl"
@@ -1546,7 +1751,7 @@ export function MvValuationReportDocumentBody({
         if (insertMenu && !target?.closest("[data-mv-report-insert-menu]")) setInsertMenu(null);
       }}
     >
-      {hiddenSectionsCss ? <style>{hiddenSectionsCss}</style> : null}
+      <style>{reportRenderCss}</style>
       {hiddenAnchorIds.length > 0 ? (
         <div
           className="mv-report-chrome w-full max-w-3xl rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-right text-[11px] shadow-sm print:hidden"
@@ -1596,6 +1801,26 @@ export function MvValuationReportDocumentBody({
                 );
             })
             .catch(() => undefined);
+        }}
+      />
+      <input
+        ref={scePdfInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(event) => {
+          handleScePickedFile(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <input
+        ref={sceImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          handleScePickedFile(event.target.files?.[0]);
+          event.target.value = "";
         }}
       />
       {insertMenuNode}
@@ -2455,63 +2680,82 @@ export function MvValuationReportDocumentBody({
           </SectionShell>
         </MvReportPageShell>
       ) : (
-        valuationSheets.map(({ approach, image }, vIdx) => (
-          <MvValuationAnnexImageSheet
-            key={image.id}
-            projectId={projectId}
-            approach={approach}
-            image={image}
-            vIdx={vIdx}
-            companyName={companyName}
-            logoSrc={logoSrc}
-            footerLines={reportFooterLines}
-            valuationImageWidth={valuationImageWidth}
-            draftWatermark={sheetDraft}
-            resolveImageSrc={resolveImageSrc}
-            insertedBlocksNode={insertedAfter(vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`)}
-            titleNode={
-              <EditableBlock
-                value={editableText(
-                  vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`,
-                  vIdx === 0 ? `مرفق 1: ${approach.label}` : `مرفق 1: ${approach.label} (تتمة — صورة ${vIdx + 1})`,
-                )}
-                onChange={(value) =>
-                  setTextOverride(vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`, value)
-                }
-                className="min-h-[1.75rem] text-[14px]"
-                multiline={false}
-              />
-            }
-          />
-        ))
+        valuationSheets.map(({ approach, image }, vIdx) => {
+          const anchorId = vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`;
+          const pageKey = `valuation:${image.id}`;
+          return (
+            <MvValuationAnnexImageSheet
+              key={image.id}
+              projectId={projectId}
+              approach={approach}
+              image={image}
+              vIdx={vIdx}
+              companyName={companyName}
+              logoSrc={logoSrc}
+              footerLines={reportFooterLines}
+              valuationImageWidth={valuationImageWidth}
+              imageCornerRadius={imageCornerRadius}
+              imageShadow={imageShadow}
+              draftWatermark={sheetDraft}
+              resolveImageSrc={resolveImageSrc}
+              forcedOrientation={reportPageOrientations[pageKey]}
+              onOrientationChange={(orientation) => onReportPageOrientationChange?.(pageKey, orientation)}
+              onDelete={hideValuationImage ? () => hideValuationImage(image.id) : undefined}
+              insertedBlocksNode={insertedAfter(anchorId)}
+              titleNode={
+                <EditableBlock
+                  value={editableText(
+                    vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`,
+                    vIdx === 0 ? `مرفق 1: ${approach.label}` : `مرفق 1: ${approach.label} (تتمة — صورة ${vIdx + 1})`,
+                  )}
+                  onChange={(value) =>
+                    setTextOverride(vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`, value)
+                  }
+                  className="min-h-[1.75rem] text-[14px]"
+                  multiline={false}
+                />
+              }
+            />
+          );
+        })
       )}
 
-      {assetPhotoChunks.map((chunk, chunkIdx) => (
-        <MvReportPageShell
-          key={`assets-${chunkIdx}`}
-          variant="interior"
-          companyName={companyName}
-          companyNameNode={editableCompanyNameNode}
-          logoSrc={logoSrc}
-          footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-        >
-          <SectionShell
-            id={chunkIdx === 0 ? "mv-annex-2" : `mv-annex-2-${chunkIdx}`}
-            title={
-              <EditableBlock
-                value={editableText(
-                  chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`,
-                  chunkIdx === 0 ? "مرفق 2: صور الأصول" : `مرفق 2 (تتمة ${chunkIdx + 1})`,
-                )}
-                onChange={(value) =>
-                  setTextOverride(chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`, value)
-                }
-                className="min-h-[1.75rem]"
-                multiline={false}
-              />
-            }
+      {assetPhotoChunks.map((chunk, chunkIdx) => {
+        const anchorId = chunkIdx === 0 ? "mv-annex-2" : `mv-annex-2-${chunkIdx}`;
+        const orientation = pageOrientation(anchorId, "portrait");
+        return (
+          <MvReportPageShell
+            key={`assets-${chunkIdx}`}
+            variant="interior"
+            orientation={orientation}
+            companyName={companyName}
+            companyNameNode={editableCompanyNameNode}
+            logoSrc={logoSrc}
+            footerLines={reportFooterLines}
+            draftWatermark={sheetDraft}
           >
+            <SectionShell
+              id={anchorId}
+              title={
+                <EditableBlock
+                  value={editableText(
+                    chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`,
+                    chunkIdx === 0 ? "مرفق 2: صور الأصول" : `مرفق 2 (تتمة ${chunkIdx + 1})`,
+                  )}
+                  onChange={(value) =>
+                    setTextOverride(chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`, value)
+                  }
+                  className="min-h-[1.75rem]"
+                  multiline={false}
+                />
+              }
+              headerExtra={
+                <PageRotateButton
+                  orientation={orientation}
+                  onClick={() => togglePageOrientation(anchorId, "portrait")}
+                />
+              }
+            >
             {!includeAssetImages ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-[12px] font-extrabold text-amber-900">
                 تم إيقاف عرض صور الأصول من تبويب رفع الصور.
@@ -2531,8 +2775,12 @@ export function MvValuationReportDocumentBody({
                     file={file}
                     projectId={projectId}
                     widthPercent={assetImageWidth}
+                    widthCss={assetPhotoWidthCss}
                     cornerRadius={imageCornerRadius}
                     resolveImageSrc={resolveImageSrc}
+                    pageOrientation={orientation}
+                    onRotatePage={() => togglePageOrientation(anchorId, "portrait")}
+                    uniformSize={assetImagesUniformSize}
                     onReorder={(fromId, toId) => {
                       if (!setImageOrder) {
                         moveImage(fromId, 0 as -1 | 1);
@@ -2552,10 +2800,11 @@ export function MvValuationReportDocumentBody({
                 ))}
               </div>
             )}
-            {insertedAfter(chunkIdx === 0 ? "mv-annex-2" : `mv-annex-2-${chunkIdx}`)}
-          </SectionShell>
-        </MvReportPageShell>
-      ))}
+              {insertedAfter(anchorId)}
+            </SectionShell>
+          </MvReportPageShell>
+        );
+      })}
 
       <MvReportPageShell
         variant="interior"
@@ -2606,17 +2855,90 @@ export function MvValuationReportDocumentBody({
               multiline={false}
             />
           }
+          headerExtra={
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => scePdfInputRef.current?.click()}
+                disabled={scePdfBusy}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50 disabled:opacity-60"
+                title="إرفاق ملف PDF وتحويل أول صفحة إلى صورة"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                {scePdfBusy ? "تحويل..." : "إرفاق PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => sceImageInputRef.current?.click()}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
+                title="إرفاق صورة شهادة التسجيل"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                إرفاق صورة
+              </button>
+            </div>
+          }
         >
-          <ClearableRichHtmlField
-            html={sceRegistrationHtml}
-            onHtmlChange={(next) => onReportDataPatch({ sceRegistrationCertificateHtml: next })}
-            emptyHtml={EMPTY_RICH_HTML}
-          />
+          <div
+            tabIndex={0}
+            onPaste={handleScePaste}
+            onDragOver={(event) => {
+              if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+              event.preventDefault();
+              setSceDropActive(true);
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+              setSceDropActive(false);
+            }}
+            onDrop={handleSceDrop}
+            className={cn(
+              "rounded-lg outline-none transition",
+              sceDropActive && "ring-2 ring-sky-300 ring-offset-2 ring-offset-white",
+            )}
+          >
+            <ClearableRichHtmlField
+              html={sceRegistrationHtml}
+              onHtmlChange={(next) => onReportDataPatch({ sceRegistrationCertificateHtml: next })}
+              emptyHtml={EMPTY_RICH_HTML}
+            />
+          </div>
           {insertedAfter("mv-annex-sce")}
         </SectionShell>
       </MvReportPageShell>
 
       {boundary("mv-annex-sce")}
+
+      <MvReportPageShell
+        variant="cover"
+        companyName={companyName}
+        companyNameNode={editableCompanyNameNode}
+        logoSrc={logoSrc}
+        footerLines={reportFooterLines}
+        draftWatermark={sheetDraft}
+      >
+        <section
+          id="mv-report-closing"
+          data-mv-report-insert-anchor="mv-report-closing"
+          className="w-full max-w-lg space-y-6 text-center"
+        >
+          <EditableBlock
+            value={editableText("closing.thankYou", "Thank You")}
+            onChange={(value) => setTextOverride("closing.thankYou", value)}
+            className="px-2 py-2 text-center text-[34px] font-black leading-tight text-slate-950 sm:text-[42px]"
+            multiline={false}
+            placeholder="Thank You"
+          />
+          <EditableBlock
+            value={editableText("closing.note", "شكراً لثقتكم")}
+            onChange={(value) => setTextOverride("closing.note", value)}
+            className="mx-auto max-w-md px-2 text-center text-[15px] font-extrabold leading-8 text-slate-950"
+            placeholder="نص الخاتمة"
+          />
+          {insertedAfter("mv-report-closing")}
+        </section>
+      </MvReportPageShell>
     </div>
   );
 }

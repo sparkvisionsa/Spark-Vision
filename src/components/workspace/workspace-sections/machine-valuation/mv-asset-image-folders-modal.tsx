@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, FolderPlus, Loader2, UploadCloud } from "lucide-react";
+import { FolderPlus, Loader2, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -40,10 +39,12 @@ interface MvAssetImageFoldersModalProps {
   initialImportResult?: AssetImportResult | null;
   onImportResultChange?: (result: AssetImportResult | null) => void;
   onGenerated?: () => void | Promise<void>;
-  showSkip?: boolean;
-  skipLabel?: string;
-  onSkip?: () => void;
+  onBack?: () => void;
+  onSaveAndClose?: () => void;
+  onSaveAndContinue?: () => void;
 }
+
+type GenerateFoldersAction = "close" | "continue";
 
 function assetImportSessionStorageKey(projectId: string) {
   return `sv:asset-import:${projectId}`;
@@ -91,9 +92,9 @@ export function MvAssetImageFoldersModal({
   initialImportResult = null,
   onImportResultChange,
   onGenerated,
-  showSkip,
-  skipLabel = "تخطي والمتابعة",
-  onSkip,
+  onBack,
+  onSaveAndClose,
+  onSaveAndContinue,
 }: MvAssetImageFoldersModalProps) {
   const { toast } = useToast();
   const excelInputRef = useRef<HTMLInputElement>(null);
@@ -254,7 +255,7 @@ export function MvAssetImageFoldersModal({
     [importResult, projectId, setNextImportResult, toast],
   );
 
-  const generateFolders = useCallback(async () => {
+  const generateFolders = useCallback(async (action: GenerateFoldersAction = "close") => {
     if (!projectId || !selectedSheet || !selectedColumnKey.trim()) {
       toast({ variant: "destructive", description: "أنشئ من ملف اكسيل ثم اختر الشيت والعمود." });
       return;
@@ -290,7 +291,13 @@ export function MvAssetImageFoldersModal({
         description: `تم ضبط ${new Intl.NumberFormat("ar-SA").format(payload.totalValues)} مجلداً تحت «${payload.parentFolderName}».`,
       });
       await onGenerated?.();
-      onOpenChange(false);
+      if (action === "continue") {
+        if (onSaveAndContinue) onSaveAndContinue();
+        else onOpenChange(false);
+        return;
+      }
+      if (onSaveAndClose) onSaveAndClose();
+      else onOpenChange(false);
     } catch (error) {
       toast({
         variant: "destructive",
@@ -299,7 +306,7 @@ export function MvAssetImageFoldersModal({
     } finally {
       setGenerating(false);
     }
-  }, [onGenerated, onOpenChange, projectId, selectedColumnKey, selectedSheet, toast]);
+  }, [onGenerated, onOpenChange, onSaveAndClose, onSaveAndContinue, projectId, selectedColumnKey, selectedSheet, toast]);
 
   const renameSelectedSheet = useCallback(async () => {
     if (!projectId || !selectedSheet || !importResult) return;
@@ -356,25 +363,29 @@ export function MvAssetImageFoldersModal({
 
   const selectedSheetValue = selectedSheet ? `${selectedSheet.importId}::${selectedSheet.sheetName}` : "";
   const numberFormatter = new Intl.NumberFormat("ar-SA");
+  const saveDisabled = !projectId || !selectedSheet || !selectedColumnKey || uploading || loadingColumns || generating;
+  const hasWorkbook = sheets.length > 0;
+  const primaryActionLabel = onSaveAndContinue ? "إنشاء المجلدات والمتابعة" : "إنشاء المجلدات";
+  const handleClose = () => {
+    if (onSaveAndClose) onSaveAndClose();
+    else onOpenChange(false);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
-        <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 text-right">
+      <DialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
+        <DialogHeader className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-right">
           <div className="flex items-center gap-2">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
               <FolderPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <DialogTitle className="text-[15px] font-black text-slate-950">انشاء مجلدات الاصول</DialogTitle>
-              <DialogDescription className="mt-1 text-[12px] leading-5 text-slate-500">
-                أنشئ من ملف اكسيل وحدد الشيت والعمود لإنشاء مجلدات صور الأصول في نفس الصفحة.
-              </DialogDescription>
+              <DialogTitle className="text-[15px] font-black text-slate-950">إنشاء مجلدات صور الأصول</DialogTitle>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="max-h-[calc(90vh-10.5rem)] space-y-4 overflow-y-auto px-5 py-4">
+        <div className="max-h-[calc(90vh-8.75rem)] space-y-3 overflow-y-auto p-3">
           <input
             ref={excelInputRef}
             type="file"
@@ -386,30 +397,25 @@ export function MvAssetImageFoldersModal({
             }}
           />
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-stretch">
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_200px] lg:items-stretch">
             <button
               type="button"
               onClick={() => excelInputRef.current?.click()}
               disabled={!projectId || uploading}
-              className="flex min-h-[104px] w-full items-center gap-3 rounded-lg border border-dashed border-sky-200 bg-sky-50/40 px-4 py-3 text-right transition hover:border-sky-300 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex min-h-[58px] w-full items-center gap-3 rounded-lg border border-dashed border-sky-200 bg-sky-50/40 px-3 py-2 text-right transition hover:border-sky-300 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-sky-700 shadow-sm">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sky-700 shadow-sm">
                 {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <UploadCloud className="h-5 w-5" />}
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-black text-slate-950">انشاء مجلدات الاصول من اكسيل</span>
-                <span className="mt-1 block text-[11px] leading-5 text-slate-500">
-                  بعد الرفع ستظهر الشيتات تلقائياً، وسيتم اختيار أول شيت افتراضياً.
+                <span className="block text-[13px] font-black text-slate-950">
+                  {hasWorkbook ? "انشاء مجلدات الاصول من اكسيل" : "رفع ملف اكسيل"}
                 </span>
               </span>
             </button>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-3">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="h-4 w-4 text-emerald-700" />
-                <p className="text-[12px] font-black text-slate-800">ملخص اكسيل</p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="rounded-lg bg-slate-50 p-2">
                   <p className="text-[10px] font-bold text-slate-500">الشيتات</p>
                   <p className="mt-1 text-lg font-black tabular-nums text-slate-950">
@@ -426,8 +432,8 @@ export function MvAssetImageFoldersModal({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="space-y-1.5">
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="space-y-1">
               <span className="text-[11px] font-bold text-slate-500">الشيت</span>
               <Select
                 value={selectedSheetValue}
@@ -475,7 +481,7 @@ export function MvAssetImageFoldersModal({
               />
             </label>
 
-            <label className="space-y-1.5">
+            <label className="space-y-1">
               <span className="text-[11px] font-bold text-slate-500">اختر اسماء المجلدات حسب العمود</span>
               <Select
                 value={selectedColumnKey}
@@ -497,40 +503,38 @@ export function MvAssetImageFoldersModal({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
-          {showSkip ? (
+        <DialogFooter className="gap-2 border-t border-slate-100 bg-slate-50/80 px-4 py-2">
+          {onBack ? (
             <Button
               type="button"
               variant="outline"
               className="h-10 rounded-lg border-slate-200 bg-white px-4 text-[12px] font-bold"
               disabled={uploading || generating}
-              onClick={() => {
-                onSkip?.();
-                onOpenChange(false);
-              }}
+              onClick={onBack}
             >
-              {skipLabel}
+              رجوع
             </Button>
-          ) : (
+          ) : null}
+          <div className="flex flex-1 flex-wrap justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               className="h-10 rounded-lg border-slate-200 bg-white px-4 text-[12px] font-bold"
               disabled={uploading || generating}
-              onClick={() => onOpenChange(false)}
+              onClick={handleClose}
             >
               إغلاق
             </Button>
-          )}
-          <Button
-            type="button"
-            className="h-10 min-w-[160px] gap-2 rounded-lg bg-emerald-700 px-4 text-[12px] font-black text-white hover:bg-emerald-800"
-            disabled={!selectedSheet || !selectedColumnKey || uploading || loadingColumns || generating}
-            onClick={() => void generateFolders()}
-          >
-            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
-            انشاء مجلدات الاصول
-          </Button>
+            <Button
+              type="button"
+              className="h-10 min-w-[170px] gap-2 rounded-lg bg-emerald-700 px-4 text-[12px] font-black text-white hover:bg-emerald-800"
+              disabled={saveDisabled}
+              onClick={() => void generateFolders(onSaveAndContinue ? "continue" : "close")}
+            >
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              {primaryActionLabel}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -27,16 +27,17 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
   }
 
   const method = request.method.toUpperCase();
-  const init: RequestInit = {
+  const init: RequestInit & { duplex?: "half" } = {
     method,
     headers,
     redirect: "manual",
   };
 
   if (method !== "GET" && method !== "HEAD") {
-    const body = await request.arrayBuffer();
-    if (body.byteLength > 0) {
+    const body = request.body;
+    if (body) {
       init.body = body;
+      init.duplex = "half";
     }
   }
 

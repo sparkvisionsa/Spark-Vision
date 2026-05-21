@@ -46,6 +46,7 @@ export const MV_REPORT_TOC_ROWS: MvReportTocRow[] = [
     title: "شهادة التسجيل — بوابة الخدمات الإلكترونية للهيئة السعودية للمقيمين المعتمدين (تقييم)",
     anchor: "mv-annex-sce",
   },
+  { num: "ختام", title: "صفحة الخاتمة", anchor: "mv-report-closing" },
 ];
 
 /** ترتيب العناصر لاكتشاف القسم النشط أثناء التمرير */
@@ -85,4 +86,5 @@ export const MV_REPORT_SCROLL_ANCHOR_ORDER: string[] = [
   "mv-annex-2",
   "mv-annex-3",
   "mv-annex-sce",
+  "mv-report-closing",
 ];

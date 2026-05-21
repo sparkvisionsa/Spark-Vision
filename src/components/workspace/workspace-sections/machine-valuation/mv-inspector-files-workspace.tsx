@@ -1,7 +1,7 @@
 "use client";
 
 import { Tajawal } from "next/font/google";
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertCircle,
   AudioLines,
@@ -67,6 +67,14 @@ function inspectorFileLocationIds(file: MvInspectorFile): string[] {
   return Array.isArray(file.locationIds)
     ? file.locationIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
     : [];
+}
+
+function inspectorFileMatchesLocations(file: MvInspectorFile, locationIds: readonly string[]) {
+  if (locationIds.length === 0 || locationIds.includes(MV_ALL_LOCATIONS_VALUE)) return true;
+  const ids = inspectorFileLocationIds(file);
+  if (ids.length === 0) return true;
+  const selected = new Set(locationIds);
+  return ids.some((id) => selected.has(id));
 }
 
 type UploadJobState = "queued" | "uploading" | "done" | "error";
@@ -164,6 +172,7 @@ export function MvInspectorFilesPanel({
   embedded = false,
   initialLocationIds = DEFAULT_INSPECTOR_FILE_LOCATION_IDS,
   locationSelectionLocked = false,
+  locationOptions,
   className,
   onProjectLoaded,
 }: {
@@ -172,6 +181,7 @@ export function MvInspectorFilesPanel({
   embedded?: boolean;
   initialLocationIds?: string[];
   locationSelectionLocked?: boolean;
+  locationOptions?: MvProject["locations"];
   className?: string;
   onProjectLoaded?: (project: MvProject) => void;
 }) {
@@ -193,6 +203,18 @@ export function MvInspectorFilesPanel({
   const streamRef = useRef<MediaStream | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const onProjectLoadedRef = useRef(onProjectLoaded);
+  const selectableLocations = useMemo(
+    () => locationOptions ?? project?.locations ?? initialProject?.locations ?? [],
+    [initialProject?.locations, locationOptions, project?.locations],
+  );
+  const normalizedSelectedLocationIds = useMemo(
+    () => normalizeMvLocationSelection(selectedLocationIds, selectableLocations),
+    [selectableLocations, selectedLocationIds],
+  );
+  const visibleFiles = useMemo(
+    () => files.filter((file) => inspectorFileMatchesLocations(file, normalizedSelectedLocationIds)),
+    [files, normalizedSelectedLocationIds],
+  );
 
   useEffect(() => {
     onProjectLoadedRef.current = onProjectLoaded;
@@ -206,9 +228,8 @@ export function MvInspectorFilesPanel({
   }, [initialProject]);
 
   useEffect(() => {
-    const locations = project?.locations ?? initialProject?.locations ?? [];
-    setSelectedLocationIds(normalizeMvLocationSelection(initialLocationIds, locations));
-  }, [initialLocationIds, initialProject?.locations, project?.locations]);
+    setSelectedLocationIds(normalizeMvLocationSelection(initialLocationIds, selectableLocations));
+  }, [initialLocationIds, selectableLocations]);
 
   const load = useCallback(async (options: { showLoading?: boolean } = {}) => {
     const showLoading = options.showLoading ?? true;
@@ -243,7 +264,7 @@ export function MvInspectorFilesPanel({
   }, [initialProject?._id, load]);
 
   useEffect(() => {
-    const valid = new Set(files.map((f) => f.id));
+    const valid = new Set(visibleFiles.map((f) => f.id));
     setSelectedIds((prev) => {
       let changed = false;
       const next = new Set<string>();
@@ -253,7 +274,7 @@ export function MvInspectorFilesPanel({
       }
       return changed ? next : prev;
     });
-  }, [files]);
+  }, [visibleFiles]);
 
   const patchUploadJob = useCallback((clientId: string, patch: Partial<UploadJob>) => {
     setUploadJobs((rows) => rows.map((row) => (row.clientId === clientId ? { ...row, ...patch } : row)));
@@ -270,9 +291,12 @@ export function MvInspectorFilesPanel({
       patchUploadJob(clientId, { state: "uploading", progress: 0 });
       const fd = new FormData();
       fd.append("file", file);
+      const uploadLocationIds = normalizedSelectedLocationIds.includes(MV_ALL_LOCATIONS_VALUE)
+        ? []
+        : normalizedSelectedLocationIds;
       fd.append(
         "locationIds",
-        JSON.stringify(selectedLocationIds.includes(MV_ALL_LOCATIONS_VALUE) ? [] : selectedLocationIds),
+        JSON.stringify(uploadLocationIds),
       );
       const xhrUrl = `/api/mv/projects/${projectId}/inspectorFiles`;
 
@@ -323,7 +347,7 @@ export function MvInspectorFilesPanel({
         xhr.send(fd);
       });
     },
-    [projectId, selectedLocationIds, toast, patchUploadJob, scheduleRemoveUploadJob],
+    [projectId, normalizedSelectedLocationIds, toast, patchUploadJob, scheduleRemoveUploadJob],
   );
 
   /** طابور رفع متسلسل على الخادم؛ تقدم كل ملف عبر XHR كما في Google Drive. */
@@ -463,7 +487,7 @@ export function MvInspectorFilesPanel({
     });
   };
 
-  const allSelected = files.length > 0 && selectedIds.size === files.length;
+  const allSelected = visibleFiles.length > 0 && visibleFiles.every((f) => selectedIds.has(f.id));
   const someSelected = selectedIds.size > 0;
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -557,7 +581,7 @@ export function MvInspectorFilesPanel({
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
           <input ref={inputRef} type="file" className="hidden" accept={ACCEPT} multiple onChange={onInputChange} />
           <MvLocationMultiSelect
-            locations={project.locations ?? []}
+            locations={selectableLocations}
             value={selectedLocationIds}
             onChange={setSelectedLocationIds}
             disabled={locationSelectionLocked}
@@ -606,14 +630,14 @@ export function MvInspectorFilesPanel({
             {recording ? "إيقاف" : "تسجيل"}
           </Button>
 
-          {files.length > 0 ? (
+            {visibleFiles.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 border-s border-slate-200 ps-2">
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-600">
                 <Checkbox
                   checked={allSelected}
                   onCheckedChange={(v) => {
                     const on = v === true;
-                    setSelectedIds(on ? new Set(files.map((f) => f.id)) : new Set());
+                    setSelectedIds(on ? new Set(visibleFiles.map((f) => f.id)) : new Set());
                   }}
                   aria-label="تحديد الكل"
                 />
@@ -651,7 +675,7 @@ export function MvInspectorFilesPanel({
                 disabled={bulkDeleting}
                 onClick={() => setDeleteAllOpen(true)}
               >
-                حذف الكل
+                حذف المعروض
               </Button>
             </div>
           ) : null}
@@ -663,7 +687,9 @@ export function MvInspectorFilesPanel({
                 {uploadJobs.filter((j) => j.state === "uploading" || j.state === "queued").length}
               </span>
             ) : null}
-            <span>{files.length}</span>
+            <span>
+              {visibleFiles.length === files.length ? files.length : `${visibleFiles.length}/${files.length}`}
+            </span>
           </span>
         </div>
       </div>
@@ -674,14 +700,14 @@ export function MvInspectorFilesPanel({
           embedded ? "min-h-0 overflow-y-auto" : "",
         )}
       >
-        {files.length === 0 ? (
+        {visibleFiles.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 py-24 text-slate-400">
             <Upload className="h-10 w-10 opacity-40" />
             <p className="mt-3 text-sm font-semibold">لا ملفات</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {files.map((f) => (
+            {visibleFiles.map((f) => (
               <div
                 key={f.id}
                 className="group relative flex aspect-square flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-0 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
@@ -836,7 +862,7 @@ export function MvInspectorFilesPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>حذف كل ملفات المعاين؟</AlertDialogTitle>
             <AlertDialogDescription>
-              سيتم حذف {files.length} ملفًا من المشروع والتخزين. لا يمكن التراجع عن هذا الإجراء.
+              سيتم حذف {visibleFiles.length} ملفًا معروضًا من المشروع والتخزين. لا يمكن التراجع عن هذا الإجراء.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
@@ -846,10 +872,10 @@ export function MvInspectorFilesPanel({
               className="bg-rose-600 hover:bg-rose-700"
               onClick={() => {
                 setDeleteAllOpen(false);
-                void removeMany(files.map((x) => x.id));
+                void removeMany(visibleFiles.map((x) => x.id));
               }}
             >
-              حذف الكل
+              حذف المعروض
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

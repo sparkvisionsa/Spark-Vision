@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronsUpDown, Files, Loader2, MapPinned, Plus, Search, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, Files, Loader2, MapPinned, Plus, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,7 +12,6 @@ import {
   createProjectInspectionSiteForm,
   defaultInspectionSiteName,
   parseCoordinatesFromText,
-  resolveProjectLocationFromCoordinates,
   siteDescriptionFieldLabel,
   type MvProjectInspectionSiteForm,
 } from "./mv-project-contact-data";
@@ -24,7 +23,7 @@ const LABEL_REGION_AR = "المنطقة";
 const LABEL_CITY_AR = "المدينة";
 
 const FIELD_LABEL_CLASS =
-  "mb-2 block text-[11px] font-bold uppercase tracking-wide text-slate-500 [.card-field:focus-within_&]:text-sky-800";
+  "mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500 [.card-field:focus-within_&]:text-sky-800";
 const INPUT_CLASS =
   "h-11 w-full rounded-xl border border-slate-200/95 bg-white px-3.5 text-[13px] font-medium text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_1px_3px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow] placeholder:text-slate-400 hover:border-slate-300 hover:shadow-[inset_0_1px_0_rgba(255,255,255,1),0_2px_6px_rgba(15,23,42,0.05)] focus-visible:border-sky-400/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-sky-500/15 disabled:cursor-not-allowed disabled:opacity-[0.62]";
 /** ملاحظات: عرض كامل، ارتفاع افتراضي أقصر مع إمكانية السحب */
@@ -46,6 +45,7 @@ function MvSearchablePick({
   emptyLabel,
   options,
   onPick,
+  onClear,
   id,
 }: {
   portalContainer: HTMLElement | null;
@@ -56,6 +56,7 @@ function MvSearchablePick({
   emptyLabel: string;
   options: readonly { id: string; label: string }[];
   onPick: (label: string) => void;
+  onClear?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -99,6 +100,25 @@ function MvSearchablePick({
           )}
         >
           <span className="min-w-0 flex-1 truncate">{value.trim() ? value : placeholder}</span>
+          {value.trim() && onClear ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-red-600"
+              aria-label="مسح الحقل"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onClear();
+              }}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ) : null}
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-45" aria-hidden />
         </button>
       </PopoverPrimitive.Trigger>
@@ -162,6 +182,36 @@ function MvSearchablePick({
   );
 }
 
+function ClearFieldButton({
+  hidden,
+  disabled,
+  label = "مسح الحقل",
+  onClick,
+  className,
+}: {
+  hidden: boolean;
+  disabled?: boolean;
+  label?: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  if (hidden) return null;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      className={cn(
+        "absolute left-2 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-40",
+        className,
+      )}
+      onClick={onClick}
+    >
+      <X className="h-3.5 w-3.5" aria-hidden />
+    </button>
+  );
+}
+
 interface MvInspectionLocationsFieldsProps {
   value: MvProjectInspectionSiteForm[];
   onChange: (next: MvProjectInspectionSiteForm[]) => void;
@@ -202,9 +252,9 @@ function InspectionField({
 }
 
 /** الصف الأول: وصف الرقم بنسبة 2:1 */
-const GRID_ROW_DESC_PHONE = "grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-6 lg:items-start";
+const GRID_ROW_DESC_PHONE = "grid grid-cols-1 gap-3 lg:grid-cols-3 lg:gap-3 lg:items-start";
 /** الصف الثاني: منطقة — مدينة — رابط الخريطة 1 : 1 : 2 */
-const GRID_ROW_REGION_CITY_MAP = "grid grid-cols-1 gap-5 lg:grid-cols-4 lg:gap-6 lg:items-start";
+const GRID_ROW_REGION_CITY_MAP = "grid grid-cols-1 gap-3 lg:grid-cols-4 lg:gap-3 lg:items-start";
 
 export function MvInspectionLocationsFields({
   value,
@@ -220,7 +270,6 @@ export function MvInspectionLocationsFields({
   const sites = value.length > 0 ? value : [createProjectInspectionSiteForm(0)];
   const [mapSiteId, setMapSiteId] = useState<string | null>(null);
   const [resolvingSiteId, setResolvingSiteId] = useState<string | null>(null);
-  const [locationErrors, setLocationErrors] = useState<Record<string, string>>({});
   const activeMapSite = useMemo(
     () => sites.find((site) => site.id === mapSiteId) ?? null,
     [mapSiteId, sites],
@@ -280,28 +329,17 @@ export function MvInspectionLocationsFields({
 
   const applyMapPoint = async (site: MvProjectInspectionSiteForm, latitude: number, longitude: number) => {
     setResolvingSiteId(site.id);
-    setLocationErrors((current) => {
-      const next = { ...current };
-      delete next[site.id];
-      return next;
-    });
-
-    const resolved = await resolveProjectLocationFromCoordinates(latitude, longitude);
-    updateSite(site.id, {
-      region: resolved.region,
-      city: resolved.city,
-      latitude: String(resolved.latitude),
-      longitude: String(resolved.longitude),
-      mapUrl: resolved.mapUrl,
-    });
-
-    if (!resolved.region || !resolved.city) {
-      setLocationErrors((current) => ({
-        ...current,
-        [site.id]: "تم تعبئة رابط الخريطة ولم تتوفر المنطقة أو المدينة من خدمة الخرائط.",
-      }));
+    try {
+      const safeLatitude = Number.isFinite(latitude) ? String(latitude) : "";
+      const safeLongitude = Number.isFinite(longitude) ? String(longitude) : "";
+      updateSite(site.id, {
+        latitude: safeLatitude,
+        longitude: safeLongitude,
+        mapUrl: safeLatitude && safeLongitude ? `https://www.google.com/maps?q=${safeLatitude},${safeLongitude}` : "",
+      });
+    } finally {
+      setResolvingSiteId(null);
     }
-    setResolvingSiteId(null);
   };
 
   const pickDisabled = Boolean(disabled) || catalogLoading;
@@ -323,19 +361,12 @@ export function MvInspectionLocationsFields({
   };
 
   return (
-    <div className={cn("space-y-5 text-right", className)} dir="rtl">
-      <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0 lg:max-w-2xl">
-          <p className="text-sm font-black text-slate-900">تحديد مواقع المعاينة</p>
-          <p className="mt-1 text-[12px] font-medium leading-relaxed text-slate-600">
-            صف بحسب المواصفات: الوصف ورقم التواصل (2:1)، ثم المنطقة والمدينة ورابط خرائط جوجل (1:1:2)، ثم ملاحظات
-            كاملة العرض.
-          </p>
-        </div>
+    <div className={cn("space-y-3 text-right", className)} dir="rtl">
+      <header className="flex justify-end">
         <Button
           type="button"
           variant="outline"
-          className="h-11 shrink-0 gap-2 self-start rounded-xl border-sky-200 bg-white px-5 text-[12px] font-bold text-[#0C447C] shadow-sm hover:border-sky-300 hover:bg-sky-50/80"
+          className="h-9 shrink-0 gap-2 rounded-lg border-sky-200 bg-white px-3 text-[12px] font-bold text-[#0C447C] shadow-sm hover:border-sky-300 hover:bg-sky-50/80"
           onClick={addSite}
           disabled={disabled || sites.length >= 10}
         >
@@ -350,7 +381,7 @@ export function MvInspectionLocationsFields({
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3">
         {sites.map((site, index) => {
           const regionInputId = `mv-region-${site.id}`;
           const cityInputId = `mv-city-${site.id}`;
@@ -362,25 +393,22 @@ export function MvInspectionLocationsFields({
           return (
             <section
               key={site.id}
-              className="overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-b from-slate-50/40 via-white to-white shadow-[0_24px_50px_-32px_rgba(15,23,42,0.35)]"
+              className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 bg-[#f4f9fc]/90 px-4 py-3.5 backdrop-blur-sm sm:flex-nowrap sm:px-5">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[14px] font-black text-[#0C447C] shadow-sm ring-[1px] ring-slate-200/90">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/70 bg-slate-50 px-3 py-2 sm:flex-nowrap">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-[12px] font-black text-[#0C447C] shadow-sm ring-[1px] ring-slate-200/90">
                     {index + 1}
                   </span>
-                  <div className="min-w-0 border-s-2 border-sky-400/55 ps-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">موقع المعاينة</p>
-                    <p className="truncate text-[13px] font-black text-slate-900">
-                      {site.name.trim() || defaultInspectionSiteName(index)}
-                    </p>
-                  </div>
+                  <p className="truncate text-[13px] font-black text-slate-900">
+                    {site.name.trim() || defaultInspectionSiteName(index)}
+                  </p>
                 </div>
                 <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-10 gap-1.5 rounded-xl border-sky-200/90 bg-white px-3 text-[11px] font-bold text-[#0C447C] hover:bg-white hover:shadow-sm"
+                    className="h-8 gap-1.5 rounded-lg border-sky-200/90 bg-white px-2.5 text-[11px] font-bold text-[#0C447C] hover:bg-white hover:shadow-sm"
                     onClick={() => setMapSiteId(site.id)}
                     disabled={disabled || resolvingSiteId === site.id}
                   >
@@ -395,7 +423,7 @@ export function MvInspectionLocationsFields({
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-10 gap-1.5 rounded-xl border-violet-200/90 bg-white px-3 text-[11px] font-bold text-violet-900 hover:bg-violet-50/70"
+                      className="h-8 gap-1.5 rounded-lg border-violet-200/90 bg-white px-2.5 text-[11px] font-bold text-violet-900 hover:bg-violet-50/70"
                       onClick={() => onOpenInspectorFiles(site)}
                       disabled={disabled || openingInspectorFilesSiteId === site.id}
                     >
@@ -404,7 +432,7 @@ export function MvInspectionLocationsFields({
                       ) : (
                         <Files className="h-4 w-4 shrink-0" aria-hidden />
                       )}
-                      ملفات المعاين
+                      إرفاق ملفات
                     </Button>
                   ) : null}
                   {sites.length > 1 ? (
@@ -412,7 +440,7 @@ export function MvInspectionLocationsFields({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-10 w-10 rounded-xl border-red-200/80 bg-white text-red-600 hover:bg-red-50/90"
+                      className="h-8 w-8 rounded-lg border-red-200/80 bg-white text-red-600 hover:bg-red-50/90"
                       onClick={() => removeSite(site.id)}
                       disabled={disabled}
                       aria-label="حذف الموقع"
@@ -423,36 +451,48 @@ export function MvInspectionLocationsFields({
                 </div>
               </div>
 
-              <div className="space-y-8 p-5 sm:p-7">
-                {/* الصف 1 — 2 : 1 */}
+              <div className="space-y-3 p-3">
                 <div className={GRID_ROW_DESC_PHONE}>
                   <InspectionField htmlFor={`mv-site-desc-${site.id}`} label={siteDescriptionFieldLabel(index)} className="lg:col-span-2">
-                    <Input
-                      id={`mv-site-desc-${site.id}`}
-                      value={site.name}
-                      onChange={(event) => updateSite(site.id, { name: event.target.value })}
-                      disabled={disabled}
-                      aria-label={siteDescriptionFieldLabel(index)}
-                      placeholder={defaultInspectionSiteName(index)}
-                      dir="auto"
-                      className={INPUT_CLASS}
-                    />
+                    <div className="relative">
+                      <Input
+                        id={`mv-site-desc-${site.id}`}
+                        value={site.name}
+                        onChange={(event) => updateSite(site.id, { name: event.target.value })}
+                        disabled={disabled}
+                        aria-label={siteDescriptionFieldLabel(index)}
+                        placeholder={defaultInspectionSiteName(index)}
+                        dir="auto"
+                        className={cn(INPUT_CLASS, "pl-10")}
+                      />
+                      <ClearFieldButton
+                        hidden={!site.name.trim()}
+                        disabled={disabled}
+                        onClick={() => updateSite(site.id, { name: "" })}
+                      />
+                    </div>
                   </InspectionField>
                   <InspectionField htmlFor={`mv-phone-${site.id}`} label="رقم تواصل" className="lg:col-span-1">
-                    <Input
-                      id={`mv-phone-${site.id}`}
-                      value={site.primaryPhone}
-                      onChange={(event) => updateSite(site.id, { primaryPhone: event.target.value })}
-                      disabled={disabled}
-                      inputMode="tel"
-                      placeholder="05xxxxxxxx"
-                      dir="ltr"
-                      className={cn(INPUT_CLASS, "text-start font-mono text-[13px] tracking-wide")}
-                    />
+                    <div className="relative">
+                      <Input
+                        id={`mv-phone-${site.id}`}
+                        value={site.primaryPhone}
+                        onChange={(event) => updateSite(site.id, { primaryPhone: event.target.value })}
+                        disabled={disabled}
+                        inputMode="tel"
+                        placeholder="05xxxxxxxx"
+                        dir="ltr"
+                        className={cn(INPUT_CLASS, "pl-10 text-start font-mono text-[13px] tracking-wide")}
+                      />
+                      <ClearFieldButton
+                        hidden={!site.primaryPhone.trim()}
+                        disabled={disabled}
+                        onClick={() => updateSite(site.id, { primaryPhone: "" })}
+                      />
+                    </div>
                   </InspectionField>
                 </div>
 
-                {/* الصف 2 — 1 : 1 : 2 */}
                 <div className={GRID_ROW_REGION_CITY_MAP}>
                   <InspectionField htmlFor={regionInputId} label={LABEL_REGION_AR} className="lg:col-span-1">
                     {catalogLoading ? (
@@ -461,13 +501,20 @@ export function MvInspectionLocationsFields({
                         جاري التحميل…
                       </div>
                     ) : !useCatalogPickers ? (
-                      <Input
-                        id={regionInputId}
-                        value={site.region}
-                        onChange={(event) => updateSite(site.id, { region: event.target.value })}
-                        disabled={disabled}
-                        className={INPUT_CLASS}
-                      />
+                      <div className="relative">
+                        <Input
+                          id={regionInputId}
+                          value={site.region}
+                          onChange={(event) => updateSite(site.id, { region: event.target.value })}
+                          disabled={disabled}
+                          className={cn(INPUT_CLASS, "pl-10")}
+                        />
+                        <ClearFieldButton
+                          hidden={!site.region.trim()}
+                          disabled={disabled}
+                          onClick={() => updateSite(site.id, { region: "", city: "" })}
+                        />
+                      </div>
                     ) : (
                       <MvSearchablePick
                         portalContainer={pickerPopoverHost}
@@ -478,6 +525,7 @@ export function MvInspectionLocationsFields({
                         emptyLabel="لا توجد مناطق مطابقة"
                         options={regionOptions}
                         onPick={(lab) => onPickRegion(site.id, lab)}
+                        onClear={() => updateSite(site.id, { region: "", city: "" })}
                       />
                     )}
                   </InspectionField>
@@ -489,13 +537,20 @@ export function MvInspectionLocationsFields({
                         جاري التحميل…
                       </div>
                     ) : !useCatalogPickers ? (
-                      <Input
-                        id={cityInputId}
-                        value={site.city}
-                        onChange={(event) => updateSite(site.id, { city: event.target.value })}
-                        disabled={disabled}
-                        className={INPUT_CLASS}
-                      />
+                      <div className="relative">
+                        <Input
+                          id={cityInputId}
+                          value={site.city}
+                          onChange={(event) => updateSite(site.id, { city: event.target.value })}
+                          disabled={disabled}
+                          className={cn(INPUT_CLASS, "pl-10")}
+                        />
+                        <ClearFieldButton
+                          hidden={!site.city.trim()}
+                          disabled={disabled}
+                          onClick={() => updateSite(site.id, { city: "" })}
+                        />
+                      </div>
                     ) : (
                       <MvSearchablePick
                         portalContainer={pickerPopoverHost}
@@ -510,45 +565,51 @@ export function MvInspectionLocationsFields({
                         }
                         options={cityChoices}
                         onPick={(lab) => updateSite(site.id, { city: lab })}
+                        onClear={() => updateSite(site.id, { city: "" })}
                       />
                     )}
                   </InspectionField>
 
                   <InspectionField htmlFor={`mv-map-${site.id}`} label="رابط Google Maps" className="lg:col-span-2">
-                    <Input
-                      id={`mv-map-${site.id}`}
-                      value={site.mapUrl}
-                      onChange={(event) => updateMapUrl(site, event.target.value)}
-                      disabled={disabled}
-                      placeholder="https://maps.google.com/…"
-                      dir="ltr"
-                      className={cn(INPUT_CLASS, "font-mono text-[11.5px] leading-snug")}
-                    />
+                    <div className="relative">
+                      <Input
+                        id={`mv-map-${site.id}`}
+                        value={site.mapUrl}
+                        onChange={(event) => updateMapUrl(site, event.target.value)}
+                        disabled={disabled}
+                        placeholder="https://maps.google.com/…"
+                        dir="ltr"
+                        className={cn(INPUT_CLASS, "pl-10 font-mono text-[11.5px] leading-snug")}
+                      />
+                      <ClearFieldButton
+                        hidden={!site.mapUrl.trim() && !site.latitude.trim() && !site.longitude.trim()}
+                        disabled={disabled}
+                        onClick={() => updateSite(site.id, { mapUrl: "", latitude: "", longitude: "" })}
+                      />
+                    </div>
                   </InspectionField>
                 </div>
 
-                {/* الصف الأخير — ملاحظات بعرض المودال، ارتفاع افتراضي أقل */}
                 <InspectionField htmlFor={`mv-site-notes-${site.id}`} label="ملاحظات">
-                  <Textarea
-                    id={`mv-site-notes-${site.id}`}
-                    value={site.notes ?? ""}
-                    onChange={(event) => updateSite(site.id, { notes: event.target.value })}
-                    disabled={disabled}
-                    placeholder="تعليمات للمعاين، أوقات زيارة…"
-                    dir="auto"
-                    rows={2}
-                    className={NOTES_AREA_CLASS}
-                  />
+                  <div className="relative">
+                    <Textarea
+                      id={`mv-site-notes-${site.id}`}
+                      value={site.notes ?? ""}
+                      onChange={(event) => updateSite(site.id, { notes: event.target.value })}
+                      disabled={disabled}
+                      placeholder="تعليمات للمعاين، أوقات زيارة…"
+                      dir="auto"
+                      rows={2}
+                      className={cn(NOTES_AREA_CLASS, "pl-10")}
+                    />
+                    <ClearFieldButton
+                      hidden={!(site.notes ?? "").trim()}
+                      disabled={disabled}
+                      className="top-3 translate-y-0"
+                      onClick={() => updateSite(site.id, { notes: "" })}
+                    />
+                  </div>
                 </InspectionField>
-
-                {locationErrors[site.id] ? (
-                  <p
-                    role="alert"
-                    className="rounded-xl border border-amber-200/90 bg-amber-50/80 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-amber-900"
-                  >
-                    {locationErrors[site.id]}
-                  </p>
-                ) : null}
               </div>
             </section>
           );
