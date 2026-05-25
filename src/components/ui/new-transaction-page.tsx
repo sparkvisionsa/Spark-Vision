@@ -1852,11 +1852,10 @@ export function NewTransactionPage({
 
   useEffect(() => {
     if (!values.client || templates.length === 0) return;
-    const individualTemplate = templates.find(
-      (tp) =>
-        tp.name === "قالب فردي" || tp.name.toLowerCase().includes("individual"),
+    const generalTemplate = templates.find(
+      (tp) => tp.name === GENERAL_TEMPLATE_NAME_AR,
     );
-    const defaultTemplate = individualTemplate ?? templates[0];
+    const defaultTemplate = generalTemplate ?? templates[0];
     if (defaultTemplate) set("template", defaultTemplate.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.client, templates]);
@@ -1893,11 +1892,17 @@ export function NewTransactionPage({
       .then(([cls, tpls]: [ClientOption[], TemplateOption[]]) => {
         setClients(cls);
         setTemplates(tpls);
+        const individualClient = cls.find(
+          (c) =>
+            c.name === "فردي" || c.name.toLowerCase().includes("individual"),
+        );
+        if (individualClient) {
+          set("client", individualClient.id);
+        }
       })
       .catch(console.error)
       .finally(() => setLoadingClients(false));
   }, []);
-
   // ── Validation ──────────────────────────────────────────────────────────────
 
   const validateSetup = (): boolean => {

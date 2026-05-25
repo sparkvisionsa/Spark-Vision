@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useMemo, useContext } from "react";
 import { LanguageContext } from "@/components/layout-provider";
+import { Map } from "lucide-react";
 
 import dynamic from "next/dynamic";
 
@@ -106,7 +107,7 @@ const SC = {
     placeholderCoords: "lat,lng",
     placeholderZero: "0",
     placeholderKind: "النوع",
-    mapBtn: "🗺️ خريطة",
+    mapBtn: "خريطة",
     mapBtnTitle: "اختر من الخريطة",
     deleteBtn: "✕",
     deleteBtnTitle: "حذف",
@@ -183,7 +184,7 @@ const SC = {
     placeholderCoords: "lat,lng",
     placeholderZero: "0",
     placeholderKind: "Kind",
-    mapBtn: "🗺️ Map",
+    mapBtn: "Map",
     mapBtnTitle: "Pick from map",
     deleteBtn: "✕",
     deleteBtnTitle: "Delete",
@@ -298,15 +299,9 @@ const DEFAULT_SECTION2_TITLES: Record<Lang, string[]> = {
 };
 
 // ─── Auto-fill mapping ────────────────────────────────────────────────────────
-//
-// Maps a settlement row title (in both languages) to a function that extracts
-// the default description string from a ComparisonRow.
-// This is used to provide a fallback value when the description cell is empty.
-
-type AutoFillKey = keyof ComparisonRow;
 
 interface AutoFillRule {
-  titles: string[]; // all Arabic + English titles that trigger this rule
+  titles: string[];
   getValue: (
     row: ComparisonRow,
     lang: Lang,
@@ -316,52 +311,34 @@ interface AutoFillRule {
 
 const AUTO_FILL_RULES: AutoFillRule[] = [
   {
-    // عامل الوقت / Time Factor → evalDate
     titles: ["عامل الوقت", "Time Factor"],
     getValue: (row) => row.evalDate || "",
   },
   {
-    // نوع المقارنة / Comparison Type → comparisonKind
     titles: ["نوع المقارنة", "Comparison Type"],
     getValue: (row) => row.comparisonKind || "",
   },
+  { titles: ["المساحة", "Area"], getValue: (row) => row.landSpace || "" },
   {
-    // المساحة / Area → landSpace
-    titles: ["المساحة", "Area"],
-    getValue: (row) => row.landSpace || "",
-  },
-  {
-    // عرض الشارع / Street Width → street
     titles: ["عرض الشارع", "Street Width"],
     getValue: (row) => row.street || "",
   },
+  { titles: ["الواجهات", "Frontages"], getValue: (row) => row.roads || "" },
   {
-    // الواجهات / Frontages → roads (number of roads)
-    titles: ["الواجهات", "Frontages"],
-    getValue: (row) => row.roads || "",
-  },
-  {
-    // ظروف السوق / Market Conditions → description
     titles: ["ظروف السوق", "Market Conditions"],
     getValue: (row) => row.description || "",
   },
   {
-    // شروط التمويل / Financing Terms → source
     titles: ["شروط التمويل", "Financing Terms"],
     getValue: (row) => row.source || "",
   },
   {
-    // الإستخدام / Usage → property type label
     titles: ["الإستخدام", "Usage"],
     getValue: (row, lang, propertyTypes) =>
       row.propertyTypeId ? (propertyTypes[lang][row.propertyTypeId] ?? "") : "",
   },
 ];
 
-/**
- * Given a row title and a comparison row, returns the auto-fill value
- * if a matching rule exists, otherwise returns "".
- */
 function getAutoFillValue(
   title: string,
   compRow: ComparisonRow,
@@ -412,6 +389,7 @@ function fmt(n: number, decimals = 2): string {
     maximumFractionDigits: decimals,
   });
 }
+
 function parseNum(v: string | undefined): number {
   if (!v) return 0;
   return parseFloat(String(v).replace(/,/g, "")) || 0;
@@ -422,7 +400,7 @@ function parseNum(v: string | undefined): number {
 const DT = {
   blue: "#0e7490",
   blueLight: "#f0f9ff",
-  blueMid: "#e2e8f0",
+  blueMid: "#e0f2fe",
   surface: "#ffffff",
   surfaceAlt: "#f8fafc",
   border: "#e2e8f0",
@@ -488,23 +466,22 @@ function removeColumnFromSettlementData(
   weights: string[],
 ) {
   const removeCol = (arr: string[]) => arr.filter((_, i) => i !== colIndex);
-
   const newSection1 = section1Rows.map((r) => ({
     ...r,
     cols: removeCol(r.cols ?? []),
     colAdj: removeCol(r.colAdj ?? []),
   }));
-
   const newSection2 = section2Rows.map((r) => ({
     ...r,
     cols: removeCol(r.cols ?? []),
     colAdj: removeCol(r.colAdj ?? []),
   }));
-
-  const newBases = removeCol(bases);
-  const newWeights = removeCol(weights);
-
-  return { newSection1, newSection2, newBases, newWeights };
+  return {
+    newSection1,
+    newSection2,
+    newBases: removeCol(bases),
+    newWeights: removeCol(weights),
+  };
 }
 
 // ─── Comparison Properties Table ──────────────────────────────────────────────
@@ -525,7 +502,6 @@ function ComparisonPropertiesTable({
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
 
   const addRow = () => onChange([...rows, emptyComparisonRow()]);
-
   const removeRow = (i: number) => {
     onDeleteRow(i);
     onChange(rows.filter((_, idx) => idx !== i));
@@ -537,9 +513,7 @@ function ComparisonPropertiesTable({
   };
 
   const updateCoordsFromMap = (coords: string) => {
-    if (activeRowIndex !== null) {
-      updateRow(activeRowIndex, "coords", coords);
-    }
+    if (activeRowIndex !== null) updateRow(activeRowIndex, "coords", coords);
     setShowMapPicker(false);
     setActiveRowIndex(null);
   };
@@ -783,20 +757,29 @@ function ComparisonPropertiesTable({
                         style={{ ...inputBase, minWidth: 110, flex: 1 }}
                         dir="ltr"
                       />
+                      {/* ── Lucide Map icon button ── */}
                       <button
                         type="button"
                         onClick={() => openMapPicker(i)}
+                        title={t.mapBtnTitle}
                         style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
                           background: DT.blueLight,
                           border: `1px solid ${DT.blueMid}`,
-                          borderRadius: 4,
+                          borderRadius: 6,
                           padding: "4px 8px",
                           cursor: "pointer",
-                          fontSize: 12,
-                          whiteSpace: "nowrap",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: DT.blue,
+                          whiteSpace: "nowrap" as const,
+                          fontFamily: "inherit",
+                          flexShrink: 0,
                         }}
-                        title={t.mapBtnTitle}
                       >
+                        <Map size={13} />
                         {t.mapBtn}
                       </button>
                     </div>
@@ -871,7 +854,7 @@ function ComparisonPropertiesTable({
   );
 }
 
-// ─── Settlement Table ─────────────────────────────────────────────────────────
+// ─── Settlement Adjustments Table ─────────────────────────────────────────────
 
 type SettlementSection1Row = {
   title: string;
@@ -913,7 +896,6 @@ function SettlementAdjustmentsTable({
   lang: Lang;
 }) {
   const t = SC[lang];
-
   const activeComps = comparisonRows
     .map((r, i) => ({ row: r, originalIndex: i }))
     .filter(({ row }) => row.inReport !== false);
@@ -928,10 +910,6 @@ function SettlementAdjustmentsTable({
     return Math.round(value / roundBase) * roundBase;
   };
 
-  // ── Auto-fill helpers ───────────────────────────────────────────────────────
-  // For a given settlement column index and row title, return the stored value
-  // if non-empty, otherwise return the auto-fill derived from the comparison row.
-
   const getAutoFill = useCallback(
     (settleColIdx: number, rowTitle: string): string => {
       const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
@@ -941,8 +919,6 @@ function SettlementAdjustmentsTable({
     },
     [activeComps, comparisonRows, lang],
   );
-
-  // ── Base price ──────────────────────────────────────────────────────────────
 
   const getBase = (settleColIdx: number): string => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
@@ -959,8 +935,6 @@ function SettlementAdjustmentsTable({
     nb[origIdx] = val;
     onBasesChange(nb);
   };
-
-  // ── Section 1 ───────────────────────────────────────────────────────────────
 
   const getS1Adj = (row: SettlementSection1Row, settleColIdx: number) => {
     const origIdx = activeComps[settleColIdx]?.originalIndex ?? settleColIdx;
@@ -990,7 +964,6 @@ function SettlementAdjustmentsTable({
       section1Rows.map((r, ri) => (ri === i ? { ...r, valueM: val } : r)),
     );
 
-  // Returns the stored description for a S1 cell, falling back to auto-fill.
   const getS1Col = (
     row: SettlementSection1Row,
     settleColIdx: number,
@@ -1001,7 +974,6 @@ function SettlementAdjustmentsTable({
     return getAutoFill(settleColIdx, row.title);
   };
 
-  // Whether the S1 description cell has a user-supplied value.
   const isS1ColUserSet = (
     row: SettlementSection1Row,
     settleColIdx: number,
@@ -1023,9 +995,6 @@ function SettlementAdjustmentsTable({
     );
   };
 
-  // ── Section 2 ───────────────────────────────────────────────────────────────
-
-  // Returns stored value or auto-fill for section 2 description cells.
   const getS2Col = (
     row: SettlementSection2Row,
     settleColIdx: number,
@@ -1095,8 +1064,6 @@ function SettlementAdjustmentsTable({
     w[origIdx] = val;
     onWeightsChange(w);
   };
-
-  // ── Calculations ────────────────────────────────────────────────────────────
 
   const effectiveBases = useMemo(
     () => Array.from({ length: n }, (_, c) => getBase(c)),
@@ -1188,8 +1155,6 @@ function SettlementAdjustmentsTable({
     return roundValue(rawValue, roundTo);
   }, [netPricePerMeter, subjectArea, roundTo]);
 
-  // ── Styles ──────────────────────────────────────────────────────────────────
-
   const colSpanStyle = (_c: number): React.CSSProperties => ({
     background: "#f8fafc",
     border: `1px solid #e2e8f0`,
@@ -1211,8 +1176,6 @@ function SettlementAdjustmentsTable({
     background: DT.surfaceAlt,
   };
 
-  // Auto-fill indicator style: slightly different background so user knows
-  // the value is derived, not manually entered.
   const autoFilledInput = (isUserSet: boolean): React.CSSProperties => ({
     ...inputBase,
     minWidth: 60,
@@ -1373,8 +1336,8 @@ function SettlementAdjustmentsTable({
                           title={
                             !userSet && displayVal
                               ? lang === "ar"
-                                ? "قيمة تلقائية من بيانات المقارنة — اكتب لتعديلها"
-                                : "Auto-filled from comparison data — type to override"
+                                ? "قيمة تلقائية — اكتب لتعديلها"
+                                : "Auto-filled — type to override"
                               : undefined
                           }
                         />
@@ -1552,8 +1515,8 @@ function SettlementAdjustmentsTable({
                           title={
                             !userSet && displayVal
                               ? lang === "ar"
-                                ? "قيمة تلقائية من بيانات المقارنة — اكتب لتعديلها"
-                                : "Auto-filled from comparison data — type to override"
+                                ? "قيمة تلقائية — اكتب لتعديلها"
+                                : "Auto-filled — type to override"
                               : undefined
                           }
                         />
@@ -1771,16 +1734,7 @@ function SettlementAdjustmentsTable({
             border: `1px solid ${DT.border}`,
           }}
         >
-          <div
-            style={{
-              fontSize: 11,
-              color: DT.textMuted,
-              marginBottom: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
+          <div style={{ fontSize: 11, color: DT.textMuted, marginBottom: 6 }}>
             {t.scaleFactor}
           </div>
           <input
@@ -1800,7 +1754,6 @@ function SettlementAdjustmentsTable({
             {t.scaleFactorHint}
           </div>
         </div>
-
         <div
           style={{
             background: DT.surface,
@@ -1809,16 +1762,7 @@ function SettlementAdjustmentsTable({
             border: `1px solid ${DT.border}`,
           }}
         >
-          <div
-            style={{
-              fontSize: 11,
-              color: DT.textMuted,
-              marginBottom: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
+          <div style={{ fontSize: 11, color: DT.textMuted, marginBottom: 6 }}>
             {t.roundTo}
           </div>
           <select
@@ -1832,7 +1776,7 @@ function SettlementAdjustmentsTable({
             }}
           >
             <option value="0">{t.noRounding}</option>
-            {ROUND_OPTIONS.slice(1).map((n) => (
+            {[1, 5, 10, 50, 100, 500, 1000, 5000, 10000].map((n) => (
               <option key={n} value={String(n)}>
                 {t.nearest(n)}
               </option>
@@ -1887,13 +1831,7 @@ function SettlementAdjustmentsTable({
   );
 }
 
-const ROUND_OPTIONS = [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000];
-
-type KpiCardProps = {
-  label: string;
-  value: string | number;
-  accent?: string;
-};
+type KpiCardProps = { label: string; value: string | number; accent?: string };
 
 function KpiCard({ label, value, accent }: KpiCardProps) {
   return (
@@ -1914,9 +1852,6 @@ function KpiCard({ label, value, accent }: KpiCardProps) {
           fontWeight: 700,
           textTransform: "uppercase",
           letterSpacing: "0.06em",
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
         }}
       >
         {label}
@@ -1936,27 +1871,21 @@ function KpiCard({ label, value, accent }: KpiCardProps) {
   );
 }
 
-// ─── Main export: SettlementComparison ───────────────────────────────────────
+// ─── Main export: SettlementComparison ────────────────────────────────────────
 
 export type SettlementComparisonProps = {
   useLabel?: string;
   subjectArea?: string;
-
   comparisonRows: ComparisonRow[];
   onComparisonRowsChange: (rows: ComparisonRow[]) => void;
-
   settlementRows: SettlementRow[];
   onSettlementRowsChange: (rows: SettlementRow[]) => void;
-
   settlementWeights?: string[];
   onSettlementWeightsChange?: (w: string[]) => void;
-
   settlementBases: string[];
   onSettlementBasesChange: (bases: string[]) => void;
-
   section1Rows?: { title: string; colAdj: string[] }[];
   onSection1RowsChange?: (rows: { title: string; colAdj: string[] }[]) => void;
-
   settlementNotes?: string;
   onSettlementNotesChange?: (v: string) => void;
 };
@@ -1983,7 +1912,6 @@ export function SettlementComparison({
   const t = SC[lang];
 
   const n = Math.max(comparisonRows.length, 1);
-
   const resolvedUseLabel = useLabel ?? (lang === "ar" ? "عام" : "General");
 
   const [localWeights, setLocalWeights] = useState<string[]>([]);
@@ -2023,7 +1951,6 @@ export function SettlementComparison({
           settlementBases,
           weights,
         );
-
       handleSection1Change(newSection1);
       onSettlementRowsChange(newSection2 as unknown as SettlementRow[]);
       onSettlementBasesChange(newBases);
@@ -2153,6 +2080,8 @@ export function SettlementComparison({
     </div>
   );
 }
+
+// ─── Section label ─────────────────────────────────────────────────────────────
 
 function SectionLabel({ number, title }: { number: string; title: string }) {
   return (

@@ -253,6 +253,11 @@ function apiUrl(path: string) {
 }
 
 function filePreviewUrl(filePath: string): string {
+  // Already an absolute URL (Cloudinary, S3, etc.) — use as-is.
+  if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+    return filePath;
+  }
+  // Local upload — prepend leading slash.
   return `/${filePath}`;
 }
 
@@ -1294,7 +1299,10 @@ export function ImagesModal({
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/images/${id}`),
-        { method: "DELETE", credentials: "include" },
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
       );
       if (!r.ok) throw new Error();
       setImages((prev) => {
@@ -1335,6 +1343,19 @@ export function ImagesModal({
     } catch {
       setError(t.errorDeleting);
     }
+  };
+
+  const downloadSelected = () => {
+    images
+      .filter((img) => selectedIds.has(img.id))
+      .forEach((img) => {
+        const link = document.createElement("a");
+        link.href = img.previewUrl;
+        link.download = img.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
   };
 
   const setImageIndex = (id: string, newIndex: number) => {
@@ -1408,6 +1429,7 @@ export function ImagesModal({
           className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
           style={{ maxHeight: "90vh" }}
         >
+          {/* Header */}
           <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50">
@@ -1438,6 +1460,7 @@ export function ImagesModal({
           )}
 
           <div className="flex-1 overflow-y-auto">
+            {/* Drop zone */}
             <div className="px-6 pt-5 pb-4">
               <div
                 onDragOver={(e) => {
@@ -1490,6 +1513,7 @@ export function ImagesModal({
               />
             </div>
 
+            {/* Pending uploads */}
             {pending.length > 0 && (
               <div className="px-6 pb-4">
                 <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -1552,6 +1576,7 @@ export function ImagesModal({
               </div>
             )}
 
+            {/* Image grid */}
             <div className="px-6 pb-6">
               {loadingImages ? (
                 <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
@@ -1564,6 +1589,7 @@ export function ImagesModal({
                 </div>
               ) : (
                 <>
+                  {/* Toolbar */}
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -1583,6 +1609,13 @@ export function ImagesModal({
                     {selectedIds.size > 0 && (
                       <div className="flex items-center gap-1.5">
                         <button
+                          onClick={downloadSelected}
+                          className="flex items-center gap-1.5 rounded-lg bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-600 hover:bg-cyan-100 transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          {t.downloadSelected}
+                        </button>
+                        <button
                           onClick={deleteSelected}
                           className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                         >
@@ -1592,12 +1625,14 @@ export function ImagesModal({
                       </div>
                     )}
                   </div>
+
                   <p className="mb-3 flex items-center gap-1.5 text-[11px] text-slate-400">
                     <GripVertical className="h-3 w-3" />
                     {isRtl
                       ? "اسحب الصور لإعادة ترتيبها أو عدّل الرقم مباشرة"
                       : "Drag images to reorder or edit the index number directly"}
                   </p>
+
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
                     {sortedImages.map((img) => (
                       <div
@@ -1620,6 +1655,7 @@ export function ImagesModal({
                             "border-violet-400 ring-2 ring-violet-200 scale-[1.02]",
                         )}
                       >
+                        {/* Checkbox */}
                         <div className="absolute start-2 top-2 z-10">
                           <Checkbox
                             checked={selectedIds.has(img.id)}
@@ -1627,11 +1663,13 @@ export function ImagesModal({
                             className="h-4 w-4 border-white bg-white/80 data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600"
                           />
                         </div>
+                        {/* Drag handle */}
                         <div className="absolute end-2 top-2 z-10 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white">
                             <GripVertical className="h-3.5 w-3.5" />
                           </div>
                         </div>
+                        {/* Image */}
                         <div
                           className="relative aspect-[4/3] cursor-pointer overflow-hidden bg-slate-100"
                           onClick={() => setLightboxImg(img)}
@@ -1651,36 +1689,49 @@ export function ImagesModal({
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+                        {/* Card footer */}
                         <div className="p-2">
-                          {editingNameId === img.id ? (
-                            <input
-                              autoFocus
-                              type="text"
-                              value={img.name}
-                              onChange={(e) =>
-                                setImages((prev) =>
-                                  prev.map((a) =>
-                                    a.id === img.id
-                                      ? { ...a, name: e.target.value }
-                                      : a,
-                                  ),
-                                )
-                              }
-                              onBlur={() => commitRename(img)}
-                              onKeyDown={(e) =>
-                                e.key === "Enter" && commitRename(img)
-                              }
-                              className="w-full rounded border border-violet-300 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-200"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => setEditingNameId(img.id)}
-                              className="w-full truncate text-start text-xs font-medium text-slate-700 hover:text-violet-600 transition-colors"
-                              title={img.name}
-                            >
-                              {img.name}
-                            </button>
-                          )}
+                          {/* Styled editable filename */}
+                          <div
+                            className={cn(
+                              "flex items-center gap-1 rounded-md border px-2 py-1 transition-colors cursor-text",
+                              editingNameId === img.id
+                                ? "border-violet-300 bg-violet-50 ring-1 ring-violet-200"
+                                : "border-slate-200 bg-slate-50 hover:border-violet-200 hover:bg-white",
+                            )}
+                            onClick={() => setEditingNameId(img.id)}
+                          >
+                            <Pencil className="h-2.5 w-2.5 shrink-0 text-slate-300" />
+                            {editingNameId === img.id ? (
+                              <input
+                                autoFocus
+                                type="text"
+                                value={img.name}
+                                onChange={(e) =>
+                                  setImages((prev) =>
+                                    prev.map((a) =>
+                                      a.id === img.id
+                                        ? { ...a, name: e.target.value }
+                                        : a,
+                                    ),
+                                  )
+                                }
+                                onBlur={() => commitRename(img)}
+                                onKeyDown={(e) =>
+                                  e.key === "Enter" && commitRename(img)
+                                }
+                                className="w-full bg-transparent text-xs font-medium text-slate-800 focus:outline-none"
+                              />
+                            ) : (
+                              <span
+                                className="truncate text-xs font-medium text-slate-700"
+                                title={img.name}
+                              >
+                                {img.name}
+                              </span>
+                            )}
+                          </div>
+                          {/* Sort index */}
                           <div className="mt-1.5 flex items-center gap-1.5">
                             <span className="text-[10px] text-slate-400 shrink-0">
                               {t.imageIndex}:
@@ -1709,6 +1760,7 @@ export function ImagesModal({
             </div>
           </div>
 
+          {/* Footer */}
           <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/50 px-6 py-3">
             <p className="text-xs text-slate-400">
               {images.length} {isRtl ? "صورة" : "images"}
@@ -1723,6 +1775,7 @@ export function ImagesModal({
         </div>
       </div>
 
+      {/* Lightbox */}
       {lightboxImg && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
@@ -2388,7 +2441,11 @@ export function AttachmentsModal({
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/attachments`),
-        { method: "POST", credentials: "include", body: fd },
+        {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        },
       );
       if (!r.ok) throw new Error();
       const data: ApiAttachment[] = await r.json();
@@ -2426,7 +2483,10 @@ export function AttachmentsModal({
     try {
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/attachments/${id}`),
-        { method: "DELETE", credentials: "include" },
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
       );
       if (!r.ok) throw new Error();
       setAttachments((prev) => {
@@ -2466,6 +2526,19 @@ export function AttachmentsModal({
     } catch {
       setError(t.errorDeleting);
     }
+  };
+
+  const downloadSelected = () => {
+    attachments
+      .filter((a) => selectedIds.has(a.id) && a.previewUrl)
+      .forEach((a) => {
+        const link = document.createElement("a");
+        link.href = a.previewUrl!;
+        link.download = a.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      });
   };
 
   const toggleSel = (id: string) =>
@@ -2666,6 +2739,13 @@ export function AttachmentsModal({
                   {selectedIds.size > 0 && (
                     <div className="flex items-center gap-1.5">
                       <button
+                        onClick={downloadSelected}
+                        className="flex items-center gap-1.5 rounded-lg bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-600 hover:bg-cyan-100 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {t.downloadSelected}
+                      </button>
+                      <button
                         onClick={deleteSelected}
                         className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                       >
@@ -2733,36 +2813,47 @@ export function AttachmentsModal({
                         </button>
                       </div>
                       <div className="p-2">
-                        {editingId === att.id ? (
-                          <input
-                            autoFocus
-                            type="text"
-                            value={att.name}
-                            onChange={(e) =>
-                              setAttachments((prev) =>
-                                prev.map((a) =>
-                                  a.id === att.id
-                                    ? { ...a, name: e.target.value }
-                                    : a,
-                                ),
-                              )
-                            }
-                            onBlur={() => commitRename(att)}
-                            onKeyDown={(e) =>
-                              e.key === "Enter" && commitRename(att)
-                            }
-                            className="w-full rounded border border-cyan-300 bg-white px-1.5 py-0.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-cyan-200"
-                          />
-                        ) : (
-                          <button
-                            onClick={() => setEditingId(att.id)}
-                            className="w-full truncate text-start text-xs font-medium text-slate-700 hover:text-cyan-600 transition-colors"
-                            title={att.name}
-                          >
-                            {att.name}
-                          </button>
-                        )}
-                        <p className="mt-0.5 text-[10px] text-slate-400">
+                        {/* Styled editable filename */}
+                        <div
+                          className={cn(
+                            "flex items-center gap-1 rounded-md border px-2 py-1 transition-colors cursor-text",
+                            editingId === att.id
+                              ? "border-cyan-300 bg-cyan-50 ring-1 ring-cyan-200"
+                              : "border-slate-200 bg-slate-50 hover:border-cyan-200 hover:bg-white",
+                          )}
+                          onClick={() => setEditingId(att.id)}
+                        >
+                          <Pencil className="h-2.5 w-2.5 shrink-0 text-slate-300" />
+                          {editingId === att.id ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              value={att.name}
+                              onChange={(e) =>
+                                setAttachments((prev) =>
+                                  prev.map((a) =>
+                                    a.id === att.id
+                                      ? { ...a, name: e.target.value }
+                                      : a,
+                                  ),
+                                )
+                              }
+                              onBlur={() => commitRename(att)}
+                              onKeyDown={(e) =>
+                                e.key === "Enter" && commitRename(att)
+                              }
+                              className="w-full bg-transparent text-xs font-medium text-slate-800 focus:outline-none"
+                            />
+                          ) : (
+                            <span
+                              className="truncate text-xs font-medium text-slate-700"
+                              title={att.name}
+                            >
+                              {att.name}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-400">
                           {formatBytes(att.size)}
                         </p>
                       </div>
@@ -3465,18 +3556,12 @@ function ValuationTableRow({
             </ActionButton>
 
             {/* Edit */}
+            {/* Edit */}
             <ActionButton
               tooltip={t.editTransaction}
               onClick={() => onEditTransaction(row)}
             >
               <Pencil className="h-4 w-4" />
-            </ActionButton>
-
-            <ActionButton
-              tooltip={(t as any).assignInspectors ?? "Assign Inspectors"}
-              onClick={() => onAssignInspectors(row)}
-            >
-              <UserCheck className="h-4 w-4" />
             </ActionButton>
 
             {/* More */}
@@ -3487,6 +3572,13 @@ function ValuationTableRow({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  className="gap-2 text-sm"
+                  onClick={() => onAssignInspectors(row)}
+                >
+                  <UserCheck className="h-4 w-4" />
+                  {(t as any).assignInspectors ?? "Assign Inspectors"}
+                </DropdownMenuItem>
                 <DropdownMenuItem className="gap-2 text-sm">
                   <History className="h-4 w-4" />
                   {t.editLog}

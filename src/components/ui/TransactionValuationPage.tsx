@@ -12,15 +12,69 @@ import {
   type ReplacementFields,
   type ReplacementLine,
 } from "./ReplacementCostSection";
+import dynamic from "next/dynamic";
+
+// ─── Lucide Icons ─────────────────────────────────────────────────────────────
+import {
+  ArrowRight,
+  ArrowLeft,
+  Save,
+  Download,
+  Image,
+  Paperclip,
+  Pencil,
+  Map,
+  Pin,
+  Printer,
+  FileText,
+  MessageSquare,
+  ChevronDown,
+  CheckCircle2,
+  XCircle,
+  MapPin,
+  Loader2,
+  X,
+  Check,
+  ClipboardList,
+  Link2,
+  Layers,
+  Info,
+  LayoutGrid,
+  Database,
+  Compass,
+  Wrench,
+  Zap,
+  BarChart2,
+  UserCheck,
+  ScrollText,
+  Users,
+  Building2,
+  Scale,
+} from "lucide-react";
+
+// ─── Map Picker (lazy-loaded, same as SettlementComparison) ──────────────────
+const MapPickerComponent = dynamic(() => import("./MapPickerComponent"), {
+  ssr: false,
+});
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
+
+// Defined locally to avoid cross-project imports
+type AvailableServices = {
+  electricity: boolean | null;
+  electricityUnits: number | null;
+  sanitaryDrainage: boolean | null;
+  telephoneLine: boolean | null;
+  waterMetersCount: number | null;
+  electricityMetersCount: number | null;
+};
 
 const T = {
   ar: {
     loading: "جاري تحميل بيانات المعاملة...",
     errorPrefix: "خطأ في تحميل البيانات:",
     noId: "لم يتم تحديد معرف المعاملة",
-    back: "← العودة",
+    back: "العودة",
     saving: "جاري الحفظ...",
     subDivisionRecordNumber: "رقم محضر التجزئة",
     otherUsers: "المستخدمين الأخرين",
@@ -29,14 +83,13 @@ const T = {
     buildingLicenseDate: "تاريخ رخصة البناء",
     elevation: "المنسوب",
     inspectionBoundaries: "حدود المعاينة",
-    save: "💾 حفظ في قاعدة البيانات",
-    download: "⬇ تحميل",
-    savedOk: "✓ تم الحفظ بنجاح",
-    saveError: "✗ فشل الحفظ. يرجى المحاولة مجدداً.",
+    save: "حفظ في قاعدة البيانات",
+    download: "تحميل",
+    savedOk: "تم الحفظ بنجاح",
+    saveError: "فشل الحفظ. يرجى المحاولة مجدداً.",
     pageTitle: "تفاصيل المعاملة",
-    // section titles
     secRequest: "معلومات الطلب",
-    secLinks: "🔗 الروابط الهامة (استعلامات ومخططات)",
+    secLinks: "الروابط الهامة",
     secAssetDetails: "تفاصيل الأصول",
     secAssetInfo: "معلومات الأصل",
     secLocation: "الموقع وتصنيف الأصل",
@@ -51,7 +104,6 @@ const T = {
     secAppraiser: "رأي المقيم",
     secReport: "بنود التقرير",
     secAuthors: "معدي التقرير",
-    // request info labels
     refNo: "الرقم المرجعي",
     assignmentNo: "رقم التكليف",
     assignmentDate: "تاريخ التكليف",
@@ -63,7 +115,6 @@ const T = {
     client: "العميل",
     template: "النموذج",
     notes: "ملاحظات",
-    // asset info labels
     address: "العنوان",
     propertyType: "نوع الأصل",
     propertyArea: "مساحة الأصل",
@@ -71,16 +122,14 @@ const T = {
     inspector: "المعاين",
     contactNo: "رقم التواصل",
     reviewer: "المراجع",
-    // action buttons
-    btnImages: "📷 الصور",
-    btnAttachments: "📎 المرفقات",
-    btnEdit: "✏️ تعديل",
-    btnNearComps: "🗺 المقارنات القريبة",
-    btnCopyComps: "📌 نسخ المقارنات",
-    btnView: "🖨 عرض",
-    btnPdf: "📄 تحميل PDF",
-    btnMessages: "💬 ملاحظات",
-    // location
+    btnImages: "الصور",
+    btnAttachments: "المرفقات",
+    btnEdit: "تعديل",
+    btnNearComps: "المقارنات القريبة",
+    btnCopyComps: "نسخ المقارنات",
+    btnView: "عرض",
+    btnPdf: "تحميل PDF",
+    btnMessages: "ملاحظات",
     region: "المنطقة",
     city: "المدينة",
     neighborhood: "الحي",
@@ -92,14 +141,12 @@ const T = {
     selectPropertyType: "الرجاء اختيار نوع العقار",
     land: "أراضي",
     buildings: "مباني",
-    // basic
     propertyCode: "رمز العقار",
     clientName: "اسم العميل",
     authorizedName: "اسم المفوض بطلب التقييم",
     ownerName: "اسم المالك",
     deedNumber: "رقم الصك",
     deedDate: "تاريخ الصك",
-    // boundaries
     northBoundary: "الحد الشمالي",
     northLength: "طول الحد الشمالي",
     southBoundary: "الحد الجنوبي",
@@ -108,7 +155,6 @@ const T = {
     eastLength: "طول الحد الشرقي",
     westBoundary: "الحد الغربي",
     westLength: "طول الحد الغربي",
-    // finishing
     buildingState: "حالة المبنى",
     floorsCount: "عدد الادوار",
     propertyAge: "عمر العقار",
@@ -130,23 +176,20 @@ const T = {
     qualityVeryGood: "جيد جداً",
     qualityPoor: "ردئ",
     qualityGood: "جيد",
-    // services
     street: "الشارع",
     electricity: "الكهرباء",
-    water: "المياه",
-    phone: "الهاتف",
-    drainage: "التصريف",
-    pavedStreets: "الشوارع مسفلته",
-    lighting: "الإنارة",
-    internet: "الإنترنت",
-    // map
+    sanitaryDrainage: "الصرف الصحي",
+    telephoneLine: "خط الهاتف",
+    electricityUnits: "وحدات الكهرباء",
+    waterMetersCount: "عدادات المياه",
+    electricityMetersCount: "عدادات الكهرباء",
     coords: "الاحداثيات",
     lat: "خط العرض",
     lng: "خط الطول",
     zoomMap: "الزوم (الخارطة)",
     zoomAerial: "الزوم (الصورة الجوية)",
     zoomComparisons: "الزوم (خريطة المقارنات)",
-    // replacement
+    pickFromMap: "اختيار من الخريطة",
     meterPriceLand: "سعر المتر للأرض",
     landSpace: "مساحة الأرض",
     landValueCalc: "قيمة الأرض (محسوبة)",
@@ -165,7 +208,6 @@ const T = {
     maintenancePrice: "تكاليف الصيانة",
     finishesPrice: "تكاليف التشطيبات المتبقية",
     completionPct: "نسبة إكتمال البناء %",
-    // valuation methods
     vmMarket: "المقارنة",
     vmCost: "تكلفة الإحلال",
     vmIncome: "الاستثمار",
@@ -182,22 +224,18 @@ const T = {
     costNetLandPrice: "صافي سعر الأرض",
     costLandBuildTotal: "صافي قيمة الأرض والمباني",
     incomeTotal: "إجمالي الدخل",
-    // appraiser
     evalDate: "تاريخ المعاينة",
     completedDate: "تاريخ التقييم",
     reportDate: "تاريخ التقرير",
     finalAssetValue: "القيمة النهائية للأصل",
     appraiserDesc: "وصف المقيم ورأيه حول الأصل",
     appraiserNotes: "الملاحظات أو النواقص",
-    // report
     standards: "معايير التقييم المتبعة",
     scope: "نطاق البحث والاستقصاء",
     assumptions: "الافتراضات",
     risks: "المخاطر أو عدم اليقين",
-    // authors
     authorId: "معد %n — معرف/اسم",
     authorTitle: "معد %n — المنصب",
-    // comparison table
     compDate: "التاريخ",
     compType: "النوع",
     compKind: "نوع المقارنة",
@@ -211,8 +249,7 @@ const T = {
     compNotes: "ملاحظات",
     compCoords: "الإحداثيات",
     compDelete: "حذف",
-    addComparison: "＋ مقارنة جديدة",
-    // settlement table
+    addComparison: "مقارنة جديدة",
     settlementItem: "البند",
     settlementSubject: "محل التقييم",
     settlementComp: "المقارنة",
@@ -221,8 +258,7 @@ const T = {
     meterPrice: "سعر المتر",
     totalAdjustments: "مجموع التسويات",
     priceAfterAdj: "سعر المقارن بعد التسوية",
-    addSettlement: "＋ بند تسوية",
-    // replacement table
+    addSettlement: "بند تسوية",
     repTitle: "العنوان",
     repArea: "المساحة",
     repPrice: "السعر",
@@ -230,8 +266,7 @@ const T = {
     repNotes: "ملاحظات",
     repUseArea: "يُحتسب بالمساحة",
     repDelete: "حذف",
-    addRepLine: "＋ بند جديد",
-    // misc
+    addRepLine: "بند جديد",
     close: "إغلاق",
     assetCountVal: "1",
   },
@@ -239,19 +274,18 @@ const T = {
     loading: "Loading transaction data...",
     errorPrefix: "Error loading data:",
     noId: "No transaction ID specified",
-    back: "← Back",
+    back: "Back",
     saving: "Saving...",
-    save: "💾 Save to Database",
-    download: "⬇ Download",
+    save: "Save to Database",
+    download: "Download",
     parcelNumber: "Parcel Number",
     planNumber: "Plan Number",
     blockNumber: "Block Number",
-    savedOk: "✓ Saved successfully",
-    saveError: "✗ Save failed. Please try again.",
+    savedOk: "Saved successfully",
+    saveError: "Save failed. Please try again.",
     pageTitle: "Transaction Details",
-    // section titles
     secRequest: "Request Information",
-    secLinks: "🔗 Important Links (Queries & Maps)",
+    secLinks: "Important Links",
     secAssetDetails: "Asset Details",
     subDivisionRecordNumber: "Sub-Division Record Number",
     otherUsers: "Other Users",
@@ -273,7 +307,6 @@ const T = {
     secAppraiser: "Appraiser Opinion",
     secReport: "Report Items",
     secAuthors: "Report Authors",
-    // request info labels
     refNo: "Reference Number",
     assignmentNo: "Assignment Number",
     assignmentDate: "Assignment Date",
@@ -285,7 +318,6 @@ const T = {
     client: "Client",
     template: "Template",
     notes: "Notes",
-    // asset info labels
     address: "Address",
     propertyType: "Property Type",
     propertyArea: "Property Area",
@@ -293,16 +325,14 @@ const T = {
     inspector: "Inspector",
     contactNo: "Contact Number",
     reviewer: "Reviewer",
-    // action buttons
-    btnImages: "📷 Images",
-    btnAttachments: "📎 Attachments",
-    btnEdit: "✏️ Edit",
-    btnNearComps: "🗺 Nearby Comparisons",
-    btnCopyComps: "📌 Copy Comparisons",
-    btnView: "🖨 View",
-    btnPdf: "📄 Download PDF",
-    btnMessages: "💬 Notes",
-    // location
+    btnImages: "Images",
+    btnAttachments: "Attachments",
+    btnEdit: "Edit",
+    btnNearComps: "Nearby Comparisons",
+    btnCopyComps: "Copy Comparisons",
+    btnView: "View",
+    btnPdf: "Download PDF",
+    btnMessages: "Notes",
     region: "Region",
     city: "City",
     neighborhood: "Neighborhood",
@@ -314,14 +344,12 @@ const T = {
     selectPropertyType: "Please select property type",
     land: "Land",
     buildings: "Buildings",
-    // basic
     propertyCode: "Property Code",
     clientName: "Client Name",
     authorizedName: "Authorized Requester Name",
     ownerName: "Owner Name",
     deedNumber: "Deed Number",
     deedDate: "Deed Date",
-    // boundaries
     northBoundary: "North Boundary",
     northLength: "North Length",
     southBoundary: "South Boundary",
@@ -330,7 +358,6 @@ const T = {
     eastLength: "East Length",
     westBoundary: "West Boundary",
     westLength: "West Length",
-    // finishing
     buildingState: "Building State",
     floorsCount: "Floors Count",
     propertyAge: "Property Age",
@@ -349,23 +376,20 @@ const T = {
     qualityVeryGood: "Very Good",
     qualityPoor: "Poor",
     qualityGood: "Good",
-    // services
     street: "Street",
     electricity: "Electricity",
-    water: "Water",
-    phone: "Phone",
-    drainage: "Drainage",
-    pavedStreets: "Paved Streets",
-    lighting: "Lighting",
-    internet: "Internet",
-    // map
+    sanitaryDrainage: "Sanitary Drainage",
+    telephoneLine: "Telephone Line",
+    electricityUnits: "Electricity Units",
+    waterMetersCount: "Water Meters",
+    electricityMetersCount: "Electricity Meters",
     coords: "Coordinates",
     lat: "Latitude",
     lng: "Longitude",
     zoomMap: "Zoom (Map)",
     zoomAerial: "Zoom (Aerial)",
     zoomComparisons: "Zoom (Comparisons Map)",
-    // replacement
+    pickFromMap: "Pick from Map",
     meterPriceLand: "Land Meter Price",
     landSpace: "Land Area",
     landValueCalc: "Land Value (Calculated)",
@@ -384,7 +408,6 @@ const T = {
     maintenancePrice: "Maintenance Costs",
     finishesPrice: "Remaining Finish Costs",
     completionPct: "Construction Completion %",
-    // valuation methods
     vmMarket: "Comparison",
     vmCost: "Replacement Cost",
     vmIncome: "Investment",
@@ -401,22 +424,18 @@ const T = {
     costNetLandPrice: "Net Land Price",
     costLandBuildTotal: "Net Land + Buildings Value",
     incomeTotal: "Total Income",
-    // appraiser
     evalDate: "Inspection Date",
     completedDate: "Valuation Date",
     reportDate: "Report Date",
     finalAssetValue: "Final Asset Value",
     appraiserDesc: "Appraiser Description & Opinion",
     appraiserNotes: "Notes or Deficiencies",
-    // report
     standards: "Applied Valuation Standards",
     scope: "Scope of Investigation",
     assumptions: "Assumptions",
     risks: "Risks or Uncertainty",
-    // authors
     authorId: "Author %n — ID/Name",
     authorTitle: "Author %n — Title",
-    // comparison table
     compDate: "Date",
     compType: "Type",
     compKind: "Comparison Kind",
@@ -430,8 +449,7 @@ const T = {
     compNotes: "Notes",
     compCoords: "Coordinates",
     compDelete: "Delete",
-    addComparison: "＋ New Comparison",
-    // settlement table
+    addComparison: "New Comparison",
     settlementItem: "Item",
     settlementSubject: "Subject Property",
     settlementComp: "Comparison",
@@ -440,8 +458,7 @@ const T = {
     meterPrice: "Meter Price",
     totalAdjustments: "Total Adjustments",
     priceAfterAdj: "Price After Adjustment",
-    addSettlement: "＋ New Settlement Item",
-    // replacement table
+    addSettlement: "New Settlement Item",
     repTitle: "Title",
     repArea: "Area",
     repPrice: "Price",
@@ -449,8 +466,7 @@ const T = {
     repNotes: "Notes",
     repUseArea: "Calculate by Area",
     repDelete: "Delete",
-    addRepLine: "＋ New Line",
-    // misc
+    addRepLine: "New Line",
     close: "Close",
     assetCountVal: "1",
   },
@@ -598,6 +614,20 @@ const WORKFLOW_STATUSES: Record<Lang, { value: string; label: string }[]> = {
   ],
 };
 
+const STATUS_COLORS: Record<
+  string,
+  { bg: string; text: string; border: string }
+> = {
+  new: { bg: "#eff6ff", text: "#2563eb", border: "#bfdbfe" },
+  inspection: { bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
+  review: { bg: "#fefce8", text: "#a16207", border: "#fde68a" },
+  audit: { bg: "#faf5ff", text: "#7c3aed", border: "#ddd6fe" },
+  approved: { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  sent: { bg: "#f0f9ff", text: "#0369a1", border: "#bae6fd" },
+  cancelled: { bg: "#fef2f2", text: "#b91c1c", border: "#fecaca" },
+  pending: { bg: "#f8fafc", text: "#475569", border: "#e2e8f0" },
+};
+
 const USE_LABELS: Record<Lang, Record<string, string>> = {
   ar: { "1": "أراضي", "2": "مباني" },
   en: { "1": "Land", "2": "Buildings" },
@@ -638,11 +668,6 @@ const PROPERTY_TYPES_OPTIONS: Record<Lang, { value: string; label: string }[]> =
       { value: "67", label: "Residential Building" },
     ],
   };
-
-const COMPARISON_KINDS: Record<Lang, string[]> = {
-  ar: ["حد", "تنفيذ", "سوم", "عرض", "ايجار", "مزاد"],
-  en: ["Boundary", "Executed", "Asking", "Offer", "Rental", "Auction"],
-};
 
 const REGIONS: Record<Lang, { value: string; label: string }[]> = {
   ar: [
@@ -756,7 +781,34 @@ const IMPORTANT_LINKS = [
   },
 ];
 
-// ─── helper: build label→value map ───────────────────────────────────────────
+// ─── Design System ────────────────────────────────────────────────────────────
+
+const DS = {
+  // Colors
+  primary: "#0e7490",
+  primaryLight: "#f0f9ff",
+  primaryMid: "#cffafe",
+  surface: "#ffffff",
+  surfaceAlt: "#f8fafc",
+  border: "#e2e8f0",
+  borderStrong: "#cbd5e1",
+  text: "#0f172a",
+  textMuted: "#64748b",
+  textLight: "#94a3b8",
+  green: "#059669",
+  greenLight: "#f0fdf4",
+  red: "#dc2626",
+  amber: "#d97706",
+  // Spacing
+  radius: { sm: 6, md: 10, lg: 14, xl: 18 },
+  shadow: {
+    sm: "0 1px 2px rgba(0,0,0,0.05)",
+    md: "0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04)",
+    lg: "0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)",
+  },
+};
+
+// ─── Helper functions ─────────────────────────────────────────────────────────
 
 function buildByLabel(
   templateFieldValues:
@@ -771,13 +823,17 @@ function buildByLabel(
   return map;
 }
 
-function resolveRegionId(nameOrId: string, lang: Lang): string {
-  if (!nameOrId) return "";
-  const match = REGIONS[lang].find((r) => r.label === nameOrId);
-  return match ? match.value : nameOrId;
+function emptyAvailableServices(): AvailableServices {
+  return {
+    electricity: null,
+    electricityUnits: null,
+    sanitaryDrainage: null,
+    telephoneLine: null,
+    waterMetersCount: null,
+    electricityMetersCount: null,
+  };
 }
-
-// ─── read-only display ────────────────────────────────────────────────────────
+// ─── Read-only grid ───────────────────────────────────────────────────────────
 
 function ReadOnlyGrid({ children }: { children: React.ReactNode }) {
   return (
@@ -785,7 +841,7 @@ function ReadOnlyGrid({ children }: { children: React.ReactNode }) {
       style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-        gap: "16px 24px",
+        gap: "12px 20px",
       }}
     >
       {children}
@@ -807,11 +863,11 @@ function ReadOnlyItem({
       <div
         style={{
           fontSize: 10,
-          color: "#94a3b8",
+          color: DS.textLight,
           fontWeight: 700,
           textTransform: "uppercase",
-          letterSpacing: "0.07em",
-          marginBottom: 5,
+          letterSpacing: "0.08em",
+          marginBottom: 4,
         }}
       >
         {label}
@@ -819,11 +875,14 @@ function ReadOnlyItem({
       <div
         style={{
           fontSize: 13,
-          color: value ? "#1e293b" : "#cbd5e1",
+          color: value ? DS.text : DS.textLight,
           fontWeight: value ? 500 : 400,
           lineHeight: 1.5,
-          paddingBottom: 10,
-          borderBottom: "1px solid #f1f5f9",
+          padding: "7px 10px",
+          background: DS.surfaceAlt,
+          borderRadius: DS.radius.md,
+          border: `1px solid ${DS.border}`,
+          minHeight: 34,
         }}
       >
         {value || "—"}
@@ -832,57 +891,102 @@ function ReadOnlyItem({
   );
 }
 
-// ─── shared sub-components ────────────────────────────────────────────────────
+// ─── Section Card ─────────────────────────────────────────────────────────────
 
 function SectionCard({
   title,
   children,
   defaultOpen = false,
   accentColor,
+  icon,
 }: {
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
   accentColor?: string;
+  icon?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const hasAccent = !!accentColor;
+
   return (
-    <div style={styles.sectionCard}>
+    <div
+      style={{
+        background: DS.surface,
+        border: `1px solid ${DS.border}`,
+        borderRadius: DS.radius.xl,
+        marginBottom: 8,
+        overflow: "hidden",
+        boxShadow: DS.shadow.sm,
+        transition: "box-shadow 0.2s",
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         style={{
-          ...styles.sectionHead,
-          background: hasAccent ? accentColor : "#f8fafc",
-          color: hasAccent ? "#fff" : "#334155",
-          borderBottom: open ? "1px solid #e2e8f0" : "none",
+          width: "100%",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "13px 18px",
+          background: hasAccent ? accentColor : DS.surfaceAlt,
+          border: "none",
+          borderBottom: open ? `1px solid ${DS.border}` : "none",
+          cursor: "pointer",
+          fontWeight: 600,
+          fontSize: 13,
+          color: hasAccent ? "#fff" : DS.text,
+          textAlign: "inherit" as const,
+          gap: 10,
         }}
       >
-        <span>{title}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, flex: 1 }}>
+          {icon && (
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 28,
+                height: 28,
+                borderRadius: DS.radius.sm,
+                background: hasAccent
+                  ? "rgba(255,255,255,0.18)"
+                  : `${DS.primary}15`,
+                color: hasAccent ? "#fff" : DS.primary,
+                flexShrink: 0,
+              }}
+            >
+              {icon}
+            </span>
+          )}
+          <span>{title}</span>
+        </div>
         <span
           style={{
-            transition: "transform 0.2s",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
             width: 22,
             height: 22,
-            borderRadius: 6,
-            background: hasAccent ? "rgba(255,255,255,0.18)" : "#e2e8f0",
+            borderRadius: DS.radius.sm,
+            background: hasAccent ? "rgba(255,255,255,0.2)" : DS.border,
+            color: hasAccent ? "#fff" : DS.textMuted,
+            transition: "transform 0.25s",
             transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            fontSize: 10,
-            color: hasAccent ? "#fff" : "#64748b",
             flexShrink: 0,
           }}
         >
-          ▼
+          <ChevronDown size={13} />
         </span>
       </button>
-      {open && <div style={styles.sectionBody}>{children}</div>}
+      {open && <div style={{ padding: "18px 20px" }}>{children}</div>}
     </div>
   );
 }
+
+// ─── Grid + Field ─────────────────────────────────────────────────────────────
 
 function GridFields({
   children,
@@ -892,7 +996,13 @@ function GridFields({
   tight?: boolean;
 }) {
   return (
-    <div style={{ ...styles.gridFields, gap: tight ? "8px" : "14px" }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+        gap: tight ? "8px" : "14px",
+      }}
+    >
       {children}
     </div>
   );
@@ -909,11 +1019,39 @@ function Field({
 }) {
   return (
     <div style={{ gridColumn: full ? "1 / -1" : undefined }}>
-      <label style={styles.fieldLabel}>{label}</label>
+      <label
+        style={{
+          display: "block",
+          fontSize: 11,
+          color: DS.textMuted,
+          marginBottom: 5,
+          fontWeight: 700,
+          textTransform: "uppercase" as const,
+          letterSpacing: "0.06em",
+        }}
+      >
+        {label}
+      </label>
       {children}
     </div>
   );
 }
+
+// ─── Input primitives ─────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 11px",
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius.md,
+  fontSize: 13,
+  color: DS.text,
+  background: DS.surface,
+  boxSizing: "border-box" as const,
+  fontFamily: "inherit",
+  outline: "none",
+  transition: "border-color 0.15s, box-shadow 0.15s",
+};
 
 function Input({
   type = "text",
@@ -938,7 +1076,10 @@ function Input({
       onChange={onChange}
       placeholder={placeholder}
       dir={dir}
-      style={{ ...styles.input, background: readOnly ? "#f8f9fa" : "#fff" }}
+      style={{
+        ...inputStyle,
+        background: readOnly ? DS.surfaceAlt : DS.surface,
+      }}
     />
   );
 }
@@ -963,11 +1104,7 @@ function Textarea({
       onChange={onChange}
       rows={rows}
       placeholder={placeholder}
-      style={{
-        ...styles.input,
-        resize: "vertical",
-        minHeight: `${rows * 24}px`,
-      }}
+      style={{ ...inputStyle, resize: "vertical", minHeight: `${rows * 24}px` }}
     />
   );
 }
@@ -988,40 +1125,14 @@ function Select({
       value={value ?? ""}
       onChange={onChange}
       disabled={disabled}
-      style={styles.input}
+      style={inputStyle}
     >
       {children}
     </select>
   );
 }
 
-function StatusMsg({
-  type,
-  children,
-}: {
-  type: "ok" | "error" | "info";
-  children: React.ReactNode;
-}) {
-  const bg =
-    type === "ok" ? "#d4edda" : type === "error" ? "#f8d7da" : "#fff3cd";
-  const color =
-    type === "ok" ? "#155724" : type === "error" ? "#721c24" : "#856404";
-  return (
-    <div
-      style={{
-        padding: "6px 12px",
-        borderRadius: 4,
-        background: bg,
-        color,
-        fontSize: 13,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-// ─── comparison table ─────────────────────────────────────────────────────────
+// ─── Comparison + Settlement tables (unchanged logic) ─────────────────────────
 
 function emptyComparisonRow() {
   return {
@@ -1039,8 +1150,6 @@ function emptyComparisonRow() {
     coords: "",
   };
 }
-
-// ─── settlement table ─────────────────────────────────────────────────────────
 
 function emptySettlementRow() {
   return {
@@ -1089,48 +1198,56 @@ function SettlementTable({
 
   return (
     <div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={styles.table}>
+      <div
+        style={{
+          overflowX: "auto",
+          borderRadius: DS.radius.md,
+          border: `1px solid ${DS.border}`,
+        }}
+      >
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}
+        >
           <thead>
             <tr>
-              <th style={styles.th}>{t.settlementItem}</th>
-              <th style={styles.th}>{t.settlementSubject}</th>
+              <th style={thS}>{t.settlementItem}</th>
+              <th style={thS}>{t.settlementSubject}</th>
               {Array.from({ length: n }, (_, c) => (
-                <th key={c} colSpan={2} style={styles.th}>
+                <th key={c} colSpan={2} style={thS}>
                   {t.settlementComp} {c + 1}
                 </th>
               ))}
             </tr>
             <tr>
-              <th style={styles.th}>—</th>
-              <th style={styles.th}>—</th>
+              <th style={thS}>—</th>
+              <th style={thS}>—</th>
               {Array.from({ length: n }, (_, c) => (
                 <React.Fragment key={c}>
-                  <th style={styles.th}>{t.settlementDesc}</th>
-                  <th style={styles.th}>{t.settlementAdj}</th>
+                  <th style={thS}>{t.settlementDesc}</th>
+                  <th style={thS}>{t.settlementAdj}</th>
                 </React.Fragment>
               ))}
             </tr>
           </thead>
           <tbody>
-            <tr style={{ background: "#e8f4fd" }}>
-              <td colSpan={2} style={styles.td}>
+            <tr style={{ background: "#eff6ff" }}>
+              <td colSpan={2} style={tdS}>
                 <strong>{t.meterPrice}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
-                <td key={c} colSpan={2} style={styles.td}>
+                <td key={c} colSpan={2} style={tdS}>
                   <input
                     dir="ltr"
                     value={bases[c] || ""}
                     readOnly
-                    style={styles.cellInput}
+                    style={cellInputS}
                   />
                 </td>
               ))}
             </tr>
             {rows.map((row, i) => (
               <tr key={i}>
-                <td style={styles.td}>
+                <td style={tdS}>
                   <div
                     style={{ display: "flex", gap: 4, alignItems: "center" }}
                   >
@@ -1147,75 +1264,81 @@ function SettlementTable({
                       placeholder={
                         lang === "ar" ? "بند التسوية" : "Settlement Item"
                       }
-                      style={{ ...styles.cellInput, flex: 1 }}
+                      style={{ ...cellInputS, flex: 1 }}
                     />
                     <button
                       type="button"
                       onClick={() => removeRow(i)}
-                      style={styles.iconBtn}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: DS.red,
+                        padding: "2px 4px",
+                      }}
                     >
-                      🗑
+                      <X size={13} />
                     </button>
                   </div>
                 </td>
-                <td style={styles.td}>
+                <td style={tdS}>
                   <input
                     value={row.valueM}
                     onChange={(e) => updateRow(i, "valueM", e.target.value)}
-                    style={styles.cellInput}
+                    style={cellInputS}
                   />
                 </td>
                 {Array.from({ length: n }, (_, c) => (
                   <React.Fragment key={c}>
-                    <td style={styles.td}>
+                    <td style={tdS}>
                       <input
                         value={(row.cols || [])[c] || ""}
                         onChange={(e) =>
                           updateCol(i, c, "cols", e.target.value)
                         }
-                        style={styles.cellInput}
+                        style={cellInputS}
                       />
                     </td>
-                    <td style={styles.td}>
+                    <td style={tdS}>
                       <input
                         dir="ltr"
                         value={(row.colAdj || [])[c] || ""}
                         onChange={(e) =>
                           updateCol(i, c, "colAdj", e.target.value)
                         }
-                        style={styles.cellInput}
+                        style={cellInputS}
                       />
                     </td>
                   </React.Fragment>
                 ))}
               </tr>
             ))}
-            <tr style={{ background: "#f5f5f5" }}>
-              <td colSpan={2} style={styles.td}>
+            <tr style={{ background: DS.surfaceAlt }}>
+              <td colSpan={2} style={tdS}>
                 <strong>{t.totalAdjustments}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
-                <td key={c} colSpan={2} style={styles.td}>
+                <td key={c} colSpan={2} style={tdS}>
                   <input
                     dir="ltr"
                     readOnly
                     value={colTotals[c].toFixed(2)}
-                    style={{ ...styles.cellInput, background: "#eee" }}
+                    style={{ ...cellInputS, background: "#eee" }}
                   />
                 </td>
               ))}
             </tr>
-            <tr style={{ background: "#f5f5f5" }}>
-              <td colSpan={2} style={styles.td}>
+            <tr style={{ background: DS.surfaceAlt }}>
+              <td colSpan={2} style={tdS}>
                 <strong>{t.priceAfterAdj}</strong>
               </td>
               {Array.from({ length: n }, (_, c) => (
-                <td key={c} colSpan={2} style={styles.td}>
+                <td key={c} colSpan={2} style={tdS}>
                   <input
                     dir="ltr"
                     readOnly
                     value={colAfter[c]}
-                    style={{ ...styles.cellInput, background: "#eee" }}
+                    style={{ ...cellInputS, background: "#eee" }}
                   />
                 </td>
               ))}
@@ -1223,14 +1346,12 @@ function SettlementTable({
           </tbody>
         </table>
       </div>
-      <button type="button" onClick={addRow} style={styles.linkBtn}>
-        {t.addSettlement}
+      <button type="button" onClick={addRow} style={linkBtnS}>
+        + {t.addSettlement}
       </button>
     </div>
   );
 }
-
-// ─── replacement table ────────────────────────────────────────────────────────
 
 function emptyReplacementLine() {
   return {
@@ -1243,131 +1364,11 @@ function emptyReplacementLine() {
   };
 }
 
-function ReplacementTable({
-  lines,
-  onChange,
-  lang,
-}: {
-  lines: any[];
-  onChange: (lines: any[]) => void;
-  lang: Lang;
-}) {
-  const t = T[lang];
-  const addLine = () => onChange([...lines, emptyReplacementLine()]);
-  const removeLine = (i: number) =>
-    onChange(lines.filter((_, idx) => idx !== i));
-  const updateLine = (i: number, field: string, val: any) =>
-    onChange(
-      lines.map((l, idx) => {
-        if (idx !== i) return l;
-        const updated = { ...l, [field]: val };
-        if (field === "space" || field === "unitPrice") {
-          const s = parseFloat(field === "space" ? val : l.space) || 0;
-          const p = parseFloat(field === "unitPrice" ? val : l.unitPrice) || 0;
-          updated.total =
-            updated.useSpace && s && p ? (s * p).toFixed(2) : p.toFixed(2);
-        }
-        return updated;
-      }),
-    );
-
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={styles.table}>
-        <thead>
-          <tr>
-            {[
-              t.repTitle,
-              t.repArea,
-              t.repPrice,
-              t.repTotal,
-              t.repNotes,
-              t.repUseArea,
-              t.repDelete,
-            ].map((h) => (
-              <th key={h} style={styles.th}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((line, i) => (
-            <tr key={i}>
-              <td style={styles.td}>
-                <input
-                  value={line.title}
-                  onChange={(e) => updateLine(i, "title", e.target.value)}
-                  style={styles.cellInput}
-                />
-              </td>
-              <td style={styles.td}>
-                <input
-                  dir="ltr"
-                  value={line.space}
-                  onChange={(e) => updateLine(i, "space", e.target.value)}
-                  style={styles.cellInput}
-                />
-              </td>
-              <td style={styles.td}>
-                <input
-                  dir="ltr"
-                  value={line.unitPrice}
-                  onChange={(e) => updateLine(i, "unitPrice", e.target.value)}
-                  style={styles.cellInput}
-                />
-              </td>
-              <td style={styles.td}>
-                <input
-                  dir="ltr"
-                  readOnly
-                  value={line.total || ""}
-                  style={{ ...styles.cellInput, background: "#eee" }}
-                />
-              </td>
-              <td style={styles.td}>
-                <input
-                  value={line.notes}
-                  onChange={(e) => updateLine(i, "notes", e.target.value)}
-                  style={styles.cellInput}
-                />
-              </td>
-              <td style={styles.td}>
-                <input
-                  type="checkbox"
-                  checked={!!line.useSpace}
-                  onChange={(e) => updateLine(i, "useSpace", e.target.checked)}
-                />
-              </td>
-              <td style={styles.td}>
-                <button
-                  type="button"
-                  onClick={() => removeLine(i)}
-                  style={styles.iconBtn}
-                >
-                  🗑
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button type="button" onClick={addLine} style={styles.linkBtn}>
-        {t.addRepLine}
-      </button>
-    </div>
-  );
-}
-
-// ─── empty evalData default ───────────────────────────────────────────────────
+// ─── Empty eval ───────────────────────────────────────────────────────────────
 
 function emptyEval() {
   return {
     status: "new",
-    // ── assetInfo uses canonical field names matching the DB model ──────────
-    // propertyType  (was: assetType)
-    // propertyArea  (was: assetArea / landSpace)
-    // landUse       (was: usage)
     assetInfo: {
       address: "",
       propertyType: "",
@@ -1405,9 +1406,9 @@ function emptyEval() {
       deedSource: "",
       buildingLicense: "",
       buildingLicenseDate: "",
-      parcelNumber: "", // ← ADD
-      planNumber: "", // ← ADD
-      blockNumber: "", // ← ADD
+      parcelNumber: "",
+      planNumber: "",
+      blockNumber: "",
       elevation: "",
       inspectionBoundaries: "",
       authorizedName: "",
@@ -1423,13 +1424,21 @@ function emptyEval() {
       westLength: "",
     },
     finishing: {
-      buildingState: "",
+      buildingCondition: {
+        status: "",
+        completionPct: null as number | null,
+        otherText: "",
+      },
       floorsCount: "",
       propertyAge: "",
       finishLevel: "",
       buildQuality: "",
     },
-    services: { street: "" },
+    services: {
+      street: "",
+      availableServices: emptyAvailableServices(),
+      surroundingEnvironment: [] as string[],
+    },
     map: {
       coords: "",
       lat: "",
@@ -1497,18 +1506,109 @@ function emptyEval() {
       careerPct: "",
       maintenancePrice: "",
       finishesPrice: "",
-      maintenanceDesc: "", // ← new
-      finishesDesc: "", // ← new
-      landTitle: "", // ← ADD
+      maintenanceDesc: "",
+      finishesDesc: "",
+      landTitle: "",
       landSpace: "",
-      meterPriceLand: "", // ← MOVE from ev.meterPriceLand
+      meterPriceLand: "",
       completionPct: "",
-      replacementNotes: "", // ← new
+      replacementNotes: "",
     },
   };
 }
 
-// ─── main page ────────────────────────────────────────────────────────────────
+// ─── Table style helpers ──────────────────────────────────────────────────────
+
+const thS: React.CSSProperties = {
+  background: DS.surfaceAlt,
+  border: `1px solid ${DS.border}`,
+  padding: "8px 10px",
+  fontWeight: 700,
+  whiteSpace: "nowrap" as const,
+  textAlign: "center" as const,
+  fontSize: 10,
+  color: DS.textMuted,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.05em",
+};
+
+const tdS: React.CSSProperties = {
+  border: `1px solid ${DS.border}`,
+  padding: "5px",
+  verticalAlign: "middle" as const,
+};
+
+const cellInputS: React.CSSProperties = {
+  width: "100%",
+  padding: "5px 8px",
+  border: `1px solid ${DS.border}`,
+  borderRadius: DS.radius.sm,
+  fontSize: 12,
+  background: DS.surface,
+  boxSizing: "border-box" as const,
+  fontFamily: "inherit",
+  color: DS.text,
+};
+
+const linkBtnS: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: DS.primary,
+  cursor: "pointer",
+  fontSize: 12,
+  padding: "6px 0",
+  fontWeight: 700,
+  fontFamily: "inherit",
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  marginTop: 8,
+};
+
+// ─── Action Button (toolbar) ──────────────────────────────────────────────────
+
+function ActionButton({
+  icon,
+  label,
+  accent,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  accent?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "7px 12px",
+        border: `1px solid ${accent ? accent + "40" : DS.border}`,
+        borderRadius: DS.radius.md,
+        background: accent ? accent + "10" : DS.surfaceAlt,
+        color: accent ?? DS.textMuted,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: onClick ? "pointer" : "default",
+        fontFamily: "inherit",
+        opacity: onClick ? 1 : 0.5,
+        transition: "all 0.15s",
+        whiteSpace: "nowrap" as const,
+        boxShadow: DS.shadow.sm,
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center" }}>{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function TransactionEvaluationPage({
   transactionId,
@@ -1527,16 +1627,12 @@ export function TransactionEvaluationPage({
   onOpenEdit?: (transactionId: string, requester: string) => void;
   onStatusSaved?: () => void;
 }) {
-  // ── language ──────────────────────────────────────────────────────────────
   const langContext = useContext(LanguageContext);
   const lang: Lang = (langContext?.language === "en" ? "en" : "ar") as Lang;
   const isRtl = lang === "ar";
   const t = T[lang];
 
-  const [tx, setTx] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
+  // ── InlineSelectField (unchanged logic, restyled) ──────────────────────────
   function InlineSelectField({
     displayValue,
     selectValue,
@@ -1553,12 +1649,18 @@ export function TransactionEvaluationPage({
     hint?: string;
   }) {
     const [open, setOpen] = useState(false);
-
     return (
       <div>
         {displayValue && !open ? (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ ...styles.input, background: "#f8f9fa", flex: 1 }}>
+            <div
+              style={{
+                ...inputStyle,
+                background: DS.surfaceAlt,
+                flex: 1,
+                color: DS.text,
+              }}
+            >
               {displayValue}
             </div>
             <button
@@ -1566,16 +1668,18 @@ export function TransactionEvaluationPage({
               onClick={() => setOpen(true)}
               style={{
                 fontSize: 11,
-                color: "#0066cc",
-                background: "none",
-                border: "1px solid #ccc",
-                borderRadius: 4,
-                padding: "4px 8px",
+                color: DS.primary,
+                background: `${DS.primary}10`,
+                border: `1px solid ${DS.primary}30`,
+                borderRadius: DS.radius.sm,
+                padding: "5px 10px",
                 cursor: "pointer",
-                whiteSpace: "nowrap",
+                whiteSpace: "nowrap" as const,
+                fontWeight: 600,
+                fontFamily: "inherit",
               }}
             >
-              تغيير
+              {lang === "ar" ? "تغيير" : "Change"}
             </button>
           </div>
         ) : (
@@ -1586,7 +1690,7 @@ export function TransactionEvaluationPage({
                 onSelectChange(e.target.value);
                 setOpen(false);
               }}
-              style={styles.input}
+              style={inputStyle}
               autoFocus={open}
             >
               <option value="" disabled>
@@ -1600,24 +1704,96 @@ export function TransactionEvaluationPage({
                 onClick={() => setOpen(false)}
                 style={{
                   fontSize: 11,
-                  color: "#888",
+                  color: DS.textMuted,
                   background: "none",
                   border: "none",
                   padding: "2px 0",
                   cursor: "pointer",
+                  fontFamily: "inherit",
                 }}
               >
-                إلغاء
+                {lang === "ar" ? "إلغاء" : "Cancel"}
               </button>
             )}
           </div>
         )}
         {hint && (
-          <p style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>{hint}</p>
+          <p style={{ fontSize: 11, color: DS.textLight, marginTop: 3 }}>
+            {hint}
+          </p>
         )}
       </div>
     );
   }
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [tx, setTx] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{
+    type: "ok" | "error" | "info";
+    text: string;
+  }>({ type: "ok", text: "" });
+  const [saving, setSaving] = useState(false);
+  const [ev, setEv] = useState(emptyEval());
+  const [settlementNumCols] = useState(3);
+  const [settlementNotes, setSettlementNotes] = useState(
+    lang === "ar"
+      ? "-تم اجراء عملية التسويات و التعديلات حسب ما هو متعارف في السوق.\n-بعد معاينة المنطقة المحيطة بالعقار تم الوصول إلى صفقات منفذة وعروض قائمة."
+      : "-Adjustments were made in accordance with market norms.\n-After inspecting the surrounding area, executed transactions and active listings were identified.",
+  );
+  const [activeVmTab, setActiveVmTab] = useState("vm-m");
+
+  // ── Map picker state for Map Location section ──────────────────────────────
+  const [showMapPicker, setShowMapPicker] = useState(false);
+
+  // ── Locations ──────────────────────────────────────────────────────────────
+  const [regions, setRegions] = useState<
+    { id: string; titleAr: string; titleEn: string }[]
+  >([]);
+  const [cities, setCities] = useState<
+    { id: string; titleAr: string; titleEn: string; regionId: string }[]
+  >([]);
+  const [neighborhoods, setNeighborhoods] = useState<
+    { id: string; titleAr: string; titleEn: string; cityId: string }[]
+  >([]);
+
+  const setField = (section: string, field: string, val: string) =>
+    setEv((prev) => ({
+      ...prev,
+      [section]: {
+        ...(prev[section as keyof typeof prev] as any),
+        [field]: val,
+      },
+    }));
+
+  const setAvailableService = (
+    key: keyof AvailableServices,
+    val: boolean | number | null,
+  ) =>
+    setEv((prev) => ({
+      ...prev,
+      services: {
+        ...prev.services,
+        availableServices: { ...prev.services.availableServices, [key]: val },
+      },
+    }));
+
+  const setSurroundingEnv = (key: string, checked: boolean) =>
+    setEv((prev) => {
+      const current = prev.services.surroundingEnvironment ?? [];
+      const next = checked
+        ? current.includes(key)
+          ? current
+          : [...current, key]
+        : current.filter((k) => k !== key);
+      return {
+        ...prev,
+        services: { ...prev.services, surroundingEnvironment: next },
+      };
+    });
+
+  const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
 
   useEffect(() => {
     if (!transactionId) {
@@ -1639,42 +1815,6 @@ export function TransactionEvaluationPage({
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
   }, [transactionId]);
-
-  const [statusMsg, setStatusMsg] = useState<{
-    type: "ok" | "error" | "info";
-    text: string;
-  }>({ type: "ok", text: "" });
-  const [saving, setSaving] = useState(false);
-  const [ev, setEv] = useState(emptyEval());
-  const [settlementNumCols] = useState(3);
-  const [settlementNotes, setSettlementNotes] = useState(
-    lang === "ar"
-      ? "-تم اجراء عملية التسويات و التعديلات حسب ما هو متعارف في السوق واستنادا على ما هو معروض بالسوق.\n-بعد معاينة المنطقة المحيطة بالعقار تم الوصول إلى صفقات منفذة وعروض قائمة."
-      : "-Adjustments were made in accordance with market norms and based on available market listings.\n-After inspecting the surrounding area, executed transactions and active listings were identified.",
-  );
-  const [activeVmTab, setActiveVmTab] = useState("vm-m");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const setField = (section: string, field: string, val: string) =>
-    setEv((prev) => ({
-      ...prev,
-      [section]: {
-        ...(prev[section as keyof typeof prev] as any),
-        [field]: val,
-      },
-    }));
-
-  const requester = (tx?.clientName ?? tx?.clientId ?? transactionId) as string;
-
-  const [regions, setRegions] = useState<
-    { id: string; titleAr: string; titleEn: string }[]
-  >([]);
-  const [cities, setCities] = useState<
-    { id: string; titleAr: string; titleEn: string; regionId: string }[]
-  >([]);
-  const [neighborhoods, setNeighborhoods] = useState<
-    { id: string; titleAr: string; titleEn: string; cityId: string }[]
-  >([]);
 
   useEffect(() => {
     Promise.all([
@@ -1699,7 +1839,6 @@ export function TransactionEvaluationPage({
   const citiesForRegion = ev.location.regionId
     ? cities.filter((c) => c.regionId === ev.location.regionId)
     : cities;
-
   const neighborhoodsForCity = ev.location.cityId
     ? neighborhoods.filter((n) => n.cityId === ev.location.cityId)
     : neighborhoods;
@@ -1710,14 +1849,27 @@ export function TransactionEvaluationPage({
     const bl = buildByLabel(tx.templateFieldValues);
     const pick = (...candidates: (string | undefined)[]): string =>
       candidates.find((v) => v !== undefined && v !== "") ?? "";
-
     const resolvedPropertyArea = pick(
       e.propertyArea,
       e.landSpace,
       e.assetArea,
       bl["مساحة الأصل"],
     );
-
+    const rawSvc: AvailableServices = {
+      electricity: e.availableServices?.electricity ?? e.electricity ?? null,
+      electricityUnits:
+        e.availableServices?.electricityUnits ?? e.electricityUnits ?? null,
+      sanitaryDrainage:
+        e.availableServices?.sanitaryDrainage ?? e.sanitaryDrainage ?? null,
+      telephoneLine:
+        e.availableServices?.telephoneLine ?? e.telephoneLine ?? null,
+      waterMetersCount:
+        e.availableServices?.waterMetersCount ?? e.waterMetersCount ?? null,
+      electricityMetersCount:
+        e.availableServices?.electricityMetersCount ??
+        e.electricityMetersCount ??
+        null,
+    };
     setEv({
       status: pick(e.status, "new"),
       section1Rows:
@@ -1740,12 +1892,6 @@ export function TransactionEvaluationPage({
         assetCategoryId: pick(e.assetCategoryId),
         propertyTypeId: pick(e.propertyTypeId),
       },
-      // ── canonical field names — OCR source of truth ──────────────────────
-      // propertyType : was stored as e.propertyType (OCR field name)
-      // propertyArea : was stored as e.propertyArea (OCR field name);
-      //                legacy docs may also have e.landSpace or e.assetArea
-      // landUse      : was stored as e.landUse (OCR field name);
-      //                legacy docs may also have e.usage
       assetInfo: {
         address: pick(e.address, bl["العنوان"]),
         propertyType: pick(e.propertyType, bl["نوع الأصل"]),
@@ -1771,9 +1917,9 @@ export function TransactionEvaluationPage({
         deedSource: pick(e.deedSource),
         buildingLicense: pick(e.buildingLicense),
         buildingLicenseDate: pick(e.buildingLicenseDate),
-        parcelNumber: pick(e.parcelNumber), // ← ADD
-        planNumber: pick(e.planNumber), // ← ADD
-        blockNumber: pick(e.blockNumber), // ← ADD
+        parcelNumber: pick(e.parcelNumber),
+        planNumber: pick(e.planNumber),
+        blockNumber: pick(e.blockNumber),
         elevation: pick(e.elevation),
         inspectionBoundaries: pick(e.inspectionBoundaries),
         ownerName: pick(e.ownerName, bl["اسم المالك"]),
@@ -1791,13 +1937,31 @@ export function TransactionEvaluationPage({
         westLength: pick(e.westLength, bl["طول الحد الغربي"]),
       },
       finishing: {
-        buildingState: pick(e.buildingState),
+        buildingCondition:
+          e.buildingCondition && typeof e.buildingCondition === "object"
+            ? {
+                status: e.buildingCondition.status ?? "",
+                completionPct: e.buildingCondition.completionPct ?? null,
+                otherText: e.buildingCondition.otherText ?? "",
+              }
+            : // legacy fallback: old data stored flat buildingState
+              {
+                status: e.buildingState ?? "",
+                completionPct: null,
+                otherText: "",
+              },
         floorsCount: pick(e.floorsCount),
         propertyAge: pick(e.propertyAge),
         finishLevel: pick(e.finishLevel),
         buildQuality: pick(e.buildQuality),
       },
-      services: { street: pick(e.street) },
+      services: {
+        street: pick(e.street),
+        availableServices: rawSvc,
+        surroundingEnvironment: Array.isArray(e.surroundingEnvironment)
+          ? e.surroundingEnvironment
+          : [],
+      },
       map: {
         coords: pick(e.coords),
         lat: pick(e.lat),
@@ -1850,7 +2014,7 @@ export function TransactionEvaluationPage({
       comparisonRows: e.comparisonRows?.length
         ? e.comparisonRows.map((r: any) => ({
             ...r,
-            landSpace: r.landSpace ?? r.propertyArea ?? "", // handle legacy data
+            landSpace: r.landSpace ?? r.propertyArea ?? "",
           }))
         : [emptyComparisonRow(), emptyComparisonRow()],
       settlementRows: e.settlementRows?.length ? e.settlementRows : [],
@@ -1874,12 +2038,9 @@ export function TransactionEvaluationPage({
         finishesDesc: pick(e.finishesDesc),
         replacementNotes: pick(e.replacementNotes),
         financePct: pick(e.financePct),
-        landTitle: pick(e.landTitle, e.address), // ← ADD
-        landSpace: pick(
-          e.landSpace, // explicit saved override wins
-          resolvedPropertyArea, // auto-filled from asset area
-        ),
-        meterPriceLand: pick(e.meterPriceLand), // already existed at top level
+        landTitle: pick(e.landTitle, e.address),
+        landSpace: pick(e.landSpace, resolvedPropertyArea),
+        meterPriceLand: pick(e.meterPriceLand),
         yearDev: pick(e.yearDev),
         earningsRate: pick(e.earningsRate),
         buildAge: pick(e.buildAge),
@@ -1894,27 +2055,24 @@ export function TransactionEvaluationPage({
     });
   }, [tx]);
 
-  // propertyArea lives in assetInfo — use it for the land value calculation
-  const landValue = (
-    (parseFloat(ev.replacementFields.meterPriceLand) || 0) *
-    (parseFloat(ev.replacementFields.landSpace) || 0)
-  ).toFixed(2);
-
   const handleSave = async () => {
     setSaving(true);
     setStatusMsg({ type: "info", text: t.saving });
     try {
-      // Spread ev.assetInfo last so its canonical keys (propertyType,
-      // propertyArea, landUse) overwrite any legacy aliases that may exist
-      // on other sections.
       const evalData = {
         status: ev.status,
         ...ev.location,
         ...ev.basic,
-        ...ev.assetInfo, // emits: propertyType, propertyArea, landUse
+        ...ev.assetInfo,
         ...ev.boundaries,
-        ...ev.finishing,
-        ...ev.services,
+        buildingCondition: ev.finishing.buildingCondition,
+        floorsCount: ev.finishing.floorsCount,
+        propertyAge: ev.finishing.propertyAge,
+        finishLevel: ev.finishing.finishLevel,
+        buildQuality: ev.finishing.buildQuality,
+        street: ev.services.street,
+        availableServices: ev.services.availableServices,
+        surroundingEnvironment: ev.services.surroundingEnvironment,
         ...ev.map,
         ...ev.appraiser,
         ...ev.methodsMarket,
@@ -1957,57 +2115,6 @@ export function TransactionEvaluationPage({
     { id: "vm-e", label: t.vmRental },
   ];
 
-  const bl = buildByLabel(tx?.templateFieldValues);
-
-  if (loading)
-    return (
-      <div
-        dir={isRtl ? "rtl" : "ltr"}
-        style={{
-          ...styles.shell,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div style={{ fontSize: 16, color: "#555" }}>{t.loading}</div>
-      </div>
-    );
-  if (fetchError)
-    return (
-      <div
-        dir={isRtl ? "rtl" : "ltr"}
-        style={{
-          ...styles.shell,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div style={{ fontSize: 16, color: "#c00" }}>
-          {t.errorPrefix} {fetchError}
-        </div>
-      </div>
-    );
-
-  const replacementFieldLabels: Record<string, TKeys> = {
-    managementPct: "managementPct",
-    professionalPct: "professionalPct",
-    utilityNetworkPct: "utilityNetworkPct",
-    emergencyPct: "emergencyPct",
-    financePct: "financePct",
-    yearDev: "yearDev",
-    earningsRate: "earningsRate",
-    buildAge: "buildAge",
-    defaultAge: "defaultAge",
-    depreciationPct: "depreciationPct",
-    economicPct: "economicPct",
-    careerPct: "careerPct",
-    maintenancePrice: "maintenancePrice",
-    finishesPrice: "finishesPrice",
-    completionPct: "completionPct",
-  };
-
   const boundaryFields: { key: keyof typeof ev.boundaries; labelKey: TKeys }[] =
     [
       { key: "northBoundary", labelKey: "northBoundary" },
@@ -2029,29 +2136,97 @@ export function TransactionEvaluationPage({
     { key: "zoomComparisons", labelKey: "zoomComparisons" },
   ];
 
-  const serviceCheckboxes: { key: string; labelKey: TKeys }[] = [
-    { key: "electricity", labelKey: "electricity" },
-    { key: "water", labelKey: "water" },
-    { key: "phone", labelKey: "phone" },
-    { key: "drainage", labelKey: "drainage" },
-    { key: "pavedStreets", labelKey: "pavedStreets" },
-    { key: "lighting", labelKey: "lighting" },
-    { key: "internet", labelKey: "internet" },
-  ];
+  const svc = ev.services.availableServices;
+  const statusColor = STATUS_COLORS[ev.status] ?? STATUS_COLORS.new;
+
+  // ── Loading / Error ────────────────────────────────────────────────────────
+
+  if (loading)
+    return (
+      <div
+        dir={isRtl ? "rtl" : "ltr"}
+        style={{
+          fontFamily: "'Segoe UI', system-ui, sans-serif",
+          minHeight: "100vh",
+          background: "#f1f5f9",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{ color: DS.primary, animation: "spin 1s linear infinite" }}
+        >
+          <Loader2 size={28} />
+        </div>
+        <div style={{ fontSize: 14, color: DS.textMuted }}>{t.loading}</div>
+        <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+      </div>
+    );
+
+  if (fetchError)
+    return (
+      <div
+        dir={isRtl ? "rtl" : "ltr"}
+        style={{
+          fontFamily: "'Segoe UI', system-ui, sans-serif",
+          minHeight: "100vh",
+          background: "#f1f5f9",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: DS.radius.xl,
+            padding: "24px 32px",
+            border: `1px solid ${DS.border}`,
+            boxShadow: DS.shadow.md,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            color: DS.red,
+            fontSize: 14,
+          }}
+        >
+          <XCircle size={20} /> {t.errorPrefix} {fetchError}
+        </div>
+      </div>
+    );
+
+  // ── Main render ────────────────────────────────────────────────────────────
 
   return (
     <div
       dir={isRtl ? "rtl" : "ltr"}
-      style={{ ...styles.shell, width: "100%", boxSizing: "border-box" }}
+      style={{
+        fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+        fontSize: 14,
+        color: DS.text,
+        background: "#f1f5f9",
+        minHeight: "100vh",
+        padding: "20px 20px 100px",
+        position: "relative",
+        width: "100%",
+        boxSizing: "border-box",
+      }}
     >
-      {/* ── Page header: back button + title + status pill ── */}
-      {/* ── Page header: back button + title + status pill ── */}
+      {/* ── Page header ────────────────────────────────────────────────────── */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 14,
-          marginBottom: 20,
+          gap: 12,
+          marginBottom: 18,
+          background: DS.surface,
+          borderRadius: DS.radius.xl,
+          padding: "12px 16px",
+          border: `1px solid ${DS.border}`,
+          boxShadow: DS.shadow.sm,
         }}
       >
         <button
@@ -2061,52 +2236,85 @@ export function TransactionEvaluationPage({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 38,
-            height: 38,
-            background: "#fff",
-            border: "1px solid #e2e8f0",
-            borderRadius: 10,
-            fontSize: 18,
-            color: "#475569",
+            width: 36,
+            height: 36,
+            background: DS.surfaceAlt,
+            border: `1px solid ${DS.border}`,
+            borderRadius: DS.radius.md,
+            color: DS.textMuted,
             cursor: "pointer",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+            boxShadow: DS.shadow.sm,
             flexShrink: 0,
+            transition: "all 0.15s",
           }}
           title={t.back}
         >
-          {isRtl ? "→" : "←"}
+          {isRtl ? <ArrowRight size={16} /> : <ArrowLeft size={16} />}
         </button>
+
         <div style={{ flex: 1 }}>
-          <h1 style={styles.pageTitle}>{t.pageTitle}</h1>
+          <h1
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              margin: 0,
+              color: DS.text,
+              letterSpacing: "-0.2px",
+            }}
+          >
+            {t.pageTitle}
+          </h1>
+          <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+            #{transactionId}
+          </div>
         </div>
-        <select
-          value={ev.status}
-          onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
-          style={{
-            appearance: "none" as const,
-            padding: "7px 28px 7px 14px",
-            borderRadius: 999,
-            border: "1.5px solid #e2e8f0",
-            background: "#f8fafc",
-            color: "#334155",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            outline: "none",
-            minWidth: 130,
-          }}
-        >
-          {WORKFLOW_STATUSES[lang].map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+
+        {/* Status badge-select */}
+        <div style={{ position: "relative" }}>
+          <select
+            value={ev.status}
+            onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
+            style={{
+              appearance: "none" as const,
+              padding: "6px 32px 6px 14px",
+              borderRadius: 999,
+              border: `1.5px solid ${statusColor.border}`,
+              background: statusColor.bg,
+              color: statusColor.text,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              outline: "none",
+              minWidth: 120,
+            }}
+          >
+            {WORKFLOW_STATUSES[lang].map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            size={12}
+            style={{
+              position: "absolute",
+              top: "50%",
+              [isRtl ? "left" : "right"]: 10,
+              transform: "translateY(-50%)",
+              pointerEvents: "none",
+              color: statusColor.text,
+            }}
+          />
+        </div>
       </div>
 
-      {/* معلومات الطلب */}
-      <SectionCard title={t.secRequest} defaultOpen={true}>
+      {/* ── Request Information ─────────────────────────────────────────────── */}
+      <SectionCard
+        title={t.secRequest}
+        defaultOpen={true}
+        icon={<ClipboardList size={14} />}
+      >
         <ReadOnlyGrid>
           <ReadOnlyItem label={t.refNo} value={transactionId} />
           <ReadOnlyItem label={t.assignmentNo} value={tx?.assignmentNumber} />
@@ -2145,27 +2353,126 @@ export function TransactionEvaluationPage({
           <ReadOnlyItem label={t.template} value={tx?.templateId} />
           <ReadOnlyItem label={t.notes} value={tx?.intendedUse} full />
         </ReadOnlyGrid>
-      </SectionCard>
-
-      {/* Important links */}
-      <details style={styles.sectionCard}>
-        <summary
+        <div
           style={{
-            ...styles.sectionHead,
-            cursor: "pointer",
-            listStyle: "none",
             display: "flex",
-            justifyContent: "space-between",
+            gap: 8,
+            marginTop: 14,
+            paddingTop: 14,
+            borderTop: `1px solid ${DS.border}`,
+            flexWrap: "wrap",
           }}
         >
-          {t.secLinks}
+          {/* isOpened */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 11px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              border: `1px solid ${tx?.isOpened ? "#bbf7d0" : DS.border}`,
+              background: tx?.isOpened ? "#f0fdf4" : DS.surfaceAlt,
+              color: tx?.isOpened ? "#15803d" : DS.textMuted,
+            }}
+          >
+            {tx?.isOpened ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+            {lang === "ar"
+              ? tx?.isOpened
+                ? "تم الفتح"
+                : "لم يُفتح"
+              : tx?.isOpened
+                ? "Opened"
+                : "Not opened"}
+          </div>
+
+          {/* isCompleted */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "5px 11px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              border: `1px solid ${tx?.isCompleted ? "#bfdbfe" : DS.border}`,
+              background: tx?.isCompleted ? "#eff6ff" : DS.surfaceAlt,
+              color: tx?.isCompleted ? "#2563eb" : DS.textMuted,
+            }}
+          >
+            {tx?.isCompleted ? (
+              <CheckCircle2 size={13} />
+            ) : (
+              <XCircle size={13} />
+            )}
+            {lang === "ar"
+              ? tx?.isCompleted
+                ? "مكتملة"
+                : "غير مكتملة"
+              : tx?.isCompleted
+                ? "Completed"
+                : "Not completed"}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ── Important Links ─────────────────────────────────────────────────── */}
+      <details
+        style={{
+          background: DS.surface,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radius.xl,
+          marginBottom: 8,
+          overflow: "hidden",
+          boxShadow: DS.shadow.sm,
+        }}
+      >
+        <summary
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "13px 18px",
+            background: DS.surfaceAlt,
+            cursor: "pointer",
+            listStyle: "none",
+            fontWeight: 600,
+            fontSize: 13,
+            color: DS.text,
+            gap: 9,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 28,
+                height: 28,
+                borderRadius: DS.radius.sm,
+                background: `${DS.primary}15`,
+                color: DS.primary,
+              }}
+            >
+              <Map size={14} />
+            </span>
+            {t.secLinks}
+          </div>
+          <ChevronDown
+            size={13}
+            style={{ color: DS.textMuted, flexShrink: 0 }}
+          />
         </summary>
-        <div style={styles.sectionBody}>
+        <div style={{ padding: "16px 18px" }}>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-              gap: "8px 12px",
+              gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+              gap: "6px 10px",
             }}
           >
             {IMPORTANT_LINKS.map((l) => (
@@ -2177,134 +2484,98 @@ export function TransactionEvaluationPage({
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
+                  gap: 7,
                   padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #e2e8f0",
-                  background: "#fff",
-                  color: "#0891b2",
+                  borderRadius: DS.radius.md,
+                  border: `1px solid ${DS.border}`,
+                  background: DS.surface,
+                  color: DS.primary,
                   fontSize: 12,
                   fontWeight: 500,
                   textDecoration: "none",
+                  transition: "background 0.15s, border-color 0.15s",
                 }}
               >
-                🔗 {lang === "ar" ? l.labelAr : l.labelEn}
+                <MapPin size={12} style={{ flexShrink: 0, opacity: 0.7 }} />
+                {lang === "ar" ? l.labelAr : l.labelEn}
               </a>
             ))}
           </div>
         </div>
       </details>
 
-      {/* Asset details card with action buttons — icon-only */}
+      {/* ── Asset Details toolbar ────────────────────────────────────────────── */}
       <div
         style={{
-          background: "#fff",
-          border: "1px solid #e2e8f0",
-          borderRadius: 16,
-          marginBottom: 10,
-          padding: "14px 20px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+          background: DS.surface,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radius.xl,
+          marginBottom: 8,
+          padding: "14px 18px",
+          boxShadow: DS.shadow.sm,
         }}
       >
         <p
           style={{
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: 700,
-            color: "#94a3b8",
+            color: DS.textLight,
             textTransform: "uppercase",
-            letterSpacing: "0.07em",
-            margin: "0 0 12px",
+            letterSpacing: "0.08em",
+            margin: "0 0 10px",
           }}
         >
           {t.secAssetDetails}
         </p>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[
-            {
-              icon: "📷",
-              tooltip: t.btnImages,
-              accent: "#7c3aed",
-              action: () => onOpenImages?.(transactionId, requester),
-            },
-            {
-              icon: "📎",
-              tooltip: t.btnAttachments,
-              accent: "#0891b2",
-              action: () => onOpenAttachments?.(transactionId, requester),
-            },
-            {
-              icon: "✏️",
-              tooltip: t.btnEdit,
-              accent: "#d97706",
-              action: () => onOpenEdit?.(transactionId, requester),
-            },
-            {
-              icon: "🗺",
-              tooltip: t.btnNearComps,
-              accent: undefined,
-              action: undefined,
-            },
-            {
-              icon: "📌",
-              tooltip: t.btnCopyComps,
-              accent: undefined,
-              action: undefined,
-            },
-            {
-              icon: "🖨",
-              tooltip: t.btnView,
-              accent: undefined,
-              action: () =>
-                window.open(`/api/transactions/${transactionId}/pdf`, "_blank"),
-            },
-            {
-              icon: "📄",
-              tooltip: t.btnPdf,
-              accent: undefined,
-              action: () => {
-                const a = document.createElement("a");
-                a.href = `/api/transactions/${transactionId}/pdf`;
-                a.download = `valuation-${transactionId}.pdf`;
-                a.click();
-              },
-            },
-            {
-              icon: "💬",
-              tooltip: t.btnMessages,
-              accent: "#0891b2",
-              action: () => onOpenNotes?.(transactionId, requester),
-            },
-          ].map(({ icon, tooltip, accent, action }) => (
-            <button
-              key={tooltip}
-              type="button"
-              onClick={action}
-              title={tooltip}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 38,
-                height: 38,
-                border: `1px solid ${accent ? accent + "40" : "#e2e8f0"}`,
-                borderRadius: 10,
-                background: accent ? accent + "0d" : "#f8fafc",
-                color: accent ?? "#475569",
-                fontSize: 17,
-                cursor: action ? "pointer" : "default",
-                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                transition: "all 0.15s",
-                opacity: action ? 1 : 0.5,
-              }}
-            >
-              {icon}
-            </button>
-          ))}
+          <ActionButton
+            icon={<Image size={14} />}
+            label={t.btnImages}
+            accent="#7c3aed"
+            onClick={() => onOpenImages?.(transactionId, requester)}
+          />
+          <ActionButton
+            icon={<Paperclip size={14} />}
+            label={t.btnAttachments}
+            accent="#0891b2"
+            onClick={() => onOpenAttachments?.(transactionId, requester)}
+          />
+          <ActionButton
+            icon={<Pencil size={14} />}
+            label={t.btnEdit}
+            accent="#d97706"
+            onClick={() => onOpenEdit?.(transactionId, requester)}
+          />
+          <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
+          <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
+          <ActionButton
+            icon={<Printer size={14} />}
+            label={t.btnView}
+            onClick={() =>
+              window.open(`/api/transactions/${transactionId}/pdf`, "_blank")
+            }
+          />
+          <ActionButton
+            icon={<FileText size={14} />}
+            label={t.btnPdf}
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = `/api/transactions/${transactionId}/pdf`;
+              a.download = `valuation-${transactionId}.pdf`;
+              a.click();
+            }}
+          />
+          <ActionButton
+            icon={<MessageSquare size={14} />}
+            label={t.btnMessages}
+            accent="#0891b2"
+            onClick={() => onOpenNotes?.(transactionId, requester)}
+          />
         </div>
       </div>
 
-      {/* معلومات الأصل */}
-      <SectionCard title={t.secAssetInfo}>
+      {/* ── Asset Info ──────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secAssetInfo} icon={<Building2 size={14} />}>
         <ReadOnlyGrid>
           <ReadOnlyItem label={t.address} value={ev.assetInfo.address} full />
           <ReadOnlyItem
@@ -2322,8 +2593,8 @@ export function TransactionEvaluationPage({
         </ReadOnlyGrid>
       </SectionCard>
 
-      {/* الموقع وتصنيف الأصل */}
-      <SectionCard title={t.secLocation}>
+      {/* ── Location ────────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secLocation} icon={<MapPin size={14} />}>
         <GridFields>
           <Field label={t.region}>
             <InlineSelectField
@@ -2454,111 +2725,35 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* البيانات الأساسية */}
-      <SectionCard title={t.secBasic}>
+      {/* ── Basic Data ──────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secBasic} icon={<Database size={14} />}>
         <GridFields>
-          <Field label={t.propertyCode}>
-            <Input
-              value={ev.basic.propertyCode}
-              onChange={(e) =>
-                setField("basic", "propertyCode", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.subDivisionRecordNumber}>
-            <Input
-              value={ev.basic.subDivisionRecordNumber}
-              onChange={(e) =>
-                setField("basic", "subDivisionRecordNumber", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.clientName}>
-            <Input
-              value={ev.basic.clientName}
-              onChange={(e) => setField("basic", "clientName", e.target.value)}
-            />
-          </Field>
-          <Field label={t.authorizedName}>
-            <Input
-              value={ev.basic.authorizedName}
-              onChange={(e) =>
-                setField("basic", "authorizedName", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.ownerName}>
-            <Input
-              value={ev.basic.ownerName}
-              onChange={(e) => setField("basic", "ownerName", e.target.value)}
-            />
-          </Field>
-          <Field label={t.otherUsers}>
-            <Input
-              value={ev.basic.otherUsers}
-              onChange={(e) => setField("basic", "otherUsers", e.target.value)}
-            />
-          </Field>
-          <Field label={t.deedNumber}>
-            <Input
-              value={ev.basic.deedNumber}
-              onChange={(e) => setField("basic", "deedNumber", e.target.value)}
-            />
-          </Field>
-          <Field label={t.deedDate}>
-            <Input
-              value={ev.basic.deedDate}
-              onChange={(e) => setField("basic", "deedDate", e.target.value)}
-            />
-          </Field>
-          <Field label={t.deedSource}>
-            <Input
-              value={ev.basic.deedSource}
-              onChange={(e) => setField("basic", "deedSource", e.target.value)}
-            />
-          </Field>
-          <Field label={t.buildingLicense}>
-            <Input
-              value={ev.basic.buildingLicense}
-              onChange={(e) =>
-                setField("basic", "buildingLicense", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.buildingLicenseDate}>
-            <Input
-              value={ev.basic.buildingLicenseDate}
-              onChange={(e) =>
-                setField("basic", "buildingLicenseDate", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.parcelNumber}>
-            <Input
-              value={ev.basic.parcelNumber}
-              onChange={(e) =>
-                setField("basic", "parcelNumber", e.target.value)
-              }
-            />
-          </Field>
-          <Field label={t.planNumber}>
-            <Input
-              value={ev.basic.planNumber}
-              onChange={(e) => setField("basic", "planNumber", e.target.value)}
-            />
-          </Field>
-          <Field label={t.blockNumber}>
-            <Input
-              value={ev.basic.blockNumber}
-              onChange={(e) => setField("basic", "blockNumber", e.target.value)}
-            />
-          </Field>
-          <Field label={t.elevation}>
-            <Input
-              value={ev.basic.elevation}
-              onChange={(e) => setField("basic", "elevation", e.target.value)}
-            />
-          </Field>
+          {(
+            [
+              ["propertyCode", "propertyCode"],
+              ["subDivisionRecordNumber", "subDivisionRecordNumber"],
+              ["clientName", "clientName"],
+              ["authorizedName", "authorizedName"],
+              ["ownerName", "ownerName"],
+              ["otherUsers", "otherUsers"],
+              ["deedNumber", "deedNumber"],
+              ["deedDate", "deedDate"],
+              ["deedSource", "deedSource"],
+              ["buildingLicense", "buildingLicense"],
+              ["buildingLicenseDate", "buildingLicenseDate"],
+              ["parcelNumber", "parcelNumber"],
+              ["planNumber", "planNumber"],
+              ["blockNumber", "blockNumber"],
+              ["elevation", "elevation"],
+            ] as [keyof typeof ev.basic, TKeys][]
+          ).map(([key, labelKey]) => (
+            <Field key={key} label={t[labelKey] as string}>
+              <Input
+                value={(ev.basic as any)[key]}
+                onChange={(e) => setField("basic", key, e.target.value)}
+              />
+            </Field>
+          ))}
           <Field label={t.inspectionBoundaries} full>
             <Input
               value={ev.basic.inspectionBoundaries}
@@ -2570,8 +2765,8 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* الحدود والأطوال */}
-      <SectionCard title={t.secBoundaries}>
+      {/* ── Boundaries ──────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secBoundaries} icon={<Compass size={14} />}>
         <GridFields>
           {boundaryFields.map(({ key, labelKey }) => (
             <Field key={key} label={t[labelKey] as string}>
@@ -2584,14 +2779,28 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* بيانات التشطيب */}
-      <SectionCard title={t.secFinishing}>
+      {/* ── Finishing ───────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secFinishing} icon={<Layers size={14} />}>
         <GridFields>
           <Field label={t.buildingState}>
             <Select
-              value={ev.finishing.buildingState}
+              value={ev.finishing.buildingCondition?.status ?? ""}
               onChange={(e) =>
-                setField("finishing", "buildingState", e.target.value)
+                setEv((p) => ({
+                  ...p,
+                  finishing: {
+                    ...p.finishing,
+                    buildingCondition: {
+                      ...p.finishing.buildingCondition,
+                      status: e.target.value,
+                      // reset completionPct when switching away from under construction
+                      completionPct:
+                        e.target.value === "10003"
+                          ? p.finishing.buildingCondition.completionPct
+                          : null,
+                    },
+                  },
+                }))
               }
             >
               <option value="">{t.selectValue}</option>
@@ -2601,6 +2810,45 @@ export function TransactionEvaluationPage({
               <option value="10004">{t.stateOther}</option>
             </Select>
           </Field>
+
+          {ev.finishing.buildingCondition?.status === "10003" && (
+            <Field label={t.completionPct}>
+              <input
+                type="number"
+                dir="ltr"
+                min={0}
+                max={100}
+                step={0.1}
+                value={
+                  ev.finishing.buildingCondition?.completionPct != null
+                    ? String(ev.finishing.buildingCondition.completionPct)
+                    : ""
+                }
+                onChange={(e) =>
+                  setEv((p) => ({
+                    ...p,
+                    finishing: {
+                      ...p.finishing,
+                      buildingCondition: {
+                        ...(p.finishing.buildingCondition ?? {
+                          status: "",
+                          completionPct: null,
+                          otherText: "",
+                        }),
+                        completionPct:
+                          e.target.value === ""
+                            ? null
+                            : parseFloat(e.target.value),
+                      },
+                    },
+                  }))
+                }
+                placeholder="0.0"
+                style={{ ...inputStyle, background: DS.surface }}
+              />
+            </Field>
+          )}
+
           <Field label={t.floorsCount}>
             <Input
               value={ev.finishing.floorsCount}
@@ -2648,62 +2896,399 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* خدمات العقار */}
-      {/* خدمات العقار */}
-      <SectionCard title={t.secServices}>
+      {/* ── Services ────────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secServices} icon={<Zap size={14} />}>
         <GridFields>
-          <Field label={t.street}>
+          <Field label={t.street} full>
             <Input
               value={ev.services.street}
-              onChange={(e) => setField("services", "street", e.target.value)}
+              onChange={(e) =>
+                setEv((p) => ({
+                  ...p,
+                  services: { ...p.services, street: e.target.value },
+                }))
+              }
             />
           </Field>
         </GridFields>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-            gap: "8px",
-            marginTop: 12,
-          }}
-        >
-          {serviceCheckboxes.map(({ key, labelKey }) => (
-            <div
-              key={key}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 12px",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                background: "#f8fafc",
-              }}
-            >
-              <input
-                type="checkbox"
-                id={`svc-${key}`}
-                style={{ width: 16, height: 16, cursor: "pointer" }}
-              />
-              <label
-                htmlFor={`svc-${key}`}
+        <div style={{ marginTop: 16 }}>
+          {/* Boolean toggle checkboxes — electricity, drainage, telephone */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            {(
+              [
+                {
+                  key: "electricity" as const,
+                  labelKey: "electricity" as TKeys,
+                },
+                {
+                  key: "sanitaryDrainage" as const,
+                  labelKey: "sanitaryDrainage" as TKeys,
+                },
+                {
+                  key: "telephoneLine" as const,
+                  labelKey: "telephoneLine" as TKeys,
+                },
+              ] as { key: keyof AvailableServices; labelKey: TKeys }[]
+            ).map(({ key, labelKey }) => {
+              const val = svc[key];
+              const isChecked = val === true;
+              const isUnchecked = val === false;
+              return (
+                <label
+                  key={key}
+                  htmlFor={`svc-${key}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "11px 14px",
+                    border: `1.5px solid ${isChecked ? "#16a34a" : isUnchecked ? "#dc262620" : DS.border}`,
+                    borderRadius: DS.radius.md,
+                    background: isChecked
+                      ? "#f0fdf4"
+                      : isUnchecked
+                        ? "#fef2f2"
+                        : DS.surfaceAlt,
+                    cursor: "pointer",
+                    userSelect: "none" as const,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 5,
+                      border: `2px solid ${isChecked ? "#16a34a" : isUnchecked ? "#dc2626" : DS.borderStrong}`,
+                      background: isChecked
+                        ? "#16a34a"
+                        : isUnchecked
+                          ? "#dc2626"
+                          : "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                      transition: "all 0.15s",
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const next =
+                        val === null ? true : val === true ? false : null;
+                      setAvailableService(key, next);
+                    }}
+                  >
+                    {isChecked && (
+                      <Check size={12} color="#fff" strokeWidth={3} />
+                    )}
+                    {isUnchecked && (
+                      <X size={12} color="#fff" strokeWidth={3} />
+                    )}
+                  </div>
+                  <input
+                    id={`svc-${key}`}
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => {
+                      const next =
+                        val === null ? true : val === true ? false : null;
+                      setAvailableService(key, next);
+                    }}
+                    style={{ display: "none" }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: isChecked
+                          ? "#15803d"
+                          : isUnchecked
+                            ? "#b91c1c"
+                            : DS.text,
+                      }}
+                    >
+                      {t[labelKey] as string}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: DS.textLight,
+                        marginTop: 1,
+                      }}
+                    >
+                      {val === null
+                        ? lang === "ar"
+                          ? "غير محدد"
+                          : "Not set"
+                        : isChecked
+                          ? lang === "ar"
+                            ? "متوفر"
+                            : "Available"
+                          : lang === "ar"
+                            ? "غير متوفر"
+                            : "Not available"}
+                    </div>
+                  </div>
+                  {isChecked && (
+                    <CheckCircle2
+                      size={15}
+                      color="#16a34a"
+                      style={{ flexShrink: 0 }}
+                    />
+                  )}
+                  {isUnchecked && (
+                    <XCircle
+                      size={15}
+                      color="#dc2626"
+                      style={{ flexShrink: 0 }}
+                    />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Numeric fields */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            {(
+              [
+                {
+                  key: "electricityUnits" as const,
+                  labelKey: "electricityUnits" as TKeys,
+                },
+                {
+                  key: "waterMetersCount" as const,
+                  labelKey: "waterMetersCount" as TKeys,
+                },
+                {
+                  key: "electricityMetersCount" as const,
+                  labelKey: "electricityMetersCount" as TKeys,
+                },
+              ] as { key: keyof AvailableServices; labelKey: TKeys }[]
+            ).map(({ key, labelKey }) => (
+              <div
+                key={key}
                 style={{
-                  fontSize: 13,
-                  cursor: "pointer",
-                  color: "#475569",
-                  fontWeight: 500,
+                  padding: "11px 14px",
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius.md,
+                  background: DS.surfaceAlt,
                 }}
               >
-                {t[labelKey] as string}
-              </label>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 11,
+                    color: DS.textMuted,
+                    fontWeight: 700,
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.06em",
+                    marginBottom: 6,
+                  }}
+                >
+                  {t[labelKey] as string}
+                </label>
+                <input
+                  type="number"
+                  dir="ltr"
+                  value={
+                    svc[key] !== null && svc[key] !== undefined
+                      ? String(svc[key])
+                      : ""
+                  }
+                  onChange={(e) =>
+                    setAvailableService(
+                      key,
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
+                  placeholder="—"
+                  style={{ ...inputStyle, background: DS.surface }}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Surrounding Environment */}
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                color: DS.textMuted,
+                fontWeight: 700,
+                textTransform: "uppercase" as const,
+                letterSpacing: "0.06em",
+                marginBottom: 10,
+              }}
+            >
+              {lang === "ar" ? "البيئة المحيطة" : "Surrounding Environment"}
             </div>
-          ))}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                gap: 8,
+              }}
+            >
+              {(
+                [
+                  { key: "mosque", labelAr: "مسجد", labelEn: "Mosque" },
+                  {
+                    key: "commercialMarket",
+                    labelAr: "سوق تجاري",
+                    labelEn: "Commercial Market",
+                  },
+                  { key: "park", labelAr: "حديقة", labelEn: "Park" },
+                  {
+                    key: "governmentFacility",
+                    labelAr: "مرفق حكومي",
+                    labelEn: "Government Facility",
+                  },
+                  {
+                    key: "highSpeedRoad",
+                    labelAr: "طريق سريع",
+                    labelEn: "High-Speed Road",
+                  },
+                  {
+                    key: "otherServices",
+                    labelAr: "خدمات أخرى",
+                    labelEn: "Other Services",
+                  },
+                  {
+                    key: "educationalFacility",
+                    labelAr: "مرفق تعليمي",
+                    labelEn: "Educational Facility",
+                  },
+                  {
+                    key: "securityFacility",
+                    labelAr: "مرفق أمني",
+                    labelEn: "Security Facility",
+                  },
+                  {
+                    key: "medicalFacility",
+                    labelAr: "مرفق طبي",
+                    labelEn: "Medical Facility",
+                  },
+                ] as { key: string; labelAr: string; labelEn: string }[]
+              ).map(({ key, labelAr, labelEn }) => {
+                const checked = (
+                  ev.services.surroundingEnvironment ?? []
+                ).includes(key);
+                return (
+                  <label
+                    key={key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 13px",
+                      border: `1.5px solid ${checked ? DS.primary + "60" : DS.border}`,
+                      borderRadius: DS.radius.md,
+                      background: checked ? DS.primaryLight : DS.surfaceAlt,
+                      cursor: "pointer",
+                      userSelect: "none" as const,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 4,
+                        border: `2px solid ${checked ? DS.primary : DS.borderStrong}`,
+                        background: checked ? DS.primary : "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {checked && (
+                        <Check size={11} color="#fff" strokeWidth={3} />
+                      )}
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => setSurroundingEnv(key, e.target.checked)}
+                      style={{ display: "none" }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: checked ? 600 : 500,
+                        color: checked ? DS.primary : DS.text,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {lang === "ar" ? labelAr : labelEn}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </SectionCard>
 
-      {/* الموقع على الخارطة */}
-      <SectionCard title={t.secMap}>
+      {/* ── Map Location ────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secMap} icon={<MapPin size={14} />}>
+        {/* Map picker button */}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setShowMapPicker(true)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "9px 16px",
+              background: `${DS.primary}12`,
+              border: `1.5px solid ${DS.primary}35`,
+              borderRadius: DS.radius.md,
+              color: DS.primary,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              transition: "all 0.15s",
+            }}
+          >
+            <Map size={15} />
+            {t.pickFromMap}
+          </button>
+
+          {ev.map.coords && (
+            <span
+              style={{
+                marginInlineStart: 10,
+                fontSize: 12,
+                color: DS.textMuted,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              📍 {ev.map.coords}
+            </span>
+          )}
+        </div>
+
         <GridFields>
           {mapFields.map(({ key, labelKey }) => (
             <Field key={key} label={t[labelKey] as string}>
@@ -2714,10 +3299,31 @@ export function TransactionEvaluationPage({
             </Field>
           ))}
         </GridFields>
+
+        {/* Map Picker Modal */}
+        {showMapPicker && (
+          <MapPickerComponent
+            value={ev.map.coords}
+            onChange={(coords) => {
+              // Parse "lat,lng" back into individual fields
+              const [latStr, lngStr] = coords.split(",").map((s) => s.trim());
+              setField("map", "coords", coords);
+              if (latStr) setField("map", "lat", latStr);
+              if (lngStr) setField("map", "lng", lngStr);
+              setShowMapPicker(false);
+            }}
+            onClose={() => setShowMapPicker(false)}
+            lang={lang}
+          />
+        )}
       </SectionCard>
 
-      {/* المقارنة */}
-      <SectionCard title={t.secComparison} accentColor="#0e7490">
+      {/* ── Comparison ──────────────────────────────────────────────────────── */}
+      <SectionCard
+        title={t.secComparison}
+        accentColor="#0e7490"
+        icon={<Map size={14} />}
+      >
         <SettlementComparison
           useLabel={
             USE_LABELS[lang][ev.location.assetCategoryId] ??
@@ -2749,8 +3355,12 @@ export function TransactionEvaluationPage({
         />
       </SectionCard>
 
-      {/* تكلفة الإحلال */}
-      <SectionCard title={t.secReplacement} accentColor="#0e7490">
+      {/* ── Replacement Cost ─────────────────────────────────────────────────── */}
+      <SectionCard
+        title={t.secReplacement}
+        accentColor="#0e7490"
+        icon={<Wrench size={14} />}
+      >
         <ReplacementCostSection
           lang={lang}
           lines={ev.replacementLines}
@@ -2764,14 +3374,17 @@ export function TransactionEvaluationPage({
         />
       </SectionCard>
 
-      {/* طرق التقييم */}
-      <SectionCard title={t.secMethods}>
+      {/* ── Valuation Methods ────────────────────────────────────────────────── */}
+      <SectionCard title={t.secMethods} icon={<BarChart2 size={14} />}>
+        {/* Tab bar */}
         <div
           style={{
             display: "flex",
-            gap: 6,
+            gap: 4,
             marginBottom: 16,
             flexWrap: "wrap",
+            borderBottom: `1px solid ${DS.border}`,
+            paddingBottom: 12,
           }}
         >
           {VM_TABS.map((tab) => (
@@ -2780,14 +3393,28 @@ export function TransactionEvaluationPage({
               type="button"
               onClick={() => setActiveVmTab(tab.id)}
               style={{
-                ...styles.vmTab,
-                ...(activeVmTab === tab.id ? styles.vmTabActive : {}),
+                padding: "6px 14px",
+                border:
+                  activeVmTab === tab.id
+                    ? `1.5px solid ${DS.primary}`
+                    : `1px solid ${DS.border}`,
+                borderRadius: DS.radius.md,
+                background: activeVmTab === tab.id ? DS.primary : DS.surface,
+                cursor: "pointer",
+                fontSize: 12,
+                fontFamily: "inherit",
+                color: activeVmTab === tab.id ? "#fff" : DS.textMuted,
+                fontWeight: activeVmTab === tab.id ? 700 : 500,
+                boxShadow:
+                  activeVmTab === tab.id ? `0 2px 8px ${DS.primary}35` : "none",
+                transition: "all 0.15s",
               }}
             >
               {tab.label}
             </button>
           ))}
         </div>
+
         {activeVmTab === "vm-m" && (
           <GridFields tight>
             <Field label={t.marketMeterPrice}>
@@ -2900,15 +3527,15 @@ export function TransactionEvaluationPage({
           activeVmTab === "vm-e") && (
           <div
             style={{
-              padding: "24px",
+              padding: 28,
               textAlign: "center",
-              color: "#94a3b8",
-              background: "#f8fafc",
-              borderRadius: 10,
-              border: "1px dashed #e2e8f0",
+              color: DS.textMuted,
+              background: DS.surfaceAlt,
+              borderRadius: DS.radius.lg,
+              border: `1px dashed ${DS.border}`,
             }}
           >
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🚧</div>
+            <div style={{ fontSize: 30, marginBottom: 8 }}>🚧</div>
             <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>
               {t.comingSoon}
             </p>
@@ -2916,8 +3543,8 @@ export function TransactionEvaluationPage({
         )}
       </SectionCard>
 
-      {/* رأي المقيم */}
-      <SectionCard title={t.secAppraiser}>
+      {/* ── Appraiser Opinion ────────────────────────────────────────────────── */}
+      <SectionCard title={t.secAppraiser} icon={<UserCheck size={14} />}>
         <GridFields>
           <Field label={t.evalDate}>
             <Input
@@ -2976,8 +3603,8 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* بنود التقرير */}
-      <SectionCard title={t.secReport}>
+      {/* ── Report Items ─────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secReport} icon={<ScrollText size={14} />}>
         <GridFields>
           <Field label={t.standards} full>
             <Textarea
@@ -3014,33 +3641,73 @@ export function TransactionEvaluationPage({
         </GridFields>
       </SectionCard>
 
-      {/* معدي التقرير */}
-      <SectionCard title={t.secAuthors}>
-        <GridFields>
+      {/* ── Authors ──────────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secAuthors} icon={<Users size={14} />}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {[1, 2, 3, 4].map((n) => (
-            <React.Fragment key={n}>
-              <Field label={t.authorId.replace("%n", String(n))}>
+            <div
+              key={n}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+                padding: "12px 14px",
+                background: DS.surfaceAlt,
+                border: `1px solid ${DS.border}`,
+                borderRadius: DS.radius.md,
+              }}
+            >
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 10,
+                    color: DS.textLight,
+                    fontWeight: 700,
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.06em",
+                    marginBottom: 4,
+                  }}
+                >
+                  {lang === "ar"
+                    ? `معد ${n} — معرف / اسم`
+                    : `Author ${n} — ID / Name`}
+                </label>
                 <Input
                   value={(ev.authors as any)[`author${n}Id`] ?? ""}
                   onChange={(e) =>
                     setField("authors", `author${n}Id`, e.target.value)
                   }
                 />
-              </Field>
-              <Field label={t.authorTitle.replace("%n", String(n))}>
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 10,
+                    color: DS.textLight,
+                    fontWeight: 700,
+                    textTransform: "uppercase" as const,
+                    letterSpacing: "0.06em",
+                    marginBottom: 4,
+                  }}
+                >
+                  {lang === "ar" ? `معد ${n} — المنصب` : `Author ${n} — Title`}
+                </label>
                 <Input
                   value={(ev.authors as any)[`author${n}Title`] ?? ""}
                   onChange={(e) =>
                     setField("authors", `author${n}Title`, e.target.value)
                   }
                 />
-              </Field>
-            </React.Fragment>
+              </div>
+            </div>
           ))}
-        </GridFields>
+        </div>
       </SectionCard>
 
-      {/* ── Floating Save FAB ── */}
+      {/* ── Floating Save FAB ────────────────────────────────────────────────── */}
       <div
         style={{
           position: "fixed",
@@ -3056,17 +3723,17 @@ export function TransactionEvaluationPage({
         {statusMsg.text && (
           <div
             style={{
-              padding: "8px 16px",
-              borderRadius: 10,
+              padding: "9px 16px",
+              borderRadius: DS.radius.lg,
               fontSize: 12,
               fontWeight: 600,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              boxShadow: DS.shadow.lg,
               background:
                 statusMsg.type === "ok"
-                  ? "#059669"
+                  ? DS.green
                   : statusMsg.type === "error"
-                    ? "#dc2626"
-                    : "#0891b2",
+                    ? DS.red
+                    : DS.primary,
               color: "#fff",
               display: "flex",
               alignItems: "center",
@@ -3074,11 +3741,13 @@ export function TransactionEvaluationPage({
               whiteSpace: "nowrap" as const,
             }}
           >
-            {statusMsg.type === "ok"
-              ? "✓"
-              : statusMsg.type === "error"
-                ? "✗"
-                : "⟳"}{" "}
+            {statusMsg.type === "ok" ? (
+              <CheckCircle2 size={14} />
+            ) : statusMsg.type === "error" ? (
+              <XCircle size={14} />
+            ) : (
+              <Loader2 size={14} />
+            )}
             {statusMsg.text}
           </div>
         )}
@@ -3088,207 +3757,32 @@ export function TransactionEvaluationPage({
           disabled={saving}
           title={t.save}
           style={{
-            width: 56,
-            height: 56,
+            width: 54,
+            height: 54,
             borderRadius: "50%",
-            background: saving ? "#64748b" : "#0891b2",
+            background: saving ? DS.textMuted : DS.primary,
             color: "#fff",
             border: "none",
             cursor: saving ? "not-allowed" : "pointer",
-            fontSize: 22,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 4px 20px rgba(8,145,178,0.45)",
+            boxShadow: `0 4px 20px ${DS.primary}55`,
             transition: "all 0.2s",
           }}
         >
-          {saving ? "⟳" : "💾"}
+          {saving ? (
+            <Loader2
+              size={22}
+              style={{ animation: "spin 1s linear infinite" }}
+            />
+          ) : (
+            <Save size={22} />
+          )}
         </button>
       </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   );
 }
-
-// ─── styles ───────────────────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  shell: {
-    fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
-    fontSize: 14,
-    color: "#1e293b",
-    background: "#f1f5f9",
-    minHeight: "100vh",
-    padding: "20px 20px 100px",
-    position: "relative",
-    width: "100%", // ← was maxWidth: 1280 + margin: "0 auto"
-    boxSizing: "border-box" as const, // ← ensures padding doesn't cause overflow
-  },
-  sectionCard: {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 16,
-    marginBottom: 10,
-    overflow: "hidden",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-  },
-  sectionHead: {
-    width: "100%",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "13px 20px",
-    background: "#f8fafc",
-    border: "none",
-    borderBottom: "1px solid #e2e8f0",
-    cursor: "pointer",
-    fontWeight: 600,
-    fontSize: 13,
-    color: "#334155",
-    textAlign: "right",
-    letterSpacing: "0.01em",
-  },
-  sectionBody: { padding: "18px 20px" },
-  gridFields: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))",
-    gap: 14,
-  },
-  fieldLabel: {
-    display: "block",
-    fontSize: 11,
-    color: "#64748b",
-    marginBottom: 5,
-    fontWeight: 600,
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-  },
-  input: {
-    width: "100%",
-    padding: "8px 11px",
-    border: "1px solid #e2e8f0",
-    borderRadius: 8,
-    fontSize: 13,
-    color: "#1e293b",
-    background: "#fff",
-    boxSizing: "border-box" as const,
-    fontFamily: "inherit",
-    outline: "none",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse" as const,
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  th: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    padding: "8px 10px",
-    fontWeight: 700,
-    whiteSpace: "nowrap" as const,
-    textAlign: "center" as const,
-    fontSize: 10,
-    color: "#64748b",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-  },
-  td: {
-    border: "1px solid #e2e8f0",
-    padding: "5px",
-    verticalAlign: "middle" as const,
-  },
-  cellInput: {
-    width: "100%",
-    padding: "5px 8px",
-    border: "1px solid #e2e8f0",
-    borderRadius: 6,
-    fontSize: 12,
-    background: "#fff",
-    boxSizing: "border-box" as const,
-    fontFamily: "inherit",
-    color: "#1e293b",
-  },
-  linkBtn: {
-    background: "none",
-    border: "none",
-    color: "#0891b2",
-    cursor: "pointer",
-    fontSize: 12,
-    padding: "6px 0",
-    fontWeight: 700,
-    fontFamily: "inherit",
-  },
-  iconBtn: {
-    background: "none",
-    border: "none",
-    cursor: "pointer",
-    fontSize: 14,
-    padding: "3px 6px",
-    color: "#ef4444",
-    borderRadius: 6,
-  },
-  btnPrimary: {
-    background: "#0891b2",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "8px 18px",
-    cursor: "pointer",
-    fontSize: 13,
-    fontFamily: "inherit",
-    fontWeight: 600,
-    whiteSpace: "nowrap" as const,
-  },
-  btnSecondary: {
-    background: "#fff",
-    color: "#475569",
-    border: "1px solid #e2e8f0",
-    borderRadius: 8,
-    padding: "8px 16px",
-    cursor: "pointer",
-    fontSize: 13,
-    fontFamily: "inherit",
-    fontWeight: 500,
-    whiteSpace: "nowrap" as const,
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-  },
-  actionBtn: {
-    background: "#fff",
-    border: "1px solid #e2e8f0",
-    borderRadius: 8,
-    padding: "7px 13px",
-    cursor: "pointer",
-    fontSize: 12,
-    fontFamily: "inherit",
-    fontWeight: 500,
-    color: "#475569",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-  },
-  vmTab: {
-    padding: "7px 16px",
-    border: "1px solid #e2e8f0",
-    borderRadius: 8,
-    background: "#fff",
-    cursor: "pointer",
-    fontSize: 12,
-    fontFamily: "inherit",
-    color: "#64748b",
-    fontWeight: 500,
-  },
-  vmTabActive: {
-    background: "#0891b2",
-    color: "#fff",
-    borderColor: "#0891b2",
-    boxShadow: "0 2px 8px rgba(8,145,178,0.3)",
-  },
-  pageTitle: {
-    fontSize: 20,
-    fontWeight: 700,
-    margin: 0,
-    color: "#0f172a",
-    letterSpacing: "-0.3px",
-  },
-};
