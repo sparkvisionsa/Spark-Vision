@@ -27,12 +27,12 @@ function parseBooleanEnv(rawValue, defaultValue) {
 }
 
 function shouldWarmRoutes(useTurboPack) {
-  // Default ON with webpack so first navigation does not wait for compile-on-demand.
-  // Default OFF with turbopack because it was the main source of manifest races on Windows.
   if (process.env.FRONTEND_DEV_WARM_ROUTES != null) {
     return parseBooleanEnv(process.env.FRONTEND_DEV_WARM_ROUTES, true);
   }
-  return !useTurboPack;
+  // Large workspace bundles can block the first browser request for a long time
+  // during warmup. Keep dev startup responsive unless warmup is explicitly enabled.
+  return false;
 }
 
 const REWRITE_WARM_ROUTE_MAP = new Map([
@@ -56,8 +56,6 @@ const DEFAULT_WARM_ROUTES = [
   "/w/real-estate-valuation",
   "/w/machine-valuation",
   "/w/machine-valuation/projects",
-  /** يجمّع مسار `app/api/mv/[...path]` مبكراً حتى لا يضاف تأخير عند أول `fetch` */
-  "/api/mv/projects",
   "/w/evaluation-source",
   "/w/evaluation-source/cars",
   "/w/evaluation-source/real-estate",

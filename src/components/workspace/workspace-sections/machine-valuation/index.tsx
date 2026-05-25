@@ -25,7 +25,7 @@ function MvRouteSkeleton() {
 const ProjectsList = dynamic(() => import("./projects-list"), {
   loading: () => <MvRouteSkeleton />,
 });
-const MvDashboardHome = dynamic(() => import("./mv-dashboard-home"), {
+const ClientsPage = dynamic(() => import("@/components/clients/clients-page"), {
   loading: () => <MvRouteSkeleton />,
 });
 const MvProjectWorkspace = dynamic(() => import("./mv-project-workspace"), {
@@ -50,14 +50,20 @@ function parseMvPath(pathname: string) {
 
   const segments = rest.split("/").filter(Boolean);
   if (segments[0] === "dashboard") {
-    return { view: "dashboard" as const, segments };
+    return { view: "projects" as const, segments };
   }
   if (segments[0] === "projects") {
     if (segments.length === 1) return { view: "projects" as const, segments };
-    return { view: "dashboard" as const, segments };
+    return { view: "projects" as const, segments };
   }
   if (segments.length === 1 && segments[0] === "company") {
     return { view: "company-admin" as const, segments };
+  }
+  if (segments.length === 1 && segments[0] === "report-settings") {
+    return { view: "report-settings" as const, segments };
+  }
+  if (segments.length === 1 && segments[0] === "clients") {
+    return { view: "clients" as const, segments };
   }
   if (segments.length === 1) {
     return { view: "report-data-workflow" as const, projectId: segments[0]!, segments };
@@ -132,6 +138,10 @@ export default function MachineValuationSection() {
   switch (route.view) {
     case "company-admin":
       return <CompanyAdminDashboard variant="embedded" />;
+    case "report-settings":
+      return <CompanyAdminDashboard variant="embedded" mode="report-defaults" />;
+    case "clients":
+      return <ClientsPage />;
     case "workflow":
       return (
         <MvWorkflowShell
@@ -163,8 +173,6 @@ export default function MachineValuationSection() {
       );
     case "projects":
       return <ProjectsList />;
-    case "dashboard":
-      return <MvDashboardHome />;
     default:
       return <ProjectsList />;
   }

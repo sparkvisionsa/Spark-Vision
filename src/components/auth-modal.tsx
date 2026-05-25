@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { PhoneNumberInput } from "@/components/phone-number-input";
 
 export default function AuthModal({
   open,
@@ -22,7 +23,7 @@ export default function AuthModal({
   onOpenChange: (value: boolean) => void;
 }) {
   const { login } = useAuthTracking();
-  const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -31,7 +32,7 @@ export default function AuthModal({
   useEffect(() => {
     if (open) {
       setError("");
-      setUsername("");
+      setPhone("");
       setPassword("");
       setRememberMe(false);
     }
@@ -41,8 +42,8 @@ export default function AuthModal({
     setSubmitting(true);
     setError("");
     try {
-      const normalizedUsername = username.trim();
-      await login({ username: normalizedUsername, password, rememberMe });
+      const normalizedPhone = phone.trim();
+      await login({ phone: normalizedPhone, password, rememberMe });
       onOpenChange(false);
       setPassword("");
     } catch (submitError) {
@@ -66,13 +67,13 @@ export default function AuthModal({
 
         <div className="space-y-4">
           <div className="grid gap-2">
-            <Label htmlFor="auth-username">اسم المستخدم</Label>
-            <Input
-              id="auth-username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              placeholder="username"
-              autoComplete="username"
+            <Label htmlFor="auth-phone">رقم الهاتف</Label>
+            <PhoneNumberInput
+              id="auth-phone"
+              value={phone}
+              onChange={setPhone}
+              autoComplete="tel"
+              allowRawIdentifier
             />
           </div>
           <div className="grid gap-2">
@@ -105,7 +106,7 @@ export default function AuthModal({
           <Button
             type="button"
             className="w-full"
-            disabled={submitting || !username || !password}
+            disabled={submitting || !phone || !password}
             onClick={onSubmit}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

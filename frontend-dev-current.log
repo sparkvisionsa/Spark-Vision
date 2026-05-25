@@ -18,49 +18,11 @@
      · middlewareClientMaxBodySize: "160mb"
 
  ✓ Starting...
-[frontend] warming 15 routes (batch=2, gap=100ms) — TCP readiness only, no extra GET / before warmup…
- ✓ Ready in 5.4s
+ ✓ Ready in 13.6s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 2s (159 modules)
  ○ Compiling /w/[[...slug]] ...
- ✓ Compiled /w/[[...slug]] in 50.5s (2686 modules)
- GET / 200 in 52690ms
-[frontend] warmed / in 56763ms
- GET /w/machine-valuation/projects 200 in 40076ms
-[frontend] warmed /w/vt in 57560ms
- GET /w/vt 200 in 53613ms
- GET /machine-valuation/projects 200 in 970ms
-[frontend] warmed /w/value-tech-app in 725ms
- GET /w/value-tech-app 200 in 694ms
- GET /w/real-estate-valuation 200 in 724ms
-[frontend] warmed /w/real-estate-valuation in 756ms
- GET /w/machine-valuation 200 in 537ms
-[frontend] warmed /w/machine-valuation in 641ms
- GET /w/machine-valuation/projects 200 in 555ms
-[frontend] warmed /w/machine-valuation/projects in 673ms
- ○ Compiling /api/mv/[...path] ...
- ✓ Compiled /api/mv/[...path] in 4.3s (2532 modules)
- GET /w/evaluation-source 200 in 5977ms
-[frontend] warmed /w/evaluation-source in 6001ms
- GET /api/mv/projects 401 in 2349ms
- GET /api/mv/projects 401 in 8883ms
-[frontend] warmed /w/evaluation-source/cars in 965ms
- GET /w/evaluation-source/cars 200 in 935ms
- GET /w/evaluation-source/real-estate 200 in 937ms
-[frontend] warmed /w/evaluation-source/real-estate in 970ms
-[frontend] warmed /w/evaluation-source/other in 871ms
- GET /w/evaluation-source/other 200 in 887ms
- GET /w/clients 200 in 890ms
-[frontend] warmed /w/clients in 912ms
- ○ Compiling /admin ...
- ✓ Compiled /admin in 13.6s (3642 modules)
- GET /admin 200 in 15347ms
-[frontend] warmed /admin in 15355ms
- GET /w/settings 200 in 15336ms
-[frontend] warmed /w/settings in 15358ms
- ○ Compiling /profile ...
- ✓ Compiled /profile in 2.6s (3650 modules)
- GET /profile 200 in 3481ms
-[frontend] warmed /profile in 3486ms
-[frontend] route warmup finished in 89641ms
- GET /api/mv/projects 200 in 2191ms
- GET /api/mv/projects 200 in 1495ms
+ ✓ Compiled /w/[[...slug]] in 44.2s (2619 modules)
+ ✓ Compiled in 2.2s (1157 modules)
+ HEAD /machine-valuation/projects 200 in 47998ms
 [?25h

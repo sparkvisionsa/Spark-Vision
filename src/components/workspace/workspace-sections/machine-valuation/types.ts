@@ -43,11 +43,32 @@ export interface MvCompanyReportAssumptionsDefaults {
   specialAssumptions?: string;
 }
 
+export interface MvCompanyReportCustomSection {
+  id: string;
+  sectionNumber?: string;
+  title: string;
+  body: string;
+}
+
+export interface MvCompanyReportLetterheadTemplate {
+  enabled?: boolean;
+  templateId?: string | null;
+  outputFormat?: "pdf" | "pptx" | null;
+  coverImageDataUrl?: string | null;
+  pageImageDataUrl?: string | null;
+  landscapePageImageDataUrl?: string | null;
+  logoDataUrl?: string | null;
+  footerImageDataUrl?: string | null;
+  signatureStampDataUrl?: string | null;
+}
+
 /** قوالب التقرير النهائي الافتراضية على مستوى الشركة. */
 export interface MvCompanyReportDefaults {
   scope?: MvCompanyReportScopeDefaults;
   methodology?: MvCompanyReportMethodologyDefaults;
   assumptions?: MvCompanyReportAssumptionsDefaults;
+  customSections?: MvCompanyReportCustomSection[];
+  letterhead?: MvCompanyReportLetterheadTemplate;
 }
 
 export interface MvCellStyle {
@@ -74,6 +95,7 @@ export interface MvReportTeamMember {
 
 export interface MvReportEditableSection {
   id: string;
+  sectionNumber?: string;
   title: string;
   body: string;
   /**
@@ -82,6 +104,7 @@ export interface MvReportEditableSection {
    * قبل المرفقات للحفاظ على التوافق مع المشاريع القديمة.
    */
   insertAfterAnchorId?: string;
+  companyDefaultSectionId?: string;
 }
 
 export type MvReportInsertedBlockKind = "heading" | "paragraph" | "image";
@@ -164,6 +187,8 @@ export interface MvProjectReportData {
   specialAssumptions?: string;
   finalValue?: number | null;
   finalValueWords?: string;
+  /** قالب إخراج التقرير المختار داخل خطوات المشروع البسيط. */
+  reportTemplateId?: string;
   /**
    * وضع عرض التقرير: مسودة = علامة مائية «مسودة» على كل الصفحات
    * وإخفاء صور التوقيع في جدول 24.0 رأي القيمة.

@@ -21,6 +21,7 @@ import {
   Plus,
   Search,
   Trash2,
+  UserPlus,
   Users,
   Workflow,
 } from "lucide-react";
@@ -381,12 +382,17 @@ type CompanyOptionRow = { id: string; name: string };
 type ProjectInspectorOption = {
   id: string;
   username: string;
+  displayName?: string | null;
   email?: string | null;
   phone?: string | null;
+  city?: string | null;
+  region?: string | null;
+  lastLoginAt?: string | null;
+  isPhoneVerified?: boolean;
 };
 
 function inspectorOptionLabel(inspector: ProjectInspectorOption): string {
-  return inspector.username || inspector.email || inspector.phone || "معاين";
+  return inspector.displayName || inspector.phone || inspector.username || inspector.email || "معاين";
 }
 
 function normalizeInspectorSelection(value: readonly string[], inspectors: readonly ProjectInspectorOption[]): string[] {
@@ -416,6 +422,54 @@ function MultiSelectOptionCheck({ checked }: { checked: boolean }) {
       <Check className="h-3 w-3" />
     </span>
   );
+}
+
+function normalizeAssignmentLocationIds(value: readonly string[]): string[] {
+  if (value.includes(MV_ALL_LOCATIONS_VALUE)) return [];
+  return Array.from(new Set(value.filter(Boolean))).sort();
+}
+
+function inspectionAssignmentKey(inspectorUserId: string, locationIds: readonly string[]): string {
+  const normalizedLocations = normalizeAssignmentLocationIds(locationIds);
+  return `${inspectorUserId}:${normalizedLocations.length > 0 ? normalizedLocations.join("|") : "all"}`;
+}
+
+function systemInspectorLocationLabel(inspector: ProjectInspectorOption): string {
+  const parts = [inspector.region, inspector.city].map((item) => item?.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.join("، ") : "بدون مدينة";
+}
+
+function systemInspectorLastLoginLabel(value: string | null | undefined): string {
+  if (!value) return "لم يسجل دخول";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "غير متاح";
+  return new Intl.DateTimeFormat("ar-SA", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function systemInspectorIsRecentlyActive(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return Date.now() - date.getTime() <= 15 * 60 * 1000;
+}
+
+function systemInspectorSearchText(inspector: ProjectInspectorOption): string {
+  return [
+    inspector.displayName,
+    inspector.username,
+    inspector.email,
+    inspector.phone,
+    inspector.city,
+    inspector.region,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 function ProjectInspectorMultiSelect({
@@ -505,6 +559,217 @@ function ProjectInspectorMultiSelect({
   );
 }
 
+function SystemInspectorSearchDialog({
+  open,
+  onOpenChange,
+  projectId,
+  onSelect,
+  isSelected,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId?: string;
+  onSelect: (inspector: ProjectInspectorOption) => void;
+  isSelected: (inspector: ProjectInspectorOption) => boolean;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [cityFilter, setCityFilter] = useState("all");
+  const [inspectors, setInspectors] = useState<ProjectInspectorOption[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(`/api/mv/projects/${projectId}/system-inspectors`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error();
+        const data = (await response.json().catch(() => null)) as {
+          inspectors?: ProjectInspectorOption[];
+        } | null;
+        if (!cancelled) setInspectors(data?.inspectors ?? []);
+      } catch {
+        if (!cancelled) {
+          setInspectors([]);
+          setError("تعذر تحميل معايني النظام.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, projectId]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      setCityFilter("all");
+      setError(null);
+    }
+  }, [open]);
+
+  const cityOptions = useMemo(() => {
+    const names = inspectors
+      .map((inspector) => inspector.city?.trim() || inspector.region?.trim() || "")
+      .filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [inspectors]);
+
+  const filteredInspectors = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return inspectors.filter((inspector) => {
+      const cityValue = inspector.city?.trim() || inspector.region?.trim() || "";
+      const cityMatches = cityFilter === "all" || cityValue === cityFilter;
+      const queryMatches = !q || systemInspectorSearchText(inspector).includes(q);
+      return cityMatches && queryMatches;
+    });
+  }, [inspectors, query, cityFilter]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex max-h-[86vh] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-5xl"
+        dir="rtl"
+      >
+        <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+              <UserPlus className="h-4 w-4" />
+            </span>
+            <DialogTitle className="truncate text-[15px] font-bold text-slate-900">
+              اختيار معاين من النظام
+            </DialogTitle>
+          </div>
+        </DialogHeader>
+
+        <div className="grid shrink-0 gap-2 border-b border-slate-100 bg-slate-50 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="بحث بالاسم أو المدينة أو رقم الجوال"
+              className="h-10 rounded-lg border-slate-200 bg-white pr-9 text-right text-[12px] font-semibold"
+            />
+          </div>
+          <Select
+            value={cityFilter}
+            onValueChange={setCityFilter}
+            disabled={cityOptions.length === 0}
+          >
+            <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-bold">
+              <SelectValue placeholder="كل المدن" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المدن</SelectItem>
+              {cityOptions.map((city) => (
+                <SelectItem key={city} value={city}>
+                  {city}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto bg-white">
+          {loading ? (
+            <div className="flex min-h-[220px] items-center justify-center text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : error ? (
+            <div className="px-4 py-8 text-center text-[13px] font-semibold text-red-600">{error}</div>
+          ) : filteredInspectors.length === 0 ? (
+            <div className="px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
+              لا توجد نتائج مطابقة.
+            </div>
+          ) : (
+            <table className="min-w-[760px] w-full text-right text-[12px]">
+              <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] font-black text-slate-500">
+                <tr className="border-b border-slate-200">
+                  <th className="px-3 py-2 text-right">اسم المعاين</th>
+                  <th className="px-3 py-2 text-right">الجوال</th>
+                  <th className="px-3 py-2 text-center">المهام</th>
+                  <th className="px-3 py-2 text-center">قيد التنفيذ</th>
+                  <th className="px-3 py-2 text-center">التقييم</th>
+                  <th className="px-3 py-2 text-right">الحالة</th>
+                  <th className="px-3 py-2 text-center">اختيار</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredInspectors.map((inspector) => {
+                  const selected = isSelected(inspector);
+                  const active = systemInspectorIsRecentlyActive(inspector.lastLoginAt);
+                  return (
+                    <tr key={inspector.id} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-2">
+                        <p className="max-w-[220px] truncate text-[12px] font-black text-slate-900" dir="auto">
+                          {inspectorOptionLabel(inspector)}
+                        </p>
+                        <p className="mt-0.5 max-w-[220px] truncate text-[11px] font-semibold text-slate-500">
+                          {systemInspectorLocationLabel(inspector)}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 font-bold tabular-nums text-sky-700" dir="ltr">
+                        {inspector.phone || inspector.username || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>
+                      <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>
+                      <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-black",
+                              active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "h-1.5 w-1.5 rounded-full",
+                                active ? "bg-emerald-500" : "bg-slate-400",
+                              )}
+                            />
+                            {active ? "نشط" : "غير نشط"}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            {systemInspectorLastLoginLabel(inspector.lastLoginAt)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 rounded-lg bg-[#2f70b7] px-4 text-[11px] font-black text-white hover:bg-[#245d9d] disabled:bg-slate-200 disabled:text-slate-500"
+                          disabled={selected}
+                          onClick={() => onSelect(inspector)}
+                        >
+                          {selected ? "مضاف" : "اختيار"}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+          المعاينون: {numberFormatter.format(filteredInspectors.length)}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MvInspectorAssignmentsPanel({
   active,
   project,
@@ -522,6 +787,7 @@ function MvInspectorAssignmentsPanel({
   const [selectedInspectorIds, setSelectedInspectorIds] = useState<string[]>([]);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([MV_ALL_LOCATIONS_VALUE]);
   const [projectSnapshot, setProjectSnapshot] = useState<MvProject | null>(project);
+  const [systemInspectorSearchOpen, setSystemInspectorSearchOpen] = useState(false);
   const projectId = project?._id;
 
   useEffect(() => {
@@ -573,20 +839,33 @@ function MvInspectorAssignmentsPanel({
 
   const locations = projectSnapshot?.locations ?? [];
   const selectedInspectors = inspectors.filter((item) => selectedInspectorIds.includes(item.id));
+  const currentAssignmentLocationIds = useMemo(
+    () => normalizeAssignmentLocationIds(selectedLocationIds),
+    [selectedLocationIds],
+  );
+  const draftAssignmentKeys = useMemo(
+    () =>
+      new Set(
+        draftAssignments.map((assignment) =>
+          inspectionAssignmentKey(assignment.inspectorUserId, assignment.locationIds ?? []),
+        ),
+      ),
+    [draftAssignments],
+  );
 
-  const addAssignment = () => {
-    if (selectedInspectors.length === 0) return;
-    const locationIds = selectedLocationIds.includes(MV_ALL_LOCATIONS_VALUE) ? [] : selectedLocationIds;
-    const keyFor = (inspectorId: string) => `${inspectorId}:${locationIds.length > 0 ? locationIds.join("|") : "all"}`;
-    const addedKeys = new Set(selectedInspectors.map((inspector) => keyFor(inspector.id)));
+  const addInspectorsToDraft = (nextInspectors: ProjectInspectorOption[]) => {
+    if (nextInspectors.length === 0) return;
+    const locationIds = currentAssignmentLocationIds;
+    const addedKeys = new Set(
+      nextInspectors.map((inspector) => inspectionAssignmentKey(inspector.id, locationIds)),
+    );
     const now = new Date().toISOString();
     setDraftAssignments((prev) => [
       ...prev.filter((assignment) => {
-        const existingLocations = assignment.locationIds ?? [];
-        const existingKey = `${assignment.inspectorUserId}:${existingLocations.length > 0 ? existingLocations.join("|") : "all"}`;
+        const existingKey = inspectionAssignmentKey(assignment.inspectorUserId, assignment.locationIds ?? []);
         return !addedKeys.has(existingKey);
       }),
-      ...selectedInspectors.map((inspector, index) => ({
+      ...nextInspectors.map((inspector, index) => ({
         id: `${inspector.id}-${locationIds.join("-") || "all"}-${Date.now()}-${index}`,
         inspectorUserId: inspector.id,
         inspectorName: inspectorOptionLabel(inspector),
@@ -595,6 +874,15 @@ function MvInspectorAssignmentsPanel({
         updatedAt: now,
       })),
     ]);
+  };
+
+  const addAssignment = () => {
+    addInspectorsToDraft(selectedInspectors);
+  };
+
+  const selectSystemInspector = (inspector: ProjectInspectorOption) => {
+    addInspectorsToDraft([inspector]);
+    setSystemInspectorSearchOpen(false);
   };
 
   const saveAssignments = async () => {
@@ -623,9 +911,10 @@ function MvInspectorAssignmentsPanel({
   };
 
   return (
+    <>
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
           <div className="grid gap-2 sm:grid-cols-2">
             <ProjectInspectorMultiSelect
               inspectors={inspectors}
@@ -643,6 +932,16 @@ function MvInspectorAssignmentsPanel({
               label="نطاق عمل المعاين"
             />
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 rounded-lg border-slate-200 bg-white px-4 text-[12px] font-bold text-slate-700 shadow-none hover:bg-slate-50"
+            onClick={() => setSystemInspectorSearchOpen(true)}
+            disabled={loading || !projectSnapshot?._id}
+          >
+            <Search className="h-3.5 w-3.5" />
+            بحث عن معاينين
+          </Button>
           <Button
             type="button"
             className="h-10 rounded-lg bg-slate-950 px-4 text-[12px] font-bold text-white hover:bg-slate-800"
@@ -699,6 +998,16 @@ function MvInspectorAssignmentsPanel({
         </Button>
       </div>
     </div>
+    <SystemInspectorSearchDialog
+      open={systemInspectorSearchOpen}
+      onOpenChange={setSystemInspectorSearchOpen}
+      projectId={projectSnapshot?._id}
+      onSelect={selectSystemInspector}
+      isSelected={(inspector) =>
+        draftAssignmentKeys.has(inspectionAssignmentKey(inspector.id, currentAssignmentLocationIds))
+      }
+    />
+    </>
   );
 }
 
@@ -1212,10 +1521,7 @@ export default function MvProjectsDashboard() {
   return (
     <div className={cn(tajawal.className, "min-h-screen bg-[#f5f7fb] text-slate-950")} dir="rtl">
       <MvTopBar
-        breadcrumbs={[
-          { label: "لوحة التحكم", href: "/machine-valuation/dashboard" },
-          { label: "المشاريع" },
-        ]}
+        breadcrumbs={[{ label: "المشاريع" }]}
         sticky
         className="top-0 z-30 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/85"
       />

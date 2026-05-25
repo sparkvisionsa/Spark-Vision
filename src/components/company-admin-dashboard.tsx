@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/components/prefetch-link";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { PhoneNumberInput } from "@/components/phone-number-input";
 import { toApiUrl } from "@/lib/api-url";
 import { imageFileToSignaturePngDataUrl } from "@/lib/signature-image-png";
 import {
@@ -20,8 +21,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,23 +57,30 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { downloadPptxFromPngSlides } from "@/lib/pptx-export";
 import {
   Building2,
   ClipboardList,
+  Download,
+  Eye,
   FileText,
+  ImageIcon,
   Info,
   Loader2,
   MoreVertical,
+  Palette,
   PenLine,
   Plus,
   RotateCcw,
   Save,
+  Stamp,
   Trash2,
   Upload,
   Users,
 } from "lucide-react";
 
 export type CompanyAdminDashboardVariant = "standalone" | "embedded";
+export type CompanyAdminDashboardMode = "general" | "report-defaults";
 
 type CompanyInfo = {
   id: string;
@@ -84,6 +100,32 @@ type CompanyUserRow = {
   createdAt: string;
   lastLoginAt?: string | null;
   valuationReportSignatureDataUrl?: string | null;
+};
+
+type CompanyReportCustomSectionForm = {
+  id: string;
+  groupId?: string;
+  groupTitle?: string;
+  sectionNumber: string;
+  title: string;
+  body: string;
+};
+
+type CompanyReportCustomGroupForm = {
+  id: string;
+  title: string;
+};
+
+type CompanyReportLetterheadForm = {
+  enabled: boolean;
+  templateId: string | null;
+  outputFormat: "pdf" | "pptx";
+  coverImageDataUrl: string | null;
+  pageImageDataUrl: string | null;
+  landscapePageImageDataUrl: string | null;
+  logoDataUrl: string | null;
+  footerImageDataUrl: string | null;
+  signatureStampDataUrl: string | null;
 };
 
 /**
@@ -118,6 +160,68 @@ type CompanyReportDefaultsForm = {
     generalAssumptions: string;
     specialAssumptions: string;
   };
+  customGroups: CompanyReportCustomGroupForm[];
+  customSections: CompanyReportCustomSectionForm[];
+  letterhead: CompanyReportLetterheadForm;
+};
+
+function emptyReportLetterhead(): CompanyReportLetterheadForm {
+  return {
+    enabled: false,
+    templateId: "classic-letterhead",
+    outputFormat: "pdf",
+    coverImageDataUrl: null,
+    pageImageDataUrl: null,
+    landscapePageImageDataUrl: null,
+    logoDataUrl: null,
+    footerImageDataUrl: null,
+    signatureStampDataUrl: null,
+  };
+}
+
+type LetterheadTemplateOption = {
+  id: string;
+  title: string;
+  description: string;
+  outputFormat: "pdf" | "pptx";
+  accentClass: string;
+  badge: string;
+};
+
+const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
+  {
+    id: "classic-letterhead",
+    title: "كلاسيكي رسمي",
+    description: "قالب PDF محافظ يعتمد على غلاف وصفحات داخلية وفوتر واضح.",
+    outputFormat: "pdf",
+    accentClass: "from-sky-600 to-cyan-500",
+    badge: "PDF",
+  },
+  {
+    id: "modern-letterhead",
+    title: "حديث مدمج",
+    description: "قالب أنظف للمحتوى الطويل مع إبراز الشعار والتوقيع في أماكن ثابتة.",
+    outputFormat: "pdf",
+    accentClass: "from-emerald-600 to-teal-500",
+    badge: "PDF",
+  },
+  {
+    id: "powerpoint-deck",
+    title: "PowerPoint Deck",
+    description: "يحوّل صفحات التقرير إلى شرائح PowerPoint بنسبة عرض 16:9 قابلة للتنزيل كملف PPTX.",
+    outputFormat: "pptx",
+    accentClass: "from-orange-600 to-amber-500",
+    badge: "PPTX",
+  },
+];
+
+const COMPANY_LETTERHEAD_TEMPLATE_OPTION: LetterheadTemplateOption = {
+  id: "company-letterhead",
+  title: "أكلاشية الشركة",
+  description: "قالب يعتمد على صور الأكلاشية المرفوعة من الشركة.",
+  outputFormat: "pdf",
+  accentClass: "from-amber-600 to-orange-500",
+  badge: "صور",
 };
 
 function emptyReportDefaults(): CompanyReportDefaultsForm {
@@ -148,7 +252,16 @@ function emptyReportDefaults(): CompanyReportDefaultsForm {
       generalAssumptions: "",
       specialAssumptions: "",
     },
+    customGroups: [],
+    customSections: [],
+    letterhead: emptyReportLetterhead(),
   };
+}
+
+function isReportTemplateImageSource(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/");
 }
 
 /**
@@ -169,10 +282,53 @@ function normalizeReportDefaults(
     }
     return out as T;
   };
+  const image = (value: unknown): string | null =>
+    isReportTemplateImageSource(value) ? value.trim() : null;
+  const letterheadRaw =
+    raw.letterhead && typeof raw.letterhead === "object" ? raw.letterhead : emptyReportLetterhead();
+  const customSections = Array.isArray(raw.customSections)
+    ? raw.customSections
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item, index) => ({
+          id: typeof item.id === "string" && item.id ? item.id : `company-section-${index + 1}`,
+          groupId: typeof item.groupId === "string" && item.groupId.trim() ? item.groupId.trim() : undefined,
+          groupTitle:
+            typeof item.groupTitle === "string" && item.groupTitle.trim() ? item.groupTitle.trim() : undefined,
+          sectionNumber: typeof item.sectionNumber === "string" ? item.sectionNumber : "",
+          title: typeof item.title === "string" ? item.title : "",
+          body: typeof item.body === "string" ? item.body : "",
+        }))
+        .filter((item) => item.title.trim() || item.body.trim())
+    : [];
+  const customGroups = Array.isArray(raw.customGroups)
+    ? raw.customGroups
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item, index) => ({
+          id: typeof item.id === "string" && item.id.trim() ? item.id.trim() : `company-group-${index + 1}`,
+          title: typeof item.title === "string" ? item.title.trim() : "",
+        }))
+        .filter((item) => item.title)
+    : [];
   return {
     scope: merge(base.scope, raw.scope as Partial<typeof base.scope> | undefined),
     methodology: merge(base.methodology, raw.methodology as Partial<typeof base.methodology> | undefined),
     assumptions: merge(base.assumptions, raw.assumptions as Partial<typeof base.assumptions> | undefined),
+    customGroups,
+    customSections,
+    letterhead: {
+      enabled: letterheadRaw.enabled === true,
+      templateId:
+        typeof letterheadRaw.templateId === "string" && letterheadRaw.templateId.trim()
+          ? letterheadRaw.templateId.trim()
+          : base.letterhead.templateId,
+      outputFormat: letterheadRaw.outputFormat === "pptx" ? "pptx" : "pdf",
+      coverImageDataUrl: image(letterheadRaw.coverImageDataUrl),
+      pageImageDataUrl: image(letterheadRaw.pageImageDataUrl),
+      landscapePageImageDataUrl: image(letterheadRaw.landscapePageImageDataUrl),
+      logoDataUrl: image(letterheadRaw.logoDataUrl),
+      footerImageDataUrl: image(letterheadRaw.footerImageDataUrl),
+      signatureStampDataUrl: image(letterheadRaw.signatureStampDataUrl),
+    },
   };
 }
 
@@ -308,6 +464,122 @@ const REPORT_DEFAULTS_ASSUMPTIONS_FIELDS: ReportDefaultsField[] = [
   },
 ];
 
+type ReportDefaultsBuiltInSectionKey = "scope" | "methodology" | "assumptions";
+type ReportDefaultsSectionKind = "built-in" | "custom";
+
+type ReportDefaultsSectionGroup = {
+  id: string;
+  title: string;
+  kind: ReportDefaultsSectionKind;
+  builtInKey?: ReportDefaultsBuiltInSectionKey;
+  fields: ReportDefaultsField[];
+  itemCount: number;
+};
+
+type ReportDefaultsNode =
+  | {
+      id: string;
+      kind: "field";
+      label: string;
+      rows: number;
+      fieldSection: ReportDefaultsBuiltInSectionKey;
+      fieldKey: string;
+      value: string;
+    }
+  | {
+      id: string;
+      kind: "custom";
+      label: string;
+      section: CompanyReportCustomSectionForm;
+      value: string;
+    };
+
+const REPORT_DEFAULTS_BUILT_IN_SECTIONS: Array<{
+  id: ReportDefaultsBuiltInSectionKey;
+  title: string;
+  fields: ReportDefaultsField[];
+}> = [
+  { id: "scope", title: "نطاق العمل والقيود", fields: REPORT_DEFAULTS_SCOPE_FIELDS },
+  { id: "methodology", title: "الأصل والمنهجية والمعاينة", fields: REPORT_DEFAULTS_METHODOLOGY_FIELDS },
+  { id: "assumptions", title: "الافتراضات", fields: REPORT_DEFAULTS_ASSUMPTIONS_FIELDS },
+];
+
+const REPORT_DEFAULTS_UNGROUPED_CUSTOM_GROUP_ID = "custom-root";
+const REPORT_DEFAULTS_UNGROUPED_CUSTOM_GROUP_TITLE = "أقسام إضافية";
+
+function customReportSectionGroupId(section: CompanyReportCustomSectionForm) {
+  return section.groupId?.trim() || REPORT_DEFAULTS_UNGROUPED_CUSTOM_GROUP_ID;
+}
+
+function customReportSectionGroupTitle(section: CompanyReportCustomSectionForm) {
+  return section.groupTitle?.trim() || REPORT_DEFAULTS_UNGROUPED_CUSTOM_GROUP_TITLE;
+}
+
+function buildReportDefaultsSectionGroups(defaults: CompanyReportDefaultsForm): ReportDefaultsSectionGroup[] {
+  const builtInIds = new Set(REPORT_DEFAULTS_BUILT_IN_SECTIONS.map((section) => section.id));
+  const customGroups = new Map<string, CompanyReportCustomGroupForm>();
+  for (const group of defaults.customGroups) {
+    if (!builtInIds.has(group.id as ReportDefaultsBuiltInSectionKey)) customGroups.set(group.id, group);
+  }
+  for (const section of defaults.customSections) {
+    const groupId = customReportSectionGroupId(section);
+    if (!builtInIds.has(groupId as ReportDefaultsBuiltInSectionKey) && !customGroups.has(groupId)) {
+      customGroups.set(groupId, { id: groupId, title: customReportSectionGroupTitle(section) });
+    }
+  }
+
+  const builtInGroups: ReportDefaultsSectionGroup[] = REPORT_DEFAULTS_BUILT_IN_SECTIONS.map((section) => ({
+    id: section.id,
+    title: section.title,
+    kind: "built-in",
+    builtInKey: section.id,
+    fields: section.fields,
+    itemCount:
+      section.fields.length +
+      defaults.customSections.filter((item) => customReportSectionGroupId(item) === section.id).length,
+  }));
+
+  const extraGroups: ReportDefaultsSectionGroup[] = Array.from(customGroups.values()).map((group) => ({
+    id: group.id,
+    title: group.title || REPORT_DEFAULTS_UNGROUPED_CUSTOM_GROUP_TITLE,
+    kind: "custom",
+    fields: [],
+    itemCount: defaults.customSections.filter((item) => customReportSectionGroupId(item) === group.id).length,
+  }));
+
+  return [...builtInGroups, ...extraGroups];
+}
+
+function buildReportDefaultsNodes(
+  defaults: CompanyReportDefaultsForm,
+  section: ReportDefaultsSectionGroup,
+): ReportDefaultsNode[] {
+  const fixedNodes: ReportDefaultsNode[] =
+    section.kind === "built-in" && section.builtInKey
+      ? section.fields.map((field) => ({
+          id: `${section.builtInKey}:${field.key}`,
+          kind: "field" as const,
+          label: field.label,
+          rows: field.rows ?? 5,
+          fieldSection: section.builtInKey!,
+          fieldKey: field.key,
+          value: defaults[section.builtInKey!][field.key as keyof (typeof defaults)[typeof section.builtInKey]] ?? "",
+        }))
+      : [];
+
+  const customNodes = defaults.customSections
+    .filter((item) => customReportSectionGroupId(item) === section.id)
+    .map((item) => ({
+      id: item.id,
+      kind: "custom" as const,
+      label: item.sectionNumber ? `${item.sectionNumber} - ${item.title || "بند جديد"}` : item.title || "بند جديد",
+      section: item,
+      value: item.body,
+    }));
+
+  return [...fixedNodes, ...customNodes];
+}
+
 const ROLE_LABELS: Record<string, string> = {
   company_admin: "مدير الشركة",
   valuer: "مقيم",
@@ -338,6 +610,10 @@ function canDeleteCompanyUserRow(target: CompanyUserRow, currentUserId: string |
   if (target.id === currentUserId) return false;
   if (target.role === "company_admin") return false;
   return true;
+}
+
+function userDisplayName(user: Pick<CompanyUserRow, "username" | "phone">): string {
+  return user.phone?.trim() || user.username;
 }
 
 async function apiJson<T>(url: string, csrfToken: string, init?: RequestInit): Promise<T> {
@@ -434,6 +710,119 @@ function LogoUploader({
             إزالة
           </Button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function newReportDefaultId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `company-section-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function imageFileToReportTemplateDataUrl(
+  file: File,
+  options: { maxEdge: number; transparent?: boolean },
+): Promise<string | null> {
+  if (!file.type.startsWith("image/")) return null;
+  try {
+    const bmp = await createImageBitmap(file).catch(() => null);
+    if (!bmp) return null;
+    const scale = Math.min(1, options.maxEdge / Math.max(bmp.width, bmp.height));
+    const width = Math.max(1, Math.round(bmp.width * scale));
+    const height = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bmp.close();
+      return null;
+    }
+    if (!options.transparent) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.drawImage(bmp, 0, 0, width, height);
+    bmp.close();
+    return options.transparent ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.84);
+  } catch {
+    return null;
+  }
+}
+
+function ReportTemplateImageUploader({
+  label,
+  helper,
+  value,
+  onChange,
+  maxEdge,
+  transparent = false,
+}: {
+  label: string;
+  helper: string;
+  value: string | null;
+  onChange: (next: string | null) => void;
+  maxEdge: number;
+  transparent?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const pick = useCallback(() => inputRef.current?.click(), []);
+  const onFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      const url = await imageFileToReportTemplateDataUrl(file, { maxEdge, transparent });
+      if (url) onChange(url);
+    },
+    [maxEdge, onChange, transparent],
+  );
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+        className="sr-only"
+        onChange={onFile}
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 text-right">
+          <div className="text-[12px] font-bold text-slate-800">{label}</div>
+          <div className="mt-1 text-[10.5px] font-medium leading-5 text-slate-500">{helper}</div>
+        </div>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-[#0C447C]">
+          {transparent ? <Stamp className="h-5 w-5" /> : <ImageIcon className="h-5 w-5" />}
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50">
+          {value ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={value} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <ImageIcon className="h-6 w-6 text-slate-300" />
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" size="sm" className="h-8 gap-1 rounded-xl" onClick={pick}>
+            <Upload className="h-3.5 w-3.5" />
+            رفع
+          </Button>
+          {value ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-xl text-rose-600 hover:bg-rose-50"
+              onClick={() => onChange(null)}
+            >
+              حذف
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -562,8 +951,14 @@ function ReportDefaultsCard({
   );
 }
 
-export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdminDashboardVariant }) {
-  const { user, csrfToken, loading } = useAuthTracking();
+export default function CompanyAdminDashboard({
+  variant,
+  mode = "general",
+}: {
+  variant: CompanyAdminDashboardVariant;
+  mode?: CompanyAdminDashboardMode;
+}) {
+  const { user, csrfToken, loading, backendUnavailable } = useAuthTracking();
   const [data, setData] = useState<{
     company: CompanyInfo | null;
     users: CompanyUserRow[];
@@ -577,7 +972,6 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
   const [logoDraft, setLogoDraft] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
-  const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"valuer" | "data_entry" | "reviewer" | "inspector">("valuer");
   const [newEmail, setNewEmail] = useState("");
@@ -597,6 +991,17 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
   const [reportDefaultsSaving, setReportDefaultsSaving] = useState(false);
   const [reportDefaultsDirty, setReportDefaultsDirty] = useState(false);
   const [reportDefaultsBaseline, setReportDefaultsBaseline] = useState<CompanyReportDefaultsForm | null>(null);
+  const [activeReportDefaultsSectionId, setActiveReportDefaultsSectionId] = useState<string>("scope");
+  const [activeReportDefaultsNodeId, setActiveReportDefaultsNodeId] = useState("");
+  const [newReportDefaultsSectionTitle, setNewReportDefaultsSectionTitle] = useState("");
+  const [newReportDefaultsNodeTitle, setNewReportDefaultsNodeTitle] = useState("");
+  const [reportSectionOpen, setReportSectionOpen] = useState(false);
+  const [reportSectionEditingId, setReportSectionEditingId] = useState<string | null>(null);
+  const [reportSectionNumber, setReportSectionNumber] = useState("");
+  const [reportSectionTitle, setReportSectionTitle] = useState("");
+  const [reportSectionBody, setReportSectionBody] = useState("");
+  const [letterheadImagesOpen, setLetterheadImagesOpen] = useState(false);
+  const [letterheadPreviewId, setLetterheadPreviewId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -651,7 +1056,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
       setReportDefaultsDirty(false);
       setReportDefaultsLoaded(true);
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "تعذر تحميل قوالب التقرير.");
+      setSubmitError(e instanceof Error ? e.message : "تعذر تحميل أقسام التقرير.");
     }
   }, [csrfToken]);
 
@@ -661,8 +1066,44 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
     }
   }, [loadReportDefaults, loading, reportDefaultsLoaded, user?.role]);
 
+  const reportDefaultsSectionGroups = useMemo(
+    () => buildReportDefaultsSectionGroups(reportDefaults),
+    [reportDefaults],
+  );
+  const activeReportDefaultsSection =
+    reportDefaultsSectionGroups.find((section) => section.id === activeReportDefaultsSectionId) ??
+    reportDefaultsSectionGroups[0];
+  const activeReportDefaultsNodes = useMemo(
+    () =>
+      activeReportDefaultsSection
+        ? buildReportDefaultsNodes(reportDefaults, activeReportDefaultsSection)
+        : [],
+    [activeReportDefaultsSection, reportDefaults],
+  );
+  const activeReportDefaultsNode =
+    activeReportDefaultsNodes.find((node) => node.id === activeReportDefaultsNodeId) ??
+    activeReportDefaultsNodes[0] ??
+    null;
+
+  useEffect(() => {
+    if (reportDefaultsSectionGroups.length === 0) return;
+    if (!reportDefaultsSectionGroups.some((section) => section.id === activeReportDefaultsSectionId)) {
+      setActiveReportDefaultsSectionId(reportDefaultsSectionGroups[0]!.id);
+    }
+  }, [activeReportDefaultsSectionId, reportDefaultsSectionGroups]);
+
+  useEffect(() => {
+    if (activeReportDefaultsNodes.length === 0) {
+      if (activeReportDefaultsNodeId) setActiveReportDefaultsNodeId("");
+      return;
+    }
+    if (!activeReportDefaultsNodes.some((node) => node.id === activeReportDefaultsNodeId)) {
+      setActiveReportDefaultsNodeId(activeReportDefaultsNodes[0]!.id);
+    }
+  }, [activeReportDefaultsNodeId, activeReportDefaultsNodes]);
+
   const updateReportDefaultsField = useCallback(
-    (section: keyof CompanyReportDefaultsForm, key: string, value: string) => {
+    (section: "scope" | "methodology" | "assumptions", key: string, value: string) => {
       setReportDefaults((current) => ({
         ...current,
         [section]: { ...current[section], [key]: value },
@@ -671,6 +1112,213 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
     },
     [],
   );
+
+  const addReportDefaultsSectionGroup = useCallback(() => {
+    const title = newReportDefaultsSectionTitle.trim();
+    if (!title) {
+      setSubmitError("أدخل اسم القسم أولا.");
+      return;
+    }
+    const group: CompanyReportCustomGroupForm = {
+      id: `company-group-${newReportDefaultId()}`,
+      title,
+    };
+    setReportDefaults((current) => ({
+      ...current,
+      customGroups: [...current.customGroups, group],
+    }));
+    setActiveReportDefaultsSectionId(group.id);
+    setActiveReportDefaultsNodeId("");
+    setNewReportDefaultsSectionTitle("");
+    setSubmitError(null);
+    setReportDefaultsDirty(true);
+  }, [newReportDefaultsSectionTitle]);
+
+  const renameCustomReportDefaultsGroup = useCallback((groupId: string, title: string) => {
+    setReportDefaults((current) => ({
+      ...current,
+      customGroups: current.customGroups.some((group) => group.id === groupId)
+        ? current.customGroups.map((group) => (group.id === groupId ? { ...group, title } : group))
+        : [...current.customGroups, { id: groupId, title }],
+      customSections: current.customSections.map((section) =>
+        customReportSectionGroupId(section) === groupId ? { ...section, groupTitle: title } : section,
+      ),
+    }));
+    setReportDefaultsDirty(true);
+  }, []);
+
+  const removeCustomReportDefaultsGroup = useCallback((groupId: string) => {
+    if (!window.confirm("سيتم حذف القسم وكل البنود داخله. هل تريد المتابعة؟")) return;
+    setReportDefaults((current) => ({
+      ...current,
+      customGroups: current.customGroups.filter((group) => group.id !== groupId),
+      customSections: current.customSections.filter((section) => customReportSectionGroupId(section) !== groupId),
+    }));
+    setActiveReportDefaultsSectionId("scope");
+    setActiveReportDefaultsNodeId("");
+    setReportDefaultsDirty(true);
+  }, []);
+
+  const addReportDefaultsNode = useCallback(() => {
+    if (!activeReportDefaultsSection) return;
+    const title = newReportDefaultsNodeTitle.trim() || "بند جديد";
+    const section: CompanyReportCustomSectionForm = {
+      id: newReportDefaultId(),
+      groupId: activeReportDefaultsSection.id,
+      groupTitle: activeReportDefaultsSection.title,
+      sectionNumber: "",
+      title,
+      body: "",
+    };
+    setReportDefaults((current) => ({
+      ...current,
+      customSections: [...current.customSections, section],
+    }));
+    setActiveReportDefaultsNodeId(section.id);
+    setNewReportDefaultsNodeTitle("");
+    setReportDefaultsDirty(true);
+  }, [activeReportDefaultsSection, newReportDefaultsNodeTitle]);
+
+  const updateReportDefaultsCustomSection = useCallback(
+    (sectionId: string, patch: Partial<CompanyReportCustomSectionForm>) => {
+      setReportDefaults((current) => ({
+        ...current,
+        customSections: current.customSections.map((section) =>
+          section.id === sectionId ? { ...section, ...patch } : section,
+        ),
+      }));
+      setReportDefaultsDirty(true);
+    },
+    [],
+  );
+
+  const openNewReportSection = useCallback(() => {
+    setReportSectionEditingId(null);
+    setReportSectionNumber("");
+    setReportSectionTitle("");
+    setReportSectionBody("");
+    setReportSectionOpen(true);
+  }, []);
+
+  const openEditReportSection = useCallback((section: CompanyReportCustomSectionForm) => {
+    setReportSectionEditingId(section.id);
+    setReportSectionNumber(section.sectionNumber);
+    setReportSectionTitle(section.title);
+    setReportSectionBody(section.body);
+    setReportSectionOpen(true);
+  }, []);
+
+  const persistReportSectionDraft = useCallback(() => {
+    const title = reportSectionTitle.trim();
+    const body = reportSectionBody.trim();
+    if (!title && !body) {
+      setSubmitError("أدخل عنوان البند أو تفاصيله أولاً.");
+      return;
+    }
+    const section: CompanyReportCustomSectionForm = {
+      id: reportSectionEditingId ?? newReportDefaultId(),
+      sectionNumber: reportSectionNumber.trim(),
+      title: title || "بند إضافي",
+      body,
+    };
+    setReportDefaults((current) => {
+      const exists = current.customSections.some((item) => item.id === section.id);
+      return {
+        ...current,
+        customSections: exists
+          ? current.customSections.map((item) => (item.id === section.id ? section : item))
+          : [...current.customSections, section],
+      };
+    });
+    setReportDefaultsDirty(true);
+    setSubmitError(null);
+    setReportSectionOpen(false);
+  }, [reportSectionBody, reportSectionEditingId, reportSectionNumber, reportSectionTitle]);
+
+  const removeReportSection = useCallback((id: string) => {
+    setReportDefaults((current) => ({
+      ...current,
+      customSections: current.customSections.filter((item) => item.id !== id),
+    }));
+    setActiveReportDefaultsNodeId((current) => (current === id ? "" : current));
+    setReportDefaultsDirty(true);
+  }, []);
+
+  const updateLetterhead = useCallback(
+    <K extends keyof CompanyReportLetterheadForm,>(key: K, value: CompanyReportLetterheadForm[K]) => {
+      setReportDefaults((current) => ({
+        ...current,
+        letterhead: { ...current.letterhead, [key]: value },
+      }));
+      setReportDefaultsDirty(true);
+    },
+    [],
+  );
+
+  const downloadPowerPointTemplateSample = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 1600;
+    canvas.height = 900;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, "#eef6ff");
+    gradient.addColorStop(0.55, "#ffffff");
+    gradient.addColorStop(1, "#fff7ed");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "#0C447C";
+    ctx.fillRect(0, 0, canvas.width, 88);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fillRect(0, 88, canvas.width, 8);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 42px Arial";
+    ctx.textAlign = "right";
+    ctx.fillText("قالب التقرير النهائي - PowerPoint", 1510, 57);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#d7dee8";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.roundRect(165, 160, 1270, 600, 24);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "700 34px Arial";
+    ctx.fillText("محتوى صفحة التقرير يظهر داخل إطار PowerPoint", 1350, 245);
+    ctx.fillStyle = "#475569";
+    ctx.font = "500 25px Arial";
+    ctx.fillText("يتم تحويل كل صفحة من التقرير النهائي إلى شريحة مستقلة قابلة للعرض والمشاركة.", 1350, 305);
+
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 5; i += 1) {
+      const y = 390 + i * 56;
+      ctx.beginPath();
+      ctx.moveTo(330, y);
+      ctx.lineTo(1270, y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#0f766e";
+    ctx.beginPath();
+    ctx.roundRect(330, 650, 360, 54, 18);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 24px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("PPTX", 510, 686);
+
+    downloadPptxFromPngSlides(
+      [{ dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height, title: "PowerPoint Template" }],
+      "spark-vision-report-template.pptx",
+      "Spark Vision PowerPoint Template",
+    );
+  }, []);
 
   const persistReportDefaults = useCallback(async () => {
     setReportDefaultsSaving(true);
@@ -693,9 +1341,11 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
         setReportDefaultsBaseline(reportDefaults);
       }
       setReportDefaultsDirty(false);
-      setStatus("تم حفظ قوالب التقرير.");
+      setStatus("تم حفظ أقسام التقرير.");
+      return true;
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "فشل حفظ القوالب.");
+      setSubmitError(e instanceof Error ? e.message : "فشل حفظ أقسام التقرير.");
+      return false;
     } finally {
       setReportDefaultsSaving(false);
     }
@@ -738,15 +1388,14 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
       await apiJson("/api/company/users", csrfToken, {
         method: "POST",
         body: JSON.stringify({
-          username: newUsername.trim(),
+          username: ph,
           password: newPassword,
           role: newRole,
           ...(em ? { email: em } : {}),
-          ...(ph ? { phone: ph } : {}),
+          phone: ph,
         }),
       });
       setStatus("تم إنشاء المستخدم.");
-      setNewUsername("");
       setNewPassword("");
       setNewEmail("");
       setNewPhone("");
@@ -779,7 +1428,11 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
       body.email = editEmail.trim() || "";
     }
     if (editPhone.trim() !== origPhone.trim()) {
-      body.phone = editPhone.trim() || "";
+      if (!editPhone.trim()) {
+        setSubmitError("رقم الهاتف مطلوب لأنه أصبح معرّف تسجيل الدخول.");
+        return;
+      }
+      body.phone = editPhone.trim();
     }
     if (editTarget.role !== "company_admin" && editRole !== rowRoleToSelectValue(editTarget.role)) {
       body.role = editRole;
@@ -837,6 +1490,37 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
     variant === "embedded"
       ? "flex min-h-0 flex-1 flex-col overflow-hidden"
       : "flex min-h-screen flex-col bg-[#f4f6fb]";
+  const reportDefaultsOnly = mode === "report-defaults";
+  const hasLetterheadImages = [
+    reportDefaults.letterhead.coverImageDataUrl,
+    reportDefaults.letterhead.pageImageDataUrl,
+    reportDefaults.letterhead.landscapePageImageDataUrl,
+    reportDefaults.letterhead.logoDataUrl,
+    reportDefaults.letterhead.footerImageDataUrl,
+    reportDefaults.letterhead.signatureStampDataUrl,
+  ].some(Boolean);
+  const letterheadCatalogTemplates = hasLetterheadImages
+    ? [...LETTERHEAD_TEMPLATE_OPTIONS, COMPANY_LETTERHEAD_TEMPLATE_OPTION]
+    : LETTERHEAD_TEMPLATE_OPTIONS;
+  const letterheadPreviewTemplate = letterheadPreviewId
+    ? (letterheadCatalogTemplates.find((item) => item.id === letterheadPreviewId) ?? null)
+    : null;
+
+  if (!loading && backendUnavailable) {
+    return (
+      <div className={cn(shellClass, "items-center justify-center p-6")} dir="rtl">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white p-8 text-center shadow-sm">
+          <p className="text-sm font-semibold text-slate-900">الخادم الخلفي غير متصل.</p>
+          <p className="mt-2 text-xs leading-6 text-slate-500">
+            شغل SparkVision-Backend ثم أعد تحميل الصفحة.
+          </p>
+          <Button type="button" className="mt-6 rounded-xl" onClick={() => window.location.reload()}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (!loading && !canAccess) {
     return (
@@ -870,7 +1554,9 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
               <Building2 className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-slate-900 md:text-xl">لوحة إدارة الشركة</h1>
+              <h1 className="text-lg font-bold tracking-tight text-slate-900 md:text-xl">
+                {reportDefaultsOnly ? "بيانات إعداد التقرير النهائي" : "إعدادات عامة"}
+              </h1>
               {data?.company?.name ? (
                 <p className="text-[13px] font-medium text-slate-500">{data.company.name}</p>
               ) : null}
@@ -894,34 +1580,51 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
           </p>
         ) : null}
 
-        <Tabs defaultValue="info" className="flex min-h-0 flex-col gap-4" dir="rtl">
-          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
-            <TabsTrigger
-              value="info"
-              className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-            >
-              بيانات الشركة
-            </TabsTrigger>
-            <TabsTrigger
-              value="users"
-              className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-            >
-              مستخدمو الشركة
-            </TabsTrigger>
-            <TabsTrigger
-              value="signatories"
-              className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-            >
-              المقيمون والتوقيعات
-            </TabsTrigger>
-            <TabsTrigger
-              value="report-defaults"
-              className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-            >
-              بيانات إعداد التقرير النهائي
-            </TabsTrigger>
-          </TabsList>
+        <Tabs
+          defaultValue={reportDefaultsOnly ? "report-defaults" : "info"}
+          className="flex min-h-0 flex-col gap-4"
+          dir="rtl"
+        >
+          {reportDefaultsOnly ? (
+            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
+              <TabsTrigger
+                value="report-defaults"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                أقسام التقرير
+              </TabsTrigger>
+              <TabsTrigger
+                value="letterhead"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                الأكلاشية والقوالب
+              </TabsTrigger>
+            </TabsList>
+          ) : (
+            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
+              <TabsTrigger
+                value="info"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                بيانات الشركة
+              </TabsTrigger>
+              <TabsTrigger
+                value="users"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                مستخدمو الشركة
+              </TabsTrigger>
+              <TabsTrigger
+                value="signatories"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                المقيمون والتوقيعات
+              </TabsTrigger>
+            </TabsList>
+          )}
 
+          {!reportDefaultsOnly ? (
+            <>
           <TabsContent value="info" className="mt-0 outline-none">
             <div className="rounded-3xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur-sm md:p-8">
               {!data ? (
@@ -1010,7 +1713,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-100 hover:bg-transparent">
-                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">المستخدم</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">رقم الهاتف</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">الدور</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">آخر دخول</TableHead>
                         <TableHead className="w-[52px] text-center text-[12px] font-semibold text-slate-500">
@@ -1024,7 +1727,9 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                         const canDel = canDeleteCompanyUserRow(u, user?.id);
                         return (
                           <TableRow key={u.id} className="border-slate-100">
-                            <TableCell className="font-medium text-slate-900">{u.username}</TableCell>
+                            <TableCell className="font-medium text-slate-900" dir="ltr">
+                              {userDisplayName(u)}
+                            </TableCell>
                             <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
                             <TableCell className="text-[12px] text-slate-500">
                               {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
@@ -1039,7 +1744,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                                       size="icon"
                                       className="h-8 w-8 text-slate-600"
                                       disabled={userActionBusy}
-                                      aria-label={`إجراءات ${u.username}`}
+                                      aria-label={`إجراءات ${userDisplayName(u)}`}
                                     >
                                       <MoreVertical className="h-4 w-4" />
                                     </Button>
@@ -1102,7 +1807,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-100 hover:bg-transparent">
-                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">المستخدم</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">رقم الهاتف</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">الدور</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">آخر دخول</TableHead>
                         <TableHead className="min-w-[200px] text-right text-[12px] font-semibold text-slate-500">
@@ -1113,7 +1818,9 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                     <TableBody>
                       {data.users.map((u) => (
                         <TableRow key={u.id} className="border-slate-100">
-                          <TableCell className="font-medium text-slate-900">{u.username}</TableCell>
+                          <TableCell className="font-medium text-slate-900" dir="ltr">
+                            {userDisplayName(u)}
+                          </TableCell>
                           <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
                           <TableCell className="text-[12px] text-slate-500">
                             {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
@@ -1134,29 +1841,294 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
             </div>
           </TabsContent>
 
+            </>
+          ) : null}
+
           <TabsContent value="report-defaults" className="mt-0 outline-none">
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm md:p-7">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-[#0C447C]">
-                      <FileText className="h-5 w-5" />
+            <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-[#0C447C]">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <h2 className="truncate text-[14px] font-black text-slate-900">أقسام التقرير</h2>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 rounded-lg px-2 text-[11px]"
+                    disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                    onClick={resetReportDefaults}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    تراجع
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 gap-1 rounded-lg bg-[#0C447C] px-3 text-[11px] hover:bg-[#0a3a66]"
+                    disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                    onClick={() => void persistReportDefaults()}
+                  >
+                    {reportDefaultsSaving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    حفظ
+                  </Button>
+                </div>
+              </div>
+
+              {!reportDefaultsLoaded ? (
+                <div className="flex items-center justify-center py-16 text-slate-400">
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                </div>
+              ) : (
+                <div className="grid min-h-[540px] lg:grid-cols-[230px_290px_minmax(0,1fr)]" dir="rtl">
+                  <aside className="border-l border-slate-100 bg-slate-50/70 p-2">
+                    <div className="mb-2 flex gap-1">
+                      <Input
+                        value={newReportDefaultsSectionTitle}
+                        onChange={(event) => setNewReportDefaultsSectionTitle(event.target.value)}
+                        placeholder="قسم جديد"
+                        className="h-8 rounded-lg border-slate-200 bg-white px-2 text-[11px] font-bold"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 rounded-lg bg-[#0C447C] hover:bg-[#0a3a66]"
+                        onClick={addReportDefaultsSectionGroup}
+                        title="إضافة قسم"
+                        aria-label="إضافة قسم"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                    <div className="min-w-0">
-                      <h2 className="text-[15px] font-bold text-slate-900">قوالب أقسام التقرير النهائي</h2>
-                      <p className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
-                        تُستخدم هذه القوالب كنصوص افتراضية في صفحة «إعداد التقرير» لكل المشاريع داخل الشركة.
-                        البيانات الديناميكية للمشروع (الغرض، الأصل، التواريخ، …) تُدمج تلقائياً في المخرَج النهائي
-                        بأسلوب نصي وعناوين بدلاً من نموذج حقول.
-                      </p>
+                    <div className="space-y-1">
+                      {reportDefaultsSectionGroups.map((section) => {
+                        const active = section.id === activeReportDefaultsSection?.id;
+                        return (
+                          <div key={section.id} className="group/section flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveReportDefaultsSectionId(section.id);
+                                setActiveReportDefaultsNodeId("");
+                              }}
+                              className={cn(
+                                "flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-2 text-right text-[11px] font-black transition",
+                                active
+                                  ? "bg-white text-[#0C447C] shadow-sm ring-1 ring-sky-100"
+                                  : "text-slate-600 hover:bg-white/80",
+                              )}
+                            >
+                              <span className="truncate">{section.title}</span>
+                              <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] tabular-nums text-slate-500">
+                                {section.itemCount}
+                              </span>
+                            </button>
+                            {section.kind === "custom" ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 shrink-0 rounded-lg text-rose-500 opacity-0 hover:bg-rose-50 hover:text-rose-700 group-hover/section:opacity-100"
+                                onClick={() => removeCustomReportDefaultsGroup(section.id)}
+                                title="حذف القسم"
+                                aria-label="حذف القسم"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
+                  </aside>
+
+                  <section className="border-l border-slate-100 p-2">
+                    {activeReportDefaultsSection?.kind === "custom" ? (
+                      <Input
+                        value={activeReportDefaultsSection.title}
+                        onChange={(event) =>
+                          renameCustomReportDefaultsGroup(activeReportDefaultsSection.id, event.target.value)
+                        }
+                        className="mb-2 h-8 rounded-lg border-slate-200 text-[11px] font-black"
+                      />
+                    ) : (
+                      <div className="mb-2 flex h-8 items-center rounded-lg bg-slate-50 px-2 text-[11px] font-black text-slate-700">
+                        {activeReportDefaultsSection?.title}
+                      </div>
+                    )}
+
+                    {activeReportDefaultsNodes.length > 0 ? (
+                      <Select value={activeReportDefaultsNode?.id} onValueChange={setActiveReportDefaultsNodeId}>
+                        <SelectTrigger className="mb-2 h-8 rounded-lg border-slate-200 text-right text-[11px] font-bold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="z-[960]">
+                          {activeReportDefaultsNodes.map((node) => (
+                            <SelectItem key={node.id} value={node.id}>
+                              {node.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="mb-2 flex h-8 items-center rounded-lg border border-dashed border-slate-200 px-2 text-[11px] font-bold text-slate-400">
+                        لا توجد بنود
+                      </div>
+                    )}
+
+                    <div className="mb-2 flex gap-1">
+                      <Input
+                        value={newReportDefaultsNodeTitle}
+                        onChange={(event) => setNewReportDefaultsNodeTitle(event.target.value)}
+                        placeholder="بند جديد"
+                        className="h-8 rounded-lg border-slate-200 px-2 text-[11px] font-bold"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="secondary"
+                        className="h-8 w-8 shrink-0 rounded-lg"
+                        onClick={addReportDefaultsNode}
+                        title="إضافة بند"
+                        aria-label="إضافة بند"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+
+                    <div className="max-h-[430px] space-y-1 overflow-y-auto pr-0.5">
+                      {activeReportDefaultsNodes.map((node) => {
+                        const active = node.id === activeReportDefaultsNode?.id;
+                        return (
+                          <button
+                            key={node.id}
+                            type="button"
+                            onClick={() => setActiveReportDefaultsNodeId(node.id)}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-2 text-right text-[11px] font-bold transition",
+                              active
+                                ? "border-sky-200 bg-sky-50 text-[#0C447C]"
+                                : "border-slate-100 bg-white text-slate-600 hover:border-slate-200 hover:bg-slate-50",
+                            )}
+                          >
+                            <span className="line-clamp-2 min-w-0">{node.label}</span>
+                            {node.kind === "custom" ? (
+                              <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] text-emerald-700">
+                                جديد
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="min-w-0 p-2">
+                    {activeReportDefaultsNode ? (
+                      <div className="flex h-full min-h-[500px] flex-col gap-2">
+                        {activeReportDefaultsNode.kind === "custom" ? (
+                          <div className="grid gap-2 sm:grid-cols-[100px_minmax(0,1fr)_auto]">
+                            <Input
+                              value={activeReportDefaultsNode.section.sectionNumber}
+                              onChange={(event) =>
+                                updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                                  sectionNumber: event.target.value,
+                                })
+                              }
+                              placeholder="رقم"
+                              dir="ltr"
+                              className="h-9 rounded-lg border-slate-200 text-[12px] font-bold"
+                            />
+                            <Input
+                              value={activeReportDefaultsNode.section.title}
+                              onChange={(event) =>
+                                updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                                  title: event.target.value,
+                                })
+                              }
+                              placeholder="عنوان البند"
+                              className="h-9 rounded-lg border-slate-200 text-[12px] font-black"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-9 rounded-lg px-2 text-[11px] text-rose-600 hover:bg-rose-50"
+                              onClick={() => removeReportSection(activeReportDefaultsNode.section.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              حذف
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex min-h-9 items-center rounded-lg border border-slate-100 bg-slate-50 px-3 text-[12px] font-black text-slate-800">
+                            {activeReportDefaultsNode.label}
+                          </div>
+                        )}
+                        <Textarea
+                          value={activeReportDefaultsNode.value}
+                          onChange={(event) => {
+                            if (activeReportDefaultsNode.kind === "field") {
+                              updateReportDefaultsField(
+                                activeReportDefaultsNode.fieldSection,
+                                activeReportDefaultsNode.fieldKey,
+                                event.target.value,
+                              );
+                            } else {
+                              updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                                body: event.target.value,
+                              });
+                            }
+                          }}
+                          rows={activeReportDefaultsNode.kind === "field" ? activeReportDefaultsNode.rows : 14}
+                          dir="rtl"
+                          className="min-h-[390px] flex-1 resize-none rounded-xl border-slate-200 bg-white px-3 py-2 text-[12.5px] font-medium leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-400">
+                        اختر قسما أو أضف بندا جديدا
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="letterhead" className="m-0 outline-none">
+            <div className="m-0 space-y-3 p-0">
+              <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+                      <Palette className="h-5 w-5" />
+                    </span>
+                    <h2 className="text-[15px] font-black text-slate-900">الأكلاشية والقوالب</h2>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 rounded-xl"
+                      className="h-9 gap-1.5 rounded-xl text-[12px] font-black"
+                      onClick={() => setLetterheadImagesOpen(true)}
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" />
+                      صور الأكلاشية
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-1.5 rounded-xl text-[12px] font-bold"
                       disabled={!reportDefaultsDirty || reportDefaultsSaving}
                       onClick={resetReportDefaults}
                     >
@@ -1166,7 +2138,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                     <Button
                       type="button"
                       size="sm"
-                      className="gap-1.5 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
+                      className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[12px] font-black hover:bg-[#0a3a66]"
                       disabled={!reportDefaultsDirty || reportDefaultsSaving}
                       onClick={() => void persistReportDefaults()}
                     >
@@ -1175,48 +2147,288 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                       ) : (
                         <Save className="h-3.5 w-3.5" />
                       )}
-                      حفظ القوالب
+                      حفظ
                     </Button>
                   </div>
                 </div>
-              </div>
+              </section>
 
               {!reportDefaultsLoaded ? (
-                <div className="flex items-center justify-center rounded-3xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
+                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
                   <Loader2 className="h-7 w-7 animate-spin" />
                 </div>
               ) : (
                 <>
-                  <ReportDefaultsCard
-                    title="نطاق العمل والقيود"
-                    description="القسم 8.0 — 17.0: نطاق العمل، أساس القيمة، قيود الاستخدام والاستعانة بأخصائيين ومصادر المعلومات."
-                    icon={<ClipboardList className="h-5 w-5" />}
-                    fields={REPORT_DEFAULTS_SCOPE_FIELDS}
-                    values={reportDefaults.scope as unknown as Record<string, string>}
-                    onChange={(key, value) => updateReportDefaultsField("scope", key, value)}
-                  />
-                  <ReportDefaultsCard
-                    title="الأصل والمنهجية والمعاينة"
-                    description="القسم 18.0 — 22.0: وصف الأصل، منهجية التقييم، تطبيق أسلوب التكلفة."
-                    icon={<FileText className="h-5 w-5" />}
-                    fields={REPORT_DEFAULTS_METHODOLOGY_FIELDS}
-                    values={reportDefaults.methodology as unknown as Record<string, string>}
-                    onChange={(key, value) => updateReportDefaultsField("methodology", key, value)}
-                  />
-                  <ReportDefaultsCard
-                    title="الافتراضات"
-                    description="القسم 23.0: افتراضات عامة وافتراضات خاصة."
-                    icon={<Info className="h-5 w-5" />}
-                    fields={REPORT_DEFAULTS_ASSUMPTIONS_FIELDS}
-                    values={reportDefaults.assumptions as unknown as Record<string, string>}
-                    onChange={(key, value) => updateReportDefaultsField("assumptions", key, value)}
-                  />
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h3 className="text-[14px] font-black text-slate-900">قوالب جاهزة للاستخدام</h3>
+                      <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">
+                        {letterheadCatalogTemplates.length}
+                      </Badge>
+                    </div>
+                    <div className="grid gap-3 lg:grid-cols-3">
+                      {letterheadCatalogTemplates.map((template) => {
+                        const isCompanyTemplate = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
+                        const previewImage = isCompanyTemplate
+                          ? reportDefaults.letterhead.coverImageDataUrl ||
+                            reportDefaults.letterhead.pageImageDataUrl ||
+                            reportDefaults.letterhead.landscapePageImageDataUrl
+                          : null;
+                        return (
+                          <div
+                            key={template.id}
+                            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300"
+                          >
+                            <div className="relative h-32 bg-slate-50">
+                              {previewImage ? (
+                                <img src={previewImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                              ) : (
+                                <>
+                                  <div className={cn("absolute inset-x-0 top-0 h-3 bg-gradient-to-l", template.accentClass)} />
+                                  <div className="absolute inset-x-5 bottom-4 top-8 rounded-xl border border-slate-200 bg-white shadow-sm">
+                                    <div className={cn("h-8 rounded-t-xl bg-gradient-to-l", template.accentClass)} />
+                                    <div className="space-y-2 p-3">
+                                      <div className="h-2 w-2/3 rounded bg-slate-300" />
+                                      <div className="h-2 w-full rounded bg-slate-200" />
+                                      <div className="h-2 w-5/6 rounded bg-slate-200" />
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                              <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="secondary"
+                                  className="h-8 w-8 rounded-full bg-white/95 text-slate-800 shadow-sm hover:bg-white"
+                                  title="معاينة"
+                                  aria-label={`معاينة ${template.title}`}
+                                  onClick={() => setLetterheadPreviewId(template.id)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                                <Badge className="rounded-full bg-white text-[10px] text-slate-800 shadow-sm">
+                                  {template.badge}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 p-3">
+                              <h4 className="min-w-0 truncate text-right text-[13px] font-black text-slate-900">
+                                {template.title}
+                              </h4>
+                              {template.outputFormat === "pptx" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 shrink-0 gap-1 rounded-xl px-2 text-[11px]"
+                                  onClick={downloadPowerPointTemplateSample}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  نموذج
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+
                 </>
               )}
             </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={letterheadImagesOpen} onOpenChange={setLetterheadImagesOpen}>
+        <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-2xl border-slate-200 p-0" dir="rtl">
+          <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
+            <DialogTitle className="text-base font-black">صور الأكلاشية</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto px-4 py-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <ReportTemplateImageUploader
+                label="صورة الغلاف"
+                helper="خلفية صفحة الغلاف الأولى."
+                value={reportDefaults.letterhead.coverImageDataUrl}
+                onChange={(value) => updateLetterhead("coverImageDataUrl", value)}
+                maxEdge={1800}
+              />
+              <ReportTemplateImageUploader
+                label="تمبلت الصفحات الطولية"
+                helper="الصورة التي تتكرر خلف الصفحات الداخلية."
+                value={reportDefaults.letterhead.pageImageDataUrl}
+                onChange={(value) => updateLetterhead("pageImageDataUrl", value)}
+                maxEdge={1800}
+              />
+              <ReportTemplateImageUploader
+                label="تمبلت الصفحات بالعرض"
+                helper="يستخدم عند تدوير صفحة أو صورة إلى الوضع العرضي."
+                value={reportDefaults.letterhead.landscapePageImageDataUrl}
+                onChange={(value) => updateLetterhead("landscapePageImageDataUrl", value)}
+                maxEdge={1800}
+              />
+              <ReportTemplateImageUploader
+                label="لوجو الهيدر"
+                helper="إن لم يرفع، يستخدم شعار الشركة من الإعدادات العامة."
+                value={reportDefaults.letterhead.logoDataUrl}
+                onChange={(value) => updateLetterhead("logoDataUrl", value)}
+                maxEdge={900}
+                transparent
+              />
+              <ReportTemplateImageUploader
+                label="صورة بيانات الفوتر"
+                helper="تظهر أسفل كل صفحة بدلاً من نص الفوتر الافتراضي."
+                value={reportDefaults.letterhead.footerImageDataUrl}
+                onChange={(value) => updateLetterhead("footerImageDataUrl", value)}
+                maxEdge={1400}
+              />
+              <ReportTemplateImageUploader
+                label="صورة التوقيع والختم"
+                helper="تظهر في صفحة رأي القيمة عند إخراج التقرير النهائي."
+                value={reportDefaults.letterhead.signatureStampDataUrl}
+                onChange={(value) => updateLetterhead("signatureStampDataUrl", value)}
+                maxEdge={900}
+                transparent
+              />
+            </div>
+          </div>
+          <DialogFooter className="border-t border-slate-100 px-4 py-3 sm:justify-start sm:space-x-0">
+            <Button
+              type="button"
+              className="gap-1.5 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
+              disabled={!reportDefaultsDirty || reportDefaultsSaving}
+              onClick={async () => {
+                await persistReportDefaults();
+                setLetterheadImagesOpen(false);
+              }}
+            >
+              {reportDefaultsSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              حفظ
+            </Button>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setLetterheadImagesOpen(false)}>
+              إغلاق
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={letterheadPreviewTemplate != null}
+        onOpenChange={(open) => {
+          if (!open) setLetterheadPreviewId(null);
+        }}
+      >
+        <DialogContent className="max-w-3xl rounded-2xl border-slate-200 p-0" dir="rtl">
+          <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
+            <DialogTitle className="text-base font-black">
+              {letterheadPreviewTemplate?.title ?? "معاينة القالب"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-slate-100 p-4">
+            <div className="mx-auto aspect-[210/297] max-h-[70vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {letterheadPreviewTemplate?.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id &&
+              (reportDefaults.letterhead.coverImageDataUrl ||
+                reportDefaults.letterhead.pageImageDataUrl ||
+                reportDefaults.letterhead.landscapePageImageDataUrl) ? (
+                <img
+                  src={
+                    reportDefaults.letterhead.coverImageDataUrl ||
+                    reportDefaults.letterhead.pageImageDataUrl ||
+                    reportDefaults.letterhead.landscapePageImageDataUrl ||
+                    ""
+                  }
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="relative h-full w-full bg-white">
+                  <div
+                    className={cn(
+                      "absolute inset-x-0 top-0 h-20 bg-gradient-to-l",
+                      letterheadPreviewTemplate?.accentClass ?? "from-sky-600 to-cyan-500",
+                    )}
+                  />
+                  <div className="absolute left-8 right-8 top-28 space-y-3">
+                    <div className="h-4 w-1/2 rounded bg-slate-300" />
+                    <div className="h-3 w-full rounded bg-slate-200" />
+                    <div className="h-3 w-11/12 rounded bg-slate-200" />
+                    <div className="h-3 w-10/12 rounded bg-slate-200" />
+                    <div className="mt-8 grid grid-cols-2 gap-3">
+                      <div className="h-24 rounded-lg bg-slate-100" />
+                      <div className="h-24 rounded-lg bg-slate-100" />
+                    </div>
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 h-12 bg-slate-100" />
+                  {letterheadPreviewTemplate?.outputFormat === "pptx" ? (
+                    <div className="absolute inset-8 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/70 text-lg font-black text-amber-800">
+                      16:9 PowerPoint
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reportSectionOpen} onOpenChange={setReportSectionOpen}>
+        <DialogContent className="max-w-xl rounded-2xl border-slate-200" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">
+              {reportSectionEditingId ? "تعديل بند التقرير" : "إضافة بند للتقرير النهائي"}
+            </DialogTitle>
+            <DialogDescription className="text-right text-[12px] leading-6">
+              سيتم إدراج هذا البند كقسم مستقل داخل صفحة إعداد التقرير والتقرير النهائي.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 pt-2">
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">رقم البند</Label>
+              <Input
+                value={reportSectionNumber}
+                onChange={(e) => setReportSectionNumber(e.target.value)}
+                placeholder="مثال: 25.0"
+                className="rounded-xl"
+                dir="ltr"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">عنوان البند</Label>
+              <Input
+                value={reportSectionTitle}
+                onChange={(e) => setReportSectionTitle(e.target.value)}
+                placeholder="عنوان القسم"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">تفاصيل البند</Label>
+              <Textarea
+                value={reportSectionBody}
+                onChange={(e) => setReportSectionBody(e.target.value)}
+                rows={8}
+                placeholder="اكتب البراجراف أو تفاصيل القسم هنا"
+                className="rounded-xl leading-7"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-start sm:space-x-0">
+            <Button type="button" className="rounded-xl bg-[#0C447C]" onClick={persistReportSectionDraft}>
+              حفظ البند
+            </Button>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setReportSectionOpen(false)}>
+              إلغاء
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-md rounded-2xl border-slate-200" dir="rtl">
@@ -1225,12 +2437,8 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
           </DialogHeader>
           <div className="grid gap-3 pt-2">
             <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">اسم المستخدم</Label>
-              <Input
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                className="rounded-xl"
-              />
+              <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
+              <PhoneNumberInput value={newPhone} onChange={setNewPhone} />
             </div>
             <div className="grid gap-1.5">
               <Label className="text-[12px] text-slate-600">كلمة المرور</Label>
@@ -1265,14 +2473,10 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                 className="rounded-xl"
               />
             </div>
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">الهاتف (اختياري)</Label>
-              <Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} dir="ltr" className="rounded-xl" />
-            </div>
             <Button
               type="button"
               className="mt-2 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
-              disabled={submitting || !newUsername.trim() || newPassword.length < 8}
+              disabled={submitting || !newPhone.trim() || newPassword.length < 8}
               onClick={() => void onAddUser()}
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -1292,7 +2496,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
         <DialogContent className="max-w-md rounded-2xl border-slate-200" dir="rtl">
           <DialogHeader>
             <DialogTitle className="text-base font-bold">
-              تعديل مستخدم{editTarget ? ` — ${editTarget.username}` : ""}
+              تعديل مستخدم{editTarget ? ` — ${userDisplayName(editTarget)}` : ""}
             </DialogTitle>
           </DialogHeader>
           {editTarget ? (
@@ -1327,8 +2531,8 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">الهاتف (اختياري)</Label>
-                <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} dir="ltr" className="rounded-xl" />
+                <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
+                <PhoneNumberInput value={editPhone} onChange={setEditPhone} />
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-[12px] text-slate-600">كلمة مرور جديدة (اختياري)</Label>
@@ -1377,7 +2581,7 @@ export default function CompanyAdminDashboard({ variant }: { variant: CompanyAdm
             <AlertDialogTitle>حذف المستخدم؟</AlertDialogTitle>
             <AlertDialogDescription className="text-right">
               {deleteTarget
-                ? `سيتم حذف «${deleteTarget.username}» نهائياً من الشركة. لا يمكن التراجع عن هذا الإجراء.`
+                ? `سيتم حذف «${userDisplayName(deleteTarget)}» نهائياً من الشركة. لا يمكن التراجع عن هذا الإجراء.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

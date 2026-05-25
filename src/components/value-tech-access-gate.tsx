@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { PhoneNumberInput } from "@/components/phone-number-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,9 +23,9 @@ type ValueTechAccessGateProps = {
 };
 
 export default function ValueTechAccessGate({ sectionKey, children }: ValueTechAccessGateProps) {
-  const { user, loading, login } = useAuthTracking();
+  const { user, loading, login, backendUnavailable } = useAuthTracking();
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +43,31 @@ export default function ValueTechAccessGate({ sectionKey, children }: ValueTechA
     return <PageTransitionLoader />;
   }
 
+  if (backendUnavailable) {
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950 p-4"
+        dir="rtl"
+      >
+        <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-white p-6 text-right shadow-2xl shadow-black/40">
+          <h1 className="text-lg font-bold text-slate-900">الخادم الخلفي غير متصل</h1>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            الواجهة تعمل، لكن تسجيل الدخول وبيانات تقييم الآلات تحتاج تشغيل
+            SparkVision-Backend على المنفذ المحدد في ملف البيئة.
+          </p>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-xs font-semibold text-slate-700" dir="ltr">
+            cd C:\Users\TOSHIBA\Desktop\spark\SparkVision-Backend
+            <br />
+            npm run start:dev
+          </div>
+          <Button type="button" className="mt-5 w-full" onClick={() => window.location.reload()}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div
@@ -56,18 +82,19 @@ export default function ValueTechAccessGate({ sectionKey, children }: ValueTechA
         >
           <h1 className="text-lg font-bold text-slate-900">تسجيل الدخول — فاليو تك</h1>
           <p className="mt-1 text-sm text-slate-600">
-            أدخل اسم المستخدم وكلمة المرور الصادرة عن المسؤول للوصول إلى المنتجات.
+            أدخل رقم الهاتف وكلمة المرور الصادرة عن المسؤول للوصول إلى المنتجات.
           </p>
 
           <div className="mt-6 space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="vt-gate-user">اسم المستخدم</Label>
-              <Input
-                id="vt-gate-user"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                className="bg-white"
+              <Label htmlFor="vt-gate-phone">رقم الهاتف</Label>
+              <PhoneNumberInput
+                id="vt-gate-phone"
+                value={phone}
+                onChange={setPhone}
+                inputClassName="bg-white"
+                autoComplete="tel"
+                allowRawIdentifier
               />
             </div>
             <div className="grid gap-2">
@@ -97,13 +124,13 @@ export default function ValueTechAccessGate({ sectionKey, children }: ValueTechA
             <Button
               type="button"
               className="w-full"
-              disabled={submitting || !username.trim() || !password}
+              disabled={submitting || !phone.trim() || !password}
               onClick={async () => {
                 setSubmitting(true);
                 setError("");
                 try {
                   await login({
-                    username: username.trim(),
+                    phone: phone.trim(),
                     password,
                     rememberMe,
                   });

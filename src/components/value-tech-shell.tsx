@@ -146,6 +146,7 @@ function ValueTechSidebarAccount({
   }
 
   if (user) {
+    const displayName = user.phone?.trim() || user.username;
     const emailHint =
       profile?.email?.trim() || user.email?.trim() || t.sidebarAccountMember;
 
@@ -158,7 +159,7 @@ function ValueTechSidebarAccount({
         )}
         aria-hidden
       >
-        {userInitials(user.username)}
+        {userInitials(displayName)}
       </div>
     );
 
@@ -166,7 +167,7 @@ function ValueTechSidebarAccount({
       return (
         <Link
           href="/profile"
-          title={`${user.username} — ${t.sidebarOpenProfile}`}
+          title={`${displayName} — ${t.sidebarOpenProfile}`}
           className={cn(
             "flex justify-center rounded-lg p-0.5 transition hover:bg-slate-900/12 active:bg-slate-900/18",
             ringFocus,
@@ -189,7 +190,7 @@ function ValueTechSidebarAccount({
         {avatar}
         <div className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}>
           <p className="text-sm font-semibold leading-tight text-slate-900 truncate">
-            {user.username}
+            {displayName}
           </p>
           <p className="mt-0.5 text-[11px] leading-snug text-slate-900/75 truncate">
             {emailHint}

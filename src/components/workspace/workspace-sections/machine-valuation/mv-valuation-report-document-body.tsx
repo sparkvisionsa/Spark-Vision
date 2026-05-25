@@ -20,6 +20,7 @@ import type {
   MvDriveFile,
   MvProject,
   MvProjectReportData,
+  MvCompanyReportLetterheadTemplate,
   MvReportEditableSection,
   MvReportInsertedBlock,
   MvReportInsertedBlockKind,
@@ -36,7 +37,7 @@ import {
   MV_DEFAULT_SCE_REGISTRATION_HTML,
 } from "./mv-valuation-report-narrative-defaults";
 import { MvValuationAnnexImageSheet } from "./mv-valuation-annex-image-sheet";
-import { MvReportPageShell } from "./mv-report-page-shell";
+import { MvReportLetterheadProvider, MvReportPageShell } from "./mv-report-page-shell";
 
 type ReportSignatureRow = {
   id: string;
@@ -377,6 +378,7 @@ function CustomSectionShell({
   footerLines,
   draftWatermark,
   onTitleChange,
+  onNumberChange,
   onBodyChange,
   onRemove,
   insertedAfter,
@@ -388,6 +390,7 @@ function CustomSectionShell({
   footerLines: string[];
   draftWatermark: boolean;
   onTitleChange: (value: string) => void;
+  onNumberChange: (value: string) => void;
   onBodyChange: (html: string) => void;
   onRemove: () => void;
   insertedAfter: (anchorId: string) => ReactNode;
@@ -417,6 +420,14 @@ function CustomSectionShell({
             >
               <GripVertical className="h-4 w-4" />
             </span>
+            <EditableBlock
+              dir="ltr"
+              value={section.sectionNumber ?? ""}
+              onChange={onNumberChange}
+              className="w-20 shrink-0 rounded-lg border border-transparent bg-sky-50/30 px-2 py-1 text-center text-[15px] font-black outline-none focus:border-sky-300 focus:bg-white"
+              multiline={false}
+              placeholder="رقم"
+            />
             <EditableBlock
               dir="rtl"
               value={section.title}
@@ -1019,6 +1030,7 @@ export interface MvValuationReportDocumentBodyProps {
   projectName: string;
   reportData: MvProjectReportData;
   companyBrand: { name: string; logoSrc: string | null };
+  letterheadTemplate?: MvCompanyReportLetterheadTemplate | null;
   reportFooterLines: string[];
   tocApproxPages: Record<string, string>;
   sectionGap: number;
@@ -1102,6 +1114,7 @@ export function MvValuationReportDocumentBody({
   projectName,
   reportData,
   companyBrand,
+  letterheadTemplate,
   reportFooterLines,
   tocApproxPages,
   sectionGap,
@@ -1288,7 +1301,8 @@ export function MvValuationReportDocumentBody({
     assetPhotosPerRow <= 1
       ? "100%"
       : `calc((100% - ${Math.max(0, imageInnerGap) * (assetPhotosPerRow - 1)}px) / ${assetPhotosPerRow})`;
-  const assetPhotoChunks = chunkArray(orderedImages, assetPhotosPerPage);
+  const assetPhotoChunks: MvDriveFile[][] =
+    orderedImages.length > 0 ? chunkArray(orderedImages, assetPhotosPerPage) : [[]];
 
   const valuationSheets = includeValuationAccountImages
     ? MV_VALUATION_ACCOUNTING_APPROACHES.flatMap((approach) => {
@@ -1450,6 +1464,7 @@ export function MvValuationReportDocumentBody({
             logoSrc={logoSrc}
             footerLines={reportFooterLines}
             draftWatermark={sheetDraft}
+            onNumberChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
             onTitleChange={(value) => updateEditableSection(section.id, { title: value })}
             onBodyChange={(next) => updateEditableSection(section.id, { body: next })}
             onRemove={() => removeEditableSection(section.id)}
@@ -1722,6 +1737,12 @@ export function MvValuationReportDocumentBody({
       color: #020617;
       letter-spacing: 0;
     }
+    .mv-report-canvas-root [data-mv-letterhead-background="true"] [data-mv-report-page-content] {
+      isolation: isolate;
+    }
+    .mv-report-canvas-root [data-mv-letterhead-background="true"] [data-mv-report-insert-anchor] {
+      max-width: 100%;
+    }
   `;
   const pageOrientation = (
     pageKey: string,
@@ -1732,6 +1753,7 @@ export function MvValuationReportDocumentBody({
     onReportPageOrientationChange?.(pageKey, current === "landscape" ? "portrait" : "landscape");
   };
   return (
+    <MvReportLetterheadProvider value={letterheadTemplate}>
     <div
       dir="rtl"
       className="mv-report-canvas-root mx-auto flex w-max flex-col items-center text-right"
@@ -2038,6 +2060,52 @@ export function MvValuationReportDocumentBody({
                         <EditableBlock
                           value={editableText(`toc.${row.anchor}.page`, tocApproxPages[row.anchor] ?? "…")}
                           onChange={(value) => setTextOverride(`toc.${row.anchor}.page`, value)}
+                          className="min-h-[1.25rem] text-center"
+                          dir="ltr"
+                          multiline={false}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {editableSections.map((section, index) => {
+                  const anchor = `custom:${section.id}`;
+                  const clickable = !!onTocAnchorClick;
+                  return (
+                    <tr
+                      key={`toc-${section.id}`}
+                      className={cn(
+                        "border-b border-slate-200/80 transition",
+                        clickable && "cursor-pointer hover:bg-sky-50/60",
+                      )}
+                      onClick={(event) => {
+                        if (!clickable) return;
+                        const target = event.target as HTMLElement | null;
+                        if (target?.closest('[contenteditable="true"], input, textarea, button, a')) return;
+                        onTocAnchorClick?.(anchor);
+                      }}
+                    >
+                      <td className="px-2 py-1.5 align-top font-black tabular-nums text-[#0C447C]">
+                        <EditableBlock
+                          value={section.sectionNumber || `${MV_REPORT_TOC_ROWS.length + index + 1}.0`}
+                          onChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
+                          className="min-h-[1.25rem] text-right"
+                          dir="ltr"
+                          multiline={false}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 align-top font-semibold text-slate-900">
+                        <EditableBlock
+                          value={section.title || "بند إضافي"}
+                          onChange={(value) => updateEditableSection(section.id, { title: value })}
+                          className={cn("min-h-[1.25rem]", clickable && "hover:text-[#0C447C]")}
+                          multiline={false}
+                        />
+                      </td>
+                      <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">
+                        <EditableBlock
+                          value={editableText(`toc.${anchor}.page`, tocApproxPages[anchor] ?? "…")}
+                          onChange={(value) => setTextOverride(`toc.${anchor}.page`, value)}
                           className="min-h-[1.25rem] text-center"
                           dir="ltr"
                           multiline={false}
@@ -2607,6 +2675,16 @@ export function MvValuationReportDocumentBody({
               </table>
             )}
           </div>
+          {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
+            <div className="mt-4 flex justify-start">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={letterheadTemplate.signatureStampDataUrl}
+                alt=""
+                className="max-h-28 max-w-[220px] object-contain"
+              />
+            </div>
+          ) : null}
           {insertedAfter("mv-toc-24")}
         </section>
       </MvReportPageShell>
@@ -2625,6 +2703,7 @@ export function MvValuationReportDocumentBody({
             logoSrc={logoSrc}
             footerLines={reportFooterLines}
             draftWatermark={sheetDraft}
+            onNumberChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
             onTitleChange={(value) => updateEditableSection(section.id, { title: value })}
             onBodyChange={(next) => updateEditableSection(section.id, { body: next })}
             onRemove={() => removeEditableSection(section.id)}
@@ -2761,8 +2840,11 @@ export function MvValuationReportDocumentBody({
                 تم إيقاف عرض صور الأصول من تبويب رفع الصور.
               </div>
             ) : chunk.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 py-8 text-center text-[12px] font-extrabold text-slate-500">
-                لا توجد صور محددة للتقرير.
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white/80 px-5 py-10 text-center shadow-sm">
+                <p className="text-[13px] font-black text-slate-700">لا توجد صور أصول محددة للتقرير.</p>
+                <p className="mx-auto mt-2 max-w-md text-[11px] font-semibold leading-6 text-slate-500">
+                  اختر الصور من خطوة «تحديد صور الأصول» أو من تبويب الصور في إعداد التقرير، وسيتم ترتيبها هنا تلقائياً قبل التصدير.
+                </p>
               </div>
             ) : (
               <div
@@ -2940,5 +3022,6 @@ export function MvValuationReportDocumentBody({
         </section>
       </MvReportPageShell>
     </div>
+    </MvReportLetterheadProvider>
   );
 }

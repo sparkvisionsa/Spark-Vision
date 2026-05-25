@@ -22,6 +22,7 @@ import {
   ListTree,
   Loader2,
   PencilRuler,
+  Presentation,
   RotateCcw,
   Ruler,
   Save,
@@ -30,9 +31,18 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +52,8 @@ import {
 } from "./mv-simple-report-navigation";
 import type {
   MvDriveFile,
+  MvCompanyReportCustomSection,
+  MvCompanyReportLetterheadTemplate,
   MvProject,
   MvProjectReportData,
   MvReportPageOrientationPreference,
@@ -64,6 +76,7 @@ import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { downloadPptxFromPngSlides, type PptxImageSlide } from "@/lib/pptx-export";
 import { MvWorkflowPageFrame } from "./mv-workflow-page-frame";
 import { ReportRichSelectionToolbar } from "./mv-report-rich-selection-toolbar";
 import { MvValuationReportDocumentBody } from "./mv-valuation-report-document-body";
@@ -91,19 +104,19 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
     }
     [data-mv-report-sheet][data-mv-report-orientation="portrait"] {
       width: 210mm !important;
-      height: 297mm !important;
+      height: auto !important;
       min-width: 210mm !important;
       max-width: 210mm !important;
       min-height: 297mm !important;
-      max-height: 297mm !important;
+      max-height: none !important;
     }
     [data-mv-report-sheet][data-mv-report-orientation="landscape"] {
       width: 297mm !important;
-      height: 210mm !important;
+      height: auto !important;
       min-width: 297mm !important;
       max-width: 297mm !important;
       min-height: 210mm !important;
-      max-height: 210mm !important;
+      max-height: none !important;
     }
     [data-mv-report-sheet] * {
       -webkit-font-smoothing: antialiased !important;
@@ -168,8 +181,8 @@ function getSheetPixelBox(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
   const landscape = el.dataset.mvReportOrientation === "landscape";
   const expected = expectedA4CssBox(landscape);
-  const w = Math.max(Math.ceil(rect.width), el.offsetWidth, expected.w, 1);
-  const h = Math.max(Math.ceil(rect.height), el.offsetHeight, expected.h, 1);
+  const w = Math.max(Math.ceil(rect.width), el.offsetWidth, el.scrollWidth, expected.w, 1);
+  const h = Math.max(Math.ceil(rect.height), el.offsetHeight, el.scrollHeight, expected.h, 1);
   return { w, h };
 }
 
@@ -181,13 +194,42 @@ const REPORT_PDF_CAPTURE_SCALE_PORTRAIT = 3.05;
 const REPORT_PDF_CAPTURE_SCALE_LANDSCAPE = 2.92;
 /** ~١٢–٥٠ مليون بكسل تقليدياً آمِن على سطح المكتب الحديث */
 const REPORT_PDF_CAPTURE_MAX_MEGAPIXELS = 48;
+const REPORT_PDF_CAPTURE_MIN_SCALE = 0.25;
+const REPORT_PDF_JPEG_QUALITY = 0.86;
 
 function resolveReportPdfCaptureScale(boxW: number, boxH: number, landscape: boolean): number {
   const preferred = landscape ? REPORT_PDF_CAPTURE_SCALE_LANDSCAPE : REPORT_PDF_CAPTURE_SCALE_PORTRAIT;
   const areaPixels = Math.max(1, boxW * boxH);
   const cap = Math.sqrt((REPORT_PDF_CAPTURE_MAX_MEGAPIXELS * 1_000_000) / areaPixels);
-  const next = Math.max(1.65, Math.min(preferred, cap));
+  const next = Math.max(REPORT_PDF_CAPTURE_MIN_SCALE, Math.min(preferred, cap));
   return Math.round(next * 1000) / 1000;
+}
+
+function reportPdfPageMetrics(landscape: boolean) {
+  return landscape
+    ? { orientation: "l" as const, pdfW: 841.89, pdfH: 595.28 }
+    : { orientation: "p" as const, pdfW: 595.28, pdfH: 841.89 };
+}
+
+function resolveReportPdfSliceCssHeight(boxW: number, boxH: number, landscape: boolean) {
+  const { pdfW, pdfH } = reportPdfPageMetrics(landscape);
+  const expected = expectedA4CssBox(landscape);
+  const fullPageHeight = Math.max(expected.h, Math.round(boxW * (pdfH / pdfW)));
+  return boxH <= fullPageHeight + 4 ? Math.max(1, boxH) : Math.max(1, fullPageHeight);
+}
+
+async function canvasToReportJpegBytes(canvas: HTMLCanvasElement) {
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (next) => {
+        if (next) resolve(next);
+        else reject(new Error("تعذر ضغط صفحة PDF."));
+      },
+      "image/jpeg",
+      REPORT_PDF_JPEG_QUALITY,
+    );
+  });
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 function prepareReportCaptureLayout(root: HTMLElement) {
@@ -272,6 +314,7 @@ function prepareReportCaptureLayout(root: HTMLElement) {
 const REPORT_IMAGE_DOWNLOAD_CONCURRENCY = 8;
 const REPORT_IMAGE_RETRY_DELAYS_MS = [400, 900, 1800, 3400];
 const REPORT_BACKGROUND_IMAGE_WARM_DELAY_MS = 40;
+const REPORT_PREVIEW_WARM_IMAGE_LIMIT = 18;
 const reportImageObjectUrlCache = new Map<string, string>();
 const reportImagePromiseCache = new Map<string, Promise<string>>();
 
@@ -293,7 +336,11 @@ function shouldCacheReportImage(rawSrc: string) {
   if (rawSrc.startsWith("data:") || rawSrc.startsWith("blob:")) return false;
   try {
     const url = new URL(rawSrc, window.location.href);
-    return url.origin === window.location.origin && url.pathname.includes("/files/") && url.pathname.endsWith("/download");
+    return (
+      url.origin === window.location.origin &&
+      ((url.pathname.includes("/files/") && url.pathname.endsWith("/download")) ||
+        url.pathname.startsWith("/uploads/company-report-templates/"))
+    );
   } catch {
     return false;
   }
@@ -691,10 +738,16 @@ function normalizeEditableSections(raw: unknown): MvReportEditableSection[] {
     .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === "object")
     .map((s) => ({
       id: typeof s.id === "string" ? s.id : newId(),
+      ...(typeof s.sectionNumber === "string" && s.sectionNumber.trim()
+        ? { sectionNumber: s.sectionNumber.trim() }
+        : {}),
       title: typeof s.title === "string" ? s.title : "قسم جديد",
       body: typeof s.body === "string" ? s.body : "",
       ...(typeof s.insertAfterAnchorId === "string" && s.insertAfterAnchorId.trim()
         ? { insertAfterAnchorId: s.insertAfterAnchorId.trim() }
+        : {}),
+      ...(typeof s.companyDefaultSectionId === "string" && s.companyDefaultSectionId.trim()
+        ? { companyDefaultSectionId: s.companyDefaultSectionId.trim() }
         : {}),
     }));
 }
@@ -709,6 +762,276 @@ function normalizeReportPageOrientations(raw: unknown): ReportPageOrientations {
   return out;
 }
 
+const DEFAULT_REPORT_TEMPLATE_ID = "default-report-template";
+const COMPANY_LETTERHEAD_TEMPLATE_ID = "company-letterhead";
+
+type MvReportTemplateOption = {
+  id: string;
+  title: string;
+  description: string;
+  badge: string;
+  outputFormat: "pdf" | "pptx";
+  accentClass: string;
+  previewKind:
+    | "default"
+    | "classic"
+    | "modern"
+    | "executive"
+    | "industrial"
+    | "minimal"
+    | "field"
+    | "premium"
+    | "creative"
+    | "deck"
+    | "letterhead";
+  usesCompanyLetterhead?: boolean;
+};
+
+const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
+  {
+    id: DEFAULT_REPORT_TEMPLATE_ID,
+    title: "القالب الافتراضي",
+    description: "صفحات نظيفة بتباين هادئ مناسبة للتقارير اليومية.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-slate-700 to-slate-500",
+    previewKind: "default",
+  },
+  {
+    id: "classic-letterhead",
+    title: "كلاسيكي رسمي",
+    description: "هوية مؤسسية تقليدية بخطوط زرقاء وفواصل واضحة.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-sky-600 to-cyan-500",
+    previewKind: "classic",
+  },
+  {
+    id: "modern-letterhead",
+    title: "حديث مدمج",
+    description: "تصميم حديث بمساحات بيضاء وتدرج أخضر تقني.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-emerald-600 to-teal-500",
+    previewKind: "modern",
+  },
+  {
+    id: "executive-navy",
+    title: "تنفيذي داكن",
+    description: "غلاف قوي وشريط جانبي داكن للتقارير الرسمية عالية القيمة.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-slate-950 via-[#0C447C] to-sky-500",
+    previewKind: "executive",
+  },
+  {
+    id: "industrial-amber",
+    title: "صناعي ذهبي",
+    description: "مناسب للمصانع والمعدات الثقيلة بتفاصيل ذهبية وشبكة فنية.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-stone-900 via-amber-700 to-orange-500",
+    previewKind: "industrial",
+  },
+  {
+    id: "minimal-graphite",
+    title: "Minimal Graphite",
+    description: "أسلوب بسيط جدا بالأبيض والأسود وتركيز على النص والبيانات.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-zinc-950 to-zinc-500",
+    previewKind: "minimal",
+  },
+  {
+    id: "field-teal",
+    title: "Field Teal",
+    description: "ألوان ميدانية عملية مع مساحات مريحة للصور والملاحظات.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-teal-800 via-cyan-700 to-lime-500",
+    previewKind: "field",
+  },
+  {
+    id: "premium-burgundy",
+    title: "Premium Burgundy",
+    description: "طابع فاخر بأحمر عميق وتفاصيل ذهبية للجهات التنفيذية.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-rose-950 via-red-800 to-amber-500",
+    previewKind: "premium",
+  },
+  {
+    id: "creative-blocks",
+    title: "Creative Blocks",
+    description: "تركيب لوني جريء يشبه قوالب العروض الحديثة.",
+    badge: "PDF",
+    outputFormat: "pdf",
+    accentClass: "from-fuchsia-700 via-sky-600 to-emerald-500",
+    previewKind: "creative",
+  },
+  {
+    id: "powerpoint-deck",
+    title: "PowerPoint Presentation",
+    description: "مهيأ للتنزيل كعرض شرائح 16:9 مع غلاف عرض تقديمي.",
+    badge: "PPTX",
+    outputFormat: "pptx",
+    accentClass: "from-orange-600 to-amber-500",
+    previewKind: "deck",
+  },
+  {
+    id: COMPANY_LETTERHEAD_TEMPLATE_ID,
+    title: "استخدام أكلاشية",
+    description: "يستخدم صور الأكلاشية المرفوعة من إعدادات الشركة كما هي.",
+    badge: "صور",
+    outputFormat: "pdf",
+    accentClass: "from-amber-600 to-orange-500",
+    previewKind: "letterhead",
+    usesCompanyLetterhead: true,
+  },
+];
+
+function findReportTemplateOption(id: string | null | undefined): MvReportTemplateOption {
+  return REPORT_TEMPLATE_OPTIONS.find((item) => item.id === id) ?? REPORT_TEMPLATE_OPTIONS[0];
+}
+
+function normalizeReportTemplateId(id: string | null | undefined): string {
+  return findReportTemplateOption(typeof id === "string" ? id : null).id;
+}
+
+function hasCompanyLetterheadImages(template: MvCompanyReportLetterheadTemplate | null | undefined): boolean {
+  if (!template) return false;
+  return Boolean(
+    template.coverImageDataUrl ||
+      template.pageImageDataUrl ||
+      template.landscapePageImageDataUrl ||
+      template.logoDataUrl ||
+      template.footerImageDataUrl ||
+      template.signatureStampDataUrl,
+  );
+}
+
+function ReportTemplateArtwork({
+  option,
+  previewImage,
+  large = false,
+}: {
+  option: MvReportTemplateOption;
+  previewImage?: string | null;
+  large?: boolean;
+}) {
+  if (previewImage) {
+    return (
+      <img
+        src={previewImage}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+    );
+  }
+
+  const titleBars = large ? "space-y-3" : "space-y-1.5";
+  const lineClass = large ? "h-2.5" : "h-1.5";
+  const blockClass = large ? "h-24" : "h-10";
+
+  return (
+    <div className={cn("absolute inset-0 overflow-hidden", large ? "text-[11px]" : "text-[9px]")}>
+      {option.previewKind === "executive" ? (
+        <>
+          <div className="absolute inset-y-0 right-0 w-[35%] bg-slate-950" />
+          <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-sky-500 via-[#0C447C] to-slate-950" />
+          <div className="absolute bottom-[12%] left-[10%] right-[42%] h-px bg-sky-300/70" />
+          <div className="absolute bottom-[15%] left-[10%] h-[18%] w-[22%] border border-sky-200/70 bg-white/80" />
+        </>
+      ) : option.previewKind === "industrial" ? (
+        <>
+          <div className="absolute inset-0 bg-stone-950" />
+          <div className="absolute inset-y-0 left-0 w-[28%] bg-amber-500" />
+          <div className="absolute right-[12%] top-[18%] h-[62%] w-[55%] border border-amber-300/60 bg-stone-900" />
+          <div className="absolute inset-x-0 bottom-[16%] h-px bg-amber-400/70" />
+          <div className="absolute inset-y-0 right-[16%] w-px bg-amber-400/40" />
+        </>
+      ) : option.previewKind === "minimal" ? (
+        <>
+          <div className="absolute inset-0 bg-white" />
+          <div className="absolute inset-y-0 right-0 w-[10%] bg-zinc-950" />
+          <div className="absolute left-[12%] top-[13%] h-px w-[68%] bg-zinc-950" />
+          <div className="absolute bottom-[12%] left-[12%] h-px w-[40%] bg-zinc-300" />
+        </>
+      ) : option.previewKind === "field" ? (
+        <>
+          <div className="absolute inset-0 bg-cyan-50" />
+          <div className="absolute inset-x-0 top-0 h-[23%] bg-gradient-to-l from-teal-900 via-cyan-700 to-lime-500" />
+          <div className="absolute bottom-[14%] right-[9%] h-[25%] w-[38%] border border-teal-200 bg-white" />
+          <div className="absolute bottom-[14%] left-[9%] h-[25%] w-[32%] bg-teal-100" />
+        </>
+      ) : option.previewKind === "premium" ? (
+        <>
+          <div className="absolute inset-0 bg-[#fff8f2]" />
+          <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-rose-950 via-red-800 to-amber-500" />
+          <div className="absolute bottom-0 right-0 h-[30%] w-[55%] bg-rose-950" />
+          <div className="absolute bottom-[30%] right-0 h-1 w-[55%] bg-amber-500" />
+          <div className="absolute left-[10%] top-[23%] h-[42%] w-[34%] border border-amber-400/70 bg-white" />
+        </>
+      ) : option.previewKind === "creative" ? (
+        <>
+          <div className="absolute inset-0 bg-white" />
+          <div className="absolute right-0 top-0 h-[34%] w-[48%] bg-fuchsia-700" />
+          <div className="absolute left-0 top-0 h-[24%] w-[52%] bg-sky-600" />
+          <div className="absolute bottom-0 right-[18%] h-[30%] w-[42%] bg-emerald-500" />
+          <div className="absolute bottom-[18%] left-[8%] h-[22%] w-[25%] border-2 border-slate-900" />
+        </>
+      ) : option.previewKind === "deck" ? (
+        <>
+          <div className="absolute inset-0 bg-slate-950" />
+          <div className="absolute inset-y-0 left-0 w-[44%] bg-gradient-to-b from-orange-500 to-amber-400" />
+          <div className="absolute right-[10%] top-[18%] h-[46%] w-[38%] border border-white/35 bg-white/10" />
+          <div className="absolute bottom-[16%] right-[10%] h-1 w-[38%] bg-white/80" />
+        </>
+      ) : option.previewKind === "modern" ? (
+        <>
+          <div className="absolute inset-0 bg-emerald-50" />
+          <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-emerald-700 to-teal-500" />
+          <div className="absolute bottom-[14%] left-[10%] right-[10%] h-[18%] bg-white ring-1 ring-emerald-100" />
+        </>
+      ) : option.previewKind === "classic" ? (
+        <>
+          <div className="absolute inset-0 bg-sky-50" />
+          <div className="absolute inset-x-0 top-0 h-[16%] bg-gradient-to-l from-[#0C447C] to-sky-500" />
+          <div className="absolute inset-x-[10%] bottom-[12%] h-px bg-[#0C447C]/35" />
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0 bg-slate-50" />
+          <div className={cn("absolute inset-x-0 top-0 h-[14%] bg-gradient-to-l", option.accentClass)} />
+          <div className="absolute inset-x-[10%] bottom-[14%] h-[18%] bg-white ring-1 ring-slate-200" />
+        </>
+      )}
+
+      <div
+        className={cn(
+          "absolute rounded-sm bg-white/90 p-2 shadow-sm ring-1 ring-slate-900/10",
+          large ? "left-[12%] right-[12%] top-[30%]" : "left-[12%] right-[12%] top-[32%]",
+          option.previewKind === "executive" && "right-[42%] bg-white text-slate-950",
+          option.previewKind === "industrial" && "left-[16%] right-[36%] bg-stone-100",
+          option.previewKind === "minimal" && "left-[18%] right-[18%] top-[25%] shadow-none ring-0",
+          option.previewKind === "deck" && "left-[49%] right-[9%] bg-white/95",
+        )}
+      >
+        <div className={titleBars}>
+          <div className={cn(lineClass, "w-1/2 rounded bg-slate-800")} />
+          <div className={cn(lineClass, "w-full rounded bg-slate-300")} />
+          <div className={cn(lineClass, "w-10/12 rounded bg-slate-200")} />
+          {large ? <div className={cn(lineClass, "w-8/12 rounded bg-slate-200")} /> : null}
+        </div>
+        <div className={cn("mt-3 grid grid-cols-2 gap-2", large && "mt-5 gap-3")}>
+          <div className={cn(blockClass, "rounded bg-slate-100")} />
+          <div className={cn(blockClass, "rounded bg-slate-100")} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isReportDraftMode(data: MvProjectReportData | undefined | null) {
   return data?.reportPresentationDraft !== false;
 }
@@ -716,6 +1039,7 @@ function isReportDraftMode(data: MvProjectReportData | undefined | null) {
 function withDraftDefaultReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
   return {
     ...(data ?? {}),
+    reportTemplateId: normalizeReportTemplateId(data?.reportTemplateId),
     reportPresentationDraft: isReportDraftMode(data),
   };
 }
@@ -1028,6 +1352,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     methodology: {},
     assumptions: {},
   });
+  const [companyDefaultSections, setCompanyDefaultSections] = useState<MvCompanyReportCustomSection[]>([]);
+  const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
   const [preparerFieldEdits, setPreparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
   );
@@ -1088,6 +1414,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const previewReportRef = useRef<HTMLElement | null>(null);
   const assetImagesPreviewReportRef = useRef<HTMLElement | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingPptx, setDownloadingPptx] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [assetImagesPreviewOpen, setAssetImagesPreviewOpen] = useState(false);
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
@@ -1096,8 +1423,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportSaving, setReportSaving] = useState(false);
   /** Toggles the right-side floating settings drawer (page metrics + images). */
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
-  const [settingsDrawerTab, setSettingsDrawerTab] = useState<"layout" | "images">("layout");
+  const [settingsDrawerTab, setSettingsDrawerTab] = useState<"templates" | "layout" | "images">("templates");
   const [settingsImagesTab, setSettingsImagesTab] = useState<"assets" | "valuation">("assets");
+  const [pendingReportTemplateId, setPendingReportTemplateId] = useState(() =>
+    normalizeReportTemplateId(initialProject?.reportData?.reportTemplateId),
+  );
+  const [reportTemplatePreviewId, setReportTemplatePreviewId] = useState<string | null>(null);
   const [desktopReportChrome, setDesktopReportChrome] = useState(false);
   /** Persists user preference for the navigation sidebar collapsed/expanded state. */
   const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
@@ -1301,8 +1632,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           );
         })
         .filter((src): src is string => Boolean(src));
-      if (eagerSources.length > 0) {
-        void preloadReportImageCache(eagerSources).then(() => {
+      const warmSources = eagerSources.slice(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT);
+      if (warmSources.length > 0) {
+        void preloadReportImageCache(warmSources).then(() => {
           if (runId === loadRunRef.current) setReportImageCacheVersion((v) => v + 1);
         });
       }
@@ -1352,6 +1684,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   }, [project]);
 
   useEffect(() => {
+    setPendingReportTemplateId(normalizeReportTemplateId(project?.reportData?.reportTemplateId));
+  }, [project?._id, project?.reportData?.reportTemplateId]);
+
+  useEffect(() => {
     const rd = project?.reportData;
     if (!rd) return;
     if (Array.isArray(rd.reportEditableSections)) {
@@ -1398,6 +1734,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             scope?: Record<string, string | undefined>;
             methodology?: Record<string, string | undefined>;
             assumptions?: Record<string, string | undefined>;
+            customSections?: Array<{
+              id?: string;
+              sectionNumber?: string;
+              title?: string;
+              body?: string;
+            }>;
+            letterhead?: MvCompanyReportLetterheadTemplate | null;
           } | null;
         };
         setCompanyBrand({
@@ -1431,6 +1774,40 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           methodology: pickStrings(data.reportDefaults?.methodology),
           assumptions: pickStrings(data.reportDefaults?.assumptions),
         });
+        const customSections = Array.isArray(data.reportDefaults?.customSections)
+          ? data.reportDefaults.customSections
+              .map((section, index) => ({
+                id: typeof section.id === "string" && section.id ? section.id : `company-section-${index + 1}`,
+                sectionNumber: typeof section.sectionNumber === "string" ? section.sectionNumber : "",
+                title: typeof section.title === "string" ? section.title : "",
+                body: typeof section.body === "string" ? section.body : "",
+              }))
+              .filter((section) => section.title.trim() || section.body.trim())
+          : [];
+        setCompanyDefaultSections(customSections);
+        const rawLetterhead = data.reportDefaults?.letterhead;
+        const image = (value: unknown): string | null => {
+          if (typeof value !== "string") return null;
+          const trimmed = value.trim();
+          return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/")
+            ? trimmed
+            : null;
+        };
+        setLetterheadTemplate(
+          rawLetterhead
+            ? {
+                enabled: rawLetterhead.enabled === true,
+                templateId: typeof rawLetterhead.templateId === "string" ? rawLetterhead.templateId : null,
+                outputFormat: rawLetterhead.outputFormat === "pptx" ? "pptx" : "pdf",
+                coverImageDataUrl: image(rawLetterhead.coverImageDataUrl),
+                pageImageDataUrl: image(rawLetterhead.pageImageDataUrl),
+                landscapePageImageDataUrl: image(rawLetterhead.landscapePageImageDataUrl),
+                logoDataUrl: image(rawLetterhead.logoDataUrl),
+                footerImageDataUrl: image(rawLetterhead.footerImageDataUrl),
+                signatureStampDataUrl: image(rawLetterhead.signatureStampDataUrl),
+              }
+            : null,
+        );
       } catch {
         /* ignore */
       }
@@ -1572,41 +1949,48 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         setPdfExportProgress(15 + Math.round(((i + 0.35) / sheets.length) * 80));
         const el = sheets[i]!;
         const landscape = el.dataset.mvReportOrientation === "landscape";
-        const orientation = landscape ? "l" : "p";
+        const { orientation, pdfW, pdfH } = reportPdfPageMetrics(landscape);
         const { w, h } = getSheetPixelBox(el);
-        const scale = resolveReportPdfCaptureScale(w, h, landscape);
+        const sliceHeightCss = resolveReportPdfSliceCssHeight(w, h, landscape);
+        const sliceCount = Math.max(1, Math.ceil(h / sliceHeightCss));
+        const scale = resolveReportPdfCaptureScale(w, sliceHeightCss, landscape);
 
-        const canvas = await html2canvas(el, {
-          scale,
-          useCORS: true,
-          allowTaint: false,
-          logging: false,
-          backgroundColor: "#ffffff",
-          scrollX: 0,
-          scrollY: 0,
-          width: w,
-          height: h,
-          windowWidth: w,
-          windowHeight: h,
-          imageTimeout: 30000,
-          removeContainer: true,
-          ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
-          onclone: applyMvReportCaptureClone,
-        });
-
-        const imgData = canvas.toDataURL("image/png", 1);
-        const pdfW = landscape ? 841.89 : 595.28;
-        const pdfH = landscape ? 595.28 : 841.89;
-
-        if (!pdf) {
-          pdf = new jsPDF({ orientation, unit: "pt", format: "a4" });
-        } else {
-          pdf.addPage("a4", orientation);
+        for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex += 1) {
+          if (sliceCount > 1) {
+            setPdfExportLabel(`تصدير الصفحة ${i + 1}.${sliceIndex + 1} من ${sheets.length}…`);
+          }
+          const canvas = await html2canvas(el, {
+            scale,
+            useCORS: true,
+            allowTaint: false,
+            logging: false,
+            backgroundColor: "#ffffff",
+            scrollX: 0,
+            scrollY: 0,
+            x: 0,
+            y: sliceIndex * sliceHeightCss,
+            width: w,
+            height: sliceHeightCss,
+            windowWidth: w,
+            windowHeight: sliceHeightCss,
+            imageTimeout: 30000,
+            removeContainer: true,
+            ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
+            onclone: applyMvReportCaptureClone,
+          });
+          try {
+            const imgData = await canvasToReportJpegBytes(canvas);
+            if (!pdf) {
+              pdf = new jsPDF({ orientation, unit: "pt", format: "a4" });
+            } else {
+              pdf.addPage("a4", orientation);
+            }
+            pdf.addImage(imgData, "JPEG", 0, 0, pdfW, pdfH, `mv-report-${i + 1}-${sliceIndex + 1}`, "FAST");
+          } finally {
+            canvas.width = 1;
+            canvas.height = 1;
+          }
         }
-
-        pdf.addImage(imgData, "PNG", 0, 0, pdfW, pdfH, undefined, "NONE");
-        canvas.width = 1;
-        canvas.height = 1;
       }
 
       if (pdf) {
@@ -1642,6 +2026,101 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }
   }, [loading, project?.name, projectId, reportMediaLoading, toast]);
 
+  const downloadAsPptx = useCallback(async () => {
+    if (loading || reportMediaLoading) return;
+    setDownloadingPptx(true);
+    setPdfExportProgress(3);
+    setPdfExportLabel("جاري تجهيز ملف PowerPoint…");
+    let restoreCaptureLayout: (() => void) | null = null;
+    const scrollEl = reportSectionsScrollRef.current;
+    const prevTop = scrollEl?.scrollTop ?? 0;
+    const prevLeft = scrollEl?.scrollLeft ?? 0;
+
+    try {
+      const root = reportPdfRef.current;
+      if (!root) return;
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
+
+      setPdfExportProgress(12);
+      setPdfExportLabel("تحميل صور التقرير…");
+      await preloadReportImageCache(collectReportImageSources(root));
+      setReportImageCacheVersion((v) => v + 1);
+      await waitNextFrame();
+      await waitNextFrame();
+      primeReportImagesForCapture(root);
+      await waitForReportImages(root);
+      await waitForReportFonts();
+      restoreCaptureLayout = prepareReportCaptureLayout(root);
+      await waitNextFrame();
+      await waitForReportStableLayout(root);
+      primeReportImagesForCapture(root);
+      await waitForReportImages(root);
+
+      const { default: html2canvas } = await import("html2canvas");
+      const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
+      if (sheets.length === 0) return;
+      const slides: PptxImageSlide[] = [];
+
+      for (let i = 0; i < sheets.length; i += 1) {
+        setPdfExportLabel(`تحويل الصفحة ${i + 1} من ${sheets.length} إلى شريحة…`);
+        setPdfExportProgress(15 + Math.round(((i + 0.6) / sheets.length) * 78));
+        const el = sheets[i]!;
+        const landscape = el.dataset.mvReportOrientation === "landscape";
+        const { w, h } = getSheetPixelBox(el);
+        const scale = Math.min(1.75, resolveReportPdfCaptureScale(w, h, landscape));
+        const canvas = await html2canvas(el, {
+          scale,
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          width: w,
+          height: h,
+          windowWidth: w,
+          windowHeight: h,
+          imageTimeout: 30000,
+          removeContainer: true,
+          ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
+          onclone: applyMvReportCaptureClone,
+        });
+        slides.push({
+          dataUrl: canvas.toDataURL("image/png", 1),
+          width: canvas.width,
+          height: canvas.height,
+          title: `صفحة ${i + 1}`,
+        });
+        canvas.width = 1;
+        canvas.height = 1;
+      }
+
+      setPdfExportProgress(98);
+      setPdfExportLabel("حفظ ملف PowerPoint…");
+      const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
+      downloadPptxFromPngSlides(slides, `${safeName}-valuation-report.pptx`, `${project?.name || "Valuation Report"} PowerPoint`);
+      setPdfExportProgress(100);
+      toast({ description: "تم تنزيل التقرير بصيغة PowerPoint." });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        description: error instanceof Error ? error.message : "تعذر تصدير التقرير إلى PowerPoint.",
+      });
+    } finally {
+      restoreCaptureLayout?.();
+      if (scrollEl) {
+        scrollEl.scrollTop = prevTop;
+        scrollEl.scrollLeft = prevLeft;
+      }
+      setDownloadingPptx(false);
+      setPdfExportProgress(null);
+      setPdfExportLabel("");
+    }
+  }, [loading, project?.name, reportMediaLoading, toast]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (autoPdfTriggeredRef.current) return;
@@ -1665,6 +2144,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [project?.reportData],
   );
   const draftMode = isReportDraftMode(reportData);
+  const appliedReportTemplateId = normalizeReportTemplateId(reportData.reportTemplateId);
+  const appliedReportTemplate = findReportTemplateOption(appliedReportTemplateId);
+  const reportTemplatePreviewOption = reportTemplatePreviewId
+    ? findReportTemplateOption(reportTemplatePreviewId)
+    : null;
+  const companyLetterheadReady = hasCompanyLetterheadImages(letterheadTemplate);
   const includeAssetImages = reportData.includeAssetImages !== false;
   const includeValuationAccountImages =
     reportData.includeValuationAccountImages !== false &&
@@ -1833,13 +2318,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const reportImageSources = useMemo(() => {
     const sources: string[] = [];
     if (companyBrand.logoSrc) sources.push(companyBrand.logoSrc);
-    for (const file of orderedImages) sources.push(reportDriveFileImageSrc(projectId, file));
-    for (const image of orderedValuationImages) sources.push(reportValuationImageSrc(projectId, image));
+    if (letterheadTemplate?.coverImageDataUrl) sources.push(letterheadTemplate.coverImageDataUrl);
+    if (letterheadTemplate?.pageImageDataUrl) sources.push(letterheadTemplate.pageImageDataUrl);
+    if (letterheadTemplate?.landscapePageImageDataUrl) sources.push(letterheadTemplate.landscapePageImageDataUrl);
+    if (letterheadTemplate?.logoDataUrl) sources.push(letterheadTemplate.logoDataUrl);
+    if (letterheadTemplate?.footerImageDataUrl) sources.push(letterheadTemplate.footerImageDataUrl);
+    if (letterheadTemplate?.signatureStampDataUrl) sources.push(letterheadTemplate.signatureStampDataUrl);
+    for (const file of orderedImages.slice(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT)) {
+      sources.push(reportDriveFileImageSrc(projectId, file));
+    }
+    const remainingWarmSlots = Math.max(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT - orderedImages.length);
+    for (const image of orderedValuationImages.slice(0, remainingWarmSlots)) {
+      sources.push(reportValuationImageSrc(projectId, image));
+    }
     for (const row of preparerDisplayRows) {
       if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
     }
     return sources.filter(Boolean);
-  }, [companyBrand.logoSrc, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
+  }, [companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
 
   const reportImageSourcesKey = useMemo(
     () =>
@@ -1854,6 +2350,32 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     (src: string) => getCachedReportImageSrc(src),
     [reportImageCacheVersion],
   );
+
+  const renderedLetterheadTemplate = useMemo<MvCompanyReportLetterheadTemplate | null>(() => {
+    if (appliedReportTemplateId === DEFAULT_REPORT_TEMPLATE_ID) return null;
+    const appliedTemplate = findReportTemplateOption(appliedReportTemplateId);
+    if (appliedReportTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID) {
+      return {
+        enabled: false,
+        templateId: appliedTemplate.id,
+        outputFormat: appliedTemplate.outputFormat,
+      };
+    }
+    if (!letterheadTemplate) return null;
+    if (!hasCompanyLetterheadImages(letterheadTemplate)) return null;
+    const image = (src?: string | null) => (src ? getCachedReportImageSrc(src) : null);
+    return {
+      enabled: true,
+      templateId: COMPANY_LETTERHEAD_TEMPLATE_ID,
+      outputFormat: "pdf",
+      coverImageDataUrl: image(letterheadTemplate.coverImageDataUrl),
+      pageImageDataUrl: image(letterheadTemplate.pageImageDataUrl),
+      landscapePageImageDataUrl: image(letterheadTemplate.landscapePageImageDataUrl),
+      logoDataUrl: image(letterheadTemplate.logoDataUrl),
+      footerImageDataUrl: image(letterheadTemplate.footerImageDataUrl),
+      signatureStampDataUrl: image(letterheadTemplate.signatureStampDataUrl),
+    };
+  }, [appliedReportTemplateId, letterheadTemplate, reportImageCacheVersion]);
 
   useEffect(() => {
     if (loading || reportImageSources.length === 0) return;
@@ -1884,14 +2406,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const reportFooterLines = useMemo(() => {
     const lines: string[] = [];
     if (companyBrand.name.trim()) lines.push(`الشركة: ${companyBrand.name.trim()}`);
-    if (user?.username?.trim()) lines.push(`المستخدم الحالي: ${user.username.trim()}`);
+    const currentUserIdentifier = user?.phone?.trim() || user?.username?.trim();
+    if (currentUserIdentifier) lines.push(`المستخدم الحالي: ${currentUserIdentifier}`);
     if (profile?.email?.trim()) lines.push(`بريد: ${profile.email.trim()}`);
     if (profile?.phone?.trim()) lines.push(`هاتف: ${profile.phone.trim()}`);
     const creator = project?.createdByName?.trim();
     if (creator) lines.push(`منشئ المشروع: ${creator}`);
     if (lines.length === 0) lines.push("تقرير تقييم مهني — Spark Vision");
     return lines;
-  }, [companyBrand.name, user?.username, profile?.email, profile?.phone, project?.createdByName]);
+  }, [companyBrand.name, user?.phone, user?.username, profile?.email, profile?.phone, project?.createdByName]);
 
   const persistProjectReportData = useCallback(
     async (nextReportData: MvProjectReportData) => {
@@ -1959,6 +2482,48 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     },
     [persistProjectReportData, sessionKey],
   );
+
+  const applyReportTemplateById = useCallback((templateId: string) => {
+    const option = findReportTemplateOption(templateId);
+    setPendingReportTemplateId(option.id);
+    if (option.usesCompanyLetterhead && !companyLetterheadReady) {
+      toast({
+        variant: "destructive",
+        description: "ارفع صور الأكلاشية من إعدادات الشركة قبل استخدام هذا الخيار.",
+      });
+      return;
+    }
+    onReportDataPatch({ reportTemplateId: option.id });
+    toast({ description: `تم تطبيق قالب ${option.title}.` });
+  }, [companyLetterheadReady, onReportDataPatch, toast]);
+
+  const applyProjectReportTemplate = useCallback(() => {
+    applyReportTemplateById(pendingReportTemplateId);
+  }, [applyReportTemplateById, pendingReportTemplateId]);
+
+  useEffect(() => {
+    if (!project || companyDefaultSections.length === 0) return;
+    setEditableSections((current) => {
+      const existing = new Set<string>();
+      for (const section of current) {
+        if (section.companyDefaultSectionId) existing.add(section.companyDefaultSectionId);
+        if (section.id.startsWith("company-default:")) existing.add(section.id.slice("company-default:".length));
+      }
+      const additions = companyDefaultSections
+        .filter((section) => !existing.has(section.id))
+        .map((section) => ({
+          id: `company-default:${section.id}`,
+          companyDefaultSectionId: section.id,
+          sectionNumber: section.sectionNumber,
+          title: section.title || "بند إضافي",
+          body: section.body,
+        }));
+      if (additions.length === 0) return current;
+      const next = [...current, ...additions];
+      onReportDataPatch({ reportEditableSections: next });
+      return next;
+    });
+  }, [companyDefaultSections, onReportDataPatch, project]);
 
   const saveReportSettingsNow = useCallback(async () => {
     const p = projectRef.current;
@@ -2203,6 +2768,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     projectName,
     reportData,
     companyBrand,
+    letterheadTemplate: renderedLetterheadTemplate,
     reportFooterLines,
     draftWatermark: draftMode,
     onReportDataPatch,
@@ -2342,7 +2908,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         {/* === Slim premium toolbar === */}
         <div
           className={cn(
-            "mv-report-chrome mb-1.5 flex shrink-0 items-center gap-1 rounded-xl border border-slate-200/80 bg-white/95 px-1.5 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur",
+            "mv-report-chrome mb-1.5 flex shrink-0 flex-wrap items-center gap-1 rounded-xl border border-slate-200/80 bg-white/95 px-1.5 py-1 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur md:flex-nowrap",
             "sm:gap-1.5 sm:px-2",
           )}
         >
@@ -2369,11 +2935,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               "h-7 w-7 shrink-0 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
               settingsDrawerOpen && "bg-slate-100/70 text-[#0C447C]",
             )}
-            title="مقاسات وتنسيق الصفحة"
+            title="قوالب وإعدادات التقرير"
             aria-label="إعدادات التقرير"
             aria-pressed={settingsDrawerOpen}
             onClick={() => {
-              setSettingsDrawerTab("layout");
+              setSettingsDrawerTab("templates");
               setSettingsDrawerOpen((v) => !v);
             }}
           >
@@ -2382,9 +2948,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="sm"
             className={cn(
-              "h-7 w-7 shrink-0 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
+              "h-7 shrink-0 gap-1.5 rounded-md px-2 text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
               settingsDrawerOpen && settingsDrawerTab === "images" && "bg-slate-100/70 text-[#0C447C]",
             )}
             title="ترتيب وحجم الصور"
@@ -2396,6 +2962,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             }}
           >
             <ImageIcon className="h-3.5 w-3.5" />
+            <span className="hidden text-[10.5px] font-black md:inline">صور الأصول</span>
+            <span className="rounded bg-white/80 px-1 text-[9px] font-black tabular-nums text-[#0C447C] ring-1 ring-slate-200">
+              {selectedImages.length}
+            </span>
           </Button>
 
           <span className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
@@ -2431,42 +3001,71 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             ) : null}
           </div>
 
-          <span className="ms-auto inline-flex sm:ms-0" />
+          <div className="ms-auto flex min-w-0 shrink-0 items-center gap-1.5 sm:ms-0">
+            <div className="flex h-8 w-[172px] shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5 shadow-sm sm:w-[224px] lg:w-[246px]">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
+              <span className="hidden shrink-0 text-[10px] font-black text-slate-500 lg:inline">
+                قالب التقرير
+              </span>
+              <Select value={pendingReportTemplateId} onValueChange={applyReportTemplateById}>
+                <SelectTrigger
+                  className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-right text-[10.5px] font-black text-slate-800 shadow-none outline-none ring-0 focus:ring-0 [&>span]:truncate"
+                  title="اختيار قالب التقرير"
+                >
+                  <SelectValue placeholder="اختيار قالب التقرير" />
+                </SelectTrigger>
+                <SelectContent className="z-[760]">
+                  {REPORT_TEMPLATE_OPTIONS.map((option) => (
+                    <SelectItem
+                      key={option.id}
+                      value={option.id}
+                      disabled={option.usesCompanyLetterhead && !companyLetterheadReady}
+                    >
+                      {option.title} - {option.badge}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* Draft toggle: compact pill */}
-          <button
-            type="button"
-            className={cn(
-              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[10.5px] font-black transition disabled:cursor-not-allowed disabled:opacity-60",
-              draftMode
-                ? "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-            )}
-            disabled={loading}
-            title={
-              draftMode
-                ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
-                : "وضع المسودة مغلق: تظهر التوقيعات بدون علامة مائية."
-            }
-            onClick={toggleDraftMode}
-            aria-pressed={draftMode}
-          >
-            <span
+            <label
+              htmlFor="mv-report-draft-mode-switch"
               className={cn(
-                "relative h-3 w-6 rounded-full transition-colors",
-                draftMode ? "bg-amber-500" : "bg-slate-300",
+                "inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-2 text-[11px] font-black shadow-sm transition",
+                loading && "cursor-not-allowed opacity-60",
+                draftMode
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900",
               )}
-              aria-hidden
+              title={
+                draftMode
+                  ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
+                  : "وضع المسودة مغلق: تظهر التوقيعات بدون علامة مائية."
+              }
             >
               <span
                 className={cn(
-                  "absolute top-0.5 h-2 w-2 rounded-full bg-white shadow-sm transition-transform",
-                  draftMode ? "-translate-x-[0.7rem]" : "translate-x-[-0.125rem]",
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+                  draftMode ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800",
                 )}
+                aria-hidden
+              >
+                <ClipboardList className="h-3.5 w-3.5" />
+              </span>
+              <span className="hidden min-w-[2.75rem] text-center sm:inline">
+                {draftMode ? "مسودة" : "نهائي"}
+              </span>
+              <Switch
+                id="mv-report-draft-mode-switch"
+                checked={draftMode}
+                onCheckedChange={() => toggleDraftMode()}
+                disabled={loading}
+                dir="ltr"
+                aria-label="تبديل وضع المسودة"
+                className="border-0 shadow-inner data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-emerald-500"
               />
-            </span>
-            <span className="hidden sm:inline">مسودة</span>
-          </button>
+            </label>
+          </div>
 
           <Button
             type="button"
@@ -2485,12 +3084,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             variant="outline"
             size="sm"
             className="h-7 shrink-0 gap-1 border-slate-200 bg-white px-2 text-[10.5px] font-bold text-slate-700 hover:bg-slate-50 hover:text-[#0C447C]"
-            disabled={downloadingPdf || loading || reportMediaLoading}
+            disabled={downloadingPdf || downloadingPptx || loading || reportMediaLoading}
             onClick={() => void downloadAsPdf()}
             title="تنزيل التقرير بصيغة PDF"
           >
             {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             <span className="hidden sm:inline">PDF</span>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1 border-amber-200 bg-amber-50 px-2 text-[10.5px] font-bold text-amber-800 hover:bg-amber-100 hover:text-amber-900"
+            disabled={downloadingPptx || downloadingPdf || loading || reportMediaLoading}
+            onClick={() => void downloadAsPptx()}
+            title="تنزيل التقرير بصيغة PowerPoint"
+          >
+            {downloadingPptx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Presentation className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">PPTX</span>
           </Button>
           <Button
             type="button"
@@ -2666,6 +3277,19 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   <div className="flex gap-0.5 rounded-md bg-slate-100/70 p-0.5 ring-1 ring-slate-200/70">
                     <button
                       type="button"
+                      onClick={() => setSettingsDrawerTab("templates")}
+                      className={cn(
+                        "flex flex-1 items-center justify-center gap-1.5 rounded px-1.5 py-1 text-[10.5px] font-black transition",
+                        settingsDrawerTab === "templates"
+                          ? "bg-white text-[#0C447C] shadow-sm"
+                          : "text-slate-500 hover:bg-white/50",
+                      )}
+                    >
+                      <FileText className="h-3 w-3" />
+                      القوالب
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setSettingsDrawerTab("layout")}
                       className={cn(
                         "flex flex-1 items-center justify-center gap-1.5 rounded px-1.5 py-1 text-[10.5px] font-black transition",
@@ -2694,7 +3318,106 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
-                  {settingsDrawerTab === "layout" ? (
+                  {settingsDrawerTab === "templates" ? (
+                    <div className="space-y-2.5">
+                      <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-[10.5px] font-black text-slate-700">اختيار قالب التقرير</span>
+                          <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] text-slate-700">
+                            {appliedReportTemplate.title}
+                          </Badge>
+                        </div>
+                        <Select value={pendingReportTemplateId} onValueChange={setPendingReportTemplateId}>
+                          <SelectTrigger className="h-8 rounded-lg border-slate-200 bg-white text-right text-[11px] font-black">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="z-[760]">
+                            {REPORT_TEMPLATE_OPTIONS.map((option) => (
+                              <SelectItem
+                                key={option.id}
+                                value={option.id}
+                                disabled={option.usesCompanyLetterhead && !companyLetterheadReady}
+                              >
+                                {option.title} - {option.badge}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="mt-2 h-8 w-full rounded-lg bg-[#0C447C] text-[11px] font-black hover:bg-[#09345f]"
+                          disabled={loading || pendingReportTemplateId === appliedReportTemplateId}
+                          onClick={applyProjectReportTemplate}
+                        >
+                          تطبيق
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-2">
+                        {REPORT_TEMPLATE_OPTIONS.map((option) => {
+                          const active = option.id === appliedReportTemplateId;
+                          const pending = option.id === pendingReportTemplateId;
+                          const disabled = Boolean(option.usesCompanyLetterhead && !companyLetterheadReady);
+                          const previewImage = option.usesCompanyLetterhead
+                            ? letterheadTemplate?.coverImageDataUrl ||
+                              letterheadTemplate?.pageImageDataUrl ||
+                              letterheadTemplate?.landscapePageImageDataUrl
+                            : null;
+                          return (
+                            <div
+                              key={option.id}
+                              className={cn(
+                                "overflow-hidden rounded-xl border bg-white shadow-sm",
+                                active
+                                  ? "border-emerald-300 ring-2 ring-emerald-100"
+                                  : pending
+                                    ? "border-sky-300 ring-2 ring-sky-100"
+                                    : "border-slate-200",
+                                disabled && "opacity-60",
+                              )}
+                            >
+                              <div className="relative h-24 bg-slate-50">
+                                <ReportTemplateArtwork option={option} previewImage={previewImage} />
+                                <Badge className="absolute left-2 top-2 rounded-full bg-white px-2 py-0.5 text-[9px] text-slate-800 shadow-sm">
+                                  {option.badge}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 p-2">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
+                                  title="معاينة"
+                                  aria-label={`معاينة ${option.title}`}
+                                  onClick={() => setReportTemplatePreviewId(option.id)}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                                <div className="min-w-0 flex-1 text-right">
+                                  <div className="truncate text-[11.5px] font-black text-slate-900">{option.title}</div>
+                                  <p className="mt-0.5 line-clamp-2 text-[9.5px] font-semibold leading-snug text-slate-500">
+                                    {option.description}
+                                  </p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={pending ? "secondary" : "outline"}
+                                  className="h-7 shrink-0 rounded-lg px-2 text-[10px] font-black"
+                                  disabled={disabled}
+                                  onClick={() => setPendingReportTemplateId(option.id)}
+                                >
+                                  {active ? "مطبق" : pending ? "محدد" : "اختيار"}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : settingsDrawerTab === "layout" ? (
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between gap-1.5">
                         <p className="text-[10px] font-bold text-slate-500">
@@ -2854,6 +3577,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       onImageCornerRadiusChange={setImageCornerRadius}
                       onImageShadowChange={setImageShadow}
                       onAssetPreview={() => setAssetImagesPreviewOpen(true)}
+                      onManageAssetImages={() => navigate(`/machine-valuation/${projectId}/workflow/asset-images`)}
                       valuationImages={valuationAccountImages}
                       valuationOrder={valuationImageOrder}
                       onValuationReorder={reorderValuationImages}
@@ -2931,6 +3655,45 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       ) : null}
 
       <Dialog
+        open={reportTemplatePreviewOption != null}
+        onOpenChange={(open) => {
+          if (!open) setReportTemplatePreviewId(null);
+        }}
+      >
+        <DialogContent className="max-w-3xl rounded-2xl border-slate-200 p-0" dir="rtl">
+          <DialogHeader className="border-b border-slate-100 bg-white px-4 py-3 text-right">
+            <DialogTitle className="text-base font-black text-slate-900">
+              {reportTemplatePreviewOption?.title ?? "معاينة القالب"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-slate-100 p-4">
+            <div className="mx-auto aspect-[210/297] max-h-[70vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="relative h-full w-full bg-white">
+                {reportTemplatePreviewOption ? (
+                  <ReportTemplateArtwork
+                    option={reportTemplatePreviewOption}
+                    previewImage={
+                      reportTemplatePreviewOption.usesCompanyLetterhead
+                        ? letterheadTemplate?.coverImageDataUrl ||
+                          letterheadTemplate?.pageImageDataUrl ||
+                          letterheadTemplate?.landscapePageImageDataUrl
+                        : null
+                    }
+                    large
+                  />
+                ) : null}
+              </div>
+            </div>
+            {reportTemplatePreviewOption?.description ? (
+              <p className="mx-auto mt-3 max-w-xl text-center text-[12px] font-semibold leading-relaxed text-slate-600">
+                {reportTemplatePreviewOption.description}
+              </p>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
       >
@@ -2946,8 +3709,19 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             <Button
               type="button"
               size="sm"
+              className="absolute left-24 top-3 h-8 gap-1.5 bg-amber-600 px-3 text-[11px] font-black text-white shadow-sm hover:bg-amber-700 sm:left-28"
+              disabled={downloadingPptx || downloadingPdf || loading || reportMediaLoading}
+              onClick={() => void downloadAsPptx()}
+              title="Download PowerPoint"
+            >
+              {downloadingPptx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Presentation className="h-3.5 w-3.5" />}
+              PPTX
+            </Button>
+            <Button
+              type="button"
+              size="sm"
               className="absolute left-4 top-3 h-8 gap-1.5 bg-[#0C447C] px-3 text-[11px] font-black text-white shadow-sm hover:bg-[#09345f] sm:left-5"
-              disabled={downloadingPdf || loading || reportMediaLoading}
+              disabled={downloadingPdf || downloadingPptx || loading || reportMediaLoading}
               onClick={() => void downloadAsPdf()}
               title="Download PDF"
             >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import type { ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import { usePathname } from "next/navigation";
 
@@ -13,24 +13,30 @@ function isMvReportWorkspacePath(pathname: string) {
 function isMvReportFlowChromePath(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] !== "machine-valuation" || parts.length < 2) return false;
-  if (parts[1] === "dashboard" || parts[1] === "projects" || parts[1] === "company") return false;
+  if (
+    parts[1] === "dashboard" ||
+    parts[1] === "projects" ||
+    parts[1] === "company" ||
+    parts[1] === "report-settings" ||
+    parts[1] === "clients"
+  ) {
+    return false;
+  }
   if (parts.length === 2) return true;
   return parts[2] === "workflow";
 }
 import {
   ArrowLeft,
-  BarChart3,
   Building2,
-  ChevronDown,
   ChevronLeft,
+  ClipboardList,
   FolderKanban,
-  LayoutDashboard,
+  Users,
   Wrench,
 } from "lucide-react";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { cn } from "@/lib/utils";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -64,77 +70,70 @@ function userInitials(username: string) {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-/** مسارات تقييم الآلات: لوحة، قائمة مشاريع، مشروع، مشروع فرعي */
+/** مسارات تقييم الآلات: قائمة مشاريع، صفحات إدارة عامة، مشروع، مشروع فرعي */
 function parseMachineValuationPath(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
   const isMv = segments[0] === "machine-valuation";
   if (!isMv) {
     return {
-      isDashboard: false,
       isProjectsList: false,
-      isProjectWorkspace: false,
       isProjectContext: false,
       isCompanyPanel: false,
-      projectBasePath: "/machine-valuation",
-      projectId: null as string | null,
+      isReportSettingsPanel: false,
+      isClientsPanel: false,
     };
   }
   if (segments.length <= 1) {
     return {
-      isDashboard: false,
       isProjectsList: true,
-      isProjectWorkspace: false,
       isProjectContext: false,
       isCompanyPanel: false,
-      projectBasePath: "/machine-valuation",
-      projectId: null,
+      isReportSettingsPanel: false,
+      isClientsPanel: false,
     };
   }
-  if (segments[1] === "dashboard") {
+  if (segments[1] === "dashboard" || segments[1] === "projects") {
     return {
-      isDashboard: true,
-      isProjectsList: false,
-      isProjectWorkspace: false,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      projectBasePath: "/machine-valuation",
-      projectId: null,
-    };
-  }
-  if (segments[1] === "projects") {
-    return {
-      isDashboard: false,
       isProjectsList: true,
-      isProjectWorkspace: false,
       isProjectContext: false,
       isCompanyPanel: false,
-      projectBasePath: "/machine-valuation",
-      projectId: null,
+      isReportSettingsPanel: false,
+      isClientsPanel: false,
     };
   }
   if (segments[1] === "company") {
     return {
-      isDashboard: false,
       isProjectsList: false,
-      isProjectWorkspace: false,
       isProjectContext: false,
       isCompanyPanel: true,
-      projectBasePath: "/machine-valuation",
-      projectId: null,
+      isReportSettingsPanel: false,
+      isClientsPanel: false,
     };
   }
-  const pid = segments[1] ?? null;
-  const projectBasePath = pid ? `/machine-valuation/${pid}/workflow/report-data` : "/machine-valuation";
-  const isProjectWorkspace = Boolean(pid && segments.length === 2);
-  const isProjectContext = Boolean(pid && segments.length >= 2);
+  if (segments[1] === "report-settings") {
+    return {
+      isProjectsList: false,
+      isProjectContext: false,
+      isCompanyPanel: false,
+      isReportSettingsPanel: true,
+      isClientsPanel: false,
+    };
+  }
+  if (segments[1] === "clients") {
+    return {
+      isProjectsList: false,
+      isProjectContext: false,
+      isCompanyPanel: false,
+      isReportSettingsPanel: false,
+      isClientsPanel: true,
+    };
+  }
   return {
-    isDashboard: false,
     isProjectsList: false,
-    isProjectWorkspace,
-    isProjectContext,
+    isProjectContext: true,
     isCompanyPanel: false,
-    projectBasePath,
-    projectId: pid,
+    isReportSettingsPanel: false,
+    isClientsPanel: false,
   };
 }
 
@@ -158,13 +157,14 @@ function MachineSidebarAccount() {
   }
 
   if (user) {
+    const displayName = user.phone?.trim() || user.username;
     const subtitle = profile?.email?.trim() || user.email?.trim() || "حساب فعّال";
     const avatar = (
       <div
         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[12px] font-semibold text-[#0C447C] ring-1 ring-sky-200/80"
         aria-hidden
       >
-        {userInitials(user.username)}
+        {userInitials(displayName)}
       </div>
     );
 
@@ -172,7 +172,7 @@ function MachineSidebarAccount() {
       return (
         <Link
           href="/profile"
-          title={user.username}
+          title={displayName}
           className="flex justify-center rounded-lg p-0.5 transition hover:bg-slate-100"
         >
           {avatar}
@@ -187,7 +187,7 @@ function MachineSidebarAccount() {
       >
         {avatar}
         <div className="min-w-0 flex-1 text-right">
-          <p className="truncate text-[13px] font-semibold leading-tight text-slate-900">{user.username}</p>
+          <p className="truncate text-[13px] font-semibold leading-tight text-slate-900">{displayName}</p>
           <p className="mt-0.5 truncate text-[10px] leading-snug text-slate-600">{subtitle}</p>
           <p className="mt-0.5 text-[10px] font-medium text-slate-500 group-hover/account:text-slate-700">
             الملف الشخصي
@@ -243,17 +243,20 @@ function MachineSidebarAccount() {
 function MachineSidebarNav() {
   const { currentPath } = useMvInPageNavigation();
   const pathname = currentPath;
-  const { isDashboard, isProjectsList, isProjectContext, isCompanyPanel } = parseMachineValuationPath(pathname);
+  const {
+    isProjectsList,
+    isProjectContext,
+    isCompanyPanel,
+    isReportSettingsPanel,
+    isClientsPanel,
+  } = parseMachineValuationPath(pathname);
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
-
-  const [dashboardOpen, setDashboardOpen] = useState(false);
 
   const activeNav =
     "bg-sky-50 text-[#0C447C] shadow-[inset_0_0_0_1px_rgba(56,189,248,0.35)] font-medium";
   const idleNav = "text-slate-600 hover:bg-slate-100 hover:text-slate-900";
 
-  const dashActive = isDashboard;
   const projectsNavActive = isProjectsList || isProjectContext;
 
   return (
@@ -296,71 +299,50 @@ function MachineSidebarNav() {
               </SidebarMenuButton>
             </SidebarMenuItem>
 
-            <Collapsible open={collapsed ? false : dashboardOpen} onOpenChange={setDashboardOpen}>
-              <SidebarMenuItem>
-                <div className="flex w-full min-w-0 items-stretch rounded-md">
-                  <SidebarMenuButton
-                    asChild
-                    isActive={dashActive}
-                    size="sm"
-                    tooltip={collapsed ? "لوحة التحكم" : undefined}
-                    className={cn("h-7 min-w-0 flex-1 text-[12px] pe-1", dashActive ? activeNav : idleNav)}
-                  >
-                    <Link href="/machine-valuation/dashboard" className="flex min-w-0 items-center gap-1.5">
-                      <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-sky-600" />
-                      <span className="truncate">لوحة التحكم</span>
-                    </Link>
-                  </SidebarMenuButton>
-                  {!collapsed ? (
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex w-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-sky-100/80 hover:text-slate-800"
-                        aria-expanded={dashboardOpen}
-                        aria-label="إظهار أو إخفاء روابط لوحة التحكم"
-                      >
-                        <ChevronDown
-                          className={cn("h-3.5 w-3.5 transition-transform duration-200", dashboardOpen && "rotate-180")}
-                        />
-                      </button>
-                    </CollapsibleTrigger>
-                  ) : null}
-                </div>
-              </SidebarMenuItem>
-              {!collapsed ? (
-                <CollapsibleContent>
-                  <ul className="me-1.5 mt-0.5 space-y-0 border-r border-slate-200/90 pe-1">
-                    <li>
-                      <SidebarMenuButton
-                        asChild
-                        size="sm"
-                        className={cn(
-                          "h-7 w-full text-[11px]",
-                          isProjectsList && !isProjectContext ? activeNav : idleNav,
-                        )}
-                      >
-                        <Link href="/machine-valuation/projects" className="flex items-center gap-1.5">
-                          <BarChart3 className="h-3.5 w-3.5 shrink-0 text-sky-700" />
-                          <span className="truncate">إحصائيات المشاريع</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </li>
-                    <li>
-                      <SidebarMenuButton
-                        asChild
-                        size="sm"
-                        className={cn("h-7 w-full text-[11px]", isCompanyPanel ? activeNav : idleNav)}
-                      >
-                        <Link href="/machine-valuation/company" className="flex items-center gap-1.5">
-                          <Building2 className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
-                          <span className="truncate">لوحة إدارة الشركة</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </li>
-                  </ul>
-                </CollapsibleContent>
-              ) : null}
-            </Collapsible>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={isCompanyPanel}
+                size="sm"
+                tooltip={collapsed ? "إعدادات عامة" : undefined}
+                className={cn("h-7 text-[12px]", isCompanyPanel ? activeNav : idleNav)}
+              >
+                <Link href="/machine-valuation/company" className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
+                  <span className="truncate">إعدادات عامة</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={isReportSettingsPanel}
+                size="sm"
+                tooltip={collapsed ? "بيانات إعداد التقرير النهائي" : undefined}
+                className={cn("h-7 text-[12px]", isReportSettingsPanel ? activeNav : idleNav)}
+              >
+                <Link href="/machine-valuation/report-settings" className="flex items-center gap-1.5">
+                  <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                  <span className="truncate">بيانات إعداد التقرير النهائي</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={isClientsPanel}
+                size="sm"
+                tooltip={collapsed ? "العملاء" : undefined}
+                className={cn("h-7 text-[12px]", isClientsPanel ? activeNav : idleNav)}
+              >
+                <Link href="/machine-valuation/clients" className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+                  <span className="truncate">العملاء</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
@@ -369,14 +351,18 @@ function MachineSidebarNav() {
   );
 }
 
-function MachineWorkspace({ children }: { children: React.ReactNode }) {
+function MachineWorkspace({ children }: { children: ReactNode }) {
   const { state, isMobile } = useSidebar();
   const sidebarCollapsed = !isMobile && state === "collapsed";
-  const pathname = usePathname() || "";
+  const { currentPath } = useMvInPageNavigation();
+  const pathname = currentPath || "";
   const reportWorkspaceLocked = isMvReportWorkspacePath(pathname);
   const reportFlowChrome = isMvReportFlowChromePath(pathname);
   const useColumnLock = reportWorkspaceLocked || reportFlowChrome;
-  const companyPanelWide = pathname.includes("/machine-valuation/company");
+  const widePanel =
+    pathname.includes("/machine-valuation/company") ||
+    pathname.includes("/machine-valuation/report-settings") ||
+    pathname.includes("/machine-valuation/clients");
 
   return (
     <SidebarInset
@@ -389,7 +375,7 @@ function MachineWorkspace({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           "mx-auto flex min-h-0 w-full min-w-0 flex-1 flex-col",
-          companyPanelWide ? "max-w-none" : "max-w-[1600px]",
+          widePanel ? "max-w-none" : "max-w-[1600px]",
           useColumnLock ? "gap-0 overflow-hidden" : "gap-3 overflow-y-auto overscroll-contain md:gap-4",
         )}
       >
@@ -427,7 +413,7 @@ function MachineSidebarToggleArrow() {
   );
 }
 
-export default function MachineValuationShell({ children }: { children: React.ReactNode }) {
+export default function MachineValuationShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/machine-valuation";
 
   return (
@@ -437,7 +423,7 @@ export default function MachineValuationShell({ children }: { children: React.Re
   );
 }
 
-function MachineValuationShellInner({ children }: { children: React.ReactNode }) {
+function MachineValuationShellInner({ children }: { children: ReactNode }) {
   const { navigate, isMachineValuationPath } = useMvInPageNavigation();
 
   return (

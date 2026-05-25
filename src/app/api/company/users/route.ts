@@ -39,7 +39,7 @@ async function postBodyJsonString(request: NextRequest): Promise<
         return {
           ok: false,
           status: 400,
-          message: "جسم الطلب يجب أن يكون كائن JSON (username, password, role, …).",
+          message: "جسم الطلب يجب أن يكون كائن JSON (phone, password, role, …).",
         };
       }
       return { ok: true, body: JSON.stringify(data) };

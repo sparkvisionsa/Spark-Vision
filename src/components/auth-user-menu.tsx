@@ -105,12 +105,14 @@ export default function AuthUserMenu() {
     );
   }
 
+  const displayName = user.phone?.trim() || user.username;
+
   return (
     <DropdownMenu modal={false} open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2">
           <UserCircle className="h-4 w-4" />
-          <span className="max-w-[120px] truncate">{user.username}</span>
+          <span className="max-w-[120px] truncate">{displayName}</span>
           <ChevronDown className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

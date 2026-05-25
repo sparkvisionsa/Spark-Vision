@@ -5,6 +5,10 @@ import AppProviders from "./providers";
 export const metadata: Metadata = {
   title: "Spark Vision",
   description: "Smart Software Solutions for a Smarter Future",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+  },
 };
 
 export default function RootLayout({

@@ -18,8 +18,6 @@ export function toApiUrl(path: string) {
     return path;
   }
 
-  console.log(API_BASE_URL);
-
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
   if (typeof window !== "undefined") {

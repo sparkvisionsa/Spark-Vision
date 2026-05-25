@@ -17,9 +17,14 @@ const EXACT_REWRITES: [string, string][] = [
 ];
 
 const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source"];
+const MV_STATIC_SEGMENTS = new Set(["projects", "company", "report-settings", "clients"]);
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === "/favicon.ico") {
+    return NextResponse.rewrite(new URL("/icon.png", request.url));
+  }
 
   if (pathname.startsWith("/api") || pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
     return NextResponse.next();
@@ -30,6 +35,10 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname === "/machine-valuation") {
+    return NextResponse.redirect(new URL("/machine-valuation/projects", request.url));
+  }
+
+  if (pathname === "/machine-valuation/dashboard") {
     return NextResponse.redirect(new URL("/machine-valuation/projects", request.url));
   }
 
@@ -58,18 +67,11 @@ export function middleware(request: NextRequest) {
   if (
     mvSegments.length === 2 &&
     mvSegments[0] === "machine-valuation" &&
-    mvSegments[1] !== "projects" &&
-    mvSegments[1] !== "dashboard" &&
-    mvSegments[1] !== "company"
+    !MV_STATIC_SEGMENTS.has(mvSegments[1] ?? "")
   ) {
     return NextResponse.redirect(
       new URL(`/machine-valuation/${mvSegments[1]}/workflow/report-data`, request.url),
     );
-  }
-
-  /** صفحة ثابتة تحت ‎/machine-valuation/company‎ — لا تُعاد كتابتها إلى ‎/w‎ حتى تُحمَّل من ‎app/machine-valuation/company‎ مع الهيكل الصحيح. */
-  if (pathname === "/machine-valuation/company") {
-    return NextResponse.next();
   }
 
   for (const prefix of PREFIX_REWRITES) {
@@ -100,5 +102,6 @@ export const config = {
     "/settings",
     "/evaluation-source",
     "/evaluation-source/:path*",
+    "/favicon.ico",
   ],
 };

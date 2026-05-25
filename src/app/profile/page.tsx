@@ -72,8 +72,8 @@ export default function ProfilePage() {
 
             <div className="mt-6 grid gap-5">
               <div className="grid gap-2">
-                <Label htmlFor="profile-username">Username</Label>
-                <Input id="profile-username" value={user.username} disabled />
+                <Label htmlFor="profile-login-phone">Login phone</Label>
+                <Input id="profile-login-phone" value={user.phone ?? user.username} disabled />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="profile-email">Email</Label>

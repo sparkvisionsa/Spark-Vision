@@ -1,5 +1,13 @@
 import type {NextConfig} from 'next';
 
+function backendOriginForRewrite() {
+  const raw =
+    process.env.BACKEND_URL?.replace(/\/+$/, "") ??
+    process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??
+    "http://127.0.0.1:5000";
+  return raw.replace(/\/?api$/i, "").replace(/\/+$/, "") || "http://127.0.0.1:5000";
+}
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -26,10 +34,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    const backendBaseUrl =
-      process.env.BACKEND_URL?.replace(/\/+$/, "") ??
-      process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ??
-      "http://127.0.0.1:5000";
+    const backendBaseUrl = backendOriginForRewrite();
     return {
       fallback: [
         {

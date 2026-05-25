@@ -373,9 +373,15 @@ export default function ClientsPage() {
   const [bankAccountNumber, setBankAccountNumber] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [clientEditorOpen, setClientEditorOpen] = useState(false);
 
   const [typeModalOpen, setTypeModalOpen] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
+  const [typesManagerOpen, setTypesManagerOpen] = useState(false);
+  const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [editingTypeName, setEditingTypeName] = useState("");
+  const [deleteTypeId, setDeleteTypeId] = useState<string | null>(null);
+  const [typeActionBusy, setTypeActionBusy] = useState(false);
 
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templateModalMode, setTemplateModalMode] = useState<"create" | "edit">(
@@ -492,6 +498,11 @@ export default function ClientsPage() {
     setBankName("");
     setBankAccountAddress("");
     setBankAccountNumber("");
+  }
+
+  function openCreateClient() {
+    resetClientForm();
+    setClientEditorOpen(true);
   }
 
   useEffect(() => {
@@ -652,6 +663,7 @@ export default function ClientsPage() {
         setClients((prev) => [created, ...prev]);
         toast({ title: "تمت إضافة العميل" });
       }
+      setClientEditorOpen(false);
       resetClientForm();
     } catch (e) {
       toast({
@@ -677,7 +689,7 @@ export default function ClientsPage() {
     setBankName(c.bankName);
     setBankAccountAddress(c.bankAccountAddress);
     setBankAccountNumber(c.bankAccountNumber);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setClientEditorOpen(true);
   }
 
   async function confirmDeleteClient() {
@@ -715,6 +727,71 @@ export default function ClientsPage() {
       });
     } finally {
       setDeleteTemplateId(null);
+    }
+  }
+
+  function openEditType(t: ClientType) {
+    setEditingTypeId(t.id);
+    setEditingTypeName(t.name);
+  }
+
+  async function submitEditedType() {
+    if (!editingTypeId) return;
+    const n = editingTypeName.trim();
+    if (!n) {
+      toast({ title: "أدخل اسم النوع", variant: "destructive" });
+      return;
+    }
+    setTypeActionBusy(true);
+    try {
+      const updated = await apiJson<ClientType>(
+        `/api/client-types/${editingTypeId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ name: n }),
+        },
+      );
+      setClientTypes((prev) =>
+        prev.map((t) => (t.id === updated.id ? updated : t)),
+      );
+      setEditingTypeId(null);
+      setEditingTypeName("");
+      toast({ title: "تم تحديث نوع العميل" });
+    } catch (e) {
+      toast({
+        title: "تعذر تحديث النوع",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setTypeActionBusy(false);
+    }
+  }
+
+  async function confirmDeleteType() {
+    if (!deleteTypeId) return;
+    setTypeActionBusy(true);
+    try {
+      await apiJson(`/api/client-types/${deleteTypeId}`, {
+        method: "DELETE",
+      });
+      const remaining = clientTypes.filter((t) => t.id !== deleteTypeId);
+      setClientTypes(remaining);
+      if (typeId === deleteTypeId) setTypeId(remaining[0]?.id ?? "");
+      if (editingTypeId === deleteTypeId) {
+        setEditingTypeId(null);
+        setEditingTypeName("");
+      }
+      toast({ title: "تم حذف نوع العميل" });
+    } catch (e) {
+      toast({
+        title: "تعذر حذف النوع",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setTypeActionBusy(false);
+      setDeleteTypeId(null);
     }
   }
 
@@ -865,7 +942,7 @@ export default function ClientsPage() {
   return (
     <div className="mx-auto w-full max-w-[1400px] px-1.5 py-2 space-y-1.5">
       {/* ─── Header ─── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 text-white shadow-sm">
             <Users className="h-3.5 w-3.5" />
@@ -874,26 +951,71 @@ export default function ClientsPage() {
             العملاء
           </h1>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm"
-          onClick={() => setTemplatesBrowserOpen(true)}
-        >
-          <FileStack className="h-3 w-3" />
-          النماذج
-        </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-[11px] bg-gradient-to-r from-sky-600 to-teal-600 text-white shadow-sm hover:from-sky-700 hover:to-teal-700"
+            onClick={openCreateClient}
+          >
+            <UserPlus className="h-3 w-3" />
+            إضافة عميل
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm"
+            onClick={() => setTemplatesBrowserOpen(true)}
+          >
+            <FileStack className="h-3 w-3" />
+            النماذج
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm"
+            onClick={() => setTypesManagerOpen(true)}
+          >
+            <Tag className="h-3 w-3" />
+            الأنواع
+          </Button>
+        </div>
       </div>
 
       {/* ─── Form ─── */}
-      <form
-        className="space-y-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void saveClient();
+      <Dialog
+        open={clientEditorOpen}
+        onOpenChange={(open) => {
+          setClientEditorOpen(open);
+          if (!open) resetClientForm();
         }}
       >
+        <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+          <div className="shrink-0 bg-gradient-to-br from-sky-600 to-teal-600 px-5 py-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <UserPlus className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <DialogTitle className="text-[15px] font-bold text-white">
+                  {editingId ? "تعديل بيانات العميل" : "إضافة عميل جديد"}
+                </DialogTitle>
+                <DialogDescription className="mt-0.5 text-[11px] text-white/70">
+                  أدخل بيانات العميل واربطه بالنوع والنموذج المناسب.
+                </DialogDescription>
+              </div>
+            </div>
+          </div>
+          <ScrollArea className="min-h-0 flex-1 px-5 py-3">
+            <form
+              className="space-y-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveClient();
+              }}
+            >
         {/* بيانات العميل */}
         <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
           <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
@@ -1166,25 +1288,29 @@ export default function ClientsPage() {
             }
             className="h-7 gap-1 px-3 bg-gradient-to-r from-sky-600 to-teal-600 text-[12px] font-semibold shadow-sm hover:from-sky-700 hover:to-teal-700"
           >
-            {loading
-              ? "جاري التحميل…"
+            {savingClient
+              ? "جاري الحفظ…"
               : editingId
                 ? "حفظ التعديلات"
-                : "إضافة عميل"}
+                : "حفظ"}
           </Button>
-          {editingId && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={resetClientForm}
-              className="h-7 text-[12px]"
-            >
-              إلغاء
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setClientEditorOpen(false);
+              resetClientForm();
+            }}
+            className="h-7 text-[12px]"
+          >
+            إلغاء
+          </Button>
         </div>
-      </form>
+            </form>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Table ─── */}
       <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
@@ -1206,9 +1332,21 @@ export default function ClientsPage() {
               جاري التحميل…
             </p>
           ) : clients.length === 0 ? (
-            <p className="text-[12px] text-slate-400 py-8 text-center">
-              لا يوجد عملاء بعد.
-            </p>
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <Users className="h-8 w-8 text-slate-300" />
+              <p className="text-[12px] text-slate-400">
+                لا يوجد عملاء بعد.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 px-2.5 text-[11px] bg-sky-600 hover:bg-sky-700"
+                onClick={openCreateClient}
+              >
+                <Plus className="h-3 w-3" />
+                إضافة أول عميل
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table className="w-full table-fixed border-collapse text-[12px]">
@@ -1283,6 +1421,130 @@ export default function ClientsPage() {
           )}
         </div>
       </div>
+
+      {/* Modal: manage client types */}
+      <Dialog open={typesManagerOpen} onOpenChange={setTypesManagerOpen}>
+        <DialogContent className="sm:max-w-md gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+          <div className="bg-gradient-to-br from-sky-500 to-teal-500 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                  <Tag className="h-4 w-4 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <DialogTitle className="text-[15px] font-bold text-white">
+                    أنواع العملاء
+                  </DialogTitle>
+                  <DialogDescription className="mt-0.5 text-[11px] text-white/70">
+                    عرض وتعديل وحذف الأنواع المستخدمة في بيانات العميل
+                  </DialogDescription>
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 gap-1 bg-white/95 px-2.5 text-[11px] text-sky-700 hover:bg-white"
+                onClick={() => setTypeModalOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                نوع
+              </Button>
+            </div>
+          </div>
+          <ScrollArea className="max-h-[58vh]">
+            <div className="space-y-2 p-3">
+              {clientTypes.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-slate-400">
+                  <Tag className="h-8 w-8 opacity-40" />
+                  <p className="text-[12px]">لا توجد أنواع عملاء بعد</p>
+                </div>
+              ) : (
+                clientTypes.map((t) => {
+                  const editing = editingTypeId === t.id;
+                  return (
+                    <div
+                      key={t.id}
+                      className="rounded-lg border border-slate-100 bg-white px-3 py-2 shadow-sm transition-colors hover:border-slate-200 hover:bg-slate-50/70"
+                    >
+                      {editing ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            value={editingTypeName}
+                            onChange={(e) => setEditingTypeName(e.target.value)}
+                            className="h-8 text-[12px]"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void submitEditedType();
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 shrink-0 px-2 text-[11px] bg-sky-600 hover:bg-sky-700"
+                            disabled={typeActionBusy}
+                            onClick={() => void submitEditedType()}
+                          >
+                            حفظ
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 shrink-0 px-2 text-[11px]"
+                            disabled={typeActionBusy}
+                            onClick={() => {
+                              setEditingTypeId(null);
+                              setEditingTypeName("");
+                            }}
+                          >
+                            إلغاء
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-600">
+                              <Tag className="h-3.5 w-3.5" />
+                            </div>
+                            <span className="truncate text-[13px] font-medium text-slate-800">
+                              {t.name}
+                            </span>
+                          </div>
+                          <div className="flex shrink-0 gap-0.5">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              onClick={() => openEditType(t)}
+                              aria-label="تعديل النوع"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-red-400 hover:bg-red-50 hover:text-red-600"
+                              onClick={() => setDeleteTypeId(t.id)}
+                              aria-label="حذف النوع"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: add type */}
       <Dialog open={typeModalOpen} onOpenChange={setTypeModalOpen}>
@@ -1692,6 +1954,44 @@ export default function ClientsPage() {
             <AlertDialogAction
               className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700"
               onClick={() => void confirmDeleteClient()}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف نهائي
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Alert: delete client type */}
+      <AlertDialog
+        open={deleteTypeId !== null}
+        onOpenChange={(o) => !o && setDeleteTypeId(null)}
+      >
+        <AlertDialogContent className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+          <div className="flex items-center gap-3 bg-gradient-to-br from-red-500 to-rose-600 px-5 py-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+              <AlertTriangle className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <AlertDialogTitle className="text-[15px] font-bold text-white">
+                حذف نوع العميل؟
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">
+                لا يمكن حذف نوع مرتبط بعملاء حاليين.
+              </AlertDialogDescription>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-3">
+            <AlertDialogCancel className="h-8 text-[12px]" disabled={typeActionBusy}>
+              إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-8 text-[12px] gap-1 bg-red-600 hover:bg-red-700"
+              disabled={typeActionBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteType();
+              }}
             >
               <Trash2 className="h-3.5 w-3.5" />
               حذف نهائي

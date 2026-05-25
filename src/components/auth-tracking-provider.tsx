@@ -87,8 +87,10 @@ type AuthTrackingContextType = {
   config: SessionPayload["config"] | null;
   csrfToken: string;
   loading: boolean;
+  backendUnavailable: boolean;
   login: (payload: {
-    username: string;
+    username?: string;
+    phone?: string;
     password: string;
     rememberMe?: boolean;
   }) => Promise<void>;
@@ -119,6 +121,22 @@ const SV_BEHAVIOR_TRACKING_ENABLED =
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function isBackendUnavailableError(error: unknown) {
+  return error instanceof ApiRequestError && error.status >= 500;
 }
 
 function getOrCreateLocalBackupId() {
@@ -189,7 +207,7 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
       message?: string;
       error?: string;
     };
-    throw new Error(body.message ?? body.error ?? "Request failed");
+    throw new ApiRequestError(body.message ?? body.error ?? "Request failed", response.status, body.error);
   }
   return (await response.json()) as T;
 }
@@ -200,9 +218,9 @@ const isTrackingUrl = (url: string) =>
 async function safeRequestJson<T>(url: string, options?: RequestInit): Promise<T | null> {
   try {
     return await requestJson<T>(url, options);
-  } catch {
+  } catch (err) {
     if (isTrackingUrl(url)) return null;
-    throw arguments[0];
+    throw err;
   }
 }
 
@@ -219,6 +237,7 @@ export default function AuthTrackingProvider({
   const [config, setConfig] = useState<SessionPayload["config"] | null>(null);
   const [csrfToken, setCsrfToken] = useState("");
   const [loading, setLoading] = useState(true);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
 
   const actionQueueRef = useRef<TrackingAction[]>([]);
   const flushTimerRef = useRef<number | null>(null);
@@ -316,12 +335,17 @@ export default function AuthTrackingProvider({
   );
 
   const refresh = useCallback(async () => {
-    const response = await safeRequestJson<SessionPayload>("/api/auth/me");
-    if (response) applySnapshot(response);
+    try {
+      const response = await requestJson<SessionPayload>("/api/auth/me");
+      setBackendUnavailable(false);
+      applySnapshot(response);
+    } catch (err) {
+      setBackendUnavailable(isBackendUnavailableError(err));
+    }
   }, [applySnapshot]);
 
   const login = useCallback(
-    async (payload: { username: string; password: string; rememberMe?: boolean }) => {
+    async (payload: { username?: string; phone?: string; password: string; rememberMe?: boolean }) => {
       const response = await requestJson<{
         user: AuthUser;
         profile: Profile | null;
@@ -337,7 +361,7 @@ export default function AuthTrackingProvider({
       trackAction({
         actionType: "auth_login",
         actionDetails: {
-          username: payload.username,
+          phone: payload.phone ?? payload.username,
         },
       });
       await refresh();
@@ -660,6 +684,7 @@ export default function AuthTrackingProvider({
       config,
       csrfToken,
       loading,
+      backendUnavailable,
       login,
       register,
       logout,
@@ -670,6 +695,7 @@ export default function AuthTrackingProvider({
     [
       config,
       csrfToken,
+      backendUnavailable,
       guestAccess,
       loading,
       login,

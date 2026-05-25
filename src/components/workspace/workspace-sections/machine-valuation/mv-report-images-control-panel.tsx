@@ -56,7 +56,7 @@ function DraggableRow({
         if (fromId) onReorder(fromId, id);
       }}
       className={cn(
-        "rounded-lg border bg-white p-2 transition",
+        "rounded-lg border bg-white p-2.5 transition",
         dragOver ? "border-sky-400 bg-sky-50/80" : "border-slate-200",
       )}
     >
@@ -66,14 +66,14 @@ function DraggableRow({
         </span>
         {thumbSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumbSrc} alt="" className="h-11 w-14 shrink-0 rounded object-cover bg-slate-100" />
+          <img src={thumbSrc} alt="" className="h-14 w-20 shrink-0 rounded-md bg-slate-100 object-cover ring-1 ring-slate-200" />
         ) : (
-          <span className="flex h-11 w-14 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-400">
+          <span className="flex h-14 w-20 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-400 ring-1 ring-slate-200">
             <ImageIcon className="h-4 w-4" />
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-[10px] font-bold leading-snug text-slate-800">{label}</p>
+          <p className="line-clamp-2 text-[11px] font-bold leading-snug text-slate-800">{label}</p>
           {showWidthSlider ? (
             <label className="mt-1.5 grid gap-1">
               <span className="text-[9px] font-semibold text-slate-500">
@@ -160,6 +160,7 @@ export function MvReportImagesControlPanel({
   onImageCornerRadiusChange,
   onImageShadowChange,
   onAssetPreview,
+  onManageAssetImages,
   valuationImages,
   valuationOrder,
   onValuationReorder,
@@ -189,6 +190,7 @@ export function MvReportImagesControlPanel({
   onImageCornerRadiusChange: (value: number) => void;
   onImageShadowChange: (value: number) => void;
   onAssetPreview: () => void;
+  onManageAssetImages?: () => void;
   valuationImages: MvValuationAccountingImage[];
   valuationOrder: string[];
   onValuationReorder: (next: string[]) => void;
@@ -219,13 +221,36 @@ export function MvReportImagesControlPanel({
   const valuationById = new Map(valuationImages.map((im) => [im.id, im]));
 
   return (
-    <div className="mt-2 rounded-lg border border-slate-200/90 bg-slate-50/60 p-1.5">
+    <div className="mt-2 rounded-lg border border-slate-200/90 bg-slate-50/60 p-2">
+      <div className="mb-2 rounded-lg border border-sky-100 bg-white px-2.5 py-2 text-right shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black text-[#0C447C]">صور الأصول في التقرير</p>
+            <p className="mt-0.5 text-[9.5px] font-semibold leading-4 text-slate-500">
+              الصور المختارة فقط تظهر في مرفق 2، ويمكن ضبط العدد، العرض، والترتيب من هنا.
+            </p>
+          </div>
+          <span className="shrink-0 rounded-md bg-sky-50 px-2 py-1 text-[11px] font-black tabular-nums text-[#0C447C]">
+            {assetOrder.length}
+          </span>
+        </div>
+        {onManageAssetImages ? (
+          <button
+            type="button"
+            onClick={onManageAssetImages}
+            className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-[10px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-[#0C447C]"
+          >
+            <ImageIcon className="h-3 w-3" />
+            فتح تحديد صور الأصول
+          </button>
+        ) : null}
+      </div>
       <div className="mb-1.5 flex gap-0.5 rounded-md bg-white p-0.5 ring-1 ring-slate-200/80">
         <button
           type="button"
           onClick={() => setTab("assets")}
           className={cn(
-            "flex-1 rounded px-1 py-1 text-[10px] font-bold transition",
+            "flex-1 rounded px-1 py-1.5 text-[10.5px] font-black transition",
             tab === "assets" ? "bg-sky-800 text-white" : "text-slate-600 hover:bg-slate-50",
           )}
         >
@@ -235,14 +260,14 @@ export function MvReportImagesControlPanel({
           type="button"
           onClick={() => setTab("valuation")}
           className={cn(
-            "flex-1 rounded px-1 py-1 text-[10px] font-bold transition",
+            "flex-1 rounded px-1 py-1.5 text-[10.5px] font-black transition",
             tab === "valuation" ? "bg-sky-800 text-white" : "text-slate-600 hover:bg-slate-50",
           )}
         >
           صور الحسابات ({valuationOrder.length})
         </button>
       </div>
-      <p className="mb-1.5 px-0.5 text-[9px] font-semibold leading-snug text-slate-500">
+      <p className="mb-1.5 px-0.5 text-[9.5px] font-semibold leading-snug text-slate-500">
         اسحب الصورة لإعادة الترتيب. حرّك شريط العرض لتغيير مساحتها في التقرير.
       </p>
       {tab === "assets" ? (
@@ -318,10 +343,25 @@ export function MvReportImagesControlPanel({
         <ImageSettingSlider label="استدارة حواف الصور" value={imageCornerRadius} min={0} max={24} step={1} suffix="px" onChange={onImageCornerRadiusChange} />
         <ImageSettingSlider label="ظل الصور" value={imageShadow} min={0} max={4} step={1} onChange={onImageShadowChange} />
       </div>
-      <div className="max-h-[min(28vh,240px)] space-y-1.5 overflow-y-auto overscroll-contain">
+      <div className="max-h-[min(42vh,360px)] space-y-1.5 overflow-y-auto overscroll-contain">
         {tab === "assets" ? (
           assetOrder.length === 0 ? (
-            <p className="py-3 text-center text-[10px] font-bold text-slate-500">لا توجد صور أصول في التقرير.</p>
+            <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center">
+              <p className="text-[10.5px] font-black text-slate-600">لا توجد صور أصول محددة للتقرير.</p>
+              <p className="mt-1 text-[9.5px] font-semibold leading-5 text-slate-500">
+                اختر الصور من خطوة صور الأصول ثم ارجع لهذه اللوحة لضبط مرفق 2.
+              </p>
+              {onManageAssetImages ? (
+                <button
+                  type="button"
+                  onClick={onManageAssetImages}
+                  className="mt-2 inline-flex h-7 items-center justify-center gap-1 rounded-md bg-[#0C447C] px-3 text-[10px] font-black text-white transition hover:bg-[#09345f]"
+                >
+                  <ImageIcon className="h-3 w-3" />
+                  تحديد الصور
+                </button>
+              ) : null}
+            </div>
           ) : (
             assetOrder.map((id) => {
               const file = assetById.get(id);

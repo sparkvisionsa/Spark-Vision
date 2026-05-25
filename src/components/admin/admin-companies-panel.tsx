@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { PhoneNumberInput } from "@/components/phone-number-input";
 import { toApiUrl } from "@/lib/api-url";
 import {
   VALUE_TECH_PRODUCT_IDS,
@@ -147,7 +148,6 @@ export function AdminCompaniesPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [companyName, setCompanyName] = useState("");
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -229,16 +229,15 @@ export function AdminCompaniesPanel() {
         method: "POST",
         body: JSON.stringify({
           companyName: companyName.trim(),
-          username: username.trim(),
+          username: phoneTrim,
           password,
           ...(emailTrim ? { email: emailTrim } : {}),
-          ...(phoneTrim ? { phone: phoneTrim } : {}),
+          phone: phoneTrim,
           valueTechProductIds,
         }),
       });
       setStatus("تم إنشاء الشركة ومديرها بنجاح.");
       setCompanyName("");
-      setUsername("");
       setPassword("");
       setEmail("");
       setPhone("");
@@ -313,8 +312,10 @@ export function AdminCompaniesPanel() {
         companyName: editName.trim(),
         valueTechProductIds,
         adminEmail: editAdminEmail.trim(),
-        adminPhone: editAdminPhone.trim(),
       };
+      if (editAdminPhone.trim()) {
+        body.adminPhone = editAdminPhone.trim();
+      }
       if (editAdminNewPassword.length >= 8) {
         body.adminNewPassword = editAdminNewPassword;
       }
@@ -417,7 +418,7 @@ export function AdminCompaniesPanel() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="text-right">الشركة</TableHead>
-                        <TableHead className="text-right">مدير الشركة</TableHead>
+                        <TableHead className="text-right">رقم مدير الشركة</TableHead>
                         <TableHead className="text-right">الأعضاء</TableHead>
                         <TableHead className="text-right">المنتجات</TableHead>
                         <TableHead className="text-right">تاريخ الإنشاء</TableHead>
@@ -500,10 +501,6 @@ export function AdminCompaniesPanel() {
                 <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
               </div>
               <div className="grid gap-2">
-                <Label>اسم مستخدم المدير</Label>
-                <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
-              </div>
-              <div className="grid gap-2">
                 <Label>كلمة المرور</Label>
                 <Input
                   type="password"
@@ -517,8 +514,8 @@ export function AdminCompaniesPanel() {
                 <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               <div className="grid gap-2">
-                <Label>الهاتف (اختياري)</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} dir="ltr" />
+                <Label>رقم هاتف المدير</Label>
+                <PhoneNumberInput value={phone} onChange={setPhone} />
               </div>
               <p className="text-sm font-medium">منتجات فاليو تك</p>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -543,7 +540,7 @@ export function AdminCompaniesPanel() {
                 type="button"
                 onClick={() => void onCreate()}
                 disabled={
-                  createSubmitting || !companyName.trim() || !username.trim() || password.length < 8
+                  createSubmitting || !companyName.trim() || !phone.trim() || password.length < 8
                 }
               >
                 <span
@@ -598,7 +595,7 @@ export function AdminCompaniesPanel() {
                   <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                     <p className="text-sm font-semibold text-slate-800">مدير الشركة (سوبر أدمن)</p>
                     <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                      <li>اسم المستخدم: {detail.admin.user.username}</li>
+                      <li>رقم الدخول: {detail.admin.user.phone ?? detail.admin.user.username}</li>
                       <li>البريد: {detail.admin.user.email ?? detail.admin.profile?.email ?? "—"}</li>
                       <li>الهاتف: {detail.admin.user.phone ?? detail.admin.profile?.phone ?? "—"}</li>
                       <li>الدور: {ROLE_AR[detail.admin.user.role] ?? detail.admin.user.role}</li>
@@ -632,7 +629,7 @@ export function AdminCompaniesPanel() {
                       <TableBody>
                         {detail.members.map((m) => (
                           <TableRow key={m.user.id}>
-                            <TableCell>{m.user.username}</TableCell>
+                            <TableCell>{m.user.phone ?? m.user.username}</TableCell>
                             <TableCell>{ROLE_AR[m.user.role] ?? m.user.role}</TableCell>
                             <TableCell className="text-xs">
                               {m.user.lastLoginAt
@@ -649,7 +646,7 @@ export function AdminCompaniesPanel() {
                                   setDeleteMemberTarget({
                                     companyId: detail.company.id,
                                     userId: m.user.id,
-                                    username: m.user.username,
+                                    username: m.user.phone ?? m.user.username,
                                   })
                                 }
                               >
@@ -694,7 +691,7 @@ export function AdminCompaniesPanel() {
               </div>
               <div className="grid gap-2">
                 <Label>هاتف مدير الشركة</Label>
-                <Input value={editAdminPhone} onChange={(e) => setEditAdminPhone(e.target.value)} dir="ltr" />
+                <PhoneNumberInput value={editAdminPhone} onChange={setEditAdminPhone} />
               </div>
               <div className="grid gap-2">
                 <Label>كلمة مرور جديدة للمدير (اختياري)</Label>
