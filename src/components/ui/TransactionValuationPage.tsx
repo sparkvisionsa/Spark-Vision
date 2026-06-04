@@ -2062,8 +2062,8 @@ export function TransactionEvaluationPage({
       const evalData = {
         status: ev.status,
         ...ev.location,
-        ...ev.basic,
-        ...ev.assetInfo,
+        ...ev.assetInfo, // read-only display values — lower priority
+        ...ev.basic, // editable fields win
         ...ev.boundaries,
         buildingCondition: ev.finishing.buildingCondition,
         floorsCount: ev.finishing.floorsCount,
@@ -2105,7 +2105,6 @@ export function TransactionEvaluationPage({
       setSaving(false);
     }
   };
-
   const VM_TABS = [
     { id: "vm-m", label: t.vmMarket },
     { id: "vm-c", label: t.vmCost },
@@ -2363,7 +2362,9 @@ export function TransactionEvaluationPage({
             flexWrap: "wrap",
           }}
         >
-          {/* isOpened */}
+          {/* Replace the two static badge divs with these */}
+
+          {/* isOpened — still read-only, no change */}
           <div
             style={{
               display: "inline-flex",
@@ -2388,8 +2389,33 @@ export function TransactionEvaluationPage({
                 : "Not opened"}
           </div>
 
-          {/* isCompleted */}
-          <div
+          {/* isCompleted — now a clickable toggle */}
+          <button
+            type="button"
+            onClick={async () => {
+              const next = !tx?.isCompleted;
+              // Optimistic update
+              setTx((prev: any) => ({ ...prev, isCompleted: next }));
+              try {
+                const res = await fetch(
+                  toApiUrl(`/api/transactions/${transactionId}/completed`),
+                  {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ isCompleted: next }),
+                  },
+                );
+                if (!res.ok) throw new Error();
+                const updated = await res.json();
+                setTx(updated);
+                onStatusSaved?.();
+              } catch {
+                // Revert on failure
+                setTx((prev: any) => ({ ...prev, isCompleted: !next }));
+                setStatusMsg({ type: "error", text: t.saveError });
+              }
+            }}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -2398,9 +2424,12 @@ export function TransactionEvaluationPage({
               borderRadius: 999,
               fontSize: 12,
               fontWeight: 600,
-              border: `1px solid ${tx?.isCompleted ? "#bfdbfe" : DS.border}`,
+              border: `1.5px solid ${tx?.isCompleted ? "#bfdbfe" : DS.border}`,
               background: tx?.isCompleted ? "#eff6ff" : DS.surfaceAlt,
               color: tx?.isCompleted ? "#2563eb" : DS.textMuted,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              transition: "all 0.15s",
             }}
           >
             {tx?.isCompleted ? (
@@ -2410,12 +2439,12 @@ export function TransactionEvaluationPage({
             )}
             {lang === "ar"
               ? tx?.isCompleted
-                ? "مكتملة"
+                ? "مكتملة "
                 : "غير مكتملة"
               : tx?.isCompleted
                 ? "Completed"
                 : "Not completed"}
-          </div>
+          </button>
         </div>
       </SectionCard>
 
@@ -3374,7 +3403,7 @@ export function TransactionEvaluationPage({
         />
       </SectionCard>
 
-      {/* ── Valuation Methods ────────────────────────────────────────────────── */}
+      {/* ── Valuation Methods ────────────────────────────────────────────────────── */}
       <SectionCard title={t.secMethods} icon={<BarChart2 size={14} />}>
         {/* Tab bar */}
         <div
@@ -3408,137 +3437,1099 @@ export function TransactionEvaluationPage({
                 boxShadow:
                   activeVmTab === tab.id ? `0 2px 8px ${DS.primary}35` : "none",
                 transition: "all 0.15s",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
               }}
             >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "currentColor",
+                  opacity: 0.6,
+                  flexShrink: 0,
+                }}
+              />
               {tab.label}
             </button>
           ))}
         </div>
 
+        {/* ── Tab: المقارنة ── */}
         {activeVmTab === "vm-m" && (
-          <GridFields tight>
-            <Field label={t.marketMeterPrice}>
-              <Input
-                value={ev.methodsMarket.marketMeterPrice}
-                onChange={(e) =>
-                  setField("methodsMarket", "marketMeterPrice", e.target.value)
-                }
+          <div>
+            {/* Data table */}
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-            <Field label={t.marketWeightPct}>
-              <Input
-                value={ev.methodsMarket.marketWeightPct}
-                onChange={(e) =>
-                  setField("methodsMarket", "marketWeightPct", e.target.value)
-                }
+              {t.vmMarket}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      "#",
+                      t.landUse,
+                      t.marketMeterPrice,
+                      t.marketWeightPct,
+                      t.marketMeterPrice,
+                      t.total,
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.comparisonRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={7}
+                        style={{
+                          ...tdS,
+                          textAlign: "center",
+                          color: DS.textLight,
+                          padding: 20,
+                        }}
+                      >
+                        {lang === "ar" ? "لا توجد بيانات" : "No data"}
+                      </td>
+                    </tr>
+                  ) : (
+                    /* Group by usage type and compute weighted meter prices */
+                    (() => {
+                      type GroupAcc = {
+                        count: number;
+                        totalPrice: number;
+                        totalArea: number;
+                      };
+                      const groups: Record<string, GroupAcc> = {};
+                      ev.comparisonRows.forEach((row: any) => {
+                        const key =
+                          row.propertyTypeId ||
+                          (lang === "ar" ? "عام" : "General");
+                        if (!groups[key])
+                          groups[key] = {
+                            count: 0,
+                            totalPrice: 0,
+                            totalArea: 0,
+                          };
+                        const price = parseFloat(row.price) || 0;
+                        const area = parseFloat(row.landSpace) || 0;
+                        if (price > 0) {
+                          groups[key].count += 1;
+                          groups[key].totalPrice += price;
+                          groups[key].totalArea += area;
+                        }
+                      });
+                      return Object.entries(groups).map(([key, g], idx) => {
+                        const avgMeter =
+                          g.count > 0 ? g.totalPrice / g.count : 0;
+                        const weightPct = 100;
+                        const weightedMeter = avgMeter * (weightPct / 100);
+                        const propertyArea =
+                          parseFloat(ev.assetInfo.propertyArea) || 0;
+                        const total = weightedMeter * propertyArea;
+                        return (
+                          <tr key={key}>
+                            <td style={tdS}>{idx + 1}</td>
+                            <td style={tdS}>{key}</td>
+                            <td
+                              style={{
+                                ...tdS,
+                                fontWeight: 600,
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {avgMeter.toFixed(2)}
+                            </td>
+                            <td style={tdS}>{weightPct}</td>
+                            <td style={{ ...tdS, fontWeight: 600 }}>
+                              {weightedMeter.toFixed(2)}
+                            </td>
+                            <td style={{ ...tdS, fontWeight: 600 }}>
+                              {total > 0
+                                ? total.toLocaleString(
+                                    lang === "ar" ? "ar-SA" : "en-US",
+                                    { maximumFractionDigits: 2 },
+                                  )
+                                : "—"}
+                            </td>
+                            <td style={tdS}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 6,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    fontSize: 11,
+                                    color: DS.textMuted,
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    style={{ accentColor: DS.primary }}
+                                  />
+                                  {lang === "ar" ? "المقارنات" : "Comparisons"}
+                                </label>
+                                <span
+                                  style={{
+                                    color: DS.borderStrong,
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  |
+                                </span>
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    fontSize: 11,
+                                    color: DS.textMuted,
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    style={{ accentColor: DS.primary }}
+                                  />
+                                  {lang === "ar" ? "التسويات" : "Settlements"}
+                                </label>
+                                <span
+                                  style={{
+                                    color: DS.borderStrong,
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  |
+                                </span>
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    fontSize: 11,
+                                    color: DS.textMuted,
+                                    cursor: "pointer",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    style={{ accentColor: DS.primary }}
+                                  />
+                                  {lang === "ar" ? "وحدات" : "Units"}
+                                </label>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Calculator */}
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-            <Field label={t.propertyAreaMethod}>
-              <Input
-                value={ev.methodsMarket.propertyAreaMethod}
-                onChange={(e) =>
-                  setField(
-                    "methodsMarket",
-                    "propertyAreaMethod",
-                    e.target.value,
-                  )
-                }
-              />
-            </Field>
-            <Field label={t.total}>
-              <Input
-                value={ev.methodsMarket.marketMethodTotal}
-                onChange={(e) =>
-                  setField("methodsMarket", "marketMethodTotal", e.target.value)
-                }
-              />
-            </Field>
-            <Field label={t.usageReason} full>
-              <Textarea
-                value={ev.methodsMarket.marketReason}
-                onChange={(e) =>
-                  setField("methodsMarket", "marketReason", e.target.value)
-                }
-                rows={4}
-              />
-            </Field>
-          </GridFields>
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+
+            <div style={{ marginBottom: 14 }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12,
+                  color: DS.textMuted,
+                  cursor: "pointer",
+                  padding: "9px 13px",
+                  border: `1px solid ${DS.border}`,
+                  borderRadius: DS.radius.md,
+                  background: DS.surfaceAlt,
+                  width: "fit-content",
+                }}
+              >
+                <input type="checkbox" style={{ accentColor: DS.primary }} />
+                {lang === "ar" ? "مساحة المسطحات" : "Built-up Area"}
+                <Info
+                  size={12}
+                  style={{ color: DS.textLight }}
+                  title={
+                    lang === "ar"
+                      ? "يركز على المساحة المبنية بدلاً من مساحة الأرض"
+                      : "Focus on built-up area instead of land area"
+                  }
+                />
+              </label>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: DS.textMuted,
+                  fontWeight: 700,
+                  textTransform: "uppercase" as const,
+                  letterSpacing: "0.06em",
+                  display: "block",
+                  marginBottom: 5,
+                }}
+              >
+                {lang === "ar" ? "طريقة الحساب:" : "Calculation Method:"}
+              </label>
+              <select style={{ ...inputStyle, width: "auto", minWidth: 200 }}>
+                <option value="meter">
+                  {lang === "ar" ? "سعر المتر" : "Meter Price"}
+                </option>
+                <option value="unit">
+                  {lang === "ar"
+                    ? "الإجمالي (التسويات)"
+                    : "Total (Settlements)"}
+                </option>
+              </select>
+            </div>
+
+            <GridFields tight>
+              <Field label={t.marketMeterPrice}>
+                <Input
+                  value={ev.methodsMarket.marketMeterPrice}
+                  onChange={(e) =>
+                    setField(
+                      "methodsMarket",
+                      "marketMeterPrice",
+                      e.target.value,
+                    )
+                  }
+                />
+              </Field>
+              <Field label={t.propertyAreaMethod}>
+                <Input
+                  value={ev.methodsMarket.propertyAreaMethod}
+                  onChange={(e) =>
+                    setField(
+                      "methodsMarket",
+                      "propertyAreaMethod",
+                      e.target.value,
+                    )
+                  }
+                />
+              </Field>
+              <Field label={t.total}>
+                <Input
+                  readOnly
+                  value={
+                    ev.methodsMarket.marketMeterPrice &&
+                    ev.methodsMarket.propertyAreaMethod
+                      ? (
+                          (parseFloat(ev.methodsMarket.marketMeterPrice) || 0) *
+                          (parseFloat(ev.methodsMarket.propertyAreaMethod) || 0)
+                        ).toLocaleString(lang === "ar" ? "ar-SA" : "en-US", {
+                          maximumFractionDigits: 2,
+                        })
+                      : ev.methodsMarket.marketMethodTotal
+                  }
+                />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  value={ev.methodsMarket.marketReason}
+                  onChange={(e) =>
+                    setField("methodsMarket", "marketReason", e.target.value)
+                  }
+                  rows={4}
+                />
+              </Field>
+            </GridFields>
+          </div>
         )}
+
+        {/* ── Tab: تكلفة الإحلال ── */}
         {activeVmTab === "vm-c" && (
-          <GridFields tight>
-            <Field label={t.costNetBuildings}>
-              <Input
-                value={ev.methodsCost.costNetBuildings}
-                onChange={(e) =>
-                  setField("methodsCost", "costNetBuildings", e.target.value)
-                }
+          <div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-            <Field label={t.costNetLandPrice}>
-              <Input
-                value={ev.methodsCost.costNetLandPrice}
-                onChange={(e) =>
-                  setField("methodsCost", "costNetLandPrice", e.target.value)
-                }
+              {t.vmCost}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      lang === "ar" ? "الاسم" : "Name",
+                      lang === "ar" ? "قيمة المبنى" : "Building Value",
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.replacementLines.filter((l: any) => l.title || l.total)
+                    .length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        style={{
+                          ...tdS,
+                          textAlign: "center",
+                          color: DS.textLight,
+                          padding: 20,
+                        }}
+                      >
+                        {lang === "ar" ? "لا توجد بيانات" : "No data"}
+                      </td>
+                    </tr>
+                  ) : (
+                    ev.replacementLines
+                      .filter((l: any) => l.title || l.total)
+                      .map((line: any, idx: number) => (
+                        <tr key={idx}>
+                          <td style={tdS}>
+                            {line.title ||
+                              `${lang === "ar" ? "بند" : "Line"} ${idx + 1}`}
+                          </td>
+                          <td
+                            style={{
+                              ...tdS,
+                              fontWeight: 600,
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {line.total
+                              ? parseFloat(line.total).toLocaleString(
+                                  lang === "ar" ? "ar-SA" : "en-US",
+                                  { maximumFractionDigits: 2 },
+                                )
+                              : line.space && line.unitPrice
+                                ? (
+                                    (parseFloat(line.space) || 0) *
+                                    (parseFloat(line.unitPrice) || 0)
+                                  ).toLocaleString(
+                                    lang === "ar" ? "ar-SA" : "en-US",
+                                    { maximumFractionDigits: 2 },
+                                  )
+                                : "—"}
+                          </td>
+                          <td style={tdS}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  color: DS.textMuted,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  style={{ accentColor: DS.primary }}
+                                />
+                                {lang === "ar" ? "المسطحات" : "Areas"}
+                              </label>
+                              <span
+                                style={{ color: DS.borderStrong, fontSize: 11 }}
+                              >
+                                |
+                              </span>
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  color: DS.textMuted,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  style={{ accentColor: DS.primary }}
+                                />
+                                {lang === "ar" ? "الإحلال" : "Replacement"}
+                              </label>
+                              <span
+                                style={{ color: DS.borderStrong, fontSize: 11 }}
+                              >
+                                |
+                              </span>
+                              <label
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 11,
+                                  color: DS.textMuted,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  style={{ accentColor: DS.primary }}
+                                />
+                                {lang === "ar" ? "أعداد" : "Count"}
+                              </label>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-            <Field label={t.costLandBuildTotal}>
-              <Input
-                value={ev.methodsCost.costLandBuildTotal}
-                onChange={(e) =>
-                  setField("methodsCost", "costLandBuildTotal", e.target.value)
-                }
-              />
-            </Field>
-            <Field label={t.usageReason} full>
-              <Textarea
-                value={ev.methodsCost.costReason}
-                onChange={(e) =>
-                  setField("methodsCost", "costReason", e.target.value)
-                }
-                rows={4}
-              />
-            </Field>
-          </GridFields>
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+            <GridFields tight>
+              <Field label={t.costNetBuildings}>
+                <Input readOnly value={ev.methodsCost.costNetBuildings} />
+              </Field>
+              <Field label={t.costNetLandPrice}>
+                <Input readOnly value={ev.methodsCost.costNetLandPrice} />
+              </Field>
+              <Field label={t.costLandBuildTotal}>
+                <Input readOnly value={ev.methodsCost.costLandBuildTotal} />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  value={ev.methodsCost.costReason}
+                  onChange={(e) =>
+                    setField("methodsCost", "costReason", e.target.value)
+                  }
+                  rows={4}
+                />
+              </Field>
+            </GridFields>
+          </div>
         )}
+
+        {/* ── Tab: الاستثمار ── */}
         {activeVmTab === "vm-i" && (
-          <GridFields tight>
-            <Field label={t.incomeTotal}>
-              <Input
-                value={ev.methodsIncome.incomeTotal}
-                onChange={(e) =>
-                  setField("methodsIncome", "incomeTotal", e.target.value)
-                }
+          <div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-            <Field label={t.usageReason} full>
-              <Textarea
-                value={ev.methodsIncome.incomeReason}
-                onChange={(e) =>
-                  setField("methodsIncome", "incomeReason", e.target.value)
-                }
-                rows={4}
+              {t.vmIncome}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      lang === "ar" ? "الاسم" : "Name",
+                      lang === "ar" ? "اجمالي الدخل" : "Total Income",
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.methodsIncome.incomeTotal ? (
+                    <tr>
+                      <td style={tdS}>
+                        {lang === "ar"
+                          ? "رسملة المبنى الرئيسي"
+                          : "Main Building Capitalization"}
+                      </td>
+                      <td
+                        style={{
+                          ...tdS,
+                          fontWeight: 600,
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {parseFloat(
+                          ev.methodsIncome.incomeTotal,
+                        ).toLocaleString(lang === "ar" ? "ar-SA" : "en-US", {
+                          maximumFractionDigits: 3,
+                        })}
+                      </td>
+                      <td style={tdS}>
+                        <label
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            fontSize: 11,
+                            color: DS.textMuted,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            style={{ accentColor: DS.primary }}
+                          />
+                          {lang === "ar" ? "عرض" : "Show"}
+                        </label>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        style={{
+                          ...tdS,
+                          textAlign: "center",
+                          color: DS.textLight,
+                          padding: 20,
+                        }}
+                      >
+                        {lang === "ar" ? "لا توجد بيانات" : "No data"}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
               />
-            </Field>
-          </GridFields>
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+            <GridFields tight>
+              <Field label={t.incomeTotal}>
+                <Input
+                  value={ev.methodsIncome.incomeTotal}
+                  onChange={(e) =>
+                    setField("methodsIncome", "incomeTotal", e.target.value)
+                  }
+                />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  value={ev.methodsIncome.incomeReason}
+                  onChange={(e) =>
+                    setField("methodsIncome", "incomeReason", e.target.value)
+                  }
+                  rows={4}
+                />
+              </Field>
+            </GridFields>
+          </div>
         )}
-        {(activeVmTab === "vm-r" ||
-          activeVmTab === "vm-d" ||
-          activeVmTab === "vm-e") && (
-          <div
-            style={{
-              padding: 28,
-              textAlign: "center",
-              color: DS.textMuted,
-              background: DS.surfaceAlt,
-              borderRadius: DS.radius.lg,
-              border: `1px dashed ${DS.border}`,
-            }}
-          >
-            <div style={{ fontSize: 30, marginBottom: 8 }}>🚧</div>
-            <p style={{ fontSize: 13, margin: 0, fontWeight: 500 }}>
-              {t.comingSoon}
-            </p>
+
+        {/* ── Tab: القيمة المتبقية ── */}
+        {activeVmTab === "vm-r" && (
+          <div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {t.vmResidual}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      lang === "ar" ? "الاسم" : "Name",
+                      lang === "ar"
+                        ? "اجمالي قيمة العقار"
+                        : "Total Property Value",
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      colSpan={3}
+                      style={{
+                        ...tdS,
+                        textAlign: "center",
+                        color: DS.textLight,
+                        padding: 20,
+                      }}
+                    >
+                      {lang === "ar" ? "لا توجد بيانات" : "No data"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+            <GridFields tight>
+              <Field
+                label={
+                  lang === "ar" ? "إجمالي قيمة الأصل" : "Total Asset Value"
+                }
+              >
+                <Input readOnly value="" />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  rows={4}
+                  placeholder={
+                    lang === "ar"
+                      ? "أدخل سبب الاستخدام..."
+                      : "Enter reason for use..."
+                  }
+                />
+              </Field>
+            </GridFields>
+          </div>
+        )}
+
+        {/* ── Tab: DCF ── */}
+        {activeVmTab === "vm-d" && (
+          <div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {t.vmDcf}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      lang === "ar" ? "الاسم" : "Name",
+                      lang === "ar" ? "اجمالي الدخل" : "Total Income",
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      colSpan={3}
+                      style={{
+                        ...tdS,
+                        textAlign: "center",
+                        color: DS.textLight,
+                        padding: 20,
+                      }}
+                    >
+                      {lang === "ar" ? "لا توجد بيانات" : "No data"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+            <GridFields tight>
+              <Field label={t.incomeTotal}>
+                <Input readOnly value="" />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  rows={4}
+                  placeholder={
+                    lang === "ar"
+                      ? "أدخل سبب الاستخدام..."
+                      : "Enter reason for use..."
+                  }
+                />
+              </Field>
+            </GridFields>
+          </div>
+        )}
+
+        {/* ── Tab: القيمة الإيجارية ── */}
+        {activeVmTab === "vm-e" && (
+          <div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {t.vmRental}:
+            </h4>
+            <div
+              style={{
+                overflowX: "auto",
+                borderRadius: DS.radius.md,
+                border: `1px solid ${DS.border}`,
+                marginBottom: 20,
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: DS.surfaceAlt }}>
+                    {[
+                      lang === "ar" ? "الاسم" : "Name",
+                      lang === "ar" ? "بداية المدة" : "Start Date",
+                      lang === "ar" ? "نهاية المدة" : "End Date",
+                      lang === "ar" ? "الفترة المحددة" : "Period",
+                      lang === "ar" ? "تقدير اجرة المثل" : "Rent Estimate",
+                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
+                    ].map((h, i) => (
+                      <th key={i} style={thS}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      colSpan={6}
+                      style={{
+                        ...tdS,
+                        textAlign: "center",
+                        color: DS.textLight,
+                        padding: 20,
+                      }}
+                    >
+                      {lang === "ar"
+                        ? "لا توجد بيانات إيجارية"
+                        : "No rental data"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h4
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                color: DS.primary,
+                marginBottom: 12,
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  width: 3,
+                  height: 14,
+                  background: DS.primary,
+                  borderRadius: 2,
+                }}
+              />
+              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
+            </h4>
+            <GridFields tight>
+              <Field
+                label={lang === "ar" ? "إجمالي الإيجارات" : "Total Rentals"}
+              >
+                <Input readOnly value="" />
+              </Field>
+              <Field label={t.usageReason} full>
+                <Textarea
+                  rows={4}
+                  placeholder={
+                    lang === "ar"
+                      ? "أدخل سبب الاستخدام..."
+                      : "Enter reason for use..."
+                  }
+                />
+              </Field>
+            </GridFields>
           </div>
         )}
       </SectionCard>

@@ -857,6 +857,7 @@ function ComparisonPropertiesTable({
 // ─── Settlement Adjustments Table ─────────────────────────────────────────────
 
 type SettlementSection1Row = {
+  inReport?: boolean; // add this
   title: string;
   valueM?: string;
   colAdj: string[];
@@ -1071,14 +1072,18 @@ function SettlementAdjustmentsTable({
     [n, bases, comparisonRows, activeComps],
   );
 
+  const updateS1InReport = (i: number, val: boolean) =>
+    onSection1Change(
+      section1Rows.map((r, ri) => (ri === i ? { ...r, inReport: val } : r)),
+    );
+
   const s1AdjAmounts = useMemo(
     () =>
       Array.from({ length: n }, (_, c) => {
         const base = parseNum(effectiveBases[c]);
-        return section1Rows.reduce(
-          (sum, r) => sum + base * (parseNum(getS1Adj(r, c)) / 100),
-          0,
-        );
+        return section1Rows
+          .filter((r) => r.inReport !== false)
+          .reduce((sum, r) => sum + base * (parseNum(getS1Adj(r, c)) / 100), 0);
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [section1Rows, effectiveBases, n, activeComps],
@@ -1307,12 +1312,27 @@ function SettlementAdjustmentsTable({
                 style={{ background: i % 2 === 0 ? DT.surface : DT.surfaceAlt }}
               >
                 <td style={labelCell}>
-                  <input
-                    value={row.title}
-                    onChange={(e) => updateS1Title(i, e.target.value)}
-                    placeholder={t.placeholderItemName}
-                    style={{ ...inputBase, fontWeight: 500 }}
-                  />
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={row.inReport !== false}
+                      onChange={(e) => updateS1InReport(i, e.target.checked)}
+                      style={{
+                        accentColor: DT.blue,
+                        width: 14,
+                        height: 14,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <input
+                      value={row.title}
+                      onChange={(e) => updateS1Title(i, e.target.value)}
+                      placeholder={t.placeholderItemName}
+                      style={{ ...inputBase, flex: 1, fontWeight: 500 }}
+                    />
+                  </div>
                 </td>
                 <td style={cellBase}>
                   <input
@@ -1371,10 +1391,9 @@ function SettlementAdjustmentsTable({
               </td>
               <td style={{ ...cellBase, background: "#f1f5f9" }}>—</td>
               {Array.from({ length: n }, (_, c) => {
-                const sumPercentages = section1Rows.reduce(
-                  (sum, row) => sum + parseNum(getS1Adj(row, c)),
-                  0,
-                );
+                const sumPercentages = section1Rows
+                  .filter((r) => r.inReport !== false)
+                  .reduce((sum, row) => sum + parseNum(getS1Adj(row, c)), 0);
                 return (
                   <td
                     key={c}
@@ -1919,6 +1938,7 @@ export function SettlementComparison({
   const handleWeightsChange = onSettlementWeightsChange ?? setLocalWeights;
 
   const defaultSection1 = DEFAULT_SECTION1_TITLES[lang].map((title) => ({
+    inReport: true,
     title,
     colAdj: Array(n).fill(""),
   }));

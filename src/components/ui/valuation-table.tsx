@@ -927,6 +927,45 @@ type CompanyInspector = {
   role: string;
 };
 
+type FreelanceInspector = {
+  id: string;
+  name: string;
+  phone: string;
+  serviceCities: string[];
+  isPhoneVerified: boolean;
+};
+
+const CITY_ALIASES: Record<string, string[]> = {
+  dammam: ["الدمام", "dammam"],
+  jeddah: ["جدة", "jeddah"],
+  madinah: ["المدينة", "المدينة المنورة", "madinah", "medina"],
+  riyadh: ["الرياض", "riyadh"],
+  mecca: ["مكة", "مكة المكرمة", "mecca", "makkah"],
+  khobar: ["الخبر", "khobar"],
+  tabuk: ["تبوك", "tabuk"],
+  abha: ["أبها", "abha"],
+  taif: ["الطائف", "taif"],
+  hail: ["حائل", "hail"],
+  najran: ["نجران", "najran"],
+  jizan: ["جيزان", "jizan", "jazan"],
+  qassim: ["القصيم", "qassim"],
+};
+
+function cityMatches(city: string, query: string): boolean {
+  const q = query.toLowerCase().trim();
+  const c = city.toLowerCase().trim();
+  if (c.includes(q)) return true;
+  for (const aliases of Object.values(CITY_ALIASES)) {
+    if (
+      aliases.some((a) => c.includes(a.toLowerCase())) &&
+      aliases.some((a) => a.toLowerCase().includes(q))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function AssignInspectorsModal({
   transactionId,
   currentInspectorIds,
@@ -942,30 +981,94 @@ export function AssignInspectorsModal({
   t: Copy;
   isRtl: boolean;
 }) {
-  const [inspectors, setInspectors] = useState<CompanyInspector[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(
-    new Set(currentInspectorIds),
+  const [activeTab, setActiveTab] = useState<"company" | "freelance">(
+    "company",
   );
+
+  // ── Company inspectors state ──────────────────────────────────────────────
+  const [inspectors, setInspectors] = useState<CompanyInspector[]>([]);
+  const [loadingCompany, setLoadingCompany] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [companySearch, setCompanySearch] = useState("");
+
+  // ── Freelance inspectors state ────────────────────────────────────────────
+  const [freelancers, setFreelancers] = useState<FreelanceInspector[]>([]);
+  const [loadingFreelance, setLoadingFreelance] = useState(true);
+  const [freelanceSearch, setFreelanceSearch] = useState("");
+  const [selectedFreelance, setSelectedFreelance] = useState<Set<string>>(
+    new Set(),
+  );
+
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch both lists in parallel, then partition currentInspectorIds into
+  // company vs freelance buckets so pre-selection works for both types.
   useEffect(() => {
-    setLoading(true);
-    fetch(apiUrl("/company/users"), { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json();
+    setLoadingCompany(true);
+    setLoadingFreelance(true);
+
+    Promise.all([
+      fetch(apiUrl("/company/users"), { credentials: "include" })
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then((data) => {
+          const users: Array<{ id: string; username: string; role: string }> =
+            Array.isArray(data) ? data : (data.users ?? []);
+          return users.filter((u) => u.role === "inspector");
+        }),
+      fetch(apiUrl("/transactions/freelance-inspectors"), {
+        credentials: "include",
       })
-      .then((data) => {
-        const users: Array<{ id: string; username: string; role: string }> =
-          Array.isArray(data) ? data : (data.users ?? []);
-        setInspectors(users.filter((u) => u.role === "inspector"));
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then((data: FreelanceInspector[]) => data),
+    ])
+      .then(([companyUsers, freelanceUsers]) => {
+        setInspectors(companyUsers);
+        setFreelancers(freelanceUsers);
+
+        // Now we know which IDs belong to which pool — partition accordingly.
+        const companyIds = new Set(companyUsers.map((u) => u.id));
+        const freelanceIds = new Set(freelanceUsers.map((u) => u.id));
+
+        setSelected(
+          new Set(currentInspectorIds.filter((id) => companyIds.has(id))),
+        );
+        setSelectedFreelance(
+          new Set(currentInspectorIds.filter((id) => freelanceIds.has(id))),
+        );
       })
       .catch(() => setError(t.errorLoading))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoadingCompany(false);
+        setLoadingFreelance(false);
+      });
   }, []);
 
+  // ── Filtered lists ────────────────────────────────────────────────────────
+  const filteredInspectors = useMemo(() => {
+    const q = companySearch.trim().toLowerCase();
+    if (!q) return inspectors;
+    return inspectors.filter((i) => i.username.toLowerCase().includes(q));
+  }, [inspectors, companySearch]);
+
+  const filteredFreelancers = useMemo(() => {
+    const q = freelanceSearch.trim().toLowerCase();
+    if (!q) return freelancers;
+    return freelancers.filter((f) => {
+      if (f.name.toLowerCase().includes(q)) return true;
+      if (f.phone.includes(q)) return true;
+      if (f.serviceCities.some((c) => cityMatches(c, q))) return true;
+      return false;
+    });
+  }, [freelancers, freelanceSearch]);
+
+  // ── Company tab helpers ───────────────────────────────────────────────────
   const toggle = (id: string) =>
     setSelected((prev) => {
       const n = new Set(prev);
@@ -973,19 +1076,26 @@ export function AssignInspectorsModal({
       return n;
     });
 
-  const selectAll = () => {
-    setSelected(new Set(inspectors.map((i) => i.id)));
-  };
+  const allCompanySelected =
+    filteredInspectors.length > 0 &&
+    filteredInspectors.every((i) => selected.has(i.id));
+  const someCompanySelected =
+    filteredInspectors.some((i) => selected.has(i.id)) && !allCompanySelected;
 
-  const deselectAll = () => {
-    setSelected(new Set());
-  };
+  // ── Freelance tab helpers ─────────────────────────────────────────────────
+  const toggleFreelance = (id: string) =>
+    setSelectedFreelance((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
 
+  // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      const inspectorIds = [...selected];
+      const inspectorIds = [...selected, ...selectedFreelance];
       const r = await fetch(
         apiUrl(`/transactions/${transactionId}/inspectors`),
         {
@@ -1005,9 +1115,7 @@ export function AssignInspectorsModal({
     }
   };
 
-  const allSelected =
-    inspectors.length > 0 && selected.size === inspectors.length;
-  const someSelected = selected.size > 0 && selected.size < inspectors.length;
+  const totalSelected = selected.size + selectedFreelance.size;
 
   return (
     <div
@@ -1019,8 +1127,8 @@ export function AssignInspectorsModal({
         onClick={onClose}
       />
       <div
-        className="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        style={{ maxHeight: "80vh" }}
+        className="relative flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        style={{ maxHeight: "85vh" }}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -1033,8 +1141,10 @@ export function AssignInspectorsModal({
                 {(t as any).inspectorsModal ?? "Assign Inspectors"}
               </h2>
               <p className="mt-0.5 text-xs text-slate-400">
-                {(t as any).inspectorsModalDesc ??
-                  "Select inspectors to assign."}
+                {totalSelected > 0
+                  ? `${totalSelected} ${isRtl ? "محدد" : "selected"}`
+                  : ((t as any).inspectorsModalDesc ??
+                    "Select inspectors to assign.")}
               </p>
             </div>
           </div>
@@ -1046,85 +1156,311 @@ export function AssignInspectorsModal({
           </button>
         </div>
 
+        {/* Tabs */}
+        <div className="flex shrink-0 border-b border-slate-100 bg-slate-50/50">
+          <button
+            onClick={() => setActiveTab("company")}
+            className={cn(
+              "flex-1 py-2.5 text-xs font-semibold transition-colors",
+              activeTab === "company"
+                ? "border-b-2 border-indigo-600 text-indigo-700 bg-white"
+                : "text-slate-500 hover:text-slate-700",
+            )}
+          >
+            {isRtl ? "معاينو الشركة" : "Company Inspectors"}
+            {selected.size > 0 && (
+              <span className="ms-1.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">
+                {selected.size}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("freelance")}
+            className={cn(
+              "flex-1 py-2.5 text-xs font-semibold transition-colors",
+              activeTab === "freelance"
+                ? "border-b-2 border-indigo-600 text-indigo-700 bg-white"
+                : "text-slate-500 hover:text-slate-700",
+            )}
+          >
+            {isRtl ? "المعاينون المستقلون" : "Freelance Inspectors"}
+            {selectedFreelance.size > 0 && (
+              <span className="ms-1.5 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600">
+                {selectedFreelance.size}
+              </span>
+            )}
+          </button>
+        </div>
+
         {error && (
           <ErrorBanner message={error} onDismiss={() => setError(null)} />
         )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {loading ? (
-            <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t.loading}
-            </div>
-          ) : inspectors.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-slate-400">
-              {(t as any).noInspectors ?? "No inspectors found."}
-            </div>
-          ) : (
+          {/* ── Company tab ── */}
+          {activeTab === "company" && (
             <>
-              {/* Select All / Deselect All buttons */}
-              <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={allSelected}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        selectAll();
-                      } else {
-                        deselectAll();
-                      }
-                    }}
-                    className="h-4 w-4 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600"
-                  />
-                  <span className="text-xs font-medium text-slate-600">
-                    {allSelected
-                      ? isRtl
-                        ? "إلغاء تحديد الكل"
-                        : "Deselect All"
-                      : ((t as any).selectAll ?? "Select All")}
-                  </span>
-                </div>
-                {someSelected && (
-                  <span className="text-xs text-indigo-600">
-                    {selected.size} {isRtl ? "محدد" : "selected"}
-                  </span>
+              {/* Search */}
+              <div className="mb-4 relative">
+                <input
+                  type="text"
+                  value={companySearch}
+                  onChange={(e) => setCompanySearch(e.target.value)}
+                  placeholder={isRtl ? "ابحث بالاسم..." : "Search by name..."}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 ps-4 pe-10 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-colors"
+                />
+                {companySearch && (
+                  <button
+                    onClick={() => setCompanySearch("")}
+                    className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 )}
               </div>
 
-              <div className="space-y-2">
-                {inspectors.map((inspector) => {
-                  const checked = selected.has(inspector.id);
-                  return (
-                    <label
-                      key={inspector.id}
-                      className={cn(
-                        "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
-                        checked
-                          ? "border-indigo-300 bg-indigo-50"
-                          : "border-slate-200 bg-white hover:bg-slate-50",
-                      )}
-                    >
+              {loadingCompany ? (
+                <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t.loading}
+                </div>
+              ) : inspectors.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-slate-400">
+                  {(t as any).noInspectors ?? "No inspectors found."}
+                </div>
+              ) : (
+                <>
+                  {/* Select all row */}
+                  <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
                       <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => toggle(inspector.id)}
+                        checked={allCompanySelected}
+                        onCheckedChange={(checked) => {
+                          if (checked)
+                            setSelected((prev) => {
+                              const n = new Set(prev);
+                              filteredInspectors.forEach((i) => n.add(i.id));
+                              return n;
+                            });
+                          else
+                            setSelected((prev) => {
+                              const n = new Set(prev);
+                              filteredInspectors.forEach((i) => n.delete(i.id));
+                              return n;
+                            });
+                        }}
                         className="h-4 w-4 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600"
                       />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {inspector.username}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {isRtl ? "مفتش ميداني" : "Inspector"}
-                        </p>
-                      </div>
-                      {checked && (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-indigo-500" />
+                      <span className="text-xs font-medium text-slate-600">
+                        {allCompanySelected
+                          ? isRtl
+                            ? "إلغاء تحديد الكل"
+                            : "Deselect All"
+                          : ((t as any).selectAll ?? "Select All")}
+                      </span>
+                    </div>
+                    {someCompanySelected && (
+                      <span className="text-xs text-indigo-600">
+                        {
+                          filteredInspectors.filter((i) => selected.has(i.id))
+                            .size
+                        }{" "}
+                        {isRtl ? "محدد" : "selected"}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Table */}
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    {/* Table header */}
+                    <div className="grid grid-cols-[auto_1fr_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                      <div className="w-4" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        {isRtl ? "الاسم" : "Name"}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        {isRtl ? "الدور" : "Role"}
+                      </span>
+                    </div>
+
+                    {/* Table rows */}
+                    <div className="divide-y divide-slate-100">
+                      {filteredInspectors.length === 0 ? (
+                        <div className="flex h-20 items-center justify-center text-sm text-slate-400">
+                          {isRtl ? "لا توجد نتائج" : "No results found"}
+                        </div>
+                      ) : (
+                        filteredInspectors.map((inspector) => {
+                          const checked = selected.has(inspector.id);
+                          return (
+                            <label
+                              key={inspector.id}
+                              className={cn(
+                                "grid grid-cols-[auto_1fr_auto] cursor-pointer items-center gap-4 px-4 py-3 transition-colors",
+                                checked
+                                  ? "bg-indigo-50"
+                                  : "bg-white hover:bg-slate-50",
+                              )}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => toggle(inspector.id)}
+                                className="h-4 w-4 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600"
+                              />
+                              <p className="truncate text-sm font-semibold text-slate-800">
+                                {inspector.username}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                  {isRtl ? "مفتش ميداني" : "Inspector"}
+                                </span>
+                                {checked && (
+                                  <CheckCircle2 className="h-4 w-4 shrink-0 text-indigo-500" />
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })
                       )}
-                    </label>
-                  );
-                })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── Freelance tab ── */}
+          {activeTab === "freelance" && (
+            <>
+              {/* Search */}
+              <div className="mb-4 relative">
+                <input
+                  type="text"
+                  value={freelanceSearch}
+                  onChange={(e) => setFreelanceSearch(e.target.value)}
+                  placeholder={
+                    isRtl
+                      ? "ابحث بالاسم أو الهاتف أو المدينة..."
+                      : "Search by name, phone, or city..."
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 ps-4 pe-10 text-sm text-slate-800 placeholder-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-colors"
+                />
+                {freelanceSearch && (
+                  <button
+                    onClick={() => setFreelanceSearch("")}
+                    className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
+
+              {loadingFreelance ? (
+                <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t.loading}
+                </div>
+              ) : freelancers.length === 0 ? (
+                <div className="flex h-32 items-center justify-center text-sm text-slate-400">
+                  {isRtl
+                    ? "لا يوجد معاينون مستقلون"
+                    : "No freelance inspectors found"}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  {/* Table header */}
+                  <div className="grid grid-cols-[2rem_1fr_1fr_2fr_2rem] border-b border-slate-100 bg-slate-50 px-4 py-2.5 gap-x-4">
+                    <div />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {isRtl ? "الاسم" : "Name"}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {isRtl ? "الهاتف" : "Phone"}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {isRtl ? "مدن الخدمة" : "Service Cities"}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 text-center">
+                      {isRtl ? "موثق" : "✓"}
+                    </span>
+                  </div>
+
+                  {/* Table rows */}
+                  <div className="divide-y divide-slate-100">
+                    {filteredFreelancers.length === 0 ? (
+                      <div className="flex h-20 items-center justify-center text-sm text-slate-400">
+                        {isRtl ? "لا توجد نتائج" : "No results found"}
+                      </div>
+                    ) : (
+                      filteredFreelancers.map((f) => {
+                        const checked = selectedFreelance.has(f.id);
+                        return (
+                          <label
+                            key={f.id}
+                            className={cn(
+                              "grid grid-cols-[2rem_1fr_1fr_2fr_2rem] cursor-pointer gap-x-4 px-4 py-4 transition-colors items-start",
+                              checked
+                                ? "bg-indigo-50"
+                                : "bg-white hover:bg-slate-50",
+                            )}
+                          >
+                            {/* Checkbox — vertically centred on the first line */}
+                            <div className="flex items-center pt-0.5">
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() => toggleFreelance(f.id)}
+                                className="h-4 w-4 data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600"
+                              />
+                            </div>
+
+                            {/* Name */}
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-800 leading-snug">
+                                {f.name || "—"}
+                              </p>
+                            </div>
+
+                            {/* Phone */}
+                            <div className="min-w-0">
+                              <p className="truncate font-mono text-xs text-slate-600 leading-snug">
+                                {f.phone || "—"}
+                              </p>
+                            </div>
+
+                            {/* Cities — all of them, wrapping freely */}
+                            <div className="flex flex-wrap gap-1.5">
+                              {f.serviceCities.length > 0 ? (
+                                f.serviceCities.map((c) => (
+                                  <span
+                                    key={c}
+                                    className="rounded-md bg-indigo-50 border border-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700 whitespace-nowrap"
+                                  >
+                                    {c}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-slate-400">
+                                  —
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Verified icon */}
+                            <div className="flex items-center justify-center pt-0.5">
+                              {f.isPhoneVerified ? (
+                                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                              ) : (
+                                <span className="block h-4 w-4 rounded-full border-2 border-slate-300" />
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1132,7 +1468,7 @@ export function AssignInspectorsModal({
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50/50 px-6 py-4">
           <span className="text-xs text-slate-400">
-            {selected.size} {isRtl ? "محدد" : "selected"}
+            {totalSelected} {isRtl ? "محدد" : "selected"}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -3382,12 +3718,13 @@ function ValuationTableRow({
   return (
     <div
       className={cn(
-        "group border-b border-slate-100 transition-colors last:border-b-0 hover:bg-slate-50/50",
+        "group border-b border-slate-100 transition-colors last:border-b-0 hover:bg-cyan-50/30 cursor-pointer",
         isSelected && "bg-cyan-50/40",
       )}
+      onClick={() => onOpen(row.id)}
     >
       <div className="flex items-center gap-3 px-4 py-3">
-        <div className="shrink-0">
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
           <Checkbox
             checked={isSelected}
             onCheckedChange={onToggleSelect}
@@ -3489,7 +3826,7 @@ function ValuationTableRow({
         <div className="flex w-24 shrink-0 items-center justify-center">
           <StatusBadge status={row.status} t={t} />
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
           <div className="grid grid-cols-4 gap-0.5">
             {/* Open transaction */}
             <ActionButton
