@@ -1264,7 +1264,7 @@ export function AssignInspectorsModal({
                       <span className="text-xs text-indigo-600">
                         {
                           filteredInspectors.filter((i) => selected.has(i.id))
-                            .size
+                            .length
                         }{" "}
                         {isRtl ? "محدد" : "selected"}
                       </span>
