@@ -1469,7 +1469,14 @@ function emptyEval() {
       costReason: "",
     },
     settlementWeights: ["", "", ""] as string[],
-    section1Rows: [] as { title: string; colAdj: string[] }[],
+    section1Rows: [] as {
+      inReport?: boolean;
+      title: string;
+      colAdj: string[];
+      cols?: string[];
+      valueM?: string;
+    }[],
+
     methodsIncome: { incomeTotal: "", incomeReason: "" },
     reportItems: { standards: "", scope: "", assumptions: "", risks: "" },
     authors: {
@@ -3720,15 +3727,15 @@ export function TransactionEvaluationPage({
               >
                 <input type="checkbox" style={{ accentColor: DS.primary }} />
                 {lang === "ar" ? "مساحة المسطحات" : "Built-up Area"}
-                <Info
-                  size={12}
-                  style={{ color: DS.textLight }}
+                <span
                   title={
                     lang === "ar"
                       ? "يركز على المساحة المبنية بدلاً من مساحة الأرض"
                       : "Focus on built-up area instead of land area"
                   }
-                />
+                >
+                  <Info size={12} style={{ color: DS.textLight }} />
+                </span>
               </label>
             </div>
 

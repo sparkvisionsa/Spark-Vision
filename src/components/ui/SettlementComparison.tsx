@@ -856,12 +856,13 @@ function ComparisonPropertiesTable({
 
 // ─── Settlement Adjustments Table ─────────────────────────────────────────────
 
+// Fix 1: SettlementSection1Row - add missing cols property type
 type SettlementSection1Row = {
-  inReport?: boolean; // add this
+  inReport?: boolean;
   title: string;
   valueM?: string;
   colAdj: string[];
-  cols?: string[];
+  cols?: string[]; // already there, but ensure it's not typed as `any` elsewhere
 };
 type SettlementSection2Row = {
   inReport: boolean;
@@ -1903,8 +1904,23 @@ export type SettlementComparisonProps = {
   onSettlementWeightsChange?: (w: string[]) => void;
   settlementBases: string[];
   onSettlementBasesChange: (bases: string[]) => void;
-  section1Rows?: { title: string; colAdj: string[] }[];
-  onSection1RowsChange?: (rows: { title: string; colAdj: string[] }[]) => void;
+  // In SettlementComparisonProps:
+  section1Rows?: {
+    inReport?: boolean;
+    title: string;
+    colAdj: string[];
+    cols?: string[];
+    valueM?: string;
+  }[];
+  onSection1RowsChange?: (
+    rows: {
+      inReport?: boolean;
+      title: string;
+      colAdj: string[];
+      cols?: string[];
+      valueM?: string;
+    }[],
+  ) => void;
   settlementNotes?: string;
   onSettlementNotesChange?: (v: string) => void;
 };
@@ -1937,12 +1953,27 @@ export function SettlementComparison({
   const weights = settlementWeights ?? localWeights;
   const handleWeightsChange = onSettlementWeightsChange ?? setLocalWeights;
 
-  const defaultSection1 = DEFAULT_SECTION1_TITLES[lang].map((title) => ({
-    inReport: true,
+  const defaultSection1: {
+    inReport?: boolean;
+    title: string;
+    colAdj: string[];
+    cols?: string[];
+    valueM?: string;
+  }[] = DEFAULT_SECTION1_TITLES[lang].map((title) => ({
+    inReport: true as boolean | undefined,
     title,
     colAdj: Array(n).fill(""),
   }));
-  const [localSection1, setLocalSection1] = useState(defaultSection1);
+  const [localSection1, setLocalSection1] =
+    useState<
+      {
+        inReport?: boolean;
+        title: string;
+        colAdj: string[];
+        cols?: string[];
+        valueM?: string;
+      }[]
+    >(defaultSection1);
   const section1Rows =
     externalSection1Rows && externalSection1Rows.length > 0
       ? externalSection1Rows
