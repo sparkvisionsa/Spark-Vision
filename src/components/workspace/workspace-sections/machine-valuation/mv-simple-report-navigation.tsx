@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
-import { Check, ChevronDown, Folder, FolderKanban, FolderOpen } from "lucide-react";
+import { Check, ChevronDown, Download, Folder, FolderKanban, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MvTopBar, type MvBreadcrumbSegment } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
@@ -131,6 +131,19 @@ export function MvProjectFoldersMenu({
       >
         <FolderOpen className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
       </Link>
+
+      <a
+        href={`/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files/download`}
+        title="تنزيل صور الأصول بنفس الشجرة"
+        aria-label="تنزيل صور الأصول بنفس الشجرة"
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-white font-bold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50",
+          compact ? "h-7 w-7 rounded-md" : "h-8 rounded-xl px-2.5 text-[11px]",
+        )}
+      >
+        <Download className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+        {!compact ? <span>صور الأصول</span> : null}
+      </a>
 
       <div className="relative">
         <button

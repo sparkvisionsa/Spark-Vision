@@ -109,6 +109,7 @@ function fileIconFor(file: MvDriveFile) {
     mime.includes("sheet") ||
     mime.includes("excel") ||
     ext === "xlsx" ||
+    ext === "xlsm" ||
     ext === "xls" ||
     ext === "csv"
   ) {

@@ -90,7 +90,7 @@ import { writeReportSlice, type MvValuationReportSlice } from "./mv-valuation-re
 import type { MvProject, MvProjectReportData } from "./types";
 
 const EXCEL_ACCEPT =
-  ".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv";
+  ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv";
 const PDF_ACCEPT = ".pdf,application/pdf";
 const IMAGE_ACCEPT = "image/*,.png,.jpg,.jpeg,.webp";
 const CROP_TABLE_SELECTOR = 'table[data-account-crop-table="1"]';

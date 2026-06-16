@@ -28,7 +28,7 @@ import {
 } from "./asset-import-panel";
 
 const ACCEPTED_ASSET_IMPORT_FILES =
-  ".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv";
+  ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv";
 
 type AssetFolderImportColumn = { key: string; label: string };
 
@@ -44,7 +44,7 @@ interface MvAssetImageFoldersModalProps {
   onSaveAndContinue?: () => void;
 }
 
-type GenerateFoldersAction = "close" | "continue";
+type GenerateFoldersAction = "stay" | "close";
 
 function assetImportSessionStorageKey(projectId: string) {
   return `sv:asset-import:${projectId}`;
@@ -94,7 +94,6 @@ export function MvAssetImageFoldersModal({
   onGenerated,
   onBack,
   onSaveAndClose,
-  onSaveAndContinue,
 }: MvAssetImageFoldersModalProps) {
   const { toast } = useToast();
   const excelInputRef = useRef<HTMLInputElement>(null);
@@ -105,7 +104,8 @@ export function MvAssetImageFoldersModal({
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [generatingAction, setGeneratingAction] = useState<GenerateFoldersAction | null>(null);
+  const generatingActionRef = useRef<GenerateFoldersAction | null>(null);
   const [renamingSheet, setRenamingSheet] = useState(false);
   const [sheetNameDraft, setSheetNameDraft] = useState("");
 
@@ -255,13 +255,21 @@ export function MvAssetImageFoldersModal({
     [importResult, projectId, setNextImportResult, toast],
   );
 
+  const clearGeneratingAction = useCallback(() => {
+    generatingActionRef.current = null;
+    setGeneratingAction(null);
+  }, []);
+
   const generateFolders = useCallback(async (action: GenerateFoldersAction = "close") => {
+    if (generatingActionRef.current) return;
+
     if (!projectId || !selectedSheet || !selectedColumnKey.trim()) {
       toast({ variant: "destructive", description: "أنشئ من ملف اكسيل ثم اختر الشيت والعمود." });
       return;
     }
 
-    setGenerating(true);
+    generatingActionRef.current = action;
+    setGeneratingAction(action);
     try {
       const response = await fetch(
         `/api/mv/projects/${encodeURIComponent(projectId)}/asset-import-image-folders`,
@@ -287,26 +295,34 @@ export function MvAssetImageFoldersModal({
         totalValues: number;
         parentFolderName: string;
       };
+      const successMessage = `تم ضبط ${new Intl.NumberFormat("ar-SA").format(payload.totalValues)} مجلداً تحت «${payload.parentFolderName}».`;
+      clearGeneratingAction();
       toast({
-        description: `تم ضبط ${new Intl.NumberFormat("ar-SA").format(payload.totalValues)} مجلداً تحت «${payload.parentFolderName}».`,
+        description: successMessage,
       });
-      await onGenerated?.();
-      if (action === "continue") {
-        if (onSaveAndContinue) onSaveAndContinue();
-        else onOpenChange(false);
-        return;
+      if (onGenerated) {
+        void Promise.resolve()
+          .then(() => onGenerated())
+          .catch(() => {
+            toast({
+              variant: "destructive",
+              description: "تم إنشاء المجلدات لكن تعذر تحديث البيانات في الواجهة.",
+            });
+          });
       }
-      if (onSaveAndClose) onSaveAndClose();
-      else onOpenChange(false);
+      if (action === "close") {
+        if (onSaveAndClose) onSaveAndClose();
+        else onOpenChange(false);
+      }
     } catch (error) {
       toast({
         variant: "destructive",
         description: error instanceof Error ? error.message : "تعذر إنشاء مجلدات صور الأصول.",
       });
     } finally {
-      setGenerating(false);
+      clearGeneratingAction();
     }
-  }, [onGenerated, onOpenChange, onSaveAndClose, onSaveAndContinue, projectId, selectedColumnKey, selectedSheet, toast]);
+  }, [clearGeneratingAction, onGenerated, onOpenChange, onSaveAndClose, projectId, selectedColumnKey, selectedSheet, toast]);
 
   const renameSelectedSheet = useCallback(async () => {
     if (!projectId || !selectedSheet || !importResult) return;
@@ -363,9 +379,9 @@ export function MvAssetImageFoldersModal({
 
   const selectedSheetValue = selectedSheet ? `${selectedSheet.importId}::${selectedSheet.sheetName}` : "";
   const numberFormatter = new Intl.NumberFormat("ar-SA");
+  const generating = generatingAction !== null;
   const saveDisabled = !projectId || !selectedSheet || !selectedColumnKey || uploading || loadingColumns || generating;
   const hasWorkbook = sheets.length > 0;
-  const primaryActionLabel = onSaveAndContinue ? "إنشاء المجلدات والمتابعة" : "إنشاء المجلدات";
   const handleClose = () => {
     if (onSaveAndClose) onSaveAndClose();
     else onOpenChange(false);
@@ -527,12 +543,22 @@ export function MvAssetImageFoldersModal({
             </Button>
             <Button
               type="button"
-              className="h-10 min-w-[170px] gap-2 rounded-lg bg-emerald-700 px-4 text-[12px] font-black text-white hover:bg-emerald-800"
+              variant="outline"
+              className="h-10 min-w-[170px] gap-2 rounded-lg border-emerald-200 bg-white px-4 text-[12px] font-black text-emerald-800 hover:bg-emerald-50"
               disabled={saveDisabled}
-              onClick={() => void generateFolders(onSaveAndContinue ? "continue" : "close")}
+              onClick={() => void generateFolders("stay")}
             >
-              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
-              {primaryActionLabel}
+              {generatingAction === "stay" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              إنشاء المجلدات والاستمرار
+            </Button>
+            <Button
+              type="button"
+              className="h-10 min-w-[160px] gap-2 rounded-lg bg-emerald-700 px-4 text-[12px] font-black text-white hover:bg-emerald-800"
+              disabled={saveDisabled}
+              onClick={() => void generateFolders("close")}
+            >
+              {generatingAction === "close" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+              إنشاء المجلدات والإغلاق
             </Button>
           </div>
         </DialogFooter>

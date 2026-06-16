@@ -6,6 +6,7 @@ import {
   Box,
   CheckSquare,
   Clock,
+  Download,
   FileSpreadsheet,
   FileVideo,
   GripVertical,
@@ -4012,6 +4013,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           تحديث
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            window.location.href = `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files/download`;
+          }}
+          className="cursor-pointer text-[12px]"
+        >
+          <Download className="h-4 w-4 text-emerald-700" />
+          تنزيل صور الأصول
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={deleteSelectedItems}

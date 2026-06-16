@@ -522,7 +522,7 @@ export default function MvValuationReadyExcelWorkspace({
             <input
               type="file"
               className="hidden"
-              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+              accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv"
               multiple
               onChange={(e) => e.target.files && void handleFiles(e.target.files)}
             />

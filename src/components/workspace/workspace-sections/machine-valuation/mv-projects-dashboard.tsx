@@ -247,6 +247,15 @@ function ProjectActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
+          onSelect={() => {
+            window.location.href = `/api/mv/projects/${encodeURIComponent(project._id)}/asset-image-files/download`;
+          }}
+        >
+          <FileDown className="h-4 w-4 shrink-0 text-emerald-700" />
+          تنزيل صور الأصول
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer gap-2 text-[13px]"
           onSelect={() => onDownloadFinalReport(project)}
         >
           <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
@@ -387,6 +396,7 @@ type ProjectInspectorOption = {
   phone?: string | null;
   city?: string | null;
   region?: string | null;
+  serviceCities?: string[];
   lastLoginAt?: string | null;
   isPhoneVerified?: boolean;
 };
@@ -434,9 +444,21 @@ function inspectionAssignmentKey(inspectorUserId: string, locationIds: readonly 
   return `${inspectorUserId}:${normalizedLocations.length > 0 ? normalizedLocations.join("|") : "all"}`;
 }
 
+function systemInspectorCoverageCities(inspector: ProjectInspectorOption): string[] {
+  const fromServiceCities = Array.isArray(inspector.serviceCities)
+    ? inspector.serviceCities
+        .map((item) => item?.trim())
+        .filter((item): item is string => Boolean(item))
+    : [];
+  const fallback = [inspector.region, inspector.city]
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item));
+  return Array.from(new Set(fromServiceCities.length > 0 ? fromServiceCities : fallback));
+}
+
 function systemInspectorLocationLabel(inspector: ProjectInspectorOption): string {
-  const parts = [inspector.region, inspector.city].map((item) => item?.trim()).filter(Boolean);
-  return parts.length > 0 ? parts.join("، ") : "بدون مدينة";
+  const cities = systemInspectorCoverageCities(inspector);
+  return cities.length > 0 ? cities.join("، ") : "بدون مدن محددة";
 }
 
 function systemInspectorLastLoginLabel(value: string | null | undefined): string {
@@ -466,6 +488,7 @@ function systemInspectorSearchText(inspector: ProjectInspectorOption): string {
     inspector.phone,
     inspector.city,
     inspector.region,
+    ...(inspector.serviceCities ?? []),
   ]
     .filter(Boolean)
     .join(" ")
@@ -617,7 +640,7 @@ function SystemInspectorSearchDialog({
 
   const cityOptions = useMemo(() => {
     const names = inspectors
-      .map((inspector) => inspector.city?.trim() || inspector.region?.trim() || "")
+      .flatMap((inspector) => systemInspectorCoverageCities(inspector))
       .filter(Boolean);
     return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "ar"));
   }, [inspectors]);
@@ -625,8 +648,8 @@ function SystemInspectorSearchDialog({
   const filteredInspectors = useMemo(() => {
     const q = query.trim().toLowerCase();
     return inspectors.filter((inspector) => {
-      const cityValue = inspector.city?.trim() || inspector.region?.trim() || "";
-      const cityMatches = cityFilter === "all" || cityValue === cityFilter;
+      const coverageCities = systemInspectorCoverageCities(inspector);
+      const cityMatches = cityFilter === "all" || coverageCities.includes(cityFilter);
       const queryMatches = !q || systemInspectorSearchText(inspector).includes(q);
       return cityMatches && queryMatches;
     });
@@ -644,7 +667,7 @@ function SystemInspectorSearchDialog({
               <UserPlus className="h-4 w-4" />
             </span>
             <DialogTitle className="truncate text-[15px] font-bold text-slate-900">
-              اختيار معاين من النظام
+              اختيار معاين حر  
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -690,11 +713,12 @@ function SystemInspectorSearchDialog({
               لا توجد نتائج مطابقة.
             </div>
           ) : (
-            <table className="min-w-[760px] w-full text-right text-[12px]">
+            <table className="min-w-[900px] w-full text-right text-[12px]">
               <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] font-black text-slate-500">
                 <tr className="border-b border-slate-200">
                   <th className="px-3 py-2 text-right">اسم المعاين</th>
                   <th className="px-3 py-2 text-right">الجوال</th>
+                  <th className="px-3 py-2 text-right">المدن التي يغطيها</th>
                   <th className="px-3 py-2 text-center">المهام</th>
                   <th className="px-3 py-2 text-center">قيد التنفيذ</th>
                   <th className="px-3 py-2 text-center">التقييم</th>
@@ -712,12 +736,17 @@ function SystemInspectorSearchDialog({
                         <p className="max-w-[220px] truncate text-[12px] font-black text-slate-900" dir="auto">
                           {inspectorOptionLabel(inspector)}
                         </p>
-                        <p className="mt-0.5 max-w-[220px] truncate text-[11px] font-semibold text-slate-500">
-                          {systemInspectorLocationLabel(inspector)}
+                        <p className="mt-0.5 max-w-[220px] truncate text-[11px] font-semibold text-slate-500" dir="auto">
+                          {inspector.username}
                         </p>
                       </td>
                       <td className="px-3 py-2 font-bold tabular-nums text-sky-700" dir="ltr">
                         {inspector.phone || inspector.username || "-"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="max-w-[240px] whitespace-normal break-words text-[11px] font-bold leading-5 text-slate-600" dir="auto">
+                          {systemInspectorLocationLabel(inspector)}
+                        </p>
                       </td>
                       <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>
                       <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>

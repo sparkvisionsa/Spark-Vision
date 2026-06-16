@@ -36,7 +36,7 @@ import { MvTopBar } from "./mv-ui";
 import type { MvProject } from "./types";
 
 const ACCEPTED_ASSET_FILES =
-  ".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,application/csv,application/zip,application/octet-stream";
+  ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv,application/zip,application/octet-stream";
 
 /* ------------------------------------------------------------------ */
 /*  GridModal — modal with built-in horizontal/vertical scroll handle */
