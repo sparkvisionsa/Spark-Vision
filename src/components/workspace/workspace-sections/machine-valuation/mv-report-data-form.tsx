@@ -26,9 +26,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { Client as MachineClient } from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
 import type { MvProject, MvProjectReportData } from "./types";
+
+const NO_CLIENT_SELECTED = "__no-client__";
 
 /**
  * Sections actually shown inside the per-project report-data form.
@@ -199,6 +202,7 @@ export function MvReportDataForm({
   project,
   editableProjectName,
   reportData,
+  clientOptions = [],
   saving,
   openSections,
   onProjectNameChange,
@@ -210,6 +214,7 @@ export function MvReportDataForm({
   project: MvProject;
   editableProjectName: string;
   reportData: MvProjectReportData;
+  clientOptions?: MachineClient[];
   saving: boolean;
   openSections: Record<MvReportCollapsibleSectionId, boolean>;
   onProjectNameChange: (value: string) => void;
@@ -227,6 +232,38 @@ export function MvReportDataForm({
     typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
       ? project.displayNumber
       : null;
+  const clientTemplateValue = (client: MachineClient, key: string) => client.templateFieldValues?.[key]?.trim() ?? "";
+  const handleClientSelect = (clientId: string) => {
+    if (clientId === NO_CLIENT_SELECTED) {
+      onReportDataChange({
+        clientId: "",
+        clientName: "",
+        clientEmail: "",
+        clientPhone: "",
+        clientLegalType: "",
+        clientActivity: "",
+        clientRepresentativeName: "",
+        clientRepresentativeRole: "",
+        intendedUsers: "",
+        intendedUse: "",
+      });
+      return;
+    }
+    const client = clientOptions.find((item) => item.id === clientId);
+    if (!client) return;
+    onReportDataChange({
+      clientId: client.id,
+      clientName: client.name ?? "",
+      clientEmail: client.email ?? "",
+      clientPhone: client.phone ?? "",
+      clientLegalType: clientTemplateValue(client, "clientLegalType"),
+      clientActivity: clientTemplateValue(client, "clientActivity"),
+      clientRepresentativeName: clientTemplateValue(client, "clientRepresentativeName"),
+      clientRepresentativeRole: clientTemplateValue(client, "clientRepresentativeRole"),
+      intendedUsers: clientTemplateValue(client, "intendedUsers"),
+      intendedUse: clientTemplateValue(client, "intendedUse"),
+    });
+  };
 
   return (
     <section className="relative min-h-[calc(100vh-9.5rem)]">
@@ -411,6 +448,27 @@ export function MvReportDataForm({
           open={openSections.client}
           onOpenChange={onSectionOpenChange}
         >
+          <div className="mb-3">
+            <ReportField label="اختيار العميل">
+              <Select
+                value={reportData.clientId || NO_CLIENT_SELECTED}
+                onValueChange={handleClientSelect}
+                dir="rtl"
+              >
+                <SelectTrigger className={inputClass}>
+                  <SelectValue placeholder="اختر العميل" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_CLIENT_SELECTED}>بدون عميل محدد</SelectItem>
+                  {clientOptions.map((client) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </ReportField>
+          </div>
           <div className="grid gap-3 md:grid-cols-3">
             <ReportField label="اسم العميل">
               <Input

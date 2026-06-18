@@ -95,6 +95,7 @@ type CompanyUserRow = {
   username: string;
   role: string;
   companyId: string;
+  productIds?: string[];
   email?: string | null;
   phone?: string | null;
   createdAt: string;
@@ -954,11 +955,13 @@ function ReportDefaultsCard({
 export default function CompanyAdminDashboard({
   variant,
   mode = "general",
+  productId,
 }: {
   variant: CompanyAdminDashboardVariant;
   mode?: CompanyAdminDashboardMode;
+  productId?: ValueTechProductId;
 }) {
-  const { user, csrfToken, loading, backendUnavailable } = useAuthTracking();
+  const { user, profile, csrfToken, loading, backendUnavailable, updateProfile } = useAuthTracking();
   const [data, setData] = useState<{
     company: CompanyInfo | null;
     users: CompanyUserRow[];
@@ -1002,6 +1005,19 @@ export default function CompanyAdminDashboard({
   const [reportSectionBody, setReportSectionBody] = useState("");
   const [letterheadImagesOpen, setLetterheadImagesOpen] = useState(false);
   const [letterheadPreviewId, setLetterheadPreviewId] = useState<string | null>(null);
+  const [personalEmail, setPersonalEmail] = useState("");
+  const [personalPhone, setPersonalPhone] = useState("");
+  const [personalSignature, setPersonalSignature] = useState<string | null>(null);
+  const [personalBusy, setPersonalBusy] = useState(false);
+  const [personalSignatureBusy, setPersonalSignatureBusy] = useState(false);
+  const productQuery = useMemo(
+    () => (productId ? `?productId=${encodeURIComponent(productId)}` : ""),
+    [productId],
+  );
+  const productPayload = useMemo(() => (productId ? { productId } : {}), [productId]);
+  const productLabel = productId ? VALUE_TECH_PRODUCT_LABELS_AR[productId] : null;
+  const reportDefaultsOnly = mode === "report-defaults";
+  const isCompanyAdmin = user?.role === "company_admin";
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -1009,21 +1025,83 @@ export default function CompanyAdminDashboard({
       const payload = await apiJson<{
         company: CompanyInfo | null;
         users: CompanyUserRow[];
-      }>("/api/company/users", csrfToken);
+      }>(`/api/company/users${productQuery}`, csrfToken);
       setData({ company: payload.company, users: payload.users ?? [] });
       setLogoDraft(payload.company?.logoDataUrl ?? null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "تعذر التحميل.");
     }
+  }, [csrfToken, productQuery]);
+
+  useEffect(() => {
+    if (!loading && isCompanyAdmin) {
+      void load();
+    }
+  }, [isCompanyAdmin, load, loading]);
+
+  const canAccess = Boolean(user) && (!reportDefaultsOnly || isCompanyAdmin);
+
+  useEffect(() => {
+    if (!user) return;
+    setPersonalEmail(profile?.email ?? user.email ?? "");
+    setPersonalPhone(profile?.phone ?? user.phone ?? user.username ?? "");
+  }, [profile?.email, profile?.phone, user]);
+
+  const loadPersonalSignature = useCallback(async () => {
+    try {
+      const payload = await apiJson<{
+        userId: string;
+        valuationReportSignatureDataUrl: string | null;
+      }>("/api/company/user-signature", csrfToken);
+      setPersonalSignature(payload.valuationReportSignatureDataUrl ?? null);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "تعذر تحميل توقيع المستخدم.");
+    }
   }, [csrfToken]);
 
   useEffect(() => {
-    if (!loading && user?.role === "company_admin") {
-      void load();
+    if (!loading && user && !isCompanyAdmin && !reportDefaultsOnly) {
+      void loadPersonalSignature();
     }
-  }, [load, loading, user?.role]);
+  }, [isCompanyAdmin, loadPersonalSignature, loading, reportDefaultsOnly, user]);
 
-  const canAccess = user?.role === "company_admin";
+  const persistPersonalProfile = useCallback(async () => {
+    setPersonalBusy(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      await updateProfile({
+        email: personalEmail.trim() || null,
+        phone: personalPhone.trim() || null,
+      });
+      setStatus("تم حفظ بياناتك الشخصية.");
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل حفظ بيانات المستخدم.");
+    } finally {
+      setPersonalBusy(false);
+    }
+  }, [personalEmail, personalPhone, updateProfile]);
+
+  const persistPersonalSignature = useCallback(
+    async (url: string | null) => {
+      setPersonalSignatureBusy(true);
+      setSubmitError(null);
+      setStatus(null);
+      try {
+        await apiJson("/api/company/user-signature", csrfToken, {
+          method: "PATCH",
+          body: JSON.stringify({ valuationReportSignatureDataUrl: url }),
+        });
+        setPersonalSignature(url);
+        setStatus("تم حفظ توقيعك.");
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : "فشل حفظ التوقيع.");
+      } finally {
+        setPersonalSignatureBusy(false);
+      }
+    },
+    [csrfToken],
+  );
 
   const persistLogo = async () => {
     setBrandingBusy(true);
@@ -1061,10 +1139,10 @@ export default function CompanyAdminDashboard({
   }, [csrfToken]);
 
   useEffect(() => {
-    if (!loading && user?.role === "company_admin" && !reportDefaultsLoaded) {
+    if (!loading && isCompanyAdmin && !reportDefaultsLoaded) {
       void loadReportDefaults();
     }
-  }, [loadReportDefaults, loading, reportDefaultsLoaded, user?.role]);
+  }, [isCompanyAdmin, loadReportDefaults, loading, reportDefaultsLoaded]);
 
   const reportDefaultsSectionGroups = useMemo(
     () => buildReportDefaultsSectionGroups(reportDefaults),
@@ -1391,6 +1469,7 @@ export default function CompanyAdminDashboard({
           username: ph,
           password: newPassword,
           role: newRole,
+          ...productPayload,
           ...(em ? { email: em } : {}),
           phone: ph,
         }),
@@ -1448,11 +1527,12 @@ export default function CompanyAdminDashboard({
       setSubmitError("لم يتغيّر أي حقل.");
       return;
     }
+    Object.assign(body, productPayload);
     setUserActionBusy(true);
     setSubmitError(null);
     setStatus(null);
     try {
-      await apiJson(`/api/company/users/${encodeURIComponent(editTarget.id)}`, csrfToken, {
+      await apiJson(`/api/company/users/${encodeURIComponent(editTarget.id)}${productQuery}`, csrfToken, {
         method: "PATCH",
         body: JSON.stringify(body),
       });
@@ -1473,7 +1553,7 @@ export default function CompanyAdminDashboard({
     setSubmitError(null);
     setStatus(null);
     try {
-      await apiJson(`/api/company/users/${encodeURIComponent(deleteTarget.id)}`, csrfToken, {
+      await apiJson(`/api/company/users/${encodeURIComponent(deleteTarget.id)}${productQuery}`, csrfToken, {
         method: "DELETE",
       });
       setStatus("تم حذف المستخدم.");
@@ -1490,7 +1570,6 @@ export default function CompanyAdminDashboard({
     variant === "embedded"
       ? "flex min-h-0 flex-1 flex-col overflow-hidden"
       : "flex min-h-screen flex-col bg-[#f4f6fb]";
-  const reportDefaultsOnly = mode === "report-defaults";
   const hasLetterheadImages = [
     reportDefaults.letterhead.coverImageDataUrl,
     reportDefaults.letterhead.pageImageDataUrl,
@@ -1517,6 +1596,80 @@ export default function CompanyAdminDashboard({
           <Button type="button" className="mt-6 rounded-xl" onClick={() => window.location.reload()}>
             إعادة المحاولة
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loading && user && !isCompanyAdmin && !reportDefaultsOnly) {
+    return (
+      <div className={cn(shellClass, "p-4 md:p-6")} dir="rtl">
+        <div className="mx-auto flex w-full max-w-[980px] flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 text-white shadow-sm">
+              <Users className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-slate-900">بياناتي الشخصية</h1>
+              {productLabel ? (
+                <p className="text-[13px] font-medium text-slate-500">{productLabel}</p>
+              ) : null}
+            </div>
+          </div>
+
+          {submitError ? (
+            <p className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {submitError}
+            </p>
+          ) : null}
+          {status ? (
+            <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {status}
+            </p>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2">
+                  <Label>رقم الهاتف</Label>
+                  <PhoneNumberInput value={personalPhone} onChange={setPersonalPhone} />
+                </label>
+                <label className="grid gap-2">
+                  <Label>البريد الإلكتروني</Label>
+                  <Input
+                    value={personalEmail}
+                    onChange={(event) => setPersonalEmail(event.target.value)}
+                    dir="ltr"
+                    inputMode="email"
+                  />
+                </label>
+              </div>
+              <div className="mt-5 flex justify-end">
+                <Button
+                  type="button"
+                  className="gap-2 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
+                  disabled={personalBusy}
+                  onClick={() => void persistPersonalProfile()}
+                >
+                  {personalBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  حفظ البيانات
+                </Button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-3 flex items-center gap-2 text-slate-800">
+                <PenLine className="h-4 w-4 text-sky-600" />
+                <h2 className="text-sm font-bold">توقيعي في التقرير</h2>
+              </div>
+              <MemberSignatureCell
+                savedUrl={personalSignature}
+                busy={personalSignatureBusy}
+                onPersist={persistPersonalSignature}
+              />
+            </section>
+          </div>
         </div>
       </div>
     );

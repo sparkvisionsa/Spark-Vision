@@ -48,6 +48,8 @@ export type Client = {
   bankName: string;
   bankAccountAddress: string;
   bankAccountNumber: string;
+  productIds?: string[];
+  sharedClientId?: string;
   createdAt: string;
   updatedAt: string;
 };

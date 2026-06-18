@@ -18,7 +18,9 @@ import {
   Loader2,
   MinusSquare,
   MoreVertical,
+  MoveRight,
   PackagePlus,
+  Pencil,
   PlusSquare,
   RefreshCw,
   Search,
@@ -894,6 +896,10 @@ function isAssetFolderNode(node: ImageFolderNode): boolean {
   return Boolean(node.picAssetId && !node.isSynthetic);
 }
 
+function isManageablePreviewFolderNode(node: ImageFolderNode): boolean {
+  return node.path !== "__pv_root__" && !node.isSynthetic;
+}
+
 function previewFolderKindLabel(node: ImageFolderNode): "أصل" | "مجلد" {
   return isAssetFolderNode(node) ? "أصل" : "مجلد";
 }
@@ -1014,6 +1020,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [selectedPreviewFolderId, setSelectedPreviewFolderId] = useState<string | null>(null);
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Set<string>>(() => new Set(["__pv_root__"]));
   const [creatingPreviewFolder, setCreatingPreviewFolder] = useState(false);
+  const [folderMetaSaving, setFolderMetaSaving] = useState(false);
+  const [moveDialogFolder, setMoveDialogFolder] = useState<ImageFolderNode | null>(null);
   const [draggingPreview, setDraggingPreview] = useState(false);
   const [assetUploadJobs, setAssetUploadJobs] = useState<AssetUploadJob[]>([]);
   const [assetImportResult, setAssetImportResult] = useState<AssetImportResult | null>(null);
@@ -1623,6 +1631,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     sortAndCount(rootNode);
     return { previewRoot: rootNode, previewFoldersById: fb };
   }, [files, previewPhotoFolders, projectId]);
+
+  const previewRowsById = useMemo(
+    () => new Map(previewPhotoFolders.map((row) => [row.sub._id, row])),
+    [previewPhotoFolders],
+  );
 
   const selectedPreviewFolderNode = selectedPreviewFolderId
     ? (previewFoldersById.get(selectedPreviewFolderId) ?? null)
@@ -2526,6 +2539,173 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }
     void createPreviewFolder(activeCreateParentId, "asset");
   }, [activeCreateParentId, createPreviewFolder, toast]);
+
+  const patchPreviewFolderMeta = useCallback(
+    async (folderId: string, payload: { name?: string; targetParentId?: string }) => {
+      const response = await fetch(
+        `/api/mv/projects/${encodeURIComponent(projectId)}/subprojects/${encodeURIComponent(folderId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!response.ok) {
+        let message = "تعذر حفظ التغيير.";
+        try {
+          const data = (await response.json()) as { message?: unknown };
+          if (typeof data.message === "string" && data.message.trim()) {
+            message = data.message.trim();
+          }
+        } catch {
+          const text = await response.text().catch(() => "");
+          if (text.trim()) message = text.trim();
+        }
+        throw new Error(message);
+      }
+      return (await response.json()) as MvSubProject;
+    },
+    [projectId],
+  );
+
+  const renamePreviewFolder = useCallback(
+    async (folder: ImageFolderNode) => {
+      if (!isManageablePreviewFolderNode(folder)) return;
+      const label = previewFolderKindLabel(folder);
+      const nextName = window.prompt(`اسم ${label} الجديد`, folder.name)?.trim();
+      if (!nextName || nextName === folder.name) return;
+      try {
+        setFolderMetaSaving(true);
+        const updated = await patchPreviewFolderMeta(folder.path, { name: nextName });
+        setPreviewPhotoFolders((current) =>
+          current.map((row) =>
+            row.sub._id === folder.path
+              ? { sub: updated, picAsset: updated.picAsset ?? row.picAsset }
+              : row,
+          ),
+        );
+        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        toast({ description: label === "أصل" ? "تم تعديل اسم الأصل." : "تم تعديل اسم المجلد." });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر تعديل الاسم.",
+        });
+      } finally {
+        setFolderMetaSaving(false);
+      }
+    },
+    [loadImages, loadPreviewPhotoFolders, patchPreviewFolderMeta, toast],
+  );
+
+  const openMovePreviewFolder = useCallback((folder: ImageFolderNode) => {
+    if (!isManageablePreviewFolderNode(folder)) return;
+    setMoveDialogFolder(folder);
+  }, []);
+
+  const isPreviewFolderDescendantOf = useCallback(
+    (candidateId: string, sourceId: string) => {
+      let cursor = previewRowsById.get(candidateId);
+      const seen = new Set<string>();
+      while (cursor?.sub.parent) {
+        const parent = cursor.sub.parent;
+        if (parent === sourceId) return true;
+        if (seen.has(parent)) return false;
+        seen.add(parent);
+        cursor = previewRowsById.get(parent);
+      }
+      return false;
+    },
+    [previewRowsById],
+  );
+
+  const moveDestinationOptions = useMemo(() => {
+    if (!moveDialogFolder || !photosRootId) return [];
+    const sourceId = moveDialogFolder.path;
+    const sourceParent = previewRowsById.get(sourceId)?.sub.parent ?? null;
+    const options: Array<{
+      key: string;
+      parentId: string;
+      label: string;
+      depth: number;
+      disabled: boolean;
+    }> = [
+      {
+        key: "__pv_root__",
+        parentId: photosRootId,
+        label: "صور الأصول",
+        depth: 0,
+        disabled: sourceParent === photosRootId,
+      },
+    ];
+
+    const visit = (node: ImageFolderNode, depth: number) => {
+      for (const child of node.folders) {
+        if (child.isSynthetic) {
+          visit(child, depth);
+          continue;
+        }
+        const regularFolder = !isAssetFolderNode(child) && child.path !== "__pv_root__";
+        if (regularFolder) {
+          const disabled =
+            child.path === sourceId ||
+            sourceParent === child.path ||
+            isPreviewFolderDescendantOf(child.path, sourceId);
+          options.push({
+            key: child.path,
+            parentId: child.path,
+            label: child.name,
+            depth,
+            disabled,
+          });
+        }
+        visit(child, depth + (regularFolder ? 1 : 0));
+      }
+    };
+
+    visit(previewRoot, 1);
+    return options;
+  }, [isPreviewFolderDescendantOf, moveDialogFolder, photosRootId, previewRoot, previewRowsById]);
+
+  const movePreviewFolderTo = useCallback(
+    async (targetParentId: string) => {
+      const folder = moveDialogFolder;
+      if (!folder || !isManageablePreviewFolderNode(folder)) return;
+      const label = previewFolderKindLabel(folder);
+      try {
+        setFolderMetaSaving(true);
+        await patchPreviewFolderMeta(folder.path, { targetParentId });
+        const parentSelectionId = selectionFolderIdForParent(targetParentId);
+        setSelectedPreviewFolderId(folder.path);
+        setExpandedPreviewIds((current) => {
+          const next = new Set(current);
+          next.add("__pv_root__");
+          next.add(parentSelectionId);
+          next.add(folder.path);
+          return next;
+        });
+        setMoveDialogFolder(null);
+        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        toast({ description: label === "أصل" ? "تم نقل الأصل." : "تم نقل المجلد." });
+      } catch (error) {
+        toast({
+          variant: "destructive",
+          description: error instanceof Error ? error.message : "تعذر نقل العنصر.",
+        });
+      } finally {
+        setFolderMetaSaving(false);
+      }
+    },
+    [
+      loadImages,
+      loadPreviewPhotoFolders,
+      moveDialogFolder,
+      patchPreviewFolderMeta,
+      selectionFolderIdForParent,
+      toast,
+    ],
+  );
 
   const toggleExpanded = useCallback((path: string) => {
     setExpandedPaths((current) => {
@@ -3860,6 +4040,26 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 {isAssetFolderNode(node) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
                 فتح {kindLabel}
               </DropdownMenuItem>
+              {treeMedia === "images" && isManageablePreviewFolderNode(node) ? (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() => void renamePreviewFolder(node)}
+                    disabled={folderMetaSaving}
+                    className="cursor-pointer text-[12px]"
+                  >
+                    <Pencil className="h-4 w-4 text-slate-600" />
+                    إعادة تسمية {kindLabel}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => openMovePreviewFolder(node)}
+                    disabled={folderMetaSaving}
+                    className="cursor-pointer text-[12px]"
+                  >
+                    <MoveRight className="h-4 w-4 text-emerald-700" />
+                    نقل {kindLabel}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {createChildrenParentId && treeMedia === "images" ? (
                 <>
                   <DropdownMenuItem
@@ -4532,6 +4732,26 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                         {isAssetFolderNode(folder) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
                                         فتح {folderKindLabel}
                                       </DropdownMenuItem>
+                                      {isManageablePreviewFolderNode(folder) ? (
+                                        <>
+                                          <DropdownMenuItem
+                                            onSelect={() => void renamePreviewFolder(folder)}
+                                            disabled={folderMetaSaving}
+                                            className="cursor-pointer text-[12px]"
+                                          >
+                                            <Pencil className="h-4 w-4 text-slate-600" />
+                                            إعادة تسمية {folderKindLabel}
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem
+                                            onSelect={() => openMovePreviewFolder(folder)}
+                                            disabled={folderMetaSaving}
+                                            className="cursor-pointer text-[12px]"
+                                          >
+                                            <MoveRight className="h-4 w-4 text-emerald-700" />
+                                            نقل {folderKindLabel}
+                                          </DropdownMenuItem>
+                                        </>
+                                      ) : null}
                                       {folderCreateParentId ? (
                                         <>
                                           <DropdownMenuItem
@@ -4815,6 +5035,64 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         }}
       />
+
+      <Dialog
+        open={moveDialogFolder != null}
+        onOpenChange={(open) => {
+          if (!open && !folderMetaSaving) setMoveDialogFolder(null);
+        }}
+      >
+        <DialogContent
+          dir="rtl"
+          className="max-h-[82vh] max-w-md overflow-hidden rounded-2xl border-slate-200 bg-white p-0 text-right shadow-2xl"
+        >
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+            <DialogTitle className="flex items-center gap-2 text-[16px] font-black text-slate-950">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                <MoveRight className="h-4 w-4" />
+              </span>
+              نقل {moveDialogFolder ? previewFolderKindLabel(moveDialogFolder) : "العنصر"}
+            </DialogTitle>
+            <DialogDescription className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
+              اختر الجذر أو مجلداً عادياً كوجهة. لا يمكن نقل العناصر داخل أصل.
+            </DialogDescription>
+          </div>
+
+          <div className="max-h-[54vh] space-y-1 overflow-y-auto px-4 py-3">
+            {moveDestinationOptions.length > 0 ? (
+              moveDestinationOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  disabled={option.disabled || folderMetaSaving}
+                  onClick={() => void movePreviewFolderTo(option.parentId)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-right text-[12px] font-bold transition",
+                    option.disabled
+                      ? "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-300"
+                      : "border-slate-200 bg-white text-slate-800 hover:border-emerald-300 hover:bg-emerald-50",
+                  )}
+                  style={{ paddingInlineStart: 12 + option.depth * 14 }}
+                >
+                  {option.key === "__pv_root__" ? (
+                    <FolderOpen className="h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <Folder className="h-4 w-4 shrink-0 text-amber-600" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate" dir="auto">
+                    {option.label}
+                  </span>
+                  {folderMetaSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                </button>
+              ))
+            ) : (
+              <p className="px-2 py-6 text-center text-[12px] font-semibold text-slate-500">
+                لا توجد وجهات متاحة للنقل.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={assetSearchOpen} onOpenChange={setAssetSearchOpen}>
         <DialogContent

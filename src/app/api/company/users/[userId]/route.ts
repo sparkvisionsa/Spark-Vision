@@ -88,7 +88,7 @@ async function proxyToNest(
     );
   }
   const encoded = encodeURIComponent(id);
-  const target = `${mvBackendOriginForProxy()}/api/company/users/${encoded}`;
+  const target = `${mvBackendOriginForProxy()}/api/company/users/${encoded}${request.nextUrl.search}`;
 
   const headers = new Headers();
   for (const name of FORWARD_HEADERS) {

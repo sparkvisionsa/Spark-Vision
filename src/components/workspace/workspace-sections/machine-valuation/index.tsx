@@ -137,11 +137,11 @@ export default function MachineValuationSection() {
 
   switch (route.view) {
     case "company-admin":
-      return <CompanyAdminDashboard variant="embedded" />;
+      return <CompanyAdminDashboard variant="embedded" productId="machine-valuation" />;
     case "report-settings":
-      return <CompanyAdminDashboard variant="embedded" mode="report-defaults" />;
+      return <CompanyAdminDashboard variant="embedded" mode="report-defaults" productId="machine-valuation" />;
     case "clients":
-      return <ClientsPage />;
+      return <ClientsPage productId="machine-valuation" />;
     case "workflow":
       return (
         <MvWorkflowShell

@@ -101,6 +101,52 @@ async function proxyPatch(request: NextRequest) {
   }
 }
 
+async function proxyGet(request: NextRequest) {
+  const url = new URL(request.url);
+  const target = `${mvBackendOriginForProxy()}/api/company/user-signature${url.search}`;
+
+  const headers = new Headers();
+  for (const name of FORWARD_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+
+  try {
+    const upstream = await fetch(target, {
+      method: "GET",
+      headers,
+      redirect: "manual",
+    });
+
+    const outHeaders = new Headers();
+    for (const name of ["content-type", "content-disposition", "cache-control"] as const) {
+      const v = upstream.headers.get(name);
+      if (v) outHeaders.set(name, v);
+    }
+
+    const res = new NextResponse(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: outHeaders,
+    });
+    res.headers.set("x-spark-proxy", "company-user-signature");
+    for (const c of collectSetCookieHeaders(upstream)) {
+      res.headers.append("set-cookie", c);
+    }
+    return res;
+  } catch (err) {
+    console.error("[api/company/user-signature proxy] upstream failed", err);
+    return NextResponse.json(
+      { error: "upstream_unreachable", message: "ØªØ¹Ø°Ø± Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø®Ø§Ø¯Ù…." },
+      { status: 502 },
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return proxyGet(request);
+}
+
 export async function PATCH(request: NextRequest) {
   return proxyPatch(request);
 }

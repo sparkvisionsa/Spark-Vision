@@ -43,6 +43,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { toApiUrl } from "@/lib/api-url";
+import type { ValueTechProductId } from "@/lib/value-tech-products";
 import type {
   Client,
   ClientType,
@@ -77,6 +78,20 @@ interface LocationItem {
   cityId?: string;
   active?: boolean;
 }
+
+const REAL_ESTATE_PRODUCT_ID = "real-estate-valuation" satisfies ValueTechProductId;
+const MACHINE_PRODUCT_ID = "machine-valuation" satisfies ValueTechProductId;
+const MACHINE_CLIENT_TYPE_NAME = "عميل تقييم آلات";
+const MACHINE_CLIENT_TEMPLATE_NAME = "بيانات عميل الآلات";
+
+const MACHINE_CLIENT_TEMPLATE_FIELDS: FormFieldDef[] = [
+  { id: "clientLegalType", label: "الشكل النظامي للعميل", fieldType: "text" },
+  { id: "clientActivity", label: "نشاط العميل", fieldType: "text" },
+  { id: "clientRepresentativeName", label: "ممثل العميل", fieldType: "text" },
+  { id: "clientRepresentativeRole", label: "صفة ممثل العميل", fieldType: "text" },
+  { id: "intendedUsers", label: "المستخدمون المستهدفون", fieldType: "textarea" },
+  { id: "intendedUse", label: "الاستخدام المستهدف للتقرير", fieldType: "textarea" },
+];
 
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(toApiUrl(path), {
@@ -352,7 +367,26 @@ export function LocationFieldInputs({
   );
 }
 
-export default function ClientsPage() {
+export default function ClientsPage({
+  productId = REAL_ESTATE_PRODUCT_ID,
+}: {
+  productId?: Extract<ValueTechProductId, "real-estate-valuation" | "machine-valuation">;
+}) {
+  const productQuery = useMemo(
+    () => `?productId=${encodeURIComponent(productId)}`,
+    [productId],
+  );
+  const withProductQuery = useCallback(
+    (path: string, extra?: Record<string, string>) => {
+      const params = new URLSearchParams({ productId });
+      for (const [key, value] of Object.entries(extra ?? {})) {
+        if (value) params.set(key, value);
+      }
+      return `${path}?${params.toString()}`;
+    },
+    [productId],
+  );
+  const isMachineProduct = productId === MACHINE_PRODUCT_ID;
   const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -371,6 +405,10 @@ export default function ClientsPage() {
   const [bankName, setBankName] = useState("");
   const [bankAccountAddress, setBankAccountAddress] = useState("");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [linkFromClientId, setLinkFromClientId] = useState<string | null>(null);
+  const [reuseSearch, setReuseSearch] = useState("");
+  const [reuseResults, setReuseResults] = useState<Client[]>([]);
+  const [reuseSearching, setReuseSearching] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [clientEditorOpen, setClientEditorOpen] = useState(false);
@@ -407,11 +445,44 @@ export default function ClientsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [types, tps, cls] = await Promise.all([
-        apiJson<ClientType[]>("/api/client-types"),
-        apiJson<FormTemplate[]>("/api/form-templates"),
-        apiJson<Client[]>("/api/clients"),
+      let [types, tps, cls] = await Promise.all([
+        apiJson<ClientType[]>(withProductQuery("/api/client-types")),
+        apiJson<FormTemplate[]>(withProductQuery("/api/form-templates")),
+        apiJson<Client[]>(withProductQuery("/api/clients")),
       ]);
+      if (isMachineProduct) {
+        if (types.length === 0) {
+          const created = await apiJson<ClientType>("/api/client-types", {
+            method: "POST",
+            body: JSON.stringify({ name: "عميل تقييم آلات", productId }),
+          });
+          types = [created];
+        }
+        if (tps.length === 0) {
+          const created = await apiJson<FormTemplate>("/api/form-templates", {
+            method: "POST",
+            body: JSON.stringify({
+              name: "بيانات عميل الآلات",
+              fields: MACHINE_CLIENT_TEMPLATE_FIELDS,
+              productId,
+            }),
+          });
+          tps = [created];
+        }
+      }
+      if (isMachineProduct) {
+        const machineType =
+          types.find((type) => type.name === MACHINE_CLIENT_TYPE_NAME) ?? types[0];
+        types = machineType ? [machineType] : [];
+
+        const machineTemplate =
+          tps.find((template) => template.name === MACHINE_CLIENT_TEMPLATE_NAME) ??
+          tps.find((template) =>
+            template.fields.some((field) => field.id === "clientLegalType"),
+          ) ??
+          tps[0];
+        tps = machineTemplate ? [machineTemplate] : [];
+      }
       setClientTypes(types);
       setFormTemplates(tps);
       setClients(cls);
@@ -424,7 +495,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isMachineProduct, productId, withProductQuery]);
 
   useEffect(() => {
     void loadAll();
@@ -442,17 +513,17 @@ export default function ClientsPage() {
     const syncHash = () => {
       if (typeof window === "undefined") return;
       const h = window.location.hash.replace(/^#/, "");
-      if (h === "create-template") {
+      if (h === "create-template" && !isMachineProduct) {
         openCreateTemplateCb();
       }
-      if (h === "templates") {
+      if (h === "templates" && !isMachineProduct) {
         setTemplatesBrowserOpen(true);
       }
     };
     syncHash();
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
-  }, [openCreateTemplateCb]);
+  }, [isMachineProduct, openCreateTemplateCb]);
 
   function clearHashIfMatches(expected: string) {
     if (typeof window === "undefined") return;
@@ -465,6 +536,55 @@ export default function ClientsPage() {
   const selectedTemplate = useMemo(
     () => formTemplates.find((t) => t.id === formTemplateId) ?? null,
     [formTemplates, formTemplateId],
+  );
+
+  const searchReusableClients = useCallback(async () => {
+    const q = reuseSearch.trim();
+    if (q.length < 2) {
+      setReuseResults([]);
+      return;
+    }
+    setReuseSearching(true);
+    try {
+      const rows = await apiJson<Client[]>(
+        withProductQuery("/api/clients", { scope: "all", q }),
+      );
+      setReuseResults(
+        rows.filter((row) => {
+          const ids = row.productIds?.length ? row.productIds : [REAL_ESTATE_PRODUCT_ID];
+          return row.id !== editingId && !ids.includes(productId);
+        }),
+      );
+    } catch (e) {
+      toast({
+        title: "تعذر البحث عن العملاء",
+        description: e instanceof Error ? e.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setReuseSearching(false);
+    }
+  }, [editingId, productId, reuseSearch, withProductQuery]);
+
+  const useReusableClient = useCallback(
+    (client: Client) => {
+      setLinkFromClientId(client.id);
+      setName(client.name);
+      setPhone(client.phone ?? "");
+      setEmail(client.email ?? "");
+      setActive(client.active);
+      setClientAddress(client.clientAddress ?? "");
+      setBankName(isMachineProduct ? "" : client.bankName ?? "");
+      setBankAccountAddress(isMachineProduct ? "" : client.bankAccountAddress ?? "");
+      setBankAccountNumber(isMachineProduct ? "" : client.bankAccountNumber ?? "");
+      setTemplateFieldValues((current) => ({
+        ...current,
+        ...(client.templateFieldValues ?? {}),
+      }));
+      setReuseSearch(client.name);
+      setReuseResults([]);
+    },
+    [isMachineProduct],
   );
 
   useEffect(() => {
@@ -492,12 +612,15 @@ export default function ClientsPage() {
     setEmail("");
     setActive(true);
     setTypeId(clientTypes[0]?.id ?? "");
-    setFormTemplateId(null);
+    setFormTemplateId(isMachineProduct ? (formTemplates[0]?.id ?? null) : null);
     setClientAddress("");
     setTemplateFieldValues({});
     setBankName("");
     setBankAccountAddress("");
     setBankAccountNumber("");
+    setLinkFromClientId(null);
+    setReuseSearch("");
+    setReuseResults([]);
   }
 
   function openCreateClient() {
@@ -508,6 +631,12 @@ export default function ClientsPage() {
   useEffect(() => {
     if (!typeId && clientTypes.length) setTypeId(clientTypes[0].id);
   }, [clientTypes, typeId]);
+
+  useEffect(() => {
+    if (isMachineProduct && formTemplates.length && formTemplateId !== formTemplates[0].id) {
+      setFormTemplateId(formTemplates[0].id);
+    }
+  }, [formTemplateId, formTemplates, isMachineProduct]);
 
   const openCreateTemplate = openCreateTemplateCb;
 
@@ -540,7 +669,7 @@ export default function ClientsPage() {
     try {
       const created = await apiJson<ClientType>("/api/client-types", {
         method: "POST",
-        body: JSON.stringify({ name: n }),
+        body: JSON.stringify({ name: n, productId }),
       });
       setClientTypes((prev) => [...prev, created]);
       setTypeId(created.id);
@@ -597,7 +726,7 @@ export default function ClientsPage() {
       if (templateModalMode === "create") {
         const created = await apiJson<FormTemplate>("/api/form-templates", {
           method: "POST",
-          body: JSON.stringify({ name: n, fields }),
+          body: JSON.stringify({ name: n, fields, productId }),
         });
         setFormTemplates((prev) => [...prev, created]);
         setFormTemplateId(created.id);
@@ -606,7 +735,7 @@ export default function ClientsPage() {
           `/api/form-templates/${editingTemplateId}`,
           {
             method: "PATCH",
-            body: JSON.stringify({ name: n, fields }),
+            body: JSON.stringify({ name: n, fields, productId }),
           },
         );
         setFormTemplates((prev) =>
@@ -632,22 +761,28 @@ export default function ClientsPage() {
   async function saveClient() {
     setSavingClient(true);
     try {
+      const effectiveTypeId = isMachineProduct ? (clientTypes[0]?.id ?? typeId) : typeId;
+      const effectiveFormTemplateId = isMachineProduct
+        ? (formTemplates[0]?.id ?? formTemplateId)
+        : formTemplateId;
       const payload = {
         name,
         phone,
         email,
         active,
-        typeId,
+        typeId: effectiveTypeId,
         address: "",
         clientAddress,
-        formTemplateId,
+        formTemplateId: effectiveFormTemplateId,
         templateFieldValues,
-        bankName,
-        bankAccountAddress,
-        bankAccountNumber,
+        bankName: isMachineProduct ? "" : bankName,
+        bankAccountAddress: isMachineProduct ? "" : bankAccountAddress,
+        bankAccountNumber: isMachineProduct ? "" : bankAccountNumber,
+        productId,
+        ...(linkFromClientId && !editingId ? { linkFromClientId } : {}),
       };
       if (editingId) {
-        const updated = await apiJson<Client>(`/api/clients/${editingId}`, {
+        const updated = await apiJson<Client>(`/api/clients/${editingId}${productQuery}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
         });
@@ -682,20 +817,23 @@ export default function ClientsPage() {
     setPhone(c.phone);
     setEmail(c.email);
     setActive(c.active);
-    setTypeId(c.typeId);
-    setFormTemplateId(c.formTemplateId);
+    setTypeId(isMachineProduct ? (clientTypes[0]?.id ?? c.typeId) : c.typeId);
+    setFormTemplateId(isMachineProduct ? (formTemplates[0]?.id ?? c.formTemplateId) : c.formTemplateId);
     setClientAddress(c.clientAddress);
     setTemplateFieldValues(c.templateFieldValues ?? {});
     setBankName(c.bankName);
     setBankAccountAddress(c.bankAccountAddress);
     setBankAccountNumber(c.bankAccountNumber);
+    setLinkFromClientId(null);
+    setReuseSearch("");
+    setReuseResults([]);
     setClientEditorOpen(true);
   }
 
   async function confirmDeleteClient() {
     if (!deleteClientId) return;
     try {
-      await apiJson(`/api/clients/${deleteClientId}`, { method: "DELETE" });
+      await apiJson(`/api/clients/${deleteClientId}${productQuery}`, { method: "DELETE" });
       setClients((prev) => prev.filter((c) => c.id !== deleteClientId));
       if (editingId === deleteClientId) resetClientForm();
       toast({ title: "تم حذف العميل" });
@@ -713,7 +851,7 @@ export default function ClientsPage() {
   async function confirmDeleteTemplate() {
     if (!deleteTemplateId) return;
     try {
-      await apiJson(`/api/form-templates/${deleteTemplateId}`, {
+      await apiJson(`/api/form-templates/${deleteTemplateId}${productQuery}`, {
         method: "DELETE",
       });
       setFormTemplates((prev) => prev.filter((t) => t.id !== deleteTemplateId));
@@ -748,7 +886,7 @@ export default function ClientsPage() {
         `/api/client-types/${editingTypeId}`,
         {
           method: "PATCH",
-          body: JSON.stringify({ name: n }),
+          body: JSON.stringify({ name: n, productId }),
         },
       );
       setClientTypes((prev) =>
@@ -772,7 +910,7 @@ export default function ClientsPage() {
     if (!deleteTypeId) return;
     setTypeActionBusy(true);
     try {
-      await apiJson(`/api/client-types/${deleteTypeId}`, {
+      await apiJson(`/api/client-types/${deleteTypeId}${productQuery}`, {
         method: "DELETE",
       });
       const remaining = clientTypes.filter((t) => t.id !== deleteTypeId);
@@ -965,7 +1103,10 @@ export default function ClientsPage() {
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm"
+            className={cn(
+              "h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm",
+              isMachineProduct && "hidden",
+            )}
             onClick={() => setTemplatesBrowserOpen(true)}
           >
             <FileStack className="h-3 w-3" />
@@ -975,7 +1116,10 @@ export default function ClientsPage() {
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm"
+            className={cn(
+              "h-7 gap-1 px-2.5 text-[11px] border-slate-200 bg-white/80 shadow-sm",
+              isMachineProduct && "hidden",
+            )}
             onClick={() => setTypesManagerOpen(true)}
           >
             <Tag className="h-3 w-3" />
@@ -992,7 +1136,7 @@ export default function ClientsPage() {
           if (!open) resetClientForm();
         }}
       >
-        <DialogContent className="flex max-h-[92vh] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
+        <DialogContent className="flex h-[92vh] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-2xl">
           <div className="shrink-0 bg-gradient-to-br from-sky-600 to-teal-600 px-5 py-4">
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
@@ -1002,13 +1146,18 @@ export default function ClientsPage() {
                 <DialogTitle className="text-[15px] font-bold text-white">
                   {editingId ? "تعديل بيانات العميل" : "إضافة عميل جديد"}
                 </DialogTitle>
-                <DialogDescription className="mt-0.5 text-[11px] text-white/70">
+                {isMachineProduct ? (
+                  <DialogDescription className="mt-0.5 text-[11px] text-white/70">
+                    أدخل بيانات عميل تقييم الآلات.
+                  </DialogDescription>
+                ) : null}
+                <DialogDescription className={cn("mt-0.5 text-[11px] text-white/70", isMachineProduct && "hidden")}>
                   أدخل بيانات العميل واربطه بالنوع والنموذج المناسب.
                 </DialogDescription>
               </div>
             </div>
           </div>
-          <ScrollArea className="min-h-0 flex-1 px-5 py-3">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-3">
             <form
               className="space-y-1.5"
               onSubmit={(e) => {
@@ -1016,6 +1165,67 @@ export default function ClientsPage() {
                 void saveClient();
               }}
             >
+        {!editingId ? (
+          <div className="rounded-lg border border-sky-200/80 bg-sky-50/50 p-2.5">
+            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+              <div className="space-y-1">
+                <Label className="text-[11px] text-slate-600" htmlFor="reuse-client-search">
+                  البحث في كل العملاء
+                </Label>
+                <Input
+                  id="reuse-client-search"
+                  value={reuseSearch}
+                  onChange={(event) => setReuseSearch(event.target.value)}
+                  placeholder="ابحث بالاسم أو الهاتف أو البريد"
+                  className="h-8 bg-white text-[12px]"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 gap-1.5 bg-white text-[12px]"
+                  disabled={reuseSearching || reuseSearch.trim().length < 2}
+                  onClick={() => void searchReusableClients()}
+                >
+                  {reuseSearching ? <Sparkles className="h-3.5 w-3.5 animate-pulse" /> : <Eye className="h-3.5 w-3.5" />}
+                  بحث
+                </Button>
+              </div>
+            </div>
+            {linkFromClientId ? (
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-800">
+                <span>سيتم استخدام البيانات المشتركة من العميل المحدد مع إضافة بيانات هذا النظام.</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px] text-emerald-800"
+                  onClick={() => setLinkFromClientId(null)}
+                >
+                  إلغاء الربط
+                </Button>
+              </div>
+            ) : null}
+            {reuseResults.length > 0 ? (
+              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {reuseResults.map((client) => (
+                  <button
+                    key={client.id}
+                    type="button"
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-right text-[11px] shadow-sm transition hover:border-sky-300 hover:bg-sky-50"
+                    onClick={() => useReusableClient(client)}
+                  >
+                    <span className="block font-semibold text-slate-800">{client.name}</span>
+                    <span className="mt-0.5 block text-slate-500">
+                      {[client.phone, client.email].filter(Boolean).join(" · ") || "بدون بيانات تواصل"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {/* بيانات العميل */}
         <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
           <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
@@ -1071,8 +1281,13 @@ export default function ClientsPage() {
             </div>
 
             {/* Row 2: type + template + active */}
-            <div className="grid gap-x-2 gap-y-1.5 sm:grid-cols-[1fr_auto_1fr_auto_1fr]">
-              <div className="space-y-0.5">
+            <div
+              className={cn(
+                "grid gap-x-2 gap-y-1.5",
+                isMachineProduct ? "sm:grid-cols-1" : "sm:grid-cols-[1fr_auto_1fr_auto_1fr]",
+              )}
+            >
+              <div className={cn("space-y-0.5", isMachineProduct && "hidden")}>
                 <Label className="text-[11px] text-slate-500">النوع</Label>
                 {clientTypes.length === 0 ? (
                   <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-1">
@@ -1097,7 +1312,7 @@ export default function ClientsPage() {
                   </Select>
                 )}
               </div>
-              <div className="flex items-end">
+              <div className={cn("flex items-end", isMachineProduct && "hidden")}>
                 <Button
                   type="button"
                   variant="outline"
@@ -1110,7 +1325,7 @@ export default function ClientsPage() {
                 </Button>
               </div>
 
-              <div className="space-y-0.5">
+              <div className={cn("space-y-0.5", isMachineProduct && "hidden")}>
                 <Label className="text-[11px] text-slate-500">النموذج</Label>
                 <Select
                   value={formTemplateId ?? "none"}
@@ -1137,7 +1352,7 @@ export default function ClientsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-end">
+              <div className={cn("flex items-end", isMachineProduct && "hidden")}>
                 <Button
                   type="button"
                   variant="outline"
@@ -1220,7 +1435,7 @@ export default function ClientsPage() {
         </div>
 
         {/* معلومات البنك */}
-        <div className="rounded-lg border border-slate-200/80 bg-white shadow-sm">
+        <div className={cn("rounded-lg border border-slate-200/80 bg-white shadow-sm", isMachineProduct && "hidden")}>
           <div className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-1.5">
             <Building2 className="h-3 w-3 text-sky-600" />
             <span className="text-[12px] font-semibold text-slate-800">
@@ -1283,8 +1498,9 @@ export default function ClientsPage() {
             disabled={
               savingClient ||
               !name.trim() ||
-              !typeId ||
-              clientTypes.length === 0
+              (isMachineProduct
+                ? clientTypes.length === 0
+                : !typeId || clientTypes.length === 0)
             }
             className="h-7 gap-1 px-3 bg-gradient-to-r from-sky-600 to-teal-600 text-[12px] font-semibold shadow-sm hover:from-sky-700 hover:to-teal-700"
           >
@@ -1308,7 +1524,7 @@ export default function ClientsPage() {
           </Button>
         </div>
             </form>
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1352,10 +1568,10 @@ export default function ClientsPage() {
               <Table className="w-full table-fixed border-collapse text-[12px]">
                 <TableHeader>
                   <TableRow className="border-b border-slate-100 bg-slate-50/70 hover:bg-slate-50/70">
-                    <TableHead className="h-7 w-[36%] px-2.5 py-1 text-start align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    <TableHead className={cn("h-7 px-2.5 py-1 text-start align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-500", isMachineProduct ? "w-[56%]" : "w-[36%]")}>
                       الاسم
                     </TableHead>
-                    <TableHead className="h-7 w-[26%] px-2.5 py-1 text-start align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    <TableHead className={cn("h-7 w-[26%] px-2.5 py-1 text-start align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-500", isMachineProduct && "hidden")}>
                       النوع
                     </TableHead>
                     <TableHead className="h-7 w-[18%] px-2.5 py-1 text-center align-middle text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -1375,7 +1591,7 @@ export default function ClientsPage() {
                       <TableCell className="px-2.5 py-1.5 align-middle font-medium text-slate-800">
                         <span className="line-clamp-1">{c.name}</span>
                       </TableCell>
-                      <TableCell className="px-2.5 py-1.5 align-middle text-slate-600">
+                      <TableCell className={cn("px-2.5 py-1.5 align-middle text-slate-600", isMachineProduct && "hidden")}>
                         <span className="line-clamp-1">
                           {typeLabel(c.typeId)}
                         </span>

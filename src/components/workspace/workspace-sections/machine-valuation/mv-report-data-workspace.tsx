@@ -3,6 +3,7 @@
 import { Tajawal } from "next/font/google";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import type { Client as MachineClient } from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
 import {
@@ -45,6 +46,7 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   agreementDate: "",
   inspectionDate: "",
   valuationDate: "",
+  clientId: "",
   clientName: "",
   clientEmail: "",
   clientPhone: "",
@@ -161,6 +163,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     normalizeReportData(initialCached?.project.reportData),
   );
   const [editableProjectName, setEditableProjectName] = useState(() => initialCached?.project.name ?? "");
+  const [machineClients, setMachineClients] = useState<MachineClient[]>([]);
   const [openSections, setOpenSections] = useState<Record<MvReportCollapsibleSectionId, boolean>>(() =>
     createMvReportCollapsibleState(false),
   );
@@ -217,6 +220,27 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   useEffect(() => {
     markVisited("report-data");
   }, [markVisited]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMachineClients = async () => {
+      try {
+        const response = await fetch("/api/clients?productId=machine-valuation", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const rows = (await response.json()) as MachineClient[];
+        if (!cancelled) setMachineClients(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (!cancelled) setMachineClients([]);
+      }
+    };
+    void loadMachineClients();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
 
@@ -336,6 +360,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
             project={project}
             editableProjectName={editableProjectName}
             reportData={reportData}
+            clientOptions={machineClients}
             saving={saving}
             openSections={openSections}
             onProjectNameChange={handleProjectNameChange}

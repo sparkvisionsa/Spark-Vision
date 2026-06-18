@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useState } from "react";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
+import CompanyAdminDashboard from "@/components/company-admin-dashboard";
 import { LanguageContext } from "@/components/layout-provider";
 import { toApiUrl } from "@/lib/api-url";
 import { toast } from "@/hooks/use-toast";
@@ -2050,6 +2052,7 @@ function NeighborhoodsPage({
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function SettingsSection() {
+  const { user } = useAuthTracking();
   const [subView, setSubView] = useState<SubView>("hub");
   const [counts, setCounts] = useState({
     regions: 0,
@@ -2083,6 +2086,10 @@ export default function SettingsSection() {
   }, [subView]); // refresh counts when navigating back to hub
 
   const goHub = () => setSubView("hub");
+
+  if (user?.companyId && user.role !== "super_admin") {
+    return <CompanyAdminDashboard variant="embedded" productId="real-estate-valuation" />;
+  }
 
   if (subView === "regions")
     return (

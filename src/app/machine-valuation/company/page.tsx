@@ -6,7 +6,7 @@ import MachineValuationShell from "@/components/machine-valuation-shell";
 export default function MachineValuationCompanyPage() {
   return (
     <MachineValuationShell>
-      <CompanyAdminDashboard variant="embedded" />
+      <CompanyAdminDashboard variant="embedded" productId="machine-valuation" />
     </MachineValuationShell>
   );
 }

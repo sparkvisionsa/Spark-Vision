@@ -2,27 +2,8 @@
 > spark-vision-frontend@0.1.0 predev
 > node scripts/clean-next.mjs
 
-[frontend] cleaning .next cache
+[frontend] skipping .next cleanup (dev server is running, PID 10444)
 
 > spark-vision-frontend@0.1.0 dev
 > node scripts/dev-with-port-fallback.mjs
 
-[frontend] next dev on port 3000 (webpack)
-   ▲ Next.js 15.5.15
-   - Local:        http://localhost:3000
-   - Network:      http://192.168.0.126:3000
-   - Environments: .env
-   - Experiments (use with caution):
-     · serverActions
-     · optimizePackageImports
-     · middlewareClientMaxBodySize: "160mb"
-
- ✓ Starting...
- ✓ Ready in 13.6s
- ○ Compiling /middleware ...
- ✓ Compiled /middleware in 2s (159 modules)
- ○ Compiling /w/[[...slug]] ...
- ✓ Compiled /w/[[...slug]] in 44.2s (2619 modules)
- ✓ Compiled in 2.2s (1157 modules)
- HEAD /machine-valuation/projects 200 in 47998ms
-[?25h

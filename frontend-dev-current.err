@@ -1,0 +1,3 @@
+[frontend] Failed to start dev server Error: [frontend] Another frontend dev server is already running (PID 10444). Stop it before starting a new one.
+    at acquireDevLock (file:///C:/Users/TOSHIBA/Desktop/spark/Spark-Vision/scripts/dev-with-port-fallback.mjs:248:11)
+    at async main (file:///C:/Users/TOSHIBA/Desktop/spark/Spark-Vision/scripts/dev-with-port-fallback.mjs:316:3)

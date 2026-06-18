@@ -1327,9 +1327,13 @@ export function MvValuationReportDocumentBody({
     position: "before" | "after";
   } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const receivedDocsPdfInputRef = useRef<HTMLInputElement>(null);
+  const receivedDocsImageInputRef = useRef<HTMLInputElement>(null);
   const scePdfInputRef = useRef<HTMLInputElement>(null);
   const sceImageInputRef = useRef<HTMLInputElement>(null);
   const pendingImageAnchorRef = useRef<string>("report-cover");
+  const [receivedDocsDropActive, setReceivedDocsDropActive] = useState(false);
+  const [receivedDocsPdfBusy, setReceivedDocsPdfBusy] = useState(false);
   const [sceDropActive, setSceDropActive] = useState(false);
   const [scePdfBusy, setScePdfBusy] = useState(false);
   /**
@@ -1574,37 +1578,66 @@ export function MvValuationReportDocumentBody({
     imageInputRef.current?.click();
   };
 
-  const addSceImageFile = async (file: File) => {
+  const isReportPdfFile = (file: File) => file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  const isReportImageFile = (file: File) =>
+    file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name);
+
+  const addReportImageFile = async (anchorId: string, file: File) => {
     const dataUrl = await readInsertedReportImageDataUrl(file);
-    if (dataUrl) addInsertedImageBlock("mv-annex-sce", dataUrl, "after", 96);
+    if (dataUrl) addInsertedImageBlock(anchorId, dataUrl, "after", 96);
   };
 
-  const addScePdfFile = async (file: File) => {
-    setScePdfBusy(true);
+  const addReportPdfFile = async (anchorId: string, file: File, setBusy: (busy: boolean) => void) => {
+    setBusy(true);
     try {
       const dataUrl = await readFirstPdfPageAsReportImageDataUrl(file);
-      if (dataUrl) addInsertedImageBlock("mv-annex-sce", dataUrl, "after", 96);
+      if (dataUrl) addInsertedImageBlock(anchorId, dataUrl, "after", 96);
     } finally {
-      setScePdfBusy(false);
+      setBusy(false);
     }
+  };
+
+  const handleReportAttachmentFile = (
+    anchorId: string,
+    file: File | null | undefined,
+    setBusy: (busy: boolean) => void,
+  ) => {
+    if (!file) return;
+    if (isReportPdfFile(file)) {
+      void addReportPdfFile(anchorId, file, setBusy);
+      return;
+    }
+    if (isReportImageFile(file)) {
+      void addReportImageFile(anchorId, file);
+    }
+  };
+
+  const handleReceivedDocsPickedFile = (file: File | null | undefined) => {
+    handleReportAttachmentFile("mv-annex-3", file, setReceivedDocsPdfBusy);
+  };
+
+  const handleReceivedDocsPaste = (event: ClipboardEvent<HTMLElement>) => {
+    const file = Array.from(event.clipboardData.files).find((item) => isReportImageFile(item) || isReportPdfFile(item));
+    if (!file) return;
+    event.preventDefault();
+    handleReceivedDocsPickedFile(file);
+  };
+
+  const handleReceivedDocsDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setReceivedDocsDropActive(false);
+    handleReceivedDocsPickedFile(event.dataTransfer.files?.[0]);
   };
 
   const handleScePickedFile = (file: File | null | undefined) => {
-    if (!file) return;
-    if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
-      void addScePdfFile(file);
-      return;
-    }
-    if (file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(file.name)) {
-      void addSceImageFile(file);
-    }
+    handleReportAttachmentFile("mv-annex-sce", file, setScePdfBusy);
   };
 
   const handleScePaste = (event: ClipboardEvent<HTMLElement>) => {
-    const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
+    const file = Array.from(event.clipboardData.files).find((item) => isReportImageFile(item) || isReportPdfFile(item));
     if (!file) return;
     event.preventDefault();
-    void addSceImageFile(file);
+    handleScePickedFile(file);
   };
 
   const handleSceDrop = (event: DragEvent<HTMLElement>) => {
@@ -1823,6 +1856,26 @@ export function MvValuationReportDocumentBody({
                 );
             })
             .catch(() => undefined);
+        }}
+      />
+      <input
+        ref={receivedDocsPdfInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(event) => {
+          handleReceivedDocsPickedFile(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <input
+        ref={receivedDocsImageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          handleReceivedDocsPickedFile(event.target.files?.[0]);
+          event.target.value = "";
         }}
       />
       <input
@@ -2906,12 +2959,55 @@ export function MvValuationReportDocumentBody({
               multiline={false}
             />
           }
+          headerExtra={
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => receivedDocsPdfInputRef.current?.click()}
+                disabled={receivedDocsPdfBusy}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50 disabled:opacity-60"
+                title="إرفاق ملف PDF وتحويل أول صفحة إلى صورة"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                {receivedDocsPdfBusy ? "تحويل..." : "إرفاق PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => receivedDocsImageInputRef.current?.click()}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
+                title="إرفاق صورة لمستندات العميل"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                إرفاق صورة
+              </button>
+            </div>
+          }
         >
-          <ClearableRichHtmlField
-            html={receivedClientDocumentsHtml}
-            onHtmlChange={(next) => onReportDataPatch({ receivedClientDocumentsHtml: next })}
-            emptyHtml={EMPTY_RICH_HTML}
-          />
+          <div
+            tabIndex={0}
+            onPaste={handleReceivedDocsPaste}
+            onDragOver={(event) => {
+              if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+              event.preventDefault();
+              setReceivedDocsDropActive(true);
+              event.dataTransfer.dropEffect = "copy";
+            }}
+            onDragLeave={(event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+              setReceivedDocsDropActive(false);
+            }}
+            onDrop={handleReceivedDocsDrop}
+            className={cn(
+              "rounded-lg outline-none transition",
+              receivedDocsDropActive && "ring-2 ring-sky-300 ring-offset-2 ring-offset-white",
+            )}
+          >
+            <ClearableRichHtmlField
+              html={receivedClientDocumentsHtml}
+              onHtmlChange={(next) => onReportDataPatch({ receivedClientDocumentsHtml: next })}
+              emptyHtml={EMPTY_RICH_HTML}
+            />
+          </div>
           {insertedAfter("mv-annex-3")}
         </SectionShell>
       </MvReportPageShell>
