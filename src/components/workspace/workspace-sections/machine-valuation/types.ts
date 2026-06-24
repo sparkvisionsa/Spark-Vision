@@ -361,6 +361,11 @@ export interface PicAsset {
   isAssetFolder: true;
   writtenDescription: string | null;
   condition: string | null;
+  /**
+   * ملاحظات نصية حرة على مستوى وثيقة الأصل في كولكشن ‎assets‎
+   * (مستقلة عن ‎condition‎ و‎writtenDescription‎، تُقرأ كما هي من قاعدة البيانات).
+   */
+  notes?: string | null;
   /** يُطبَّع في الـ API (‎vehicle‎ → ‎vehicles‎) */
   assetType: MvSubProjectAssetType | string;
   brand: string | null;

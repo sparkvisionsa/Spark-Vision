@@ -326,8 +326,14 @@ export default function MvDriveExplorer({
   }, [currentFolder, projectId, rootExplorerHref]);
 
   const foldersMenuTrailing = useMemo(
-    () => <MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />,
-    [projectId, rootFolders],
+    () => (
+      <MvProjectFoldersMenu
+        projectId={projectId}
+        projectName={project?.name ?? null}
+        folders={rootFolders}
+      />
+    ),
+    [projectId, project?.name, rootFolders],
   );
 
   const handleCreateFolder = useCallback(
@@ -495,7 +501,13 @@ export default function MvDriveExplorer({
             ]}
             saveState="idle"
             sticky={false}
-            trailing={<MvProjectFoldersMenu projectId={projectId} folders={rootFolders} />}
+            trailing={
+              <MvProjectFoldersMenu
+                projectId={projectId}
+                projectName={project?.name ?? null}
+                folders={rootFolders}
+              />
+            }
           />
         </DriveExplorerStickyTopBar>
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">

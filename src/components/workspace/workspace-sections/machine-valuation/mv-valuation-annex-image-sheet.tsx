@@ -4,19 +4,13 @@ import { useCallback, useState, type ReactNode } from "react";
 import { RotateCw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store";
+import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
 import type { MvReportPageOrientation } from "./mv-report-page-shell";
 import { MvReportPageShell } from "./mv-report-page-shell";
-
+import { useReportViewportScale } from "./mv-report-viewport-scale";
 type Approach = { id: string; label: string };
 
-function valuationImageSrc(projectId: string, image: { dataUrl?: string; fileId?: string }) {
-  if (image.dataUrl) return image.dataUrl;
-  if (image.fileId) return `/api/mv/projects/${projectId}/files/${image.fileId}/download`;
-  return "";
-}
-
-/** نسبة عرض/ارتفاع أعلى من هذا الحد → صفحة عرضية (أفقية) لاستيعاب الجداول العريضة */
-const LANDSCAPE_ASPECT_THRESHOLD = 1.12;
+/** نسبة عرض/ارتفاع أعلى من هذا الحد → صفحة عرضية (أفقية) لاستيعاب الجداول العريضة */const LANDSCAPE_ASPECT_THRESHOLD = 1.12;
 
 function AnnexSectionShell({
   id,
@@ -87,10 +81,14 @@ export function MvValuationAnnexImageSheet({
   titleNode?: ReactNode;
 }) {
   const [autoOrientation, setAutoOrientation] = useState<MvReportPageOrientation>("landscape");
-  const rawSrc = valuationImageSrc(projectId, image);
+  const viewScale = useReportViewportScale();
+  const rawSrc = resolveValuationAccountingImageSrc(projectId, image);
   const imgSrc = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;
   const orientation = forcedOrientation ?? autoOrientation;
-  const imageShadowFilter =
+  const displayWidth = Math.min(100, Math.max(92, image.displayWidthPercent ?? valuationImageWidth));
+  /** تعويض تصغير معاينة اللوحة لعرض الصورة بكثافة بكسل أعلى */
+  const previewSharpness =
+    viewScale > 0 && viewScale < 0.995 ? Math.min(2.5, 1 / viewScale) : 1;  const imageShadowFilter =
     imageShadow > 0
       ? `drop-shadow(0 ${Math.max(1, imageShadow)}px ${Math.max(3, imageShadow * 4)}px rgba(15,23,42,${0.08 + imageShadow * 0.03}))`
       : "none";
@@ -120,16 +118,7 @@ export function MvValuationAnnexImageSheet({
       <AnnexSectionShell
         id={vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`}
         title={titleNode ?? (
-          <span className="text-[14px]">
-            مرفق 1: {approach.label}
-            {vIdx > 0 ? (
-              <span className="ms-2 text-[11px] font-semibold text-slate-500">(تتمة — صورة {vIdx + 1})</span>
-            ) : (
-              <span className="ms-2 text-[11px] font-semibold text-slate-500">
-                (اتجاه الصفحة يُحدَّد تلقائياً حسب نسبة عرض الصورة)
-              </span>
-            )}
-          </span>
+          <span className="text-[14px]">مرفق 1: الوصف الجزئي وحسابات القيمة</span>
         )}
         headerExtra={
           <div className="flex items-center gap-1">
@@ -157,25 +146,39 @@ export function MvValuationAnnexImageSheet({
           </div>
         }
       >
-        <figure className="flex min-h-[132mm] w-full items-center justify-center rounded-xl bg-gradient-to-b from-slate-50/95 to-white p-2 ring-1 ring-[#0C447C]/12">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imgSrc}
-            alt=""
-            className="object-contain"
-            style={{
-              width: `${Math.min(100, image.displayWidthPercent ?? valuationImageWidth)}%`,
-              maxHeight: orientation === "landscape" ? "158mm" : "245mm",
-              height: "auto",
-              borderRadius: imageCornerRadius,
-              filter: imageShadowFilter,
-              imageRendering: "-webkit-optimize-contrast",
-            }}
-            loading="lazy"
-            onLoad={onImgLoad}
-          />
-        </figure>
-        {insertedBlocksNode}
+        <figure className="flex min-h-[132mm] w-full items-start justify-center rounded-xl bg-white p-1 ring-1 ring-[#0C447C]/12">
+          <div
+            className="flex w-full items-start justify-center"
+            data-mv-annex-hq-wrap={previewSharpness > 1 ? "1" : undefined}
+            style={
+              previewSharpness > 1
+                ? {
+                    transform: `scale(${previewSharpness})`,
+                    transformOrigin: "top center",
+                    width: `${100 / previewSharpness}%`,
+                  }
+                : undefined
+            }
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imgSrc}
+              alt=""
+              className="object-contain"
+              style={{
+                width: `${displayWidth}%`,
+                maxHeight: orientation === "landscape" ? "158mm" : "245mm",
+                height: "auto",
+                borderRadius: imageCornerRadius,
+                filter: imageShadowFilter,
+                imageRendering: "auto",
+              }}
+              loading="eager"
+              decoding="sync"
+              onLoad={onImgLoad}
+            />
+          </div>
+        </figure>        {insertedBlocksNode}
       </AnnexSectionShell>
     </MvReportPageShell>
   );

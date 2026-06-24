@@ -4,6 +4,7 @@ import {
   Fragment,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -33,16 +34,25 @@ import {
 import { ReportRichHtmlField } from "./mv-report-rich-selection-toolbar";
 import { MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 import {
+  MV_DEFAULT_ASSET_SUMMARY_TEXT,
+  MV_DEFAULT_EXCLUSIONS_TEXT,
   MV_DEFAULT_RECEIVED_CLIENT_DOCUMENTS_HTML,
   MV_DEFAULT_SCE_REGISTRATION_HTML,
+  MV_DEFAULT_VALUATION_PROCEDURES_TEXT,
 } from "./mv-valuation-report-narrative-defaults";
 import { MvValuationAnnexImageSheet } from "./mv-valuation-annex-image-sheet";
-import { MvReportLetterheadProvider, MvReportPageShell } from "./mv-report-page-shell";
+import {
+  MvReportLetterheadProvider,
+  MvReportPageShell,
+} from "./mv-report-page-shell";
+import { ReportFlowPages } from "./mv-report-section-group";
+import { MvReportTocPages } from "./mv-report-toc-pages";
 
 type ReportSignatureRow = {
   id: string;
   name: string;
   roleLabel: string;
+  membershipNo: string;
   signatureImageDataUrl: string;
 };
 
@@ -344,14 +354,15 @@ function AssetPhotoFigure({
           alt=""
           draggable={false}
           className={cn(
-            "block bg-slate-100 object-contain",
+            "block bg-slate-100",
+            uniformSize ? "object-cover" : "object-contain",
             uniformSize ? "h-full w-full" : "h-auto w-full",
           )}
           style={{
             maxHeight: uniformSize ? "100%" : `${maxImageHeightMm}mm`,
             imageRendering: "auto",
           }}
-          loading="lazy"
+          loading="eager"
         />
       </div>
     </figure>
@@ -471,8 +482,8 @@ function InsertSectionCue({
   return (
     <div
       className={cn(
-        "mv-report-chrome relative py-4 transition print:hidden",
-        dragOver && "py-7",
+        "mv-report-chrome relative py-2 transition print:hidden",
+        dragOver && "py-5",
       )}
       onDragOver={
         isDropTarget
@@ -533,6 +544,53 @@ function textValue(value: string | number | null | undefined, fallback = "غير
   return text || fallback;
 }
 
+/**
+ * يُستخرج رقم عضوية المقيم المعتمد للغلاف من:
+ * 1) بيانات المشروع ‎leadValuerMembershipNo‎
+ * 2) صف المقيم المطابق لاسمه في «المقيمون والتوقيعات» (‎valuationReportMembershipNo‎ لكل مستخدم)
+ * 3) مدير الشركة (‎roleLabel‎ = مدير الشركة)
+ * 4) المقيم الرئيسي / أي مقيم له رقم / المستخدم الحالي
+ */
+function resolveLeadValuerMembershipNo(args: {
+  reportMembershipNo?: string | null;
+  /** ‎users.valuationReportMembershipNo‎ لمدير الشركة — المصدر الأساسي للغلاف */
+  companyAdminMembershipNo?: string | null;
+  leadValuerName?: string | null;
+  preparerRows: ReportSignatureRow[];
+  primarySignatory?: ReportSignatureRow;
+  currentUserMembershipNo?: string | null;
+}): string {
+  const fromReport = args.reportMembershipNo?.trim();
+  if (fromReport) return fromReport;
+
+  const fromCompanyAdmin = args.companyAdminMembershipNo?.trim();
+  if (fromCompanyAdmin) return fromCompanyAdmin;
+
+  const normalize = (value: string) => value.trim().toLowerCase();
+  const targetName = normalize(args.leadValuerName ?? "");
+
+  if (targetName) {
+    const byName = args.preparerRows.find(
+      (row) => normalize(row.name) === targetName && row.membershipNo?.trim(),
+    );
+    if (byName?.membershipNo?.trim()) return byName.membershipNo.trim();
+  }
+
+  const companyManager = args.preparerRows.find(
+    (row) =>
+      (row.roleLabel?.trim() === "مدير الشركة" || row.roleLabel?.includes("مدير")) &&
+      row.membershipNo?.trim(),
+  );
+  if (companyManager?.membershipNo?.trim()) return companyManager.membershipNo.trim();
+
+  if (args.primarySignatory?.membershipNo?.trim()) return args.primarySignatory.membershipNo.trim();
+
+  const anyWithMembership = args.preparerRows.find((row) => row.membershipNo?.trim());
+  if (anyWithMembership?.membershipNo?.trim()) return anyWithMembership.membershipNo.trim();
+
+  return args.currentUserMembershipNo?.trim() ?? "";
+}
+
 function dateValue(value: string | null | undefined) {
   if (!value) return "غير محدد";
   const date = new Date(`${value}T00:00:00`);
@@ -542,6 +600,20 @@ function dateValue(value: string | null | undefined) {
     month: "long",
     day: "numeric",
   }).format(date);
+}
+
+/**
+ * صيغة تاريخ مختصرة لشريط فوتر الغلاف (dd/mm/yyyyم) — مطابقة لتقارير المرجعيات
+ * المهنية. عند تعذّر التحويل تُعيد القيمة الأصلية لتجنّب إخفاء معلومة.
+ */
+function shortDateValue(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}م`;
 }
 
 const sarFormatter = new Intl.NumberFormat("ar-SA", {
@@ -646,24 +718,35 @@ async function readFirstPdfPageAsReportImageDataUrl(file: File) {
   }
 }
 
+/**
+ * عنوان قسم بنمط احترافي مستوحى من تقارير الهيئة السعودية للمقيمين المعتمدين
+ * (تقييم): شريط جانبي ذهبي (يمين) + خط سفلي بحري + خط Tajawal سميك + لون كحلي
+ * عميق #0C447C. الحجم قابل للتعديل عبر متغير CSS --mv-heading-scale.
+ */
 function sectionHeading(title: string, onChange?: (value: string) => void) {
   return (
     <div
       dir="rtl"
-      className="mb-3 border-b-2 border-[#0C447C]/25 pb-2 text-right font-black leading-snug text-[#0C447C]"
-      style={{ fontSize: "calc(16px * var(--mv-heading-scale, 1))" }}
+      className="mb-3 flex items-stretch gap-2 border-b border-[#0C447C]/35 pb-2 text-right font-black leading-snug text-[#0C447C]"
+      style={{ fontSize: "calc(17px * var(--mv-heading-scale, 1))" }}
     >
-      {onChange ? (
-        <EditableBlock
-          value={title}
-          onChange={onChange}
-          className="min-h-[1.75rem] w-full"
-          placeholder="عنوان القسم"
-          multiline={false}
-        />
-      ) : (
-        title
-      )}
+      <span
+        aria-hidden
+        className="w-[3px] shrink-0 rounded-sm bg-gradient-to-b from-[#c9a227] via-[#d4af3e] to-[#9b7a17]"
+      />
+      <div className="min-w-0 flex-1 pt-[2px]">
+        {onChange ? (
+          <EditableBlock
+            value={title}
+            onChange={onChange}
+            className="min-h-[1.75rem] w-full tracking-tight"
+            placeholder="عنوان القسم"
+            multiline={false}
+          />
+        ) : (
+          <span className="tracking-tight">{title}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -1049,7 +1132,11 @@ export interface MvValuationReportDocumentBodyProps {
   inspectionMapUrl: string;
   primarySignatory?: ReportSignatureRow;
   preparerDisplayRows: ReportSignatureRow[];
-  updatePreparerField: (id: string, field: "name" | "roleLabel", value: string) => void;
+  /** ‎users.valuationReportMembershipNo‎ لمدير الشركة (من ‎/api/company/report-defaults‎) */
+  companyAdminMembershipNo?: string | null;
+  /** رقم العضوية من ملف المستخدم الحالي (‎valuationReportMembershipNo‎) */
+  currentUserMembershipNo?: string | null;
+  updatePreparerField: (id: string, field: "name" | "roleLabel" | "membershipNo", value: string) => void;
   includeAssetImages: boolean;
   includeValuationAccountImages: boolean;
   orderedImages: MvDriveFile[];
@@ -1133,6 +1220,8 @@ export function MvValuationReportDocumentBody({
   inspectionMapUrl,
   primarySignatory,
   preparerDisplayRows,
+  companyAdminMembershipNo,
+  currentUserMembershipNo,
   updatePreparerField,
   includeAssetImages,
   includeValuationAccountImages,
@@ -1144,7 +1233,7 @@ export function MvValuationReportDocumentBody({
   valuationImageWidth,
   assetImagesPerPage = 9,
   assetImagesPerRow = 3,
-  assetImagesUniformSize = false,
+  assetImagesUniformSize = true,
   imageCornerRadius = 0,
   paragraphLineHeight = 1.75,
   headingScale = 1,
@@ -1172,6 +1261,14 @@ export function MvValuationReportDocumentBody({
   const textOverrides = reportData.reportTextOverrides ?? {};
   const hasTextOverride = (key: string) => Object.prototype.hasOwnProperty.call(textOverrides, key);
   const editableText = (key: string, fallback: string) => (hasTextOverride(key) ? textOverrides[key] ?? "" : fallback);
+  /** مثل ‎editableText‎ لكن يتجاهل التعديل اليدوي إذا كان فارغاً ويعود للقيمة الديناميكية. */
+  const editableTextOrDynamicFallback = (key: string, fallback: string) => {
+    if (hasTextOverride(key)) {
+      const overridden = (textOverrides[key] ?? "").trim();
+      if (overridden) return overridden;
+    }
+    return fallback;
+  };
   const setTextOverride = (key: string, value: string) => {
     onReportDataPatch({
       reportTextOverrides: {
@@ -1256,7 +1353,7 @@ export function MvValuationReportDocumentBody({
       value={editableText(key, fallback)}
       onChange={(value) => setTextOverride(key, value)}
       className={cn(
-        "whitespace-pre-wrap text-[12px] font-medium text-slate-800",
+        "whitespace-pre-wrap break-words text-[12px] font-medium text-slate-800",
         className,
       )}
       style={{ lineHeight: "var(--mv-paragraph-leading, 1.75)" }}
@@ -1274,8 +1371,47 @@ export function MvValuationReportDocumentBody({
   );
   const effectiveInspectionMapUrl = editableText("inspectionMapUrl", reportData.inspectionMapUrl?.trim() || inspectionMapUrl);
   const effectiveCurrencyLabel = editableText("currencyLabel", textValue(reportData.currencyLabel, "الريال السعودي (ر.س)"));
+  const finalValueDisplay = editableText("finalValueDisplay", currencyValue(reportData.finalValue));
+  const finalValueWords = editableText("finalValueWords", textValue(reportData.finalValueWords, ""));
+  const valueOpinionSentence = `بعد الأخذ في الاعتبار جميع البيانات ذات الصلة والمبادئ المنصوص عليها، فإننا نرى أن رأي قيمة التصفية (${finalValueDisplay}) ${finalValueWords ? `${finalValueWords} لا غير` : ""}`.trim();
+
+  /**
+   * عنوان قسم 25.0 «تطبيق أسلوب التقييم» ديناميكي حسب «أسلوب التقييم» المختار
+   * داخل خطوة «بيانات التقرير». الافتراضي: أسلوب التقييم (عام). تظهر الأقسام
+   * الفرعية 25.1 → 25.4 (تخريد/إهلاك/تقادم) فقط مع أسلوب التكلفة (أو مزجه).
+   */
+  const valuationMethodRaw = (reportData.valuationMethod || "").trim();
+  const usesCostApproach = /تكلفة|cost/i.test(valuationMethodRaw);
+  const usesMarketApproach = /سوق|market|مقارن/i.test(valuationMethodRaw);
+  const usesIncomeApproach = /دخل|income/i.test(valuationMethodRaw);
+  const valuationApproachLabel = valuationMethodRaw || "أسلوب التقييم";
+  const applyApproachHeading = `25.0 تطبيق ${valuationApproachLabel}`;
+  const showCostSubSections = usesCostApproach || (!usesMarketApproach && !usesIncomeApproach && !valuationMethodRaw);
   const leadValuerName =
     editableText("leadValuerName", reportData.leadValuerName?.trim() || primarySignatory?.name?.trim() || "");
+  const leadValuerMembershipFallback = useMemo(
+    () =>
+      resolveLeadValuerMembershipNo({
+        reportMembershipNo: reportData.leadValuerMembershipNo,
+        companyAdminMembershipNo,
+        leadValuerName: reportData.leadValuerName?.trim() || primarySignatory?.name?.trim() || "",
+        preparerRows: preparerDisplayRows,
+        primarySignatory,
+        currentUserMembershipNo,
+      }),
+    [
+      reportData.leadValuerMembershipNo,
+      reportData.leadValuerName,
+      companyAdminMembershipNo,
+      preparerDisplayRows,
+      primarySignatory,
+      currentUserMembershipNo,
+    ],
+  );
+  const leadValuerMembershipDisplay = editableTextOrDynamicFallback(
+    "leadValuerMembershipNo",
+    leadValuerMembershipFallback || "—",
+  );
   const projectDisplayName = editableText("projectName", projectName);
   const clientName = editableText("clientName", textValue(reportData.clientName));
   const clientPhone = editableText("clientPhone", textValue(reportData.clientPhone, ""));
@@ -1289,6 +1425,23 @@ export function MvValuationReportDocumentBody({
     textValue(reportData.valuationFirmLicense, ""),
   );
   const sheetDraft = draftWatermark;
+
+  /**
+   * عناصر الغلاف — نص أبيض على الخلفية الكحلية/الداكنة كما في نموذج التقرير.
+   */
+  const coverPrimaryTextClass = "text-white";
+  const coverSecondaryTextClass = "text-white";
+  const coverFooterValueClass = "text-white";
+  const coverFooterLabelClass = "text-white/90";
+  const coverEditableLabel = (key: string, fallback: string) => (
+    <EditableBlock
+      value={labelText(key, fallback)}
+      onChange={(value) => setTextOverride(`label.${key}`, value)}
+      className="inline-block min-w-[3.5rem] px-1 align-baseline text-white/90"
+      multiline={false}
+      placeholder="عنوان الحقل"
+    />
+  );
 
   const receivedClientDocumentsHtml =
     reportData.receivedClientDocumentsHtml?.trim() || MV_DEFAULT_RECEIVED_CLIENT_DOCUMENTS_HTML;
@@ -1317,6 +1470,56 @@ export function MvValuationReportDocumentBody({
       className="mx-auto max-w-full text-center"
       placeholder="اسم الشركة"
     />
+  );
+  const editableCoverCompanyNameNode = (
+    <EditableBlock
+      value={companyName}
+      onChange={(value) => setTextOverride("valuationFirmName", value)}
+      className="mx-auto max-w-full text-center text-white"
+      placeholder="اسم الشركة"
+    />
+  );
+  const interiorShellProps = {
+    companyName,
+    companyNameNode: editableCompanyNameNode,
+    logoSrc,
+    footerLines: reportFooterLines,
+    draftWatermark: sheetDraft,
+  };
+  const flowForceBreakAnchors = useMemo(() => {
+    const anchors = new Set<string>();
+    for (const section of editableSections) {
+      const anchor = section.insertAfterAnchorId?.trim();
+      if (anchor) anchors.add(anchor);
+    }
+    return anchors;
+  }, [editableSections]);
+  const flowMeasureRevision = useMemo(
+    () =>
+      [
+        paragraphLineHeight,
+        headingScale,
+        sectionGap,
+        introExtraHtml,
+        narrativeB1,
+        narrativeB2,
+        narrativeB3,
+        narrativeB4,
+        reportData,
+        showCostSubSections,
+      ].join("\u0001"),
+    [
+      paragraphLineHeight,
+      headingScale,
+      sectionGap,
+      introExtraHtml,
+      narrativeB1,
+      narrativeB2,
+      narrativeB3,
+      narrativeB4,
+      reportData,
+      showCostSubSections,
+    ],
   );
   const insertedBlocks = reportData.reportInsertedBlocks ?? [];
   const insertedBlocksRef = useRef<MvReportInsertedBlock[]>(insertedBlocks);
@@ -1455,26 +1658,29 @@ export function MvValuationReportDocumentBody({
    *    that exact spot (and also accepts drag-and-drop of existing customs).
    * This is what makes the "add section after any built-in section" UX work.
    */
+  const customSectionsAfter = (afterAnchorId: string) =>
+    editableSections
+      .filter((s) => s.insertAfterAnchorId === afterAnchorId)
+      .map((section) => (
+        <CustomSectionShell
+          key={section.id}
+          section={section}
+          companyName={companyName}
+          companyNameNode={editableCompanyNameNode}
+          logoSrc={logoSrc}
+          footerLines={reportFooterLines}
+          draftWatermark={sheetDraft}
+          onNumberChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
+          onTitleChange={(value) => updateEditableSection(section.id, { title: value })}
+          onBodyChange={(next) => updateEditableSection(section.id, { body: next })}
+          onRemove={() => removeEditableSection(section.id)}
+          insertedAfter={insertedAfter}
+        />
+      ));
+
   const boundary = (afterAnchorId: string) => (
     <>
-      {editableSections
-        .filter((s) => s.insertAfterAnchorId === afterAnchorId)
-        .map((section) => (
-          <CustomSectionShell
-            key={section.id}
-            section={section}
-            companyName={companyName}
-            companyNameNode={editableCompanyNameNode}
-            logoSrc={logoSrc}
-            footerLines={reportFooterLines}
-            draftWatermark={sheetDraft}
-            onNumberChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
-            onTitleChange={(value) => updateEditableSection(section.id, { title: value })}
-            onBodyChange={(next) => updateEditableSection(section.id, { body: next })}
-            onRemove={() => removeEditableSection(section.id)}
-            insertedAfter={insertedAfter}
-          />
-        ))}
+      {customSectionsAfter(afterAnchorId)}
       <InsertSectionCue
         afterAnchorId={afterAnchorId}
         onAdd={addEditableSection}
@@ -1770,6 +1976,17 @@ export function MvValuationReportDocumentBody({
       color: #020617;
       letter-spacing: 0;
     }
+    /* غلاف التقرير: نص أبيض — يتجاوز القاعدة العامة أعلاه */
+    .mv-report-canvas-root [data-mv-report-sheet][data-mv-report-variant="cover"] {
+      color: #ffffff;
+    }
+    .mv-report-canvas-root [data-mv-report-sheet][data-mv-report-variant="cover"] :where(p, li, td, th, [contenteditable], input, textarea, span):not(.mv-report-chrome *) {
+      color: #ffffff;
+    }
+    .mv-report-canvas-root [data-mv-report-sheet][data-mv-report-variant="cover"] [contenteditable]:focus {
+      background: rgba(255, 255, 255, 0.12);
+      --tw-ring-color: rgba(255, 255, 255, 0.35);
+    }
     .mv-report-canvas-root [data-mv-letterhead-background="true"] [data-mv-report-page-content] {
       isolation: isolate;
     }
@@ -1902,287 +2119,171 @@ export function MvValuationReportDocumentBody({
       <MvReportPageShell
         variant="cover"
         companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
+        companyNameNode={editableCoverCompanyNameNode}
         logoSrc={logoSrc}
         footerLines={reportFooterLines}
         draftWatermark={sheetDraft}
-      >
-        <div id="report-cover" data-mv-report-insert-anchor="report-cover" className="w-full max-w-lg space-y-5">
-          <EditableBlock
-            value={reportTitle}
-            onChange={(value) => setTextOverride("reportTitle", value)}
-            className="px-2 py-2 text-[24px] font-black leading-tight text-[#0a1f33] sm:text-[30px]"
-            placeholder="عنوان التقرير"
-          />
-          <EditableBlock
-            value={editableText("coverSubtitle", "تقرير مهني مبسط للآلات والمعدات")}
-            onChange={(value) => setTextOverride("coverSubtitle", value)}
-            className="mx-auto max-w-md px-2 text-center text-[14px] font-extrabold leading-7 text-[#0C447C]/80"
-            placeholder="العنوان الفرعي"
-          />
-          <div className="rounded-2xl border border-[#0C447C]/15 bg-white/90 px-4 py-5 text-right shadow-sm ring-1 ring-sky-100/80 backdrop-blur-sm">
-            <div className="grid gap-3 text-[12px] font-bold leading-7 text-slate-800 sm:grid-cols-2">
-              <div>
-                {editableLabel("cover.clientName", "العميل:")}{" "}
-                <EditableBlock
-                  value={clientName}
-                  onChange={(value) => setTextOverride("clientName", value)}
-                  className="inline-block min-w-[6rem] px-1 align-baseline"
-                  multiline={false}
-                  placeholder="اسم العميل"
-                />
-              </div>
-              <div className="text-right">
-                {editableLabel("cover.reportReference", "المرجع:")}{" "}
-                <EditableBlock
-                  value={referenceLabel}
-                  onChange={(value) => setTextOverride("reportReference", value)}
-                  className="inline-block min-w-[5rem] px-1 text-left align-baseline [unicode-bidi:plaintext]"
-                  dir="ltr"
-                  multiline={false}
-                  placeholder="رقم المرجع"
-                />
-              </div>
-              <div>
-                {editableLabel("cover.reportIssueDate", "تاريخ الإصدار:")}{" "}
-                <EditableBlock
-                  value={editableText("reportIssueDateDisplay", dateValue(reportData.reportIssueDate))}
-                  onChange={(value) => setTextOverride("reportIssueDateDisplay", value)}
-                  className="inline-block min-w-[6rem] px-1 align-baseline"
-                  multiline={false}
-                  placeholder="تاريخ الإصدار"
-                />
-              </div>
-              <div>
-                {editableLabel("cover.leadValuerName", "المقيّم (ممثل):")}{" "}
+        coverChildrenChromeless
+        coverFooterContent={
+          /*
+            شريط فوتر الغلاف بثلاثة أعمدة — مطابق لتصميم تقارير الجهات المهنية:
+            • يميناً: «المقيم المعتمد: …» وأسفله «عضوية رقم: …»
+            • وسطاً: «الرقم المرجعي: …» على سطر واحد
+            • يساراً: «تاريخ التقرير: …» على سطر واحد
+          */
+          <div
+            className={cn("grid w-full grid-cols-3 items-center gap-3 text-white", coverFooterValueClass)}
+            dir="rtl"
+          >
+            <div className="flex flex-col gap-0.5 text-right">
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span className={cn("text-[10.5px] font-extrabold", coverFooterLabelClass)}>
+                  {coverEditableLabel("cover.leadValuerLabel", "المقيم المعتمد:")}
+                </span>
                 <EditableBlock
                   value={leadValuerName || "—"}
                   onChange={(value) => setTextOverride("leadValuerName", value)}
-                  className="inline-block min-w-[5rem] px-1 align-baseline"
+                  className={cn("inline-block min-w-[6rem] text-[12px] font-extrabold text-white", coverFooterValueClass)}
                   multiline={false}
                   placeholder="اسم المقيم"
                 />
               </div>
-              <div>
-                {editableLabel("cover.valuationFirmLicense", "ترخيص شركة التقييم:")}{" "}
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span className={cn("text-[10.5px] font-extrabold", coverFooterLabelClass)}>
+                  {coverEditableLabel("cover.leadValuerMembership", "عضوية رقم:")}
+                </span>
                 <EditableBlock
-                  value={valuationFirmLicense}
-                  onChange={(value) => setTextOverride("valuationFirmLicense", value)}
-                  className="inline-block min-w-[5rem] px-1 text-left align-baseline [unicode-bidi:plaintext]"
+                  value={leadValuerMembershipDisplay}
+                  onChange={(value) => setTextOverride("leadValuerMembershipNo", value)}
+                  className={cn(
+                    "inline-block min-w-[5rem] px-0.5 text-left text-[12px] font-extrabold text-white [unicode-bidi:plaintext]",
+                    coverFooterValueClass,
+                  )}
                   dir="ltr"
                   multiline={false}
-                  placeholder="رقم الترخيص"
-                />
-              </div>
-              <div>
-                {editableLabel("cover.clientRepresentativeName", "ممثل العميل:")}{" "}
-                <EditableBlock
-                  value={clientRepresentativeName}
-                  onChange={(value) => setTextOverride("clientRepresentativeName", value)}
-                  className="inline-block min-w-[5rem] px-1 align-baseline"
-                  multiline={false}
-                  placeholder="ممثل العميل"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                {editableLabel("cover.projectName", "المشروع:")}{" "}
-                <EditableBlock
-                  value={projectDisplayName}
-                  onChange={(value) => setTextOverride("projectName", value)}
-                  className="inline-block min-w-[8rem] px-1 align-baseline"
-                  multiline={false}
-                  placeholder="اسم المشروع"
-                />
-              </div>
-              <div className="sm:col-span-2 text-[11px] font-semibold text-slate-600">
-                <EditableBlock
-                  value={editableText(
-                    "clientContactLine",
-                    [clientPhone, clientEmail].filter(Boolean).join(" · "),
-                  )}
-                  onChange={(value) => setTextOverride("clientContactLine", value)}
-                  className="min-h-[1.5rem] px-1"
-                  multiline={false}
-                  placeholder="بيانات التواصل"
+                  placeholder="—"
                 />
               </div>
             </div>
+            <div className="flex flex-wrap items-baseline justify-center gap-1.5 text-center">
+              <span className={cn("text-[10.5px] font-extrabold", coverFooterLabelClass)}>
+                {coverEditableLabel("cover.reportReference", "الرقم المرجعي:")}
+              </span>
+              <EditableBlock
+                value={referenceLabel}
+                onChange={(value) => setTextOverride("reportReference", value)}
+                className={cn(
+                  "inline-block min-w-[5rem] text-[12px] font-extrabold text-white [unicode-bidi:plaintext]",
+                  coverFooterValueClass,
+                )}
+                dir="ltr"
+                multiline={false}
+                placeholder="—"
+              />
+            </div>
+            <div className="flex flex-wrap items-baseline justify-start gap-1.5 text-left">
+              <span className={cn("text-[10.5px] font-extrabold", coverFooterLabelClass)}>
+                {coverEditableLabel("cover.reportIssueDate", "تاريخ التقرير:")}
+              </span>
+              <EditableBlock
+                value={editableText(
+                  "reportIssueDateDisplay",
+                  shortDateValue(reportData.reportIssueDate),
+                )}
+                onChange={(value) => setTextOverride("reportIssueDateDisplay", value)}
+                className={cn(
+                  "inline-block min-w-[6rem] text-[12px] font-extrabold text-white",
+                  coverFooterValueClass,
+                )}
+                multiline={false}
+                placeholder="—"
+              />
+            </div>
           </div>
+        }
+      >
+        {/*
+          محتوى الغلاف الرئيسي — مبسّط ليطابق تصميم تقارير الجهات المهنية:
+          • عنوان كبير في المنتصف السفلي بخط أبيض على الخلفية الكحلية مباشرة.
+          • اسم العميل بارزاً تحت العنوان مع قوسين كما في النموذج.
+          • فاصل ذهبي رفيع بين العنوان واسم العميل.
+          الفوتر بثلاثة أعمدة يُمرَّر عبر ‎coverFooterContent‎.
+        */}
+        <div
+          id="report-cover"
+          data-mv-report-insert-anchor="report-cover"
+          className="w-full max-w-3xl space-y-5 text-center"
+        >
           <EditableBlock
-            value={editableText("coverConfidentialityNote", "وثيقة مهنية — يُراعى سرية الاستخدام وفق نطاق الاتفاق.")}
-            onChange={(value) => setTextOverride("coverConfidentialityNote", value)}
-            className="text-[10px] font-bold text-slate-500"
-            placeholder="ملاحظة الغلاف"
+            value={reportTitle}
+            onChange={(value) => setTextOverride("reportTitle", value)}
+            className={cn(
+              "mx-auto px-3 py-2 text-center text-[28px] font-black leading-[1.25] tracking-tight text-white sm:text-[36px]",
+              coverPrimaryTextClass,
+            )}
+            placeholder="عنوان التقرير"
           />
+
+          <div
+            aria-hidden
+            className="mx-auto h-[3px] w-[120px] rounded-full bg-gradient-to-l from-transparent via-[#c9a227] to-transparent"
+          />
+
+          <EditableBlock
+            value={clientName ? `(${clientName})` : "—"}
+            onChange={(value) => {
+              const trimmed = value.trim().replace(/^\(/, "").replace(/\)$/, "");
+              setTextOverride("clientName", trimmed);
+            }}
+            className={cn(
+              "mx-auto max-w-xl px-2 text-center text-[16px] font-extrabold leading-7 text-white sm:text-[20px]",
+              coverSecondaryTextClass,
+            )}
+            multiline={false}
+            placeholder="(اسم العميل)"
+          />
+
           {insertedAfter("report-cover")}
         </div>
       </MvReportPageShell>
 
       {boundary("report-cover")}
 
-      <MvReportPageShell
-        variant="interior"
-        orientation="portrait"
+      <MvReportTocPages
         companyName={companyName}
         companyNameNode={editableCompanyNameNode}
         logoSrc={logoSrc}
         footerLines={reportFooterLines}
         draftWatermark={sheetDraft}
-      >
-        <section id="report-toc" data-mv-report-insert-anchor="report-toc" className="scroll-mt-4">
-          <EditableBlock
-            value={editableText("heading.report-toc", "الفهرس")}
-            onChange={(value) => setTextOverride("heading.report-toc", value)}
-            className="text-center text-[20px] font-black text-[#0C447C]"
-            multiline={false}
-            placeholder="عنوان الفهرس"
-          />
-          <EditableBlock
-            value={editableText("paragraph.report-toc-note", "أرقام الصفحة مرتبطة بترقيم الصفحات في التقرير (يشمل الغلاف).")}
-            onChange={(value) => setTextOverride("paragraph.report-toc-note", value)}
-            className="mx-auto mt-2 max-w-2xl text-center text-[10px] font-semibold text-slate-500"
-            placeholder="وصف الفهرس"
-          />
-          <div className="mt-4 overflow-x-hidden rounded-xl border border-[#0C447C]/12 bg-white/60">
-            <table className="w-full min-w-[300px] border-collapse text-[11px]">
-              <thead>
-                <tr className="border-b-2 border-[#0C447C] bg-sky-50/80">
-                  <th className="w-12 px-2 py-2 text-right text-[10px] font-black text-[#0C447C]">
-                    <EditableBlock
-                      value={labelText("toc.num", "رقم")}
-                      onChange={(value) => setTextOverride("label.toc.num", value)}
-                      className="min-h-[1.25rem]"
-                      multiline={false}
-                    />
-                  </th>
-                  <th className="px-2 py-2 text-right text-[10px] font-black text-[#0C447C]">
-                    <EditableBlock
-                      value={labelText("toc.item", "البند")}
-                      onChange={(value) => setTextOverride("label.toc.item", value)}
-                      className="min-h-[1.25rem]"
-                      multiline={false}
-                    />
-                  </th>
-                  <th className="w-14 px-2 py-2 text-center text-[10px] font-black text-[#0C447C]">
-                    <EditableBlock
-                      value={labelText("toc.page", "صفحة")}
-                      onChange={(value) => setTextOverride("label.toc.page", value)}
-                      className="min-h-[1.25rem] text-center"
-                      multiline={false}
-                    />
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {MV_REPORT_TOC_ROWS.map((row) => {
-                  const clickable = !!onTocAnchorClick;
-                  return (
-                    <tr
-                      key={`${row.num}-${row.title}`}
-                      className={cn(
-                        "border-b border-slate-200/80 transition",
-                        clickable && "cursor-pointer hover:bg-sky-50/60",
-                      )}
-                      onClick={(event) => {
-                        if (!clickable) return;
-                        const target = event.target as HTMLElement | null;
-                        if (target?.closest('[contenteditable="true"], input, textarea, button, a')) return;
-                        onTocAnchorClick?.(row.anchor);
-                      }}
-                    >
-                      <td className="px-2 py-1.5 align-top font-black tabular-nums text-[#0C447C]">
-                        {/*
-                          لا نضع رقم الفهرس داخل mv-report-chrome أو زر مخفي عن اللقطة —
-                          تصدير PDF (html2canvas + ignoreElements) ومعاينة التقرير تتخطى/تخفي
-                          ذلك الصنف؛ يبقى الانتقال عبر النقر على الصف خارج الحقول التحريرية.
-                        */}
-                        <span className="inline-block min-w-[2rem]">{row.num}</span>
-                      </td>
-                      <td className="px-2 py-1.5 align-top font-semibold text-slate-900">
-                        <EditableBlock
-                          value={editableText(`toc.${row.anchor}.title`, row.title)}
-                          onChange={(value) => setTextOverride(`toc.${row.anchor}.title`, value)}
-                          className={cn(
-                            "min-h-[1.25rem]",
-                            clickable && "hover:text-[#0C447C]",
-                          )}
-                          multiline={false}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">
-                        <EditableBlock
-                          value={editableText(`toc.${row.anchor}.page`, tocApproxPages[row.anchor] ?? "…")}
-                          onChange={(value) => setTextOverride(`toc.${row.anchor}.page`, value)}
-                          className="min-h-[1.25rem] text-center"
-                          dir="ltr"
-                          multiline={false}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-                {editableSections.map((section, index) => {
-                  const anchor = `custom:${section.id}`;
-                  const clickable = !!onTocAnchorClick;
-                  return (
-                    <tr
-                      key={`toc-${section.id}`}
-                      className={cn(
-                        "border-b border-slate-200/80 transition",
-                        clickable && "cursor-pointer hover:bg-sky-50/60",
-                      )}
-                      onClick={(event) => {
-                        if (!clickable) return;
-                        const target = event.target as HTMLElement | null;
-                        if (target?.closest('[contenteditable="true"], input, textarea, button, a')) return;
-                        onTocAnchorClick?.(anchor);
-                      }}
-                    >
-                      <td className="px-2 py-1.5 align-top font-black tabular-nums text-[#0C447C]">
-                        <EditableBlock
-                          value={section.sectionNumber || `${MV_REPORT_TOC_ROWS.length + index + 1}.0`}
-                          onChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
-                          className="min-h-[1.25rem] text-right"
-                          dir="ltr"
-                          multiline={false}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 align-top font-semibold text-slate-900">
-                        <EditableBlock
-                          value={section.title || "بند إضافي"}
-                          onChange={(value) => updateEditableSection(section.id, { title: value })}
-                          className={cn("min-h-[1.25rem]", clickable && "hover:text-[#0C447C]")}
-                          multiline={false}
-                        />
-                      </td>
-                      <td className="px-2 py-1.5 text-center tabular-nums text-slate-600">
-                        <EditableBlock
-                          value={editableText(`toc.${anchor}.page`, tocApproxPages[anchor] ?? "…")}
-                          onChange={(value) => setTextOverride(`toc.${anchor}.page`, value)}
-                          className="min-h-[1.25rem] text-center"
-                          dir="ltr"
-                          multiline={false}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {insertedAfter("report-toc")}
-        </section>
-      </MvReportPageShell>
+        editableSections={editableSections}
+        tocApproxPages={tocApproxPages}
+        onTocAnchorClick={onTocAnchorClick}
+        editableText={editableText}
+        labelText={labelText}
+        setTextOverride={setTextOverride}
+        updateEditableSection={updateEditableSection}
+        insertedAfter={insertedAfter}
+        EditableBlock={EditableBlock}
+      />
 
       {boundary("report-toc")}
 
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
+      <ReportFlowPages
+        shellProps={interiorShellProps}
+        forceBreakAfterAnchors={flowForceBreakAnchors}
+        renderCustomAfterAnchor={customSectionsAfter}
+        renderPageEndCue={(lastAnchorId) => (
+          <InsertSectionCue
+            afterAnchorId={lastAnchorId}
+            onAdd={addEditableSection}
+            onDropSection={moveEditableSectionTo}
+          />
+        )}
+        measureRevision={flowMeasureRevision}
+        measureEnvStyle={{
+          ["--mv-paragraph-leading" as string]: String(paragraphLineHeight),
+          ["--mv-heading-scale" as string]: String(headingScale),
+        }}
       >
         <section id="mv-toc-1" data-mv-report-insert-anchor="mv-toc-1" className="space-y-3">
           {editableHeading("mv-toc-1", "1.0 مقدمة")}
@@ -2235,18 +2336,7 @@ export function MvValuationReportDocumentBody({
           </ul>
           {insertedAfter("mv-toc-2")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-2")}
-
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-      >
         {narrativeB1?.trim() ? (
           <div className="mb-3">
             <ClearableRichHtmlField html={narrativeB1} onHtmlChange={onNarrativeB1} />
@@ -2283,8 +2373,8 @@ export function MvValuationReportDocumentBody({
               `يقود تقييم هذا التقرير ${leadValuerName ? `الأستاذ ${leadValuerName}` : "المقيم المسؤول"}${
                 reportData.leadValuerTitle?.trim() ? `، ${reportData.leadValuerTitle.trim()}` : ""
               }${
-                reportData.leadValuerMembershipNo?.trim()
-                  ? `، عضوية رقم: ${reportData.leadValuerMembershipNo.trim()}`
+                reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback
+                  ? `، عضوية رقم: ${(reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback).trim()}`
                   : ""
               }.`,
             ].join("\n"),
@@ -2321,27 +2411,34 @@ export function MvValuationReportDocumentBody({
           )}
           {insertedAfter("mv-toc-7")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-7")}
+        {/* 8.0 الأصل محل التقييم — مختصر مع إشارة للمرفقات (مطابق لتقرير «تقييم») */}
+        <section
+          id="mv-toc-asset-summary"
+          data-mv-report-insert-anchor="mv-toc-asset-summary"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-asset-summary", "8.0 الأصل محل التقييم")}
+          {narrativeBlock(
+            "section.assetSummary",
+            `${
+              assetFolderLabels.length > 0
+                ? `${assetFolderLabels.join("، ")}. `
+                : ""
+            }${MV_DEFAULT_ASSET_SUMMARY_TEXT}`,
+          )}
+          {insertedAfter("mv-toc-asset-summary")}
+        </section>
 
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-      >
         {narrativeB2?.trim() ? (
           <div className="mb-3">
             <ClearableRichHtmlField html={narrativeB2} onHtmlChange={onNarrativeB2} />
           </div>
         ) : null}
 
-        {/* 8.0 نطاق العمل */}
+        {/* 9.0 نطاق العمل */}
         <section id="mv-toc-8" data-mv-report-insert-anchor="mv-toc-8" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-8", "8.0 نطاق العمل")}
+          {editableHeading("mv-toc-8", "9.0 نطاق العمل")}
           {narrativeBlock(
             "scopeOfWorkDetails",
             fieldOrCompanyDefault(reportData.scopeOfWorkDetails, "scope", "scopeOfWorkDetails"),
@@ -2349,34 +2446,34 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-8")}
         </section>
 
-        {/* 9.0 الغرض من التقييم — single dynamic line */}
+        {/* 10.0 الغرض من التقييم — single dynamic line */}
         <section id="mv-toc-9" data-mv-report-insert-anchor="mv-toc-9" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-9", "9.0 الغرض من التقييم")}
+          {editableHeading("mv-toc-9", "10.0 الغرض من التقييم")}
           {narrativeBlock(
             "section.valuationPurpose",
-            `الغرض المتبع هو ${textValue(reportData.valuationPurpose, "غير محدد")}.`,
+            `الغرض المتبع في هذا التقرير لتقييم الأصل كما في نطاق التقييم هو ${textValue(reportData.valuationPurpose, "غير محدد")}، حيث أن الغرض يحدد أساس القيمة المناسب حسب الحالة العامة للاستخدام المقصود من التقرير.`,
           )}
           {insertedAfter("mv-toc-9")}
         </section>
 
-        {/* 10.0 الاستخدام المقصود */}
+        {/* 11.0 الاستخدام المقصود */}
         <section id="mv-toc-10" data-mv-report-insert-anchor="mv-toc-10" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-10", "10.0 الاستخدام المقصود")}
+          {editableHeading("mv-toc-10", "11.0 الاستخدام المقصود")}
           {narrativeBlock(
             "section.intendedUse",
             reportData.intendedUse?.trim()
-              ? `يتم استخدام هذا التقرير للعميل ${textValue(clientName, "العميل")} والمستخدمون الآخرون لمساعدتهم في معرفة رأي القيمة للأصل محل التقييم لغرض ${reportData.intendedUse.trim()}.`
+              ? `يتم استخدام هذا التقرير للعميل ${textValue(clientName, "العميل")} لمساعدته في إجراءات ${reportData.intendedUse.trim()} للأصول محل التقييم.`
               : renderCompanyDefault("scope", "intendedUseStatement"),
           )}
           {insertedAfter("mv-toc-10")}
         </section>
 
-        {/* 11.0 أساس القيمة المستخدم */}
+        {/* 12.0 أساس القيمة المستخدم */}
         <section id="mv-toc-11" data-mv-report-insert-anchor="mv-toc-11" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-11", "11.0 أساس القيمة المستخدم")}
+          {editableHeading("mv-toc-11", "12.0 أساس القيمة المستخدم")}
           {narrativeBlock(
             "section.valuationBasisIntro",
-            `أساس القيمة المعتمد في هذا التقرير هو: ${textValue(reportData.valuationBasis, "القيمة السوقية")}.`,
+            `الأساس المناسب هو: ${textValue(reportData.valuationBasis, "القيمة السوقية")}.`,
           )}
           {narrativeBlock(
             "valuationBasisDefinition",
@@ -2389,9 +2486,9 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-11")}
         </section>
 
-        {/* 12.0 فرضية القيمة */}
+        {/* 13.0 فرضية القيمة */}
         <section id="mv-toc-12" data-mv-report-insert-anchor="mv-toc-12" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-12", "12.0 فرضية القيمة")}
+          {editableHeading("mv-toc-12", "13.0 فرضية القيمة")}
           {narrativeBlock(
             "valuePremise",
             reportData.valuePremise?.trim() ||
@@ -2401,36 +2498,25 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-12")}
         </section>
 
-        {/* 13.0 القيود على الاستخدام أو التوزيع أو النشر */}
+        {/* 14.0 القيود على الاستخدام أو التوزيع أو النشر */}
         <section id="mv-toc-13" data-mv-report-insert-anchor="mv-toc-13" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-13", "13.0 القيود على الاستخدام أو التوزيع أو النشر")}
+          {editableHeading("mv-toc-13", "14.0 القيود على الاستخدام أو التوزيع أو النشر")}
           {narrativeBlock(
             "useRestriction",
             reportData.useRestriction?.trim() || renderCompanyDefault("scope", "useRestriction"),
           )}
           {insertedAfter("mv-toc-13")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-13")}
-
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-      >
         {narrativeB3?.trim() ? (
           <div className="mb-3">
             <ClearableRichHtmlField html={narrativeB3} onHtmlChange={onNarrativeB3} />
           </div>
         ) : null}
 
-        {/* 14.0 الاستعانة بأخصائيين */}
+        {/* 15.0 الاستعانة بأخصائيين */}
         <section id="mv-toc-14" data-mv-report-insert-anchor="mv-toc-14" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-14", "14.0 الاستعانة بأخصائيين")}
+          {editableHeading("mv-toc-14", "15.0 الاستعانة بأخصائيين")}
           {narrativeBlock(
             "externalSpecialistUse",
             fieldOrCompanyDefault(reportData.externalSpecialistUse, "scope", "externalSpecialistUse"),
@@ -2438,9 +2524,9 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-14")}
         </section>
 
-        {/* 15.0 العوامل البيئية والاجتماعية والحوكمة */}
+        {/* 16.0 العوامل البيئية والاجتماعية والحوكمة */}
         <section id="mv-toc-15" data-mv-report-insert-anchor="mv-toc-15" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-15", "15.0 العوامل البيئية والاجتماعية والحوكمة")}
+          {editableHeading("mv-toc-15", "16.0 العوامل البيئية والاجتماعية والحوكمة")}
           {narrativeBlock(
             "esgConsiderations",
             fieldOrCompanyDefault(reportData.esgConsiderations, "scope", "esgConsiderations"),
@@ -2448,21 +2534,21 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-15")}
         </section>
 
-        {/* 16.0 نوع التقرير */}
+        {/* 17.0 نوع التقرير */}
         <section id="mv-toc-16" data-mv-report-insert-anchor="mv-toc-16" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-16", "16.0 نوع التقرير")}
+          {editableHeading("mv-toc-16", "17.0 نوع التقرير")}
           {narrativeBlock(
             "section.reportTypeLine",
-            `نوع التقرير ${textValue(reportData.reportTypeLabel, "غير محدد")} ويتم إيصال التقييم عن طريق البريد الإلكتروني.`,
+            `نوع التقرير ${textValue(reportData.reportTypeLabel, "مفصَّل")} ويتم إيصال التقييم عن طريق البريد الإلكتروني.`,
           )}
           {insertedAfter("mv-toc-16")}
         </section>
 
-        {/* 17.0 طبيعة ومصادر المعلومات */}
+        {/* 18.0 طبيعة ومصادر المعلومات */}
         <section id="mv-toc-17" data-mv-report-insert-anchor="mv-toc-17" className="mt-5 space-y-2">
           {editableHeading(
             "mv-toc-17",
-            "17.0 طبيعة ومصادر المعلومات التي تم الاعتماد عليها (المدخلات الرئيسية المستخدمة)",
+            "18.0 طبيعة ومصادر المعلومات التي تم الاعتماد عليها (المدخلات الرئيسية المستخدمة)",
           )}
           {narrativeBlock(
             "informationSources",
@@ -2470,15 +2556,10 @@ export function MvValuationReportDocumentBody({
           )}
           {insertedAfter("mv-toc-17")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-17")}
-
-      <MvReportPageShell variant="interior" companyName={companyName} companyNameNode={editableCompanyNameNode} logoSrc={logoSrc} footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}>
-        {/* 18.0 الأصل محل التقييم */}
+        {/* 19.0 الأصل محل التقييم */}
         <section id="mv-toc-18" data-mv-report-insert-anchor="mv-toc-18" className="space-y-2">
-          {editableHeading("mv-toc-18", "18.0 الأصل محل التقييم")}
+          {editableHeading("mv-toc-18", "19.0 الأصل محل التقييم")}
           {narrativeBlock(
             "section.assetSubjectIntro",
             `${
@@ -2490,9 +2571,9 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-18")}
         </section>
 
-        {/* 18.1 الوصف الجزئي */}
+        {/* 19.1 الوصف الجزئي */}
         <section id="mv-toc-18-1" data-mv-report-insert-anchor="mv-toc-18-1" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-18-1", "18.1 الوصف الجزئي")}
+          {editableHeading("mv-toc-18-1", "19.1 الوصف الجزئي")}
           {narrativeBlock(
             "section.partialDescriptionIntro",
             "يُعرض الوصف الجزئي وحسابات القيمة في «مرفق 1»، والصور في «مرفق 2»، والمستندات المستلمة من العميل في «مرفق 3»، وبيان شهادة التسجيل في بوابة «تقييم» في «مرفق 4».",
@@ -2508,9 +2589,20 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-18-1")}
         </section>
 
-        {/* 19.0 العملة */}
+        {/* 20.0 الاستثناءات — جديد، مطابق لبنود تقرير الهيئة */}
+        <section
+          id="mv-toc-exclusions"
+          data-mv-report-insert-anchor="mv-toc-exclusions"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-exclusions", "20.0 الاستثناءات")}
+          {narrativeBlock("section.exclusionsList", MV_DEFAULT_EXCLUSIONS_TEXT)}
+          {insertedAfter("mv-toc-exclusions")}
+        </section>
+
+        {/* 21.0 العملة */}
         <section id="mv-toc-19" data-mv-report-insert-anchor="mv-toc-19" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-19", "19.0 العملة")}
+          {editableHeading("mv-toc-19", "21.0 العملة")}
           {narrativeBlock(
             "section.currencyLine",
             `العملة المستخدمة هي ${effectiveCurrencyLabel}.`,
@@ -2518,39 +2610,39 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-19")}
         </section>
 
-        {/* 20.0 المعاينة */}
+        {/* 22.0 إجراءات التقييم — جديد، يسبق المعاينة كما في تقرير «تقييم» */}
+        <section
+          id="mv-toc-procedures"
+          data-mv-report-insert-anchor="mv-toc-procedures"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-procedures", "22.0 إجراءات التقييم")}
+          {narrativeBlock("section.valuationProcedures", MV_DEFAULT_VALUATION_PROCEDURES_TEXT)}
+          {insertedAfter("mv-toc-procedures")}
+        </section>
+
+        {/* 23.0 المعاينة */}
         <section id="mv-toc-20" data-mv-report-insert-anchor="mv-toc-20" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-20", "20.0 المعاينة")}
+          {editableHeading("mv-toc-20", "23.0 المعاينة")}
           {narrativeBlock(
             "section.inspectionLine",
-            `تمت المعاينة بـ${effectiveInspectionLocation} بتاريخ ${dateValue(reportData.inspectionDate)} م.${
+            `تمت المعاينة في ${effectiveInspectionLocation} بتاريخ ${dateValue(reportData.inspectionDate)} م.${
               effectiveInspectionMapUrl ? `\nالموقع: ${effectiveInspectionMapUrl}` : ""
             }`,
             "break-words",
           )}
           {insertedAfter("mv-toc-20")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-20")}
-
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-      >
         {narrativeB4?.trim() ? (
           <div className="mb-3">
             <ClearableRichHtmlField html={narrativeB4} onHtmlChange={onNarrativeB4} />
           </div>
         ) : null}
 
-        {/* 21.0 منهجية التقييم والتحليل */}
+        {/* 24.0 منهجية التقييم والتحليل */}
         <section id="mv-toc-21" data-mv-report-insert-anchor="mv-toc-21" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-21", "21.0 منهجية التقييم والتحليل")}
+          {editableHeading("mv-toc-21", "24.0 منهجية التقييم والتحليل")}
           {narrativeBlock(
             "methodologyRationale",
             fieldOrCompanyDefault(reportData.methodologyRationale, "methodology", "methodologyRationale"),
@@ -2558,9 +2650,9 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-21")}
         </section>
 
-        {/* 22.0 تطبيق أسلوب التكلفة */}
+        {/* 25.0 تطبيق أسلوب التقييم — العنوان ديناميكي حسب الأسلوب المختار */}
         <section id="mv-toc-22" data-mv-report-insert-anchor="mv-toc-22" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22", "22.0 تطبيق أسلوب التكلفة")}
+          {editableHeading("mv-toc-22", applyApproachHeading)}
           {narrativeBlock(
             "costApproachDetails",
             fieldOrCompanyDefault(reportData.costApproachDetails, "methodology", "costApproachDetails"),
@@ -2568,46 +2660,47 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-22")}
         </section>
 
-        {/* 22.1 القيمة المتبقية (القيمة التخريدية) */}
-        <section id="mv-toc-22-1" data-mv-report-insert-anchor="mv-toc-22-1" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22-1", "22.1 القيمة المتبقية (القيمة التخريدية)")}
-          {narrativeBlock("salvageValueDescription", companyDefault("methodology", "salvageValueDescription"))}
-          {insertedAfter("mv-toc-22-1")}
-        </section>
+        {/* الأقسام الفرعية 25.1 → 25.4 — تظهر فقط مع أسلوب التكلفة */}
+        {showCostSubSections ? (
+          <>
+            <section id="mv-toc-22-1" data-mv-report-insert-anchor="mv-toc-22-1" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-1", "25.1 القيمة المتبقية (القيمة التخريدية)")}
+              {narrativeBlock("salvageValueDescription", companyDefault("methodology", "salvageValueDescription"))}
+              {insertedAfter("mv-toc-22-1")}
+            </section>
 
-        {/* 22.2 الإهلاك المادي */}
-        <section id="mv-toc-22-2" data-mv-report-insert-anchor="mv-toc-22-2" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22-2", "22.2 الإهلاك المادي")}
-          {narrativeBlock(
-            "physicalDepreciationDescription",
-            companyDefault("methodology", "physicalDepreciationDescription"),
-          )}
-          {insertedAfter("mv-toc-22-2")}
-        </section>
+            <section id="mv-toc-22-2" data-mv-report-insert-anchor="mv-toc-22-2" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-2", "25.2 الإهلاك المادي")}
+              {narrativeBlock(
+                "physicalDepreciationDescription",
+                companyDefault("methodology", "physicalDepreciationDescription"),
+              )}
+              {insertedAfter("mv-toc-22-2")}
+            </section>
 
-        {/* 22.3 التقادم الوظيفي */}
-        <section id="mv-toc-22-3" data-mv-report-insert-anchor="mv-toc-22-3" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22-3", "22.3 التقادم الوظيفي")}
-          {narrativeBlock(
-            "functionalObsolescenceDescription",
-            companyDefault("methodology", "functionalObsolescenceDescription"),
-          )}
-          {insertedAfter("mv-toc-22-3")}
-        </section>
+            <section id="mv-toc-22-3" data-mv-report-insert-anchor="mv-toc-22-3" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-3", "25.3 التقادم الوظيفي")}
+              {narrativeBlock(
+                "functionalObsolescenceDescription",
+                companyDefault("methodology", "functionalObsolescenceDescription"),
+              )}
+              {insertedAfter("mv-toc-22-3")}
+            </section>
 
-        {/* 22.4 التقادم الاقتصادي */}
-        <section id="mv-toc-22-4" data-mv-report-insert-anchor="mv-toc-22-4" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22-4", "22.4 التقادم الاقتصادي")}
-          {narrativeBlock(
-            "economicObsolescenceDescription",
-            companyDefault("methodology", "economicObsolescenceDescription"),
-          )}
-          {insertedAfter("mv-toc-22-4")}
-        </section>
+            <section id="mv-toc-22-4" data-mv-report-insert-anchor="mv-toc-22-4" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-4", "25.4 التقادم الاقتصادي")}
+              {narrativeBlock(
+                "economicObsolescenceDescription",
+                companyDefault("methodology", "economicObsolescenceDescription"),
+              )}
+              {insertedAfter("mv-toc-22-4")}
+            </section>
+          </>
+        ) : null}
 
-        {/* 23.0 الافتراضات المهمة والافتراضات الخاصة */}
+        {/* 26.0 الافتراضات المهمة والافتراضات الخاصة */}
         <section id="mv-toc-23" data-mv-report-insert-anchor="mv-toc-23" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-23", "23.0 الافتراضات المهمة والافتراضات الخاصة")}
+          {editableHeading("mv-toc-23", "26.0 الافتراضات المهمة والافتراضات الخاصة")}
           {narrativeBlock(
             "generalAssumptions",
             fieldOrCompanyDefault(
@@ -2626,123 +2719,103 @@ export function MvValuationReportDocumentBody({
           })()}
           {insertedAfter("mv-toc-23")}
         </section>
-      </MvReportPageShell>
 
-      {boundary("mv-toc-23")}
-
-      <MvReportPageShell variant="interior" companyName={companyName} companyNameNode={editableCompanyNameNode} logoSrc={logoSrc} footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}>
         <section id="mv-toc-24" data-mv-report-insert-anchor="mv-toc-24">
-          {editableHeading("mv-toc-24", "24.0 رأي القيمة")}
-          <div className="rounded-xl border-2 border-[#0C447C]/20 bg-gradient-to-l from-sky-50/80 to-white px-4 py-5">
+          {editableHeading("mv-toc-24", "27.0 رأي القيمة")}
+          <div className="mt-3 space-y-6 text-right">
             <EditableBlock
-              value={editableText("paragraph.valueOpinion", "بعد الأخذ بالاعتبار البيانات ذات العلاقة والمبادئ المهنية، فإن رأي القيمة يُقدَّر بـ:")}
+              value={editableText("paragraph.valueOpinion", valueOpinionSentence)}
               onChange={(value) => setTextOverride("paragraph.valueOpinion", value)}
-              className="text-[12px] font-semibold leading-7 text-slate-700"
+              className="text-[12.5px] font-semibold leading-8 text-slate-950"
             />
-            <EditableBlock
-              value={editableText("finalValueDisplay", currencyValue(reportData.finalValue))}
-              onChange={(value) => setTextOverride("finalValueDisplay", value)}
-              className="mt-3 text-center text-[22px] font-black text-[#0C447C]"
-              multiline={false}
-              placeholder="القيمة النهائية"
-            />
-            <EditableBlock
-              value={editableText("finalValueWords", textValue(reportData.finalValueWords, ""))}
-              onChange={(value) => setTextOverride("finalValueWords", value)}
-              className="mt-2 min-h-[1.5rem] text-center text-[13px] font-bold text-slate-700"
-              placeholder="القيمة كتابة"
-            />
-            <EditableBlock
-              value={editableText("paragraph.valueCurrency", `العملة: ${effectiveCurrencyLabel}`)}
-              onChange={(value) => setTextOverride("paragraph.valueCurrency", value)}
-              className="mt-2 text-center text-[11px] font-bold text-slate-500"
-              multiline={false}
-            />
-          </div>
-          <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
             {preparerDisplayRows.length === 0 ? (
-              <p className="px-4 py-6 text-center text-[12px] font-semibold text-slate-500">
+              <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-[12px] font-semibold text-slate-500">
                 لا صفوف من لوحة الشركة — أضف مقيّمين وتوقيعات من لوحة إدارة الشركة.
               </p>
             ) : (
-              <table className="w-full table-fixed border-collapse text-right text-[11px]">
-                <thead>
-                  <tr className="bg-sky-50/90">
-                    <th className="w-[42%] border-b border-slate-200 px-2 py-2 font-black text-[#0C447C]">
-                      <EditableBlock
-                        value={labelText("preparer.nameAndRole", "المقيّم والدور")}
-                        onChange={(value) => setTextOverride("label.preparer.nameAndRole", value)}
-                        className="min-h-[1.5rem]"
-                        multiline={false}
-                      />
-                    </th>
-                    <th className="border-b border-slate-200 px-2 py-2 font-black text-[#0C447C]">
+              <div className="mx-auto max-w-[560px] space-y-4">
+                {preparerDisplayRows.map((row) => (
+                  <div
+                    key={row.id}
+                    dir="ltr"
+                    className="grid grid-cols-[minmax(120px,0.85fr)_minmax(190px,1.15fr)] items-center gap-x-10 gap-y-2"
+                  >
+                    <div dir="rtl" className="flex min-h-[76px] flex-col items-center justify-start">
                       <EditableBlock
                         value={labelText("preparer.signature", "التوقيع")}
                         onChange={(value) => setTextOverride("label.preparer.signature", value)}
-                        className="min-h-[1.5rem]"
+                        className="mb-1 min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
                         multiline={false}
                       />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preparerDisplayRows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="border-b border-slate-100 p-0 align-top">
-                        <div className="flex flex-col gap-1 px-2 py-2">
-                          <EditableBlock
-                            dir="rtl"
-                            value={row.name}
-                            onChange={(value) => updatePreparerField(row.id, "name", value)}
-                            className="mv-report-preparer-field min-h-8 w-full rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-semibold outline-none focus:border-sky-400 print:border-0"
-                            multiline={false}
+                      <div className="flex min-h-[48px] items-center justify-center">
+                        {!sheetDraft && row.signatureImageDataUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={row.signatureImageDataUrl}
+                            alt=""
+                            className="max-h-[58px] max-w-[150px] object-contain"
                           />
-                          <EditableBlock
-                            dir="rtl"
-                            value={row.roleLabel}
-                            onChange={(value) => updatePreparerField(row.id, "roleLabel", value)}
-                            className="mv-report-preparer-field min-h-7 w-full rounded border border-slate-200 bg-white px-2 py-1 text-[11px] outline-none focus:border-sky-400 print:border-0"
-                            multiline={false}
-                          />
-                        </div>
-                      </td>
-                      <td className="border-b border-slate-100 p-2 align-middle">
-                        <div className="flex min-h-[3.5rem] items-center justify-center">
-                          {!sheetDraft && row.signatureImageDataUrl ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={row.signatureImageDataUrl}
-                              alt=""
-                              className="max-h-20 max-w-full object-contain"
-                            />
-                          ) : (
-                            <span className="text-slate-400">—</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </div>
+                    </div>
+                    <div dir="rtl" className="space-y-0.5 text-right text-slate-950">
+                      <EditableBlock
+                        dir="rtl"
+                        value={row.name}
+                        onChange={(value) => updatePreparerField(row.id, "name", value)}
+                        className="mv-report-preparer-field min-h-6 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[12px] font-bold leading-6 outline-none focus:border-sky-300 print:border-0"
+                        multiline={false}
+                      />
+                      <EditableBlock
+                        dir="rtl"
+                        value={row.roleLabel}
+                        onChange={(value) => updatePreparerField(row.id, "roleLabel", value)}
+                        className="mv-report-preparer-field min-h-5 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[11.5px] font-semibold leading-5 outline-none focus:border-sky-300 print:border-0"
+                        multiline={false}
+                      />
+                      <div className="flex items-center justify-start gap-1 text-[11px] font-bold leading-5">
+                        <span>رقم:</span>
+                        <EditableBlock
+                          dir="ltr"
+                          value={row.membershipNo}
+                          onChange={(value) => updatePreparerField(row.id, "membershipNo", value)}
+                          className="mv-report-preparer-field min-h-5 min-w-[90px] rounded border border-transparent bg-transparent px-1 py-0 text-right tabular-nums outline-none focus:border-sky-300 print:border-0"
+                          multiline={false}
+                          placeholder="رقم العضوية"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-          {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
-            <div className="mt-4 flex justify-start">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={letterheadTemplate.signatureStampDataUrl}
-                alt=""
-                className="max-h-28 max-w-[220px] object-contain"
-              />
+            <div className="mt-1 flex justify-center">
+              <div className="min-w-[170px] text-center">
+                <EditableBlock
+                  value={labelText("preparer.stamp", "الختم")}
+                  onChange={(value) => setTextOverride("label.preparer.stamp", value)}
+                  className="min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
+                  multiline={false}
+                />
+                {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={letterheadTemplate.signatureStampDataUrl}
+                    alt=""
+                    className="mx-auto mt-1 max-h-16 max-w-[170px] object-contain"
+                  />
+                ) : (
+                  <div className="mx-auto mt-3 h-px w-[150px] bg-slate-300" />
+                )}
+              </div>
             </div>
-          ) : null}
+          </div>
           {insertedAfter("mv-toc-24")}
         </section>
-      </MvReportPageShell>
+      </ReportFlowPages>
 
-      {boundary("mv-toc-24")}
       {/* Legacy custom sections without a target anchor render at the very end,
           right before the annexes. */}
       {editableSections
@@ -2838,7 +2911,7 @@ export function MvValuationReportDocumentBody({
                 <EditableBlock
                   value={editableText(
                     vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`,
-                    vIdx === 0 ? `مرفق 1: ${approach.label}` : `مرفق 1: ${approach.label} (تتمة — صورة ${vIdx + 1})`,
+                    "مرفق 1: الوصف الجزئي وحسابات القيمة",
                   )}
                   onChange={(value) =>
                     setTextOverride(vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`, value)
@@ -2872,7 +2945,7 @@ export function MvValuationReportDocumentBody({
                 <EditableBlock
                   value={editableText(
                     chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`,
-                    chunkIdx === 0 ? "مرفق 2: صور الأصول" : `مرفق 2 (تتمة ${chunkIdx + 1})`,
+                    "مرفق 2: الصور الفوتوغرافية",
                   )}
                   onChange={(value) =>
                     setTextOverride(chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`, value)
@@ -2953,7 +3026,7 @@ export function MvValuationReportDocumentBody({
           id="mv-annex-3"
           title={
             <EditableBlock
-              value={editableText("heading.mv-annex-3", "مرفق 3: مستندات مستلمة من العميل")}
+              value={editableText("heading.mv-annex-3", "مرفق 3: المستندات المستلمة من العميل")}
               onChange={(value) => setTextOverride("heading.mv-annex-3", value)}
               className="min-h-[1.75rem]"
               multiline={false}
@@ -3026,7 +3099,7 @@ export function MvValuationReportDocumentBody({
             <EditableBlock
               value={editableText(
                 "heading.mv-annex-sce",
-                "شهادة التسجيل في بوابة الخدمات الإلكترونية للهيئة السعودية للمقيمين المعتمدين «تقييم»",
+                "مرفق 4: شهادة التسجيل في بوابة الخدمات الإلكترونية للهيئة السعودية للمقيمين المعتمدين «تقييم»",
               )}
               onChange={(value) => setTextOverride("heading.mv-annex-sce", value)}
               className="min-h-[1.75rem] text-[14px] font-black leading-snug text-[#0a1f33]"

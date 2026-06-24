@@ -10,10 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CalendarClock,
+  Car,
   FileText,
   FileAudio,
   Gauge,
   GripVertical,
+  Hash,
   ImageIcon,
   Loader2,
   Mic,
@@ -76,6 +79,26 @@ function picAssetTypeLabel(t: string): string {
   if (k === "furniture") return "أثاث";
   if (k === "other") return "أخرى";
   return t || "—";
+}
+
+/** المركبة فقط — الحقول الخاصة بالعلامة/الموديل/سنة الصنع/الكم لا تظهر إلا لها */
+function picAssetIsVehicle(t: unknown): boolean {
+  if (typeof t !== "string") return false;
+  const k = t.toLowerCase();
+  return k === "vehicles" || k === "vehicle" || k === "car" || k === "cars";
+}
+
+function formatFullDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function isExternalPicImage(im: PicAssetImage): im is { url: string; publicId?: string; _id?: string; createdAt?: string } {
@@ -529,50 +552,84 @@ export function MvPicAssetPanel({
           </div>
           <ScrollArea className="max-h-[min(64vh,640px)]">
             <div className="space-y-4 bg-slate-50/30 px-4 py-4 sm:px-5">
-              <DataSection title="التعريف" icon={<Tag className="h-3.5 w-3.5" />}>
+              <DataSection title="التعريف الأساسي" icon={<Tag className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label="اسم المجلد" value={asset.name} />
+                  <Field label="اسم المجلد" value={asset.name} className="sm:col-span-2" />
+                  <Field label="نوع الأصل" value={picAssetTypeLabel(String(asset.assetType))} />
                   <Field label="الرمز" value={asset.code} />
                   <Field label="مُستكمل" value={asset.isDone ? "نعم" : "لا"} />
                   <Field label="متواجد" value={asset.isPresent ? "نعم" : "لا"} />
                 </div>
               </DataSection>
+
               <DataSection title="الوصف والحالة" icon={<FileText className="h-3.5 w-3.5" />}>
-                <div className="space-y-3.5">
-                  <div>
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">وصف</p>
-                    <p
-                      className="mt-1.5 min-h-[1.5rem] rounded-lg bg-white/60 px-2.5 py-2 text-sm leading-relaxed text-slate-900"
-                      dir="auto"
-                    >
-                      {asset.writtenDescription?.trim() ? asset.writtenDescription : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">الحالة</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900" dir="auto">
-                      {asset.condition?.trim() ? asset.condition : "—"}
-                    </p>
-                  </div>
-                </div>
-              </DataSection>
-              <DataSection title="المواصفات" icon={<Package className="h-3.5 w-3.5" />}>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label="نوع الأصل" value={picAssetTypeLabel(String(asset.assetType))} />
-                  <Field label="العلامة" value={asset.brand} />
-                  <Field label="الموديل" value={asset.model} />
-                  <Field label="سنة الصنع" value={formatNumberish(asset.manufactureYear)} />
-                  <Field
-                    className="sm:col-span-2"
-                    label="المسافة المقطوعة (كم)"
-                    value={formatNumberish(asset.kilometersDriven)}
-                    icon={<Gauge className="h-3.5 w-3.5 text-slate-400" />}
+                <div className="space-y-3">
+                  <LongTextField
+                    label="الوصف المكتوب"
+                    value={asset.writtenDescription}
+                    placeholder="لم يُضَف وصف لهذا الأصل بعد."
+                  />
+                  <LongTextField
+                    label="الحالة"
+                    value={asset.condition}
+                    placeholder="لا توجد ملاحظات على حالة الأصل."
+                  />
+                  <LongTextField
+                    label="الملاحظات"
+                    value={asset.notes}
+                    placeholder="لا توجد ملاحظات على هذا الأصل."
                   />
                 </div>
               </DataSection>
-              {voiceNotes.length > 0 ? (
-                <DataSection title="ملاحظات صوتية" icon={<Mic className="h-3.5 w-3.5" />}>
-                  <div className="space-y-2.5">
+
+              {picAssetIsVehicle(asset.assetType) ? (
+                <DataSection title="بيانات المركبة" icon={<Car className="h-3.5 w-3.5" />}>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <Field label="العلامة" value={asset.brand} />
+                    <Field label="الموديل" value={asset.model} />
+                    <Field label="سنة الصنع" value={formatNumberish(asset.manufactureYear)} />
+                    <Field
+                      label="المسافة المقطوعة (كم)"
+                      value={formatNumberish(asset.kilometersDriven)}
+                      icon={<Gauge className="h-3.5 w-3.5 text-slate-400" />}
+                    />
+                  </div>
+                </DataSection>
+              ) : null}
+
+              <DataSection title="معلومات السجل" icon={<Hash className="h-3.5 w-3.5" />}>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <Field label="معرّف الأصل" value={asset._id} className="sm:col-span-2" />
+                  <Field label="اسم الورقة" value={asset.sheetName} />
+                  <Field label="معرّف الاستيراد" value={asset.importId} />
+                </div>
+              </DataSection>
+
+              <DataSection title="التواريخ" icon={<CalendarClock className="h-3.5 w-3.5" />}>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <Field label="تاريخ الإنشاء" value={formatFullDate(asset.createdAt)} />
+                  <Field label="آخر تحديث" value={formatFullDate(asset.updatedAt)} />
+                </div>
+              </DataSection>
+
+              <DataSection title="الوسائط" icon={<Package className="h-3.5 w-3.5" />}>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <Field
+                    label="عدد الصور"
+                    value={numberFormatter.format(imageTotal)}
+                    icon={<ImageIcon className="h-3.5 w-3.5 text-slate-400" />}
+                  />
+                  <Field
+                    label="عدد الملاحظات الصوتية"
+                    value={numberFormatter.format(voiceTotal)}
+                    icon={<Mic className="h-3.5 w-3.5 text-slate-400" />}
+                  />
+                </div>
+                {voiceNotes.length > 0 ? (
+                  <div className="mt-3 space-y-2.5 border-t border-slate-100 pt-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      ملاحظات صوتية ({numberFormatter.format(voiceNotes.length)})
+                    </p>
                     {voiceNotes.map((v, i) => (
                       <div
                         key={isExternalVoice(v) ? `v-${v._id ?? v.url}-${i}` : `g-${(v as { fileId: string }).fileId}-${i}`}
@@ -601,8 +658,8 @@ export function MvPicAssetPanel({
                       </div>
                     ))}
                   </div>
-                </DataSection>
-              ) : null}
+                ) : null}
+              </DataSection>
             </div>
           </ScrollArea>
         </DialogContent>
@@ -676,9 +733,36 @@ function Field({
         <p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
         {icon ?? null}
       </div>
-      <p className="mt-0.5 text-sm font-medium text-slate-900" dir="auto">
+      <p className="mt-0.5 break-words text-sm font-medium text-slate-900" dir="auto">
         {value != null && String(value).trim() !== "" ? String(value) : "—"}
       </p>
+    </div>
+  );
+}
+
+function LongTextField({
+  label,
+  value,
+  placeholder,
+}: {
+  label: string;
+  value: string | null | undefined;
+  placeholder?: string;
+}) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const hasText = text.length > 0;
+  return (
+    <div className="rounded-xl border border-slate-100/90 bg-slate-50/50 p-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div
+        className={cn(
+          "mt-1.5 min-h-[3rem] whitespace-pre-wrap break-words rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-sm leading-7",
+          hasText ? "text-slate-900" : "text-slate-400",
+        )}
+        dir="auto"
+      >
+        {hasText ? text : placeholder ?? "—"}
+      </div>
     </div>
   );
 }

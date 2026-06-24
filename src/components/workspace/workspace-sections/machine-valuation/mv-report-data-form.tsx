@@ -436,9 +436,9 @@ export function MvReportDataForm({
               />
             </ReportField>
           </div>
-          <p className="mt-4 rounded-lg border border-dashed border-sky-200/80 bg-sky-50/60 px-3 py-2 text-[11.5px] font-bold leading-6 text-sky-900">
+          {/* <p className="mt-4 rounded-lg border border-dashed border-sky-200/80 bg-sky-50/60 px-3 py-2 text-[11.5px] font-bold leading-6 text-sky-900">
             ملاحظة: نصوص «نطاق العمل والقيود»، «الأصل والمنهجية والمعاينة»، و«الافتراضات» تُدار الآن من «لوحة الشركة → بيانات إعداد التقرير النهائي» وتُدمج تلقائياً داخل التقرير بأسلوب نصي مع البيانات الديناميكية لهذا المشروع.
-          </p>
+          </p> */}
         </ReportSection>
 
         <ReportSection

@@ -2,12 +2,37 @@
 
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { REPORT_BODY_CONTENT_FOOTER_GAP_PX } from "./mv-report-page-metrics";
 import type { MvCompanyReportLetterheadTemplate } from "./types";
 
 export type MvReportPageVariant = "cover" | "interior";
 export type MvReportPageOrientation = "portrait" | "landscape";
 
 const MvReportLetterheadContext = createContext<MvCompanyReportLetterheadTemplate | null>(null);
+
+/**
+ * يحدد ما إذا كان غلاف التقرير ذا خلفية داكنة (نص أبيض) أم فاتحة (نص داكن).
+ * يُستخدم خارج الـ Shell لتحديد ألوان أبناء الغلاف عندما يكون التصميم
+ * «بدون إطار» (‎`coverChildrenChromeless`‎) بحيث تظهر النصوص فوق خلفية الغلاف
+ * مباشرة وليس فوق بطاقة بيضاء داخلية.
+ */
+export function isMvReportDarkCover(
+  templateId: string | null | undefined,
+): boolean {
+  switch (templateId) {
+    case "executive-navy":
+    case "industrial-amber":
+    case "premium-burgundy":
+    case "powerpoint-deck":
+    case "field-teal":
+    case "default-report-template":
+    case null:
+    case undefined:
+      return true;
+    default:
+      return false;
+  }
+}
 
 export function MvReportLetterheadProvider({
   value,
@@ -75,6 +100,18 @@ export interface MvReportPageShellProps {
   logoSrc: string | null;
   /** أسطر الفوتر (ديناميكية من الشركة / المستخدم / المشروع) */
   footerLines: string[];
+  /**
+   * محتوى فوتر مخصّص للغلاف فقط (variant="cover"): عند تمريره يحلّ محل
+   * عرض ‎`footerLines`‎ الافتراضي، ويُستخدم لإظهار شريط 3 أعمدة في الغلاف
+   * (المقيم المعتمد + رقم العضوية | الرقم المرجعي | تاريخ التقرير).
+   */
+  coverFooterContent?: ReactNode;
+  /**
+   * Cover فقط: يلغي بطاقة الخلفية البيضاء حول الـ ‎children‎ في الأغلفة الداكنة
+   * عند تفعيلها يظهر المحتوى مباشرة فوق الخلفية الكحلية (تصميم مطابق لتقارير
+   * الجهات المهنية الرسمية).
+   */
+  coverChildrenChromeless?: boolean;
   /** علامة مائية «مسودة» على كامل الورقة (وضع المسودة) */
   draftWatermark?: boolean;
   letterheadTemplate?: MvCompanyReportLetterheadTemplate | null;
@@ -185,10 +222,10 @@ function reportTemplateChrome(templateId: string) {
       };
     default:
       return {
-        cover: "bg-gradient-to-br from-[#c5d8eb] via-[#e4edf6] to-[#dce6f2]",
+        cover: "bg-gradient-to-br from-[#003a57] via-[#004b6b] to-[#005a80] text-white",
         header: "border-b-2 border-[#0C447C]/90 bg-gradient-to-l from-[#f6f9fc] via-white to-[#eef6fb] px-[3mm] pb-2 pt-3",
         footer: "border-t border-slate-200/90 bg-gradient-to-b from-[#f8fafc] to-[#eef2f7] px-[3mm] py-2",
-        brand: "text-[#0C447C]",
+        brand: "text-white",
       };
   }
 }
@@ -262,8 +299,18 @@ function ReportTemplateCoverDecor({ templateId }: { templateId: string }) {
   }
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[38mm] bg-white/28" aria-hidden />
-      <div className="pointer-events-none absolute bottom-[32mm] left-[16mm] right-[16mm] h-px bg-[#0C447C]/15" aria-hidden />
+      {/* لمسات ذهبية ناعمة فوق الكحلي العميق لإضفاء طابع رسمي يشبه تقارير «إنفاذ/تقييم» */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        aria-hidden
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 18%, rgba(255,255,255,0.85) 0, transparent 38%), radial-gradient(circle at 82% 82%, rgba(201,162,39,0.55) 0, transparent 42%)",
+        }}
+      />
+      <div className="pointer-events-none absolute inset-x-[18mm] top-[28mm] h-px bg-white/15" aria-hidden />
+      <div className="pointer-events-none absolute inset-x-[18mm] bottom-[36mm] h-px bg-[#c9a227]/40" aria-hidden />
+      <div className="pointer-events-none absolute left-1/2 bottom-[30mm] h-[3px] w-[120px] -translate-x-1/2 rounded-full bg-gradient-to-l from-transparent via-[#c9a227] to-transparent" aria-hidden />
     </>
   );
 }
@@ -275,6 +322,8 @@ export function MvReportPageShell({
   companyNameNode,
   logoSrc,
   footerLines,
+  coverFooterContent,
+  coverChildrenChromeless = false,
   draftWatermark = false,
   letterheadTemplate,
   children,
@@ -283,7 +332,7 @@ export function MvReportPageShell({
   const inheritedLetterheadTemplate = useContext(MvReportLetterheadContext);
   const activeLetterheadTemplate = letterheadTemplate ?? inheritedLetterheadTemplate;
   const land = orientation === "landscape";
-  const shellDim = land ? "min-h-[210mm] w-[297mm]" : "min-h-[297mm] w-[210mm]";
+  const shellDim = land ? "h-[210mm] w-[297mm]" : "h-[297mm] w-[210mm]";
   const letterheadEnabled = activeLetterheadTemplate?.enabled === true;
   const coverBackground = letterheadEnabled ? activeLetterheadTemplate?.coverImageDataUrl || null : null;
   const pageBackground = letterheadEnabled
@@ -306,8 +355,11 @@ export function MvReportPageShell({
     activeTemplateId === "industrial-amber" ||
     activeTemplateId === "premium-burgundy" ||
     activeTemplateId === "powerpoint-deck";
+  // غلاف القالب الافتراضي صار كحلياً غامقاً، لذا نعامله كـ«غلاف داكن» (دون التأثير على الصفحات الداخلية).
+  const darkCoverChrome = darkChromeTemplate || activeTemplateId === "default-report-template";
   const headerAccentTextClass = darkChromeTemplate ? "text-white" : "text-[#0C447C]";
-  const footerTextClass = darkChromeTemplate ? "text-white" : "text-slate-950";
+  const interiorFooterTextClass = darkChromeTemplate ? "text-white" : "text-slate-950";
+  const coverFooterTextClass = darkCoverChrome ? "text-white" : "text-slate-950";
 
   if (variant === "cover") {
     const customCover = Boolean(coverBackground);
@@ -357,43 +409,62 @@ export function MvReportPageShell({
           >
             —
           </div>
-          <div className="flex flex-1 flex-col items-center justify-center gap-8 text-center">
+          {/*
+            تخطيط الغلاف بنمط مستوحى من تقارير الجهات المهنية:
+            • منطقة علوية (~45% من الارتفاع): لوجو الشركة + اسمها مركّزاً.
+            • منطقة سفلية (~30%): محتوى ‎children‎ (عنوان التقرير + اسم العميل).
+            • شريط فوتر سفلي بثلاثة أعمدة (مخصّص عبر ‎coverFooterContent‎)
+              يحلّ محل ‎footerLines‎ الافتراضي عند تمريره.
+          */}
+          <div className="flex flex-1 flex-col">
             {showCoverBrand ? (
-              <>
+              <div className="flex flex-col items-center justify-end gap-4 px-6 text-center" style={{ flexBasis: "45%" }}>
                 {effectiveLogoSrc ? (
-                  <div className="rounded-2xl bg-white/95 px-6 py-4 shadow-[0_8px_30px_-8px_rgba(12,68,124,0.25)] ring-1 ring-white/80 backdrop-blur-sm transition-transform duration-300 ease-out motion-safe:hover:scale-[1.02]">
-                    <ReportLogoImg src={effectiveLogoSrc} className="mx-auto h-20 max-h-28 w-auto max-w-[200px] object-contain" />
-                  </div>
+                  <ReportLogoImg
+                    src={effectiveLogoSrc}
+                    className={cn(
+                      "mx-auto h-32 max-h-[140px] w-auto max-w-[300px] bg-transparent object-contain",
+                      darkCoverChrome && "drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]",
+                    )}
+                    style={{ backgroundColor: "transparent" }}
+                  />
                 ) : (
                   <div className="h-2 w-24 rounded-full bg-[#0C447C]/20" aria-hidden />
                 )}
                 {companyName || companyNameNode ? (
-                  <div className={cn("max-w-[85%] text-center text-[18px] font-black leading-snug sm:text-[20px]", templateChrome.brand)}>
+                  <div className={cn("max-w-[85%] text-center text-[22px] font-black leading-snug tracking-tight text-white sm:text-[26px]", templateChrome.brand)}>
                     {companyNameNode ?? companyName}
                   </div>
                 ) : null}
-              </>
+              </div>
             ) : null}
             <div
-              className={cn(
-                "w-full",
-                darkChromeTemplate &&
-                  "max-w-xl rounded-2xl bg-white/92 p-5 shadow-[0_18px_50px_-22px_rgba(0,0,0,0.45)] ring-1 ring-white/70 backdrop-blur",
-              )}
+              className="flex flex-1 flex-col items-center justify-center px-6 text-center"
             >
-              {children}
+              <div
+                className={cn(
+                  "w-full",
+                  darkCoverChrome && !coverChildrenChromeless &&
+                    "max-w-xl rounded-2xl bg-white/92 p-5 shadow-[0_18px_50px_-22px_rgba(0,0,0,0.45)] ring-1 ring-white/70 backdrop-blur",
+                )}
+              >
+                {children}
+              </div>
             </div>
           </div>
           <footer
             className={cn(
-              "relative z-[1] mt-auto px-2 text-[9px] font-semibold leading-relaxed",
-              footerTextClass,
-              footerImageSrc ? "py-1" : "py-3",
-              footerImageSrc || letterheadEnabled
-                ? "bg-transparent"
-                : darkChromeTemplate
-                  ? "border-t border-white/20 bg-black/20 backdrop-blur-[2px]"
-                  : "border-t border-[#0C447C]/12 bg-white/88 backdrop-blur-[2px]",
+              "relative z-[1] mt-auto",
+              coverFooterTextClass,
+              footerImageSrc
+                ? "py-1 px-2 text-[9px] font-semibold leading-relaxed bg-transparent"
+                : coverFooterContent
+                  ? "bg-[#f37021] px-4 py-3 text-white"
+                  : letterheadEnabled
+                    ? "bg-transparent px-2 py-3 text-[9px] font-semibold leading-relaxed"
+                    : darkCoverChrome
+                      ? "border-t border-white/20 bg-black/20 px-2 py-3 text-[9px] font-semibold leading-relaxed backdrop-blur-[2px]"
+                      : "border-t border-[#0C447C]/12 bg-white/88 px-2 py-3 text-[9px] font-semibold leading-relaxed backdrop-blur-[2px]",
             )}
           >
             {footerImageSrc ? (
@@ -402,6 +473,8 @@ export function MvReportPageShell({
                 className="mx-auto h-auto w-full max-w-full object-contain"
                 style={{ maxHeight: "18mm" }}
               />
+            ) : coverFooterContent ? (
+              coverFooterContent
             ) : showDefaultFooterText ? (
               <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
                 {footerLines.map((line, i) => (
@@ -466,9 +539,9 @@ export function MvReportPageShell({
           </div>
           <div className="flex min-w-0 flex-col items-center gap-1" dir="rtl">
             {!customInteriorLetterhead && effectiveLogoSrc ? (
-              <ReportLogoImg src={effectiveLogoSrc} className="h-10 max-h-12 w-auto max-w-[140px] object-contain" />
+              <ReportLogoImg src={effectiveLogoSrc} className="h-14 max-h-16 w-auto max-w-[200px] object-contain" />
             ) : customInteriorLetterhead ? null : (
-              <div className="h-8 w-20 rounded bg-slate-100" aria-hidden />
+              <div className="h-10 w-24 rounded bg-slate-100" aria-hidden />
             )}
             {!customInteriorLetterhead ? (
               <div className={cn("max-w-full truncate text-center text-[11px] font-black", headerAccentTextClass)}>
@@ -480,15 +553,19 @@ export function MvReportPageShell({
       </header>
 
       <div
-        className={cn("relative z-[1] flex-1 text-right", customInteriorLetterhead ? "px-0" : "px-[3mm] py-3", !customInteriorLetterhead && land && "py-2")}
+        className={cn(
+          "relative z-[1] min-h-0 flex-1 overflow-x-hidden overflow-y-visible text-right",
+          customInteriorLetterhead ? "px-0" : "px-[3mm] py-3",
+          !customInteriorLetterhead && land && "py-2",
+        )}
         style={
           customInteriorLetterhead
             ? {
                 paddingInline: safeArea.paddingInline,
                 paddingTop: safeArea.bodyPaddingTop,
-                paddingBottom: safeArea.bodyPaddingBottom,
+                paddingBottom: `calc(${safeArea.bodyPaddingBottom} + ${REPORT_BODY_CONTENT_FOOTER_GAP_PX}px)`,
               }
-            : undefined
+            : { paddingBottom: REPORT_BODY_CONTENT_FOOTER_GAP_PX }
         }
         data-mv-report-page-content
       >
@@ -518,7 +595,7 @@ export function MvReportPageShell({
         <div
           className={cn(
             "flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-center text-[8px] font-semibold leading-relaxed",
-            footerTextClass,
+            interiorFooterTextClass,
             footerImageSrc && "h-full min-h-[10mm] items-center",
           )}
         >

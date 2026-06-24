@@ -20,6 +20,8 @@ export default function ProfilePage() {
   } = useAuthTracking();
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [membershipNo, setMembershipNo] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -27,6 +29,8 @@ export default function ProfilePage() {
   useEffect(() => {
     setEmail(profile?.email ?? user?.email ?? "");
     setPhone(profile?.phone ?? user?.phone ?? "");
+    setJobTitle(user?.valuationReportJobTitle ?? "");
+    setMembershipNo(user?.valuationReportMembershipNo ?? "");
     setNotes(
       typeof profile?.additionalInfo?.notes === "string"
         ? profile.additionalInfo.notes
@@ -95,6 +99,26 @@ export default function ProfilePage() {
                 />
               </div>
               <div className="grid gap-2">
+                <Label htmlFor="profile-job-title">Valuation report title</Label>
+                <Input
+                  id="profile-job-title"
+                  value={jobTitle}
+                  onChange={(event) => setJobTitle(event.target.value)}
+                  placeholder="مقيم منتسب آلات ومعدات"
+                  dir="rtl"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="profile-membership-no">Membership number</Label>
+                <Input
+                  id="profile-membership-no"
+                  value={membershipNo}
+                  onChange={(event) => setMembershipNo(event.target.value)}
+                  placeholder="421000000"
+                  dir="ltr"
+                />
+              </div>
+              <div className="grid gap-2">
                 <Label htmlFor="profile-notes">Notes</Label>
                 <Textarea
                   id="profile-notes"
@@ -122,6 +146,8 @@ export default function ProfilePage() {
                     await updateProfile({
                       email: email || null,
                       phone: phone || null,
+                      valuationReportJobTitle: jobTitle.trim() || null,
+                      valuationReportMembershipNo: membershipNo.trim() || null,
                       additionalInfo: {
                         ...(profile?.additionalInfo ?? {}),
                         notes,

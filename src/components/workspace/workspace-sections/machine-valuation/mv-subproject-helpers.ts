@@ -20,6 +20,28 @@ function resolveNumericPrefix(name: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** مسار مجلدات الأب للأصل (بدون جذر الصور وبدون مجلد الأصل نفسه) — مفصول بـ ‎>‎ */
+export function buildAssetParentFolderPath(
+  sub: MvSubProject,
+  byId: Map<string, MvSubProject>,
+  photosRootId: string,
+): string {
+  const parts: string[] = [];
+  let parentId = sub.parent;
+  const seen = new Set<string>();
+  while (parentId && parentId.trim() && parentId !== photosRootId) {
+    if (seen.has(parentId)) break;
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    const label = parent.name.trim();
+    if (label) parts.push(label);
+    parentId = parent.parent;
+  }
+  parts.reverse();
+  return parts.length > 0 ? parts.join(" > ") : "—";
+}
+
 export function sortSubProjectsForDisplay(subs: MvSubProject[]): MvSubProject[] {
   return [...subs].sort((a, b) => {
     const ap = resolveNumericPrefix(a.name);

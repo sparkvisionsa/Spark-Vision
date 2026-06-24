@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
-import { Check, ChevronDown, Download, Folder, FolderKanban, FolderOpen } from "lucide-react";
+import { Check, ChevronDown, Database, Download, Folder, FolderKanban, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MvTopBar, type MvBreadcrumbSegment } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
+import { MvAssetDataTableModal } from "./mv-asset-data-table-modal";
 
 export type MvSimpleReportStepId =
   | "report-data"
@@ -109,14 +110,17 @@ export function mvSimpleReportStepHref(projectId: string, stepId: MvSimpleReport
 
 export function MvProjectFoldersMenu({
   projectId,
+  projectName,
   folders,
   compact = false,
 }: {
   projectId: string;
+  projectName?: string | null;
   folders: MvSubProject[];
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [assetDataOpen, setAssetDataOpen] = useState(false);
 
   return (
     <div className={cn("flex items-center", compact ? "gap-1.5" : "gap-2")}>
@@ -131,6 +135,27 @@ export function MvProjectFoldersMenu({
       >
         <FolderOpen className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
       </Link>
+
+      <button
+        type="button"
+        onClick={() => setAssetDataOpen(true)}
+        title="بيانات الأصول"
+        aria-label="بيانات الأصول"
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-200 bg-[#0C447C] font-bold text-white shadow-sm transition hover:bg-[#0a3a66]",
+          compact ? "h-7 px-2 text-[10px]" : "h-8 gap-2 rounded-xl px-2.5 text-[11px]",
+        )}
+      >
+        <Database className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+        بيانات الأصول
+      </button>
+
+      <MvAssetDataTableModal
+        open={assetDataOpen}
+        onOpenChange={setAssetDataOpen}
+        projectId={projectId}
+        projectName={projectName ?? null}
+      />
 
       <a
         href={`/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files/download`}
@@ -440,7 +465,14 @@ export function MvProjectReportHeader({
             {loadedProject?.reportType === "advanced" ? "متقدم" : "مبسط"}
           </span>
         }
-        trailing={<MvProjectFoldersMenu compact={compact} projectId={projectId} folders={rootFolders} />}
+        trailing={
+          <MvProjectFoldersMenu
+            compact={compact}
+            projectId={projectId}
+            projectName={loadedProject?.name ?? null}
+            folders={rootFolders}
+          />
+        }
       />
       <MvSimpleReportStepStrip
         compact={compact}

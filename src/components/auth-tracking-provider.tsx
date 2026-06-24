@@ -17,6 +17,8 @@ type AuthUser = {
   username: string;
   email?: string | null;
   phone?: string | null;
+  valuationReportJobTitle?: string | null;
+  valuationReportMembershipNo?: string | null;
   role:
     | "user"
     | "super_admin"
@@ -105,6 +107,8 @@ type AuthTrackingContextType = {
   updateProfile: (payload: {
     email?: string | null;
     phone?: string | null;
+    valuationReportJobTitle?: string | null;
+    valuationReportMembershipNo?: string | null;
     additionalInfo?: Record<string, unknown> | null;
   }) => Promise<void>;
   trackAction: (action: TrackingAction) => void;
@@ -412,6 +416,8 @@ export default function AuthTrackingProvider({
     async (payload: {
       email?: string | null;
       phone?: string | null;
+      valuationReportJobTitle?: string | null;
+      valuationReportMembershipNo?: string | null;
       additionalInfo?: Record<string, unknown> | null;
     }) => {
       const response = await requestJson<{

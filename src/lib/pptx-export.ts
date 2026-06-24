@@ -5,10 +5,16 @@ export type PptxImageSlide = {
   width: number;
   height: number;
   title?: string;
+  /** اتجاه الصفحة الملتقطة — يحدد مقاس الشريحة داخل العرض. */
+  landscape?: boolean;
 };
 
-const PPTX_SLIDE_W = 12_192_000;
-const PPTX_SLIDE_H = 6_858_000;
+/** A4 portrait — 210×297 mm in EMU */
+const PPTX_SLIDE_PORTRAIT_W = 7_560_000;
+const PPTX_SLIDE_PORTRAIT_H = 10_692_000;
+/** A4 landscape — 297×210 mm in EMU */
+const PPTX_SLIDE_LANDSCAPE_W = 10_692_000;
+const PPTX_SLIDE_LANDSCAPE_H = 7_560_000;
 
 const textEncoder = new TextEncoder();
 
@@ -148,47 +154,47 @@ function buildStoredZip(entries: Array<{ path: string; data: Uint8Array }>) {
   });
 }
 
-function fitImage(width: number, height: number) {
+function slideDimensions(landscape?: boolean) {
+  return landscape
+    ? { w: PPTX_SLIDE_LANDSCAPE_W, h: PPTX_SLIDE_LANDSCAPE_H }
+    : { w: PPTX_SLIDE_PORTRAIT_W, h: PPTX_SLIDE_PORTRAIT_H };
+}
+
+/** يملأ الشريحة بالكامل مع الحفاظ على نسبة العرض — خلفية بيضاء احترافية. */
+function fitImage(width: number, height: number, landscape?: boolean) {
+  const { w: slideW, h: slideH } = slideDimensions(landscape);
   const safeW = Math.max(1, width);
   const safeH = Math.max(1, height);
-  const scale = Math.min((PPTX_SLIDE_W - 640_000) / safeW, (PPTX_SLIDE_H - 520_000) / safeH);
+  const scale = Math.min(slideW / safeW, slideH / safeH);
   const cx = Math.round(safeW * scale);
   const cy = Math.round(safeH * scale);
   return {
-    x: Math.round((PPTX_SLIDE_W - cx) / 2),
-    y: Math.round((PPTX_SLIDE_H - cy) / 2),
+    x: Math.round((slideW - cx) / 2),
+    y: Math.round((slideH - cy) / 2),
     cx,
     cy,
+    slideW,
+    slideH,
   };
 }
 
-function slideXml(slide: PptxImageSlide, index: number) {
-  const box = fitImage(slide.width, slide.height);
+function slideXml(slide: PptxImageSlide, index: number, presentationLandscape = false) {
+  const box = fitImage(slide.width, slide.height, presentationLandscape);
   const title = xmlEscape(slide.title || `Slide ${index}`);
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld name="${title}">
     <p:bg>
       <p:bgPr>
-        <a:solidFill><a:srgbClr val="F3F6FA"/></a:solidFill>
+        <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
         <a:effectLst/>
       </p:bgPr>
     </p:bg>
     <p:spTree>
       <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
       <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-      <p:sp>
-        <p:nvSpPr><p:cNvPr id="2" name="Report frame"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-        <p:spPr>
-          <a:xfrm><a:off x="${box.x - 90_000}" y="${box.y - 90_000}"/><a:ext cx="${box.cx + 180_000}" cy="${box.cy + 180_000}"/></a:xfrm>
-          <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
-          <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
-          <a:ln w="12700"><a:solidFill><a:srgbClr val="D7DEE8"/></a:solidFill></a:ln>
-        </p:spPr>
-        <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
-      </p:sp>
       <p:pic>
-        <p:nvPicPr><p:cNvPr id="3" name="Report page ${index}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
+        <p:nvPicPr><p:cNvPr id="2" name="Report page ${index}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>
         <p:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
         <p:spPr><a:xfrm><a:off x="${box.x}" y="${box.y}"/><a:ext cx="${box.cx}" cy="${box.cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
       </p:pic>
@@ -226,7 +232,8 @@ function contentTypesXml(slideCount: number) {
 </Types>`;
 }
 
-function presentationXml(slideCount: number) {
+function presentationXml(slideCount: number, landscape = false) {
+  const { w, h } = slideDimensions(landscape);
   const sldIds = Array.from(
     { length: slideCount },
     (_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`,
@@ -235,7 +242,7 @@ function presentationXml(slideCount: number) {
 <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
   <p:sldIdLst>${sldIds}</p:sldIdLst>
-  <p:sldSz cx="${PPTX_SLIDE_W}" cy="${PPTX_SLIDE_H}" type="screen16x9"/>
+  <p:sldSz cx="${w}" cy="${h}" type="custom"/>
   <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>`;
 }
@@ -268,7 +275,7 @@ function appXml(slideCount: number) {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
   <Application>Spark Vision</Application>
-  <PresentationFormat>On-screen Show (16:9)</PresentationFormat>
+  <PresentationFormat>A4 Report Pages</PresentationFormat>
   <Slides>${slideCount}</Slides>
   <ScaleCrop>false</ScaleCrop>
   <HeadingPairs>
@@ -376,12 +383,14 @@ const tableStylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 export function buildPptxFromPngSlides(slides: PptxImageSlide[], title = "Spark Vision Report") {
   if (slides.length === 0) throw new Error("لا توجد صفحات لتصدير PowerPoint.");
+  const landscapeCount = slides.filter((slide) => slide.landscape).length;
+  const presentationLandscape = landscapeCount > slides.length / 2;
   const entries: Array<{ path: string; data: Uint8Array }> = [
     { path: "[Content_Types].xml", data: bytesFromString(contentTypesXml(slides.length)) },
     { path: "_rels/.rels", data: bytesFromString(rootRelsXml) },
     { path: "docProps/app.xml", data: bytesFromString(appXml(slides.length)) },
     { path: "docProps/core.xml", data: bytesFromString(coreXml(title)) },
-    { path: "ppt/presentation.xml", data: bytesFromString(presentationXml(slides.length)) },
+    { path: "ppt/presentation.xml", data: bytesFromString(presentationXml(slides.length, presentationLandscape)) },
     { path: "ppt/_rels/presentation.xml.rels", data: bytesFromString(presentationRelXml(slides.length)) },
     { path: "ppt/theme/theme1.xml", data: bytesFromString(themeXml) },
     { path: "ppt/presProps.xml", data: bytesFromString(presPropsXml) },
@@ -395,7 +404,7 @@ export function buildPptxFromPngSlides(slides: PptxImageSlide[], title = "Spark 
 
   slides.forEach((slide, index) => {
     const n = index + 1;
-    entries.push({ path: `ppt/slides/slide${n}.xml`, data: bytesFromString(slideXml(slide, n)) });
+    entries.push({ path: `ppt/slides/slide${n}.xml`, data: bytesFromString(slideXml(slide, n, presentationLandscape)) });
     entries.push({ path: `ppt/slides/_rels/slide${n}.xml.rels`, data: bytesFromString(slideRelXml(n)) });
     entries.push({ path: `ppt/media/image${n}.png`, data: pngBytesFromDataUrl(slide.dataUrl) });
   });

@@ -98,6 +98,8 @@ type CompanyUserRow = {
   productIds?: string[];
   email?: string | null;
   phone?: string | null;
+  valuationReportJobTitle?: string | null;
+  valuationReportMembershipNo?: string | null;
   createdAt: string;
   lastLoginAt?: string | null;
   valuationReportSignatureDataUrl?: string | null;
@@ -356,50 +358,50 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "intendedUseStatement",
-    label: "10.0 الاستخدام المقصود",
+    label: "11.0 الاستخدام المقصود",
     helper: "نص افتراضي يصف الجهة المستفيدة وغرض الاستخدام من التقرير.",
     rows: 4,
   },
   {
     key: "scopeOfWorkDetails",
-    label: "8.0 نطاق العمل",
+    label: "9.0 نطاق العمل",
     helper:
       "ما يتم الاتفاق عليه قبل البدء: المقابلات والمعاينة وأبحاث السوق ومراجعة المستندات وما إلى ذلك.",
     rows: 7,
   },
   {
     key: "valuationBasisDefinition",
-    label: "11.0 أساس القيمة — التعريف الكامل",
-    helper: "تعريف القيمة السوقية أو ما يماثلها وفق معايير IVS.",
+    label: "12.0 أساس القيمة — التعريف الكامل",
+    helper: "تعريف القيمة السوقية أو ما يماثلها وفق معايير IVS 2025.",
     rows: 5,
   },
   {
     key: "valuePremiseDefinition",
-    label: "12.0 فرضية القيمة — المرجع المعياري",
+    label: "13.0 فرضية القيمة — المرجع المعياري",
     helper: "نص قصير يحيل إلى مرجع IVS لفرضية القيمة.",
     rows: 2,
   },
   {
     key: "useRestriction",
-    label: "13.0 القيود على الاستخدام أو التوزيع أو النشر",
+    label: "14.0 القيود على الاستخدام أو التوزيع أو النشر",
     helper: "تحديد الأطراف المصرّح لها بالاستخدام وحدود نشر التقرير.",
     rows: 5,
   },
   {
     key: "externalSpecialistUse",
-    label: "14.0 الاستعانة بأخصائيين خارجيين",
+    label: "15.0 الاستعانة بأخصائيين خارجيين",
     helper: "بيان مدى الاعتماد على متخصصين خارج فريق التقييم.",
     rows: 4,
   },
   {
     key: "esgConsiderations",
-    label: "15.0 العوامل البيئية والاجتماعية والحوكمة (ESG)",
+    label: "16.0 العوامل البيئية والاجتماعية والحوكمة (ESG)",
     helper: "أثر العوامل البيئية والاجتماعية والحوكمة على رأي القيمة.",
     rows: 4,
   },
   {
     key: "informationSources",
-    label: "17.0 طبيعة ومصادر المعلومات المعتمد عليها",
+    label: "18.0 طبيعة ومصادر المعلومات المعتمد عليها",
     helper: "المدخلات من العميل، أبحاث السوق، المصادر العامة والمتخصصة، إلخ.",
     rows: 6,
   },
@@ -408,44 +410,49 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
 const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
   {
     key: "assetSubjectDescription",
-    label: "18.0 الأصل محل التقييم — وصف عام",
-    helper: "نص افتراضي يلي العنوان «18.0 الأصل محل التقييم»؛ يُستبدل تلقائياً بالقيم الديناميكية للمشروع.",
+    label: "19.0 الأصل محل التقييم — وصف عام",
+    helper: "نص افتراضي يلي العنوان «19.0 الأصل محل التقييم»؛ يُستبدل تلقائياً بالقيم الديناميكية للمشروع.",
     rows: 4,
   },
   {
     key: "assetDetailedDescription",
-    label: "18.1 الوصف الجزئي",
-    helper: "نص افتراضي يلي العنوان «18.1 الوصف الجزئي» — يُحال إلى المرفقات للتفاصيل.",
+    label: "19.1 الوصف الجزئي",
+    helper: "نص افتراضي يلي العنوان «19.1 الوصف الجزئي» — يُحال إلى المرفقات للتفاصيل.",
     rows: 5,
   },
   {
     key: "methodologyRationale",
-    label: "21.0 منهجية التقييم والتحليل",
+    label: "24.0 منهجية التقييم والتحليل",
     rows: 6,
   },
   {
     key: "costApproachDetails",
-    label: "22.0 تطبيق أسلوب التكلفة",
+    label: "25.0 تطبيق أسلوب التقييم (السوق / التكلفة / الدخل)",
+    helper: "نص افتراضي يصف الأسلوب المعتمد وتطبيقه — يتغير العنوان تلقائياً في التقرير حسب «أسلوب التقييم» المختار في بيانات المشروع.",
     rows: 7,
   },
   {
     key: "salvageValueDescription",
-    label: "22.1 القيمة المتبقية (القيمة التخريدية)",
+    label: "25.1 القيمة المتبقية (القيمة التخريدية)",
+    helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 5,
   },
   {
     key: "physicalDepreciationDescription",
-    label: "22.2 الإهلاك المادي",
+    label: "25.2 الإهلاك المادي",
+    helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 7,
   },
   {
     key: "functionalObsolescenceDescription",
-    label: "22.3 التقادم الوظيفي",
+    label: "25.3 التقادم الوظيفي",
+    helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 4,
   },
   {
     key: "economicObsolescenceDescription",
-    label: "22.4 التقادم الاقتصادي",
+    label: "25.4 التقادم الاقتصادي",
+    helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 4,
   },
 ];
@@ -979,12 +986,16 @@ export default function CompanyAdminDashboard({
   const [newRole, setNewRole] = useState<"valuer" | "data_entry" | "reviewer" | "inspector">("valuer");
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newJobTitle, setNewJobTitle] = useState("");
+  const [newMembershipNo, setNewMembershipNo] = useState("");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CompanyUserRow | null>(null);
   const [editRole, setEditRole] = useState<MemberRoleOption>("valuer");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editJobTitle, setEditJobTitle] = useState("");
+  const [editMembershipNo, setEditMembershipNo] = useState("");
   const [editNewPassword, setEditNewPassword] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<CompanyUserRow | null>(null);
   const [userActionBusy, setUserActionBusy] = useState(false);
@@ -1007,6 +1018,8 @@ export default function CompanyAdminDashboard({
   const [letterheadPreviewId, setLetterheadPreviewId] = useState<string | null>(null);
   const [personalEmail, setPersonalEmail] = useState("");
   const [personalPhone, setPersonalPhone] = useState("");
+  const [personalJobTitle, setPersonalJobTitle] = useState("");
+  const [personalMembershipNo, setPersonalMembershipNo] = useState("");
   const [personalSignature, setPersonalSignature] = useState<string | null>(null);
   const [personalBusy, setPersonalBusy] = useState(false);
   const [personalSignatureBusy, setPersonalSignatureBusy] = useState(false);
@@ -1045,6 +1058,8 @@ export default function CompanyAdminDashboard({
     if (!user) return;
     setPersonalEmail(profile?.email ?? user.email ?? "");
     setPersonalPhone(profile?.phone ?? user.phone ?? user.username ?? "");
+    setPersonalJobTitle(user.valuationReportJobTitle ?? "");
+    setPersonalMembershipNo(user.valuationReportMembershipNo ?? "");
   }, [profile?.email, profile?.phone, user]);
 
   const loadPersonalSignature = useCallback(async () => {
@@ -1073,6 +1088,8 @@ export default function CompanyAdminDashboard({
       await updateProfile({
         email: personalEmail.trim() || null,
         phone: personalPhone.trim() || null,
+        valuationReportJobTitle: personalJobTitle.trim() || null,
+        valuationReportMembershipNo: personalMembershipNo.trim() || null,
       });
       setStatus("تم حفظ بياناتك الشخصية.");
     } catch (e) {
@@ -1080,7 +1097,7 @@ export default function CompanyAdminDashboard({
     } finally {
       setPersonalBusy(false);
     }
-  }, [personalEmail, personalPhone, updateProfile]);
+  }, [personalEmail, personalJobTitle, personalMembershipNo, personalPhone, updateProfile]);
 
   const persistPersonalSignature = useCallback(
     async (url: string | null) => {
@@ -1471,6 +1488,8 @@ export default function CompanyAdminDashboard({
           role: newRole,
           ...productPayload,
           ...(em ? { email: em } : {}),
+          valuationReportJobTitle: newJobTitle.trim(),
+          valuationReportMembershipNo: newMembershipNo.trim(),
           phone: ph,
         }),
       });
@@ -1478,6 +1497,8 @@ export default function CompanyAdminDashboard({
       setNewPassword("");
       setNewEmail("");
       setNewPhone("");
+      setNewJobTitle("");
+      setNewMembershipNo("");
       setAddOpen(false);
       await load();
     } catch (e) {
@@ -1492,6 +1513,8 @@ export default function CompanyAdminDashboard({
     setEditRole(rowRoleToSelectValue(u.role));
     setEditEmail(u.email ?? "");
     setEditPhone(u.phone ?? "");
+    setEditJobTitle(u.valuationReportJobTitle ?? "");
+    setEditMembershipNo(u.valuationReportMembershipNo ?? "");
     setEditNewPassword("");
     setEditOpen(true);
     setSubmitError(null);
@@ -1503,6 +1526,8 @@ export default function CompanyAdminDashboard({
     const body: Record<string, unknown> = {};
     const origEmail = editTarget.email ?? "";
     const origPhone = editTarget.phone ?? "";
+    const origJobTitle = editTarget.valuationReportJobTitle ?? "";
+    const origMembershipNo = editTarget.valuationReportMembershipNo ?? "";
     if (editEmail.trim() !== origEmail.trim()) {
       body.email = editEmail.trim() || "";
     }
@@ -1515,6 +1540,12 @@ export default function CompanyAdminDashboard({
     }
     if (editTarget.role !== "company_admin" && editRole !== rowRoleToSelectValue(editTarget.role)) {
       body.role = editRole;
+    }
+    if (editJobTitle.trim() !== origJobTitle.trim()) {
+      body.valuationReportJobTitle = editJobTitle.trim();
+    }
+    if (editMembershipNo.trim() !== origMembershipNo.trim()) {
+      body.valuationReportMembershipNo = editMembershipNo.trim();
     }
     if (editNewPassword.trim().length > 0) {
       if (editNewPassword.trim().length < 8) {
@@ -1642,6 +1673,24 @@ export default function CompanyAdminDashboard({
                     onChange={(event) => setPersonalEmail(event.target.value)}
                     dir="ltr"
                     inputMode="email"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <Label>الوظيفة</Label>
+                  <Input
+                    value={personalJobTitle}
+                    onChange={(event) => setPersonalJobTitle(event.target.value)}
+                    placeholder="مقيم منتسب آلات ومعدات"
+                    dir="rtl"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <Label>رقم العضوية</Label>
+                  <Input
+                    value={personalMembershipNo}
+                    onChange={(event) => setPersonalMembershipNo(event.target.value)}
+                    placeholder="421000000"
+                    dir="ltr"
                   />
                 </label>
               </div>
@@ -1880,8 +1929,20 @@ export default function CompanyAdminDashboard({
                         const canDel = canDeleteCompanyUserRow(u, user?.id);
                         return (
                           <TableRow key={u.id} className="border-slate-100">
-                            <TableCell className="font-medium text-slate-900" dir="ltr">
-                              {userDisplayName(u)}
+                            <TableCell className="font-medium text-slate-900">
+                              <div className="grid gap-0.5">
+                                <span dir="ltr">{userDisplayName(u)}</span>
+                                {u.valuationReportJobTitle ? (
+                                  <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
+                                    {u.valuationReportJobTitle}
+                                  </span>
+                                ) : null}
+                                {u.valuationReportMembershipNo ? (
+                                  <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
+                                    رقم العضوية: {u.valuationReportMembershipNo}
+                                  </span>
+                                ) : null}
+                              </div>
                             </TableCell>
                             <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
                             <TableCell className="text-[12px] text-slate-500">
@@ -1971,8 +2032,20 @@ export default function CompanyAdminDashboard({
                     <TableBody>
                       {data.users.map((u) => (
                         <TableRow key={u.id} className="border-slate-100">
-                          <TableCell className="font-medium text-slate-900" dir="ltr">
-                            {userDisplayName(u)}
+                          <TableCell className="font-medium text-slate-900">
+                            <div className="grid gap-0.5">
+                              <span dir="ltr">{userDisplayName(u)}</span>
+                              {u.valuationReportJobTitle ? (
+                                <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
+                                  {u.valuationReportJobTitle}
+                                </span>
+                              ) : null}
+                              {u.valuationReportMembershipNo ? (
+                                <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
+                                  رقم العضوية: {u.valuationReportMembershipNo}
+                                </span>
+                              ) : null}
+                            </div>
                           </TableCell>
                           <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
                           <TableCell className="text-[12px] text-slate-500">
@@ -2626,6 +2699,26 @@ export default function CompanyAdminDashboard({
                 className="rounded-xl"
               />
             </div>
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">الوظيفة</Label>
+              <Input
+                value={newJobTitle}
+                onChange={(e) => setNewJobTitle(e.target.value)}
+                placeholder="مقيم منتسب آلات ومعدات"
+                className="rounded-xl"
+                dir="rtl"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">رقم العضوية</Label>
+              <Input
+                value={newMembershipNo}
+                onChange={(e) => setNewMembershipNo(e.target.value)}
+                placeholder="421000000"
+                className="rounded-xl"
+                dir="ltr"
+              />
+            </div>
             <Button
               type="button"
               className="mt-2 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
@@ -2686,6 +2779,26 @@ export default function CompanyAdminDashboard({
               <div className="grid gap-1.5">
                 <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
                 <PhoneNumberInput value={editPhone} onChange={setEditPhone} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] text-slate-600">الوظيفة</Label>
+                <Input
+                  value={editJobTitle}
+                  onChange={(e) => setEditJobTitle(e.target.value)}
+                  placeholder="مقيم منتسب آلات ومعدات"
+                  className="rounded-xl"
+                  dir="rtl"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] text-slate-600">رقم العضوية</Label>
+                <Input
+                  value={editMembershipNo}
+                  onChange={(e) => setEditMembershipNo(e.target.value)}
+                  placeholder="421000000"
+                  className="rounded-xl"
+                  dir="ltr"
+                />
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-[12px] text-slate-600">كلمة مرور جديدة (اختياري)</Label>

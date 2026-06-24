@@ -52,7 +52,6 @@ import {
 import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
-import { isPhotosSubfolderName, isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
 import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types";
 import {
   MV_WORKFLOW_SESSION,
@@ -60,7 +59,13 @@ import {
   writeMvWorkflowSessionJson,
   clearMvWorkflowSessionKey,
 } from "./mv-workflow-session-cache";
-import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
+import {
+  buildPhotosRootAssetEntries,
+  entryHasFullPicAssetMedia,
+  fetchPicAssetDetail,
+  hydratePicAssetEntriesProgressive,
+  mergePicAssetPreferFull,
+} from "./mv-pic-asset-progressive-load";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 
@@ -1018,9 +1023,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     return readMvWorkflowSessionJson(MV_WORKFLOW_SESSION.previewPhotoFolders(projectId)) == null;
   });
   const [selectedPreviewFolderId, setSelectedPreviewFolderId] = useState<string | null>(null);
+  const previewFoldersLoadIdRef = useRef(0);
+  const previewHydrateCancelRef = useRef<(() => void) | null>(null);
+  const selectedPreviewFolderIdRef = useRef<string | null>(null);
+  selectedPreviewFolderIdRef.current = selectedPreviewFolderId;
   const [expandedPreviewIds, setExpandedPreviewIds] = useState<Set<string>>(() => new Set(["__pv_root__"]));
   const [creatingPreviewFolder, setCreatingPreviewFolder] = useState(false);
-  const [folderMetaSaving, setFolderMetaSaving] = useState(false);
+  const [, setFolderMetaSaving] = useState(false);
   const [moveDialogFolder, setMoveDialogFolder] = useState<ImageFolderNode | null>(null);
   const [draggingPreview, setDraggingPreview] = useState(false);
   const [assetUploadJobs, setAssetUploadJobs] = useState<AssetUploadJob[]>([]);
@@ -1128,6 +1137,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const loadPreviewPhotoFolders = useCallback(async (mode: "full" | "revalidate" = "full") => {
     const cacheKey = MV_WORKFLOW_SESSION.previewPhotoFolders(projectId);
+    const myLoadId = ++previewFoldersLoadIdRef.current;
+    previewHydrateCancelRef.current?.();
     const cached = readMvWorkflowSessionJson<{
       photosRootId: string | null;
       entries: { sub: MvSubProject; picAsset: PicAsset | null }[];
@@ -1162,8 +1173,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return;
       }
       const data = (await res.json()) as { subProjects?: MvSubProject[] };
-      const subProjects = data.subProjects ?? [];
-      const previewRoot = subProjects.find((s) => isRootSubProjectParent(s.parent) && isPhotosSubfolderName(s.name));
+      const { previewRoot, entries: baseEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []);
       if (!previewRoot) {
         setPhotosRootId(null);
         setPreviewPhotoFolders([]);
@@ -1172,19 +1182,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return;
       }
       setPhotosRootId(previewRoot._id);
-      const byId = new Map(subProjects.map((s) => [s._id, s]));
-      const isUnderPhotosRoot = (sub: MvSubProject) => {
-        let parent = sub.parent;
-        const seen = new Set<string>();
-        while (parent && parent.trim()) {
-          if (parent === previewRoot._id) return true;
-          if (seen.has(parent)) return false;
-          seen.add(parent);
-          parent = byId.get(parent)?.parent ?? null;
-        }
-        return false;
-      };
-      const children = sortSubProjectsForDisplay(subProjects.filter(isUnderPhotosRoot));
       const mergeRecentlyCreated = (base: PreviewPhotoFolderEntry[]): PreviewPhotoFolderEntry[] => {
         if (recentlyCreatedPreviewFoldersRef.current.size === 0) return base;
         const presentSubIds = new Set(base.map((entry) => entry.sub._id));
@@ -1204,28 +1201,69 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
         return merged;
       };
-      const summaryEntries = mergeRecentlyCreated(
-        children.map((sub) => ({ sub, picAsset: sub.picAsset ?? null })),
-      );
-      setPreviewPhotoFolders(summaryEntries);
-      writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries: summaryEntries });
-      let entries = (
-        await mapWithConcurrency(children, 8, async (sub) => {
-          const r = await fetchWithRetry(`/api/mv/projects/${projectId}/subprojects/${sub._id}`, {
-            credentials: "include",
-          });
-          if (!r.ok) {
-            return { sub, picAsset: sub.picAsset ?? null } as { sub: MvSubProject; picAsset: PicAsset | null };
-          }
-          const row = (await r.json()) as MvSubProject & { picAsset?: PicAsset | null };
-          return { sub, picAsset: row.picAsset ?? null };
-        })
-      ).filter(Boolean);
-      entries = mergeRecentlyCreated(entries);
-      setPreviewPhotoFolders(entries);
-      writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries });
+      const summaryEntries = mergeRecentlyCreated(baseEntries);
+      let mergedEntries: PreviewPhotoFolderEntry[] = [];
+      setPreviewPhotoFolders((prev) => {
+        const prevById = new Map(prev.map((e) => [e.sub._id, e]));
+        mergedEntries = summaryEntries.map((entry) => {
+          const existing = prevById.get(entry.sub._id);
+          const mergedPic = mergePicAssetPreferFull(existing?.picAsset ?? null, entry.picAsset);
+          const mergedName =
+            mergedPic?.name?.trim() || entry.sub.name || existing?.sub.name || "";
+          return {
+            sub: { ...entry.sub, name: mergedName },
+            picAsset: mergedPic,
+          };
+        });
+        writeMvWorkflowSessionJson(cacheKey, {
+          photosRootId: previewRoot._id,
+          entries: mergedEntries,
+        });
+        return mergedEntries;
+      });
+      if (blockPreviewSpinner) setLoadingPreviewFolders(false);
+
+      const selectedId = selectedPreviewFolderIdRef.current;
+      const priorityIds =
+        selectedId && selectedId !== "__pv_root__"
+          ? [selectedId]
+          : mergedEntries.slice(0, 16).map((e) => e.sub._id);
+
+      previewHydrateCancelRef.current = hydratePicAssetEntriesProgressive(
+        projectId,
+        mergedEntries,
+        {
+          concurrency: 4,
+          prioritySubIds: priorityIds,
+          isCancelled: () => previewFoldersLoadIdRef.current !== myLoadId,
+          shouldSkip: (entry) => entryHasFullPicAssetMedia(entry.picAsset),
+          onUpdate: (subId, next) => {
+            if (previewFoldersLoadIdRef.current !== myLoadId) return;
+            setPreviewPhotoFolders((prev) => {
+              const merged = prev.map((e) =>
+                e.sub._id === subId
+                  ? { sub: next.sub, picAsset: mergePicAssetPreferFull(e.picAsset, next.picAsset) }
+                  : e,
+              );
+              writeMvWorkflowSessionJson(cacheKey, {
+                photosRootId: previewRoot._id,
+                entries: merged,
+              });
+              return merged;
+            });
+          },
+          onComplete: () => {
+            if (previewFoldersLoadIdRef.current !== myLoadId) return;
+            setPreviewPhotoFolders((current) => {
+              writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries: current });
+              return current;
+            });
+          },
+        },
+      ).cancel;
+
       setSelectedPreviewFolderId((prev) => {
-        if (prev === "__pv_root__" || (prev && entries.some((e) => e.sub._id === prev))) return prev;
+        if (prev === "__pv_root__" || (prev && mergedEntries.some((e) => e.sub._id === prev))) return prev;
         return "__pv_root__";
       });
       setExpandedPreviewIds((cur) => {
@@ -1286,10 +1324,38 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [loadImages, loadPreviewPhotoFolders]);
 
   useEffect(() => {
-    void Promise.all([loadImages("full"), loadPreviewPhotoFolders("full")]);
+    void loadPreviewPhotoFolders("full");
+    const imageLoadTimer = window.setTimeout(() => {
+      void loadImages("full");
+    }, 80);
     void loadReportSettings();
     void loadAssetImportSummary();
+    return () => {
+      window.clearTimeout(imageLoadTimer);
+      previewHydrateCancelRef.current?.();
+    };
   }, [loadAssetImportSummary, loadImages, loadPreviewPhotoFolders, loadReportSettings]);
+
+  useEffect(() => {
+    if (!selectedPreviewFolderId || selectedPreviewFolderId === "__pv_root__") return;
+    let cancelled = false;
+    void (async () => {
+      const row = await fetchPicAssetDetail(projectId, selectedPreviewFolderId);
+      if (cancelled || !row?.picAsset) return;
+      setPreviewPhotoFolders((prev) => {
+        const entry = prev.find((e) => e.sub._id === selectedPreviewFolderId);
+        if (!entry || entryHasFullPicAssetMedia(entry.picAsset)) return prev;
+        return prev.map((e) =>
+          e.sub._id === selectedPreviewFolderId
+            ? { sub: row.sub, picAsset: mergePicAssetPreferFull(e.picAsset, row.picAsset) }
+            : e,
+        );
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, selectedPreviewFolderId]);
 
   useEffect(() => {
     const onVis = () => {
@@ -1635,6 +1701,24 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const previewRowsById = useMemo(
     () => new Map(previewPhotoFolders.map((row) => [row.sub._id, row])),
     [previewPhotoFolders],
+  );
+
+  const setPreviewPhotoFoldersFast = useCallback(
+    (
+      updater: (
+        current: PreviewPhotoFolderEntry[],
+      ) => PreviewPhotoFolderEntry[],
+    ) => {
+      setPreviewPhotoFolders((current) => {
+        const next = updater(current);
+        writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.previewPhotoFolders(projectId), {
+          photosRootId,
+          entries: next,
+        });
+        return next;
+      });
+    },
+    [photosRootId, projectId],
   );
 
   const selectedPreviewFolderNode = selectedPreviewFolderId
@@ -2604,6 +2688,64 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     setMoveDialogFolder(folder);
   }, []);
 
+  const renamePreviewFolderInstant = useCallback(
+    (folder: ImageFolderNode) => {
+      if (!isManageablePreviewFolderNode(folder)) return;
+      const label = previewFolderKindLabel(folder);
+      const nextName = window.prompt(`اسم ${label} الجديد`, folder.name)?.trim();
+      if (!nextName || nextName === folder.name) return;
+
+      const now = new Date().toISOString();
+      setPreviewPhotoFoldersFast((current) =>
+        current.map((row) =>
+          row.sub._id === folder.path
+            ? {
+                ...row,
+                sub: { ...row.sub, name: nextName, updatedAt: now },
+                picAsset: row.picAsset
+                  ? { ...row.picAsset, name: nextName, updatedAt: now }
+                  : row.picAsset,
+              }
+            : row,
+        ),
+      );
+      setFiles((current) =>
+        current.map((file) => {
+          if (file.picAssetId !== folder.picAssetId && file.picAssetId !== folder.path) return file;
+          const basename = fileNameFromPath(file.relativePath || file.name);
+          const nextFolderPath = previewFolderBasePath(nextName);
+          return {
+            ...file,
+            folderPath: nextFolderPath,
+            relativePath: normalizeRelativePath(`${nextFolderPath}/${basename}`, basename),
+            updatedAt: now,
+          };
+        }),
+      );
+      toast({ description: label === "أصل" ? "تم تعديل اسم الأصل." : "تم تعديل اسم المجلد." });
+
+      void patchPreviewFolderMeta(folder.path, { name: nextName })
+        .then((updated) => {
+          setPreviewPhotoFoldersFast((current) =>
+            current.map((row) =>
+              row.sub._id === folder.path
+                ? { sub: updated, picAsset: updated.picAsset ?? row.picAsset }
+                : row,
+            ),
+          );
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        })
+        .catch((error) => {
+          toast({
+            variant: "destructive",
+            description: error instanceof Error ? error.message : "تعذر تعديل الاسم.",
+          });
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        });
+    },
+    [loadImages, loadPreviewPhotoFolders, patchPreviewFolderMeta, setPreviewPhotoFoldersFast, toast],
+  );
+
   const isPreviewFolderDescendantOf = useCallback(
     (candidateId: string, sourceId: string) => {
       let cursor = previewRowsById.get(candidateId);
@@ -2703,6 +2845,68 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       moveDialogFolder,
       patchPreviewFolderMeta,
       selectionFolderIdForParent,
+      toast,
+    ],
+  );
+
+  const movePreviewFolderToInstant = useCallback(
+    (targetParentId: string) => {
+      const folder = moveDialogFolder;
+      if (!folder || !isManageablePreviewFolderNode(folder)) return;
+      const label = previewFolderKindLabel(folder);
+      const now = new Date().toISOString();
+      const parentSelectionId = selectionFolderIdForParent(targetParentId);
+
+      setMoveDialogFolder(null);
+      setSelectedPreviewFolderId(folder.path);
+      setExpandedPreviewIds((current) => {
+        const next = new Set(current);
+        next.add("__pv_root__");
+        next.add(parentSelectionId);
+        next.add(folder.path);
+        return next;
+      });
+      setPreviewPhotoFoldersFast((current) =>
+        current.map((row) =>
+          row.sub._id === folder.path
+            ? {
+                ...row,
+                sub: { ...row.sub, parent: targetParentId, updatedAt: now },
+                picAsset: row.picAsset
+                  ? { ...row.picAsset, parent: targetParentId, updatedAt: now }
+                  : row.picAsset,
+              }
+            : row,
+        ),
+      );
+      toast({ description: label === "أصل" ? "تم نقل الأصل." : "تم نقل المجلد." });
+
+      void patchPreviewFolderMeta(folder.path, { targetParentId })
+        .then((updated) => {
+          setPreviewPhotoFoldersFast((current) =>
+            current.map((row) =>
+              row.sub._id === folder.path
+                ? { sub: updated, picAsset: updated.picAsset ?? row.picAsset }
+                : row,
+            ),
+          );
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        })
+        .catch((error) => {
+          toast({
+            variant: "destructive",
+            description: error instanceof Error ? error.message : "تعذر نقل العنصر.",
+          });
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        });
+    },
+    [
+      loadImages,
+      loadPreviewPhotoFolders,
+      moveDialogFolder,
+      patchPreviewFolderMeta,
+      selectionFolderIdForParent,
+      setPreviewPhotoFoldersFast,
       toast,
     ],
   );
@@ -3018,12 +3222,48 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     [loadImages, projectId, revokeOptimisticUrls, toast],
   );
 
+  const deleteFileIdsFast = useCallback(
+    (fileIds: Iterable<string>, successMessage: string) => {
+      const ids = Array.from(new Set(fileIds));
+      if (ids.length === 0) {
+        toast({ variant: "destructive", description: "لا توجد صور محددة للحذف." });
+        return;
+      }
+      if (!window.confirm(`حذف ${numberFormatter.format(ids.length)} صورة؟`)) return;
+
+      const localIds = ids.filter(isLocalPreviewDriveId);
+      const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id));
+      if (localIds.length > 0) revokeOptimisticUrls(localIds);
+      setFiles((prev) => prev.filter((file) => !ids.includes(file._id)));
+      setLightboxFile((cur) => (cur && ids.includes(cur._id) ? null : cur));
+      toast({ description: successMessage });
+
+      if (remoteIds.length === 0) return;
+
+      void (async () => {
+        try {
+          for (const id of remoteIds) {
+            const response = await fetch(`/api/mv/projects/${projectId}/files/${id}`, {
+              method: "DELETE",
+              credentials: "include",
+            });
+            if (!response.ok) throw new Error("delete_failed");
+          }
+        } catch {
+          toast({ variant: "destructive", description: "تعذر حذف بعض الصور، تمت إعادة المزامنة." });
+          void loadImages("revalidate");
+        }
+      })();
+    },
+    [loadImages, projectId, revokeOptimisticUrls, toast],
+  );
+
   const deleteSingleImage = useCallback(
     (file: MvDriveFile) => {
       if (isDisplayOnlyPicAssetImage(file)) return;
-      void deleteFileIds([file._id], "تم حذف الصورة.");
+      deleteFileIdsFast([file._id], "تم حذف الصورة.");
     },
-    [deleteFileIds],
+    [deleteFileIdsFast],
   );
 
   const deleteFolderImages = useCallback(
@@ -3035,12 +3275,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         toast({ variant: "destructive", description: "لا توجد صور قابلة للحذف في هذا المجلد." });
         return;
       }
-      void deleteFileIds(
+      deleteFileIdsFast(
         fileIds,
         "تم حذف صور المجلد.",
       );
     },
-    [deleteFileIds, toast],
+    [deleteFileIdsFast, toast],
   );
 
   const deletePreviewFolder = useCallback(
@@ -3129,19 +3369,100 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     ],
   );
 
+  const deletePreviewFolderFast = useCallback(
+    (folder: ImageFolderNode) => {
+      if (folder.path === "__pv_root__") {
+        toast({ variant: "destructive", description: "لا يمكن حذف مجلد صور الأصول الرئيسي." });
+        return;
+      }
+
+      const collectNodes = (node: ImageFolderNode): ImageFolderNode[] => [
+        node,
+        ...node.folders.flatMap((child) => collectNodes(child)),
+      ];
+      const roots = folder.isSynthetic
+        ? folder.folders.filter((child) => isManageablePreviewFolderNode(child))
+        : [folder];
+      if (roots.length === 0) {
+        toast({ variant: "destructive", description: "لا توجد عناصر فعلية قابلة للحذف." });
+        return;
+      }
+
+      const nodes = roots.flatMap((node) => collectNodes(node));
+      const imageCount = collectFolderImages(folder).length;
+      const folderCount = folder.isSynthetic ? roots.length : countDescendantFolders(folder);
+      const label = folder.isSynthetic ? "التجميع" : previewFolderKindLabel(folder);
+      const warning =
+        imageCount > 0 || folderCount > 0
+          ? `حذف ${label} «${folder.name}» وكل محتواه (${numberFormatter.format(imageCount)} صورة)؟`
+          : `حذف ${label} «${folder.name}»؟`;
+      if (!window.confirm(warning)) return;
+
+      const nodeIds = new Set(nodes.map((node) => node.path));
+      const picIds = new Set(nodes.map((node) => node.picAssetId).filter((id): id is string => Boolean(id)));
+      const fileIds = new Set(
+        collectFolderImages(folder)
+          .filter((file) => !isDisplayOnlyPicAssetImage(file))
+          .map((file) => file._id),
+      );
+      const parentId = previewRowsById.get(folder.path)?.sub.parent ?? null;
+      const nextSelection = parentId && previewFoldersById.has(parentId) ? parentId : "__pv_root__";
+
+      setPreviewPhotoFoldersFast((current) =>
+        current.filter((row) => !nodeIds.has(row.sub._id) && !picIds.has(row.picAsset?._id ?? "")),
+      );
+      setFiles((current) =>
+        current.filter((file) => {
+          if (fileIds.has(file._id)) return false;
+          if (file.picAssetId && picIds.has(file.picAssetId)) return false;
+          return true;
+        }),
+      );
+      if (selectedPreviewFolderId && folderContainsPath(folder, selectedPreviewFolderId)) {
+        setSelectedPreviewFolderId(nextSelection);
+      }
+      toast({ description: label === "أصل" ? "تم حذف الأصل." : "تم حذف المجلد." });
+
+      void (async () => {
+        try {
+          for (const root of roots) {
+            const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${root.path}`, {
+              method: "DELETE",
+              credentials: "include",
+            });
+            if (!response.ok) throw new Error("delete_failed");
+          }
+        } catch {
+          toast({ variant: "destructive", description: "تعذر حذف بعض العناصر، تمت إعادة المزامنة." });
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        }
+      })();
+    },
+    [
+      loadImages,
+      loadPreviewPhotoFolders,
+      previewFoldersById,
+      previewRowsById,
+      projectId,
+      selectedPreviewFolderId,
+      setPreviewPhotoFoldersFast,
+      toast,
+    ],
+  );
+
   const deleteSelectedItems = useCallback(() => {
-    void deleteFileIds(reportSelectedFileIds, "تم حذف الصور المحددة للتقرير.");
-  }, [deleteFileIds, reportSelectedFileIds]);
+    deleteFileIdsFast(reportSelectedFileIds, "تم حذف الصور المحددة للتقرير.");
+  }, [deleteFileIdsFast, reportSelectedFileIds]);
 
   const deleteCurrentPathImages = useCallback(() => {
     const fileIds = collectFolderImages(selectedFolder)
       .filter((file) => !isDisplayOnlyPicAssetImage(file))
       .map((file) => file._id);
-    void deleteFileIds(
+    deleteFileIdsFast(
       fileIds,
       "تم حذف صور المسار الحالي.",
     );
-  }, [deleteFileIds, selectedFolder]);
+  }, [deleteFileIdsFast, selectedFolder]);
 
   const openImage = useCallback((file: MvDriveFile) => {
     setSelectedPath(folderPathFromRelativePath(file.relativePath || file.name));
@@ -3591,11 +3912,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       toast({ variant: "destructive", description: "لا توجد صور مباشرة قابلة للحذف في هذا المجلد." });
       return;
     }
-    void deleteFileIds(
+    deleteFileIdsFast(
       nodeFiles.map((f) => f._id),
       "تم حذف صور مجلد المعاينة الحالي.",
     );
-  }, [deleteFileIds, selectedPreviewFolderNode, toast]);
+  }, [deleteFileIdsFast, selectedPreviewFolderNode, toast]);
 
   const renderTreeImage = (file: MvDriveFile, level = 0, scopeFiles: MvDriveFile[] = []) => {
     const selected = isReportImageIncluded(file);
@@ -3918,7 +4239,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               {selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() => (displayOnly ? void deletePicAssetImage(file) : (canMutate && deleteFileIds([effectiveId!], "تم حذف الصورة.")))}
+                                      onSelect={() => (displayOnly ? void deletePicAssetImage(file) : (canMutate && deleteFileIdsFast([effectiveId!], "تم حذف الصورة.")))}
               disabled={displayOnly ? false : !canMutate}
               className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
             >
@@ -4043,8 +4364,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               {treeMedia === "images" && isManageablePreviewFolderNode(node) ? (
                 <>
                   <DropdownMenuItem
-                    onSelect={() => void renamePreviewFolder(node)}
-                    disabled={folderMetaSaving}
+                    onSelect={() => renamePreviewFolderInstant(node)}
                     className="cursor-pointer text-[12px]"
                   >
                     <Pencil className="h-4 w-4 text-slate-600" />
@@ -4052,7 +4372,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => openMovePreviewFolder(node)}
-                    disabled={folderMetaSaving}
+                    disabled={false}
                     className="cursor-pointer text-[12px]"
                   >
                     <MoveRight className="h-4 w-4 text-emerald-700" />
@@ -4098,7 +4418,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               ) : null}
               {treeMedia === "images" && node.path !== "__pv_root__" ? (
                 <DropdownMenuItem
-                  onSelect={() => void deletePreviewFolder(node)}
+                  onSelect={() => deletePreviewFolderFast(node)}
                   disabled={deleting}
                   className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                 >
@@ -4243,7 +4563,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           حذف صور المسار الحالي
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => selectedPreviewFolderNode && void deletePreviewFolder(selectedPreviewFolderNode)}
+          onSelect={() => selectedPreviewFolderNode && deletePreviewFolderFast(selectedPreviewFolderNode)}
           disabled={!selectedPreviewFolderNode || selectedPreviewFolderNode.path === "__pv_root__" || deleting}
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
@@ -4735,8 +5055,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       {isManageablePreviewFolderNode(folder) ? (
                                         <>
                                           <DropdownMenuItem
-                                            onSelect={() => void renamePreviewFolder(folder)}
-                                            disabled={folderMetaSaving}
+                                            onSelect={() => renamePreviewFolderInstant(folder)}
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <Pencil className="h-4 w-4 text-slate-600" />
@@ -4744,7 +5063,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           </DropdownMenuItem>
                                           <DropdownMenuItem
                                             onSelect={() => openMovePreviewFolder(folder)}
-                                            disabled={folderMetaSaving}
+                                            disabled={false}
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <MoveRight className="h-4 w-4 text-emerald-700" />
@@ -4788,7 +5107,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       </DropdownMenuItem>
                                       {folder.path !== "__pv_root__" ? (
                                         <DropdownMenuItem
-                                          onSelect={() => void deletePreviewFolder(folder)}
+                                          onSelect={() => deletePreviewFolderFast(folder)}
                                           disabled={deleting}
                                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                         >
@@ -5039,7 +5358,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       <Dialog
         open={moveDialogFolder != null}
         onOpenChange={(open) => {
-          if (!open && !folderMetaSaving) setMoveDialogFolder(null);
+          if (!open) setMoveDialogFolder(null);
         }}
       >
         <DialogContent
@@ -5064,8 +5383,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 <button
                   key={option.key}
                   type="button"
-                  disabled={option.disabled || folderMetaSaving}
-                  onClick={() => void movePreviewFolderTo(option.parentId)}
+                  disabled={option.disabled}
+                  onClick={() => movePreviewFolderToInstant(option.parentId)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-right text-[12px] font-bold transition",
                     option.disabled
@@ -5082,7 +5401,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   <span className="min-w-0 flex-1 truncate" dir="auto">
                     {option.label}
                   </span>
-                  {folderMetaSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 </button>
               ))
             ) : (

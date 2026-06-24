@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import type { MvDriveFile } from "./types";
 import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store";
+import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
 
 function reorderIds(order: string[], fromId: string, toId: string) {
   if (fromId === toId) return order;
@@ -388,11 +389,7 @@ export function MvReportImagesControlPanel({
           valuationOrder.map((id) => {
             const image = valuationById.get(id);
             if (!image) return null;
-            const src = image.dataUrl
-              ? image.dataUrl
-              : image.fileId
-                ? `/api/mv/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(image.fileId)}/download`
-                : undefined;
+            const src = resolveValuationAccountingImageSrc(projectId, image) || undefined;
             return (
               <DraggableRow
                 key={id}

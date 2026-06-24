@@ -3,7 +3,7 @@
  * يقلل إعادة الجلب من الخادم عند التنقل بين الخطوات دون الإبقاء على بيانات قديمة بين الجلسات.
  */
 
-const CACHE_VER = 1;
+const CACHE_VER = 2;
 
 export const MV_WORKFLOW_SESSION = {
   projectSummary: (projectId: string) => `sv:mv:wf:v${CACHE_VER}:summary:${projectId}`,

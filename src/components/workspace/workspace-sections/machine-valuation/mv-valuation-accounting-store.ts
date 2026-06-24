@@ -108,6 +108,34 @@ export function approachLabel(id: MvValuationAccountingApproachId) {
   return MV_VALUATION_ACCOUNTING_APPROACHES.find((item) => item.id === id)?.label ?? id;
 }
 
+/** يفضّل الملف المخزّن على الخادم على ‎dataUrl‎ المحلي (غالباً معاينة منخفضة الدقة). */
+export function resolveValuationAccountingImageSrc(
+  projectId: string,
+  image: { dataUrl?: string; fileId?: string },
+): string {
+  if (image.fileId) {
+    return `/api/mv/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(image.fileId)}/download`;
+  }
+  if (image.dataUrl) return image.dataUrl;
+  return "";
+}
+
+function stripRedundantAccountingDataUrls(store: MvValuationAccountingStore): MvValuationAccountingStore {
+  return {
+    ...store,
+    sources: store.sources.map((s) => {
+      if (!s.fileId || !s.dataUrl) return s;
+      const { dataUrl: _d, ...rest } = s;
+      return rest;
+    }),
+    images: store.images.map((im) => {
+      if (!im.fileId || !im.dataUrl) return im;
+      const { dataUrl: _d, ...rest } = im;
+      return rest;
+    }),
+  };
+}
+
 function isApproachId(value: unknown): value is MvValuationAccountingApproachId {
   return MV_VALUATION_ACCOUNTING_APPROACHES.some((item) => item.id === value);
 }
@@ -216,7 +244,7 @@ export function parseValuationAccountingStoreFromApi(raw: unknown): MvValuationA
   if (!raw || typeof raw !== "object") return null;
   const parsed = raw as Partial<MvValuationAccountingStore>;
   if (parsed.version !== 1) return null;
-  return {
+  return stripRedundantAccountingDataUrls({
     version: 1,
     includeInReport: parsed.includeInReport !== false,
     sources: Array.isArray(parsed.sources)
@@ -226,7 +254,7 @@ export function parseValuationAccountingStoreFromApi(raw: unknown): MvValuationA
       ? parsed.images.map(normalizeImage).filter((item): item is MvValuationAccountingImage => Boolean(item))
       : [],
     updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
-  };
+  });
 }
 
 /** دمج: الأحدث حسب ‎updatedAt‎؛ عند التعادل يُفضَّل الأكثر مصادر/صوراً */
@@ -235,35 +263,19 @@ export function mergeValuationAccountingStores(
   local: MvValuationAccountingStore,
 ): MvValuationAccountingStore {
   const fromServer = parseValuationAccountingStoreFromApi(serverRaw);
-  if (!fromServer) return local;
+  if (!fromServer) return stripRedundantAccountingDataUrls(local);
   const sTime = fromServer.updatedAt ? Date.parse(fromServer.updatedAt) : 0;
   const lTime = local.updatedAt ? Date.parse(local.updatedAt) : 0;
   if (sTime > lTime) return fromServer;
-  if (lTime > sTime) return local;
+  if (lTime > sTime) return stripRedundantAccountingDataUrls(local);
   const sScore = fromServer.sources.length + fromServer.images.length;
   const lScore = local.sources.length + local.images.length;
-  return sScore >= lScore ? fromServer : local;
+  return stripRedundantAccountingDataUrls(sScore >= lScore ? fromServer : local);
 }
 
 /** إزالة ‎dataUrl‎ قبل إرسالها للخادم (تخفيف حجم المستند) */
 export function valuationAccountingStoreForApi(store: MvValuationAccountingStore): MvValuationAccountingStore {
-  return {
-    ...store,
-    sources: store.sources.map((s) => {
-      if (s.fileId) {
-        const { dataUrl: _d, ...rest } = s;
-        return rest;
-      }
-      return s;
-    }),
-    images: store.images.map((im) => {
-      if (im.fileId) {
-        const { dataUrl: _d, ...rest } = im;
-        return rest;
-      }
-      return im;
-    }),
-  };
+  return stripRedundantAccountingDataUrls(store);
 }
 
 export function readValuationAccountingStore(projectId: string): MvValuationAccountingStore {
@@ -274,7 +286,8 @@ export function readValuationAccountingStore(projectId: string): MvValuationAcco
       window.sessionStorage.getItem(valuationAccountingStorageKey(projectId));
     if (!raw) return emptyValuationAccountingStore();
     const parsed = JSON.parse(raw) as unknown;
-    return parseValuationAccountingStoreFromApi(parsed) ?? emptyValuationAccountingStore();
+    const store = parseValuationAccountingStoreFromApi(parsed) ?? emptyValuationAccountingStore();
+    return stripRedundantAccountingDataUrls(store);
   } catch {
     return emptyValuationAccountingStore();
   }
@@ -285,11 +298,11 @@ export function writeValuationAccountingStore(
   store: MvValuationAccountingStore,
 ): boolean {
   if (typeof window === "undefined") return true;
-  const next: MvValuationAccountingStore = {
+  const next: MvValuationAccountingStore = stripRedundantAccountingDataUrls({
     ...store,
     version: 1,
     updatedAt: new Date().toISOString(),
-  };
+  });
   const raw = JSON.stringify(next);
   try {
     window.localStorage.setItem(valuationAccountingStorageKey(projectId), raw);
