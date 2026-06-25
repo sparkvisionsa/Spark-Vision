@@ -80,7 +80,13 @@ import {
   mvLocationId,
   mvLocationSelectionSummary,
 } from "./mv-location-multi-select";
-import { MvEmptyState, MvStatusBadge, MvTopBar } from "./mv-ui";
+import { MvEmptyState, MvTopBar } from "./mv-ui";
+import {
+  MV_PROJECT_WORKFLOW_STATUS_FALLBACK,
+  MvProjectWorkflowStatusSelect,
+  type MvProjectWorkflowStatusOption,
+} from "./mv-project-workflow-status-select";
+import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { mvAutoPdfDownloadStorageKey, MV_REPORT_PDF_PARENT_MESSAGE } from "./mv-home-routes";
 
@@ -94,22 +100,9 @@ const tajawal = Tajawal({
   display: "swap",
 });
 
-const MV_WORKFLOW_LABEL_AR: Record<MvProjectWorkflowStatus, string> = {
-  new: "جديد",
-  review: "قيد المراجعة",
-  approved: "معتمد",
-};
-
 const MV_REPORT_TYPE_LABEL_AR: Record<MvProjectReportType, string> = {
   simple: "تقرير مبسّط",
   advanced: "تقرير متقدّم",
-};
-
-const PROJECT_STATUS_FILTERS: ProjectStatusFilter[] = ["all", "new", "review", "approved"];
-
-const PROJECT_STATUS_FILTER_LABEL_AR: Record<ProjectStatusFilter, string> = {
-  all: "كل الحالات",
-  ...MV_WORKFLOW_LABEL_AR,
 };
 
 const numberFormatter = new Intl.NumberFormat("ar-SA");
@@ -117,15 +110,6 @@ const numberFormatter = new Intl.NumberFormat("ar-SA");
 function normalizeWorkflowStatus(raw: string | undefined | null): MvProjectWorkflowStatus {
   if (raw === "review" || raw === "approved" || raw === "new") return raw;
   return "new";
-}
-
-function projectProgressPct(project: MvProject): number {
-  const sheets = project.sheetCount ?? 0;
-  const subs = project.subProjectCount ?? 0;
-  if (sheets === 0 && subs === 0) return 0;
-  if (sheets >= 4) return 100;
-  const score = subs * 22 + sheets * 20 + 10;
-  return Math.min(99, Math.round(score));
 }
 
 function formatDateLabel(value: string | undefined) {
@@ -137,12 +121,6 @@ function formatDateLabel(value: string | undefined) {
     month: "short",
     day: "numeric",
   }).format(date);
-}
-
-function getStatusTone(status: MvProjectWorkflowStatus): "info" | "warning" | "success" {
-  if (status === "approved") return "success";
-  if (status === "review") return "warning";
-  return "info";
 }
 
 function projectWorkspaceHref(projectId: string) {
@@ -172,18 +150,18 @@ function ProjectWorkspaceLink({
       href={projectWorkspaceHref(projectId)}
       className={cn(
         "group inline-flex max-w-full items-center gap-2 rounded-lg text-start outline-none transition-colors",
-        "text-slate-900 hover:text-[#0C447C]",
-        "focus-visible:ring-2 focus-visible:ring-sky-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+        "text-slate-950 hover:text-cyan-700",
+        "focus-visible:ring-2 focus-visible:ring-cyan-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
         compact ? "py-0.5" : "py-1",
       )}
     >
       <FolderOpen
-        className="h-4 w-4 shrink-0 text-slate-400 transition-colors group-hover:text-sky-600"
+        className="h-4 w-4 shrink-0 text-slate-400 transition-colors group-hover:text-cyan-600"
         aria-hidden
       />
       <span
         className={cn(
-          "min-w-0 flex-1 break-words font-semibold leading-snug underline decoration-transparent decoration-2 underline-offset-4 transition group-hover:decoration-sky-300/90",
+          "min-w-0 flex-1 break-words font-semibold leading-snug underline decoration-transparent decoration-2 underline-offset-4 transition group-hover:decoration-cyan-300/90",
           compact ? "text-[13px]" : "text-sm sm:text-[15px]",
           nameClassName,
         )}
@@ -191,7 +169,7 @@ function ProjectWorkspaceLink({
         {title}
       </span>
       <ChevronLeft
-        className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-sky-500"
+        className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-cyan-500"
         aria-hidden
       />
     </Link>
@@ -229,7 +207,7 @@ function ProjectActionsMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-[#378ADD]/40 hover:bg-slate-50 hover:text-[#0C447C]"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
           aria-label={`إجراءات ${project.name || "المشروع"}`}
         >
           <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
@@ -295,14 +273,14 @@ function ProjectsPagination({
   const tokens = buildPaginationTokens(currentPage, totalPages);
 
   return (
-    <div className="flex flex-col gap-2 border-t border-slate-200/80 bg-white px-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-3">
+    <div className="flex flex-col gap-2 border-t border-slate-200/80 bg-white/95 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <p className="text-[11px] tabular-nums text-slate-500">
           {numberFormatter.format(start)}–{numberFormatter.format(end)} / {numberFormatter.format(totalItems)}
         </p>
         <div className="flex items-center gap-1.5">
           <Select value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))}>
-            <SelectTrigger className="h-8 w-[88px] rounded-md border-slate-200 bg-slate-50 text-[11px]">
+            <SelectTrigger className="h-8 w-[92px] rounded-lg border-slate-200 bg-slate-50 text-[11px] shadow-none">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -321,7 +299,7 @@ function ProjectsPagination({
           type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="الصفحة السابقة"
         >
           <ChevronRight className="h-3.5 w-3.5" />
@@ -334,9 +312,9 @@ function ProjectsPagination({
               type="button"
               onClick={() => onPageChange(token)}
               className={cn(
-                "inline-flex h-8 min-w-8 items-center justify-center rounded-md border px-2 text-[11px] font-semibold transition",
+                "inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-[11px] font-semibold transition",
                 token === currentPage
-                  ? "border-cyan-600 bg-cyan-600 text-white"
+                  ? "border-slate-950 bg-slate-950 text-white"
                   : "border-transparent text-slate-600 hover:bg-slate-100",
               )}
             >
@@ -356,7 +334,7 @@ function ProjectsPagination({
           type="button"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="الصفحة التالية"
         >
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -372,15 +350,17 @@ function ProjectMetricGrid({
   items: { hint: string; value: string; icon: React.ReactNode }[];
 }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
       {items.map((item) => (
         <div
           key={item.hint}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-slate-600"
+          className="flex min-h-16 min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur"
         >
-          <span className="text-slate-400 [&>svg]:h-3.5 [&>svg]:w-3.5">{item.icon}</span>
-          <span className="text-[11px] font-bold text-slate-500">{item.hint}</span>
-          <span className="text-[15px] font-black tabular-nums text-slate-950">{item.value}</span>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-cyan-100 [&>svg]:h-3.5 [&>svg]:w-3.5">{item.icon}</span>
+          <span className="min-w-0">
+            <span className="block truncate text-[11px] font-bold text-slate-300">{item.hint}</span>
+            <span className="block text-[18px] font-black leading-tight tabular-nums text-white">{item.value}</span>
+          </span>
         </div>
       ))}
     </div>
@@ -1077,6 +1057,10 @@ export default function MvProjectsDashboard() {
   const [backgroundPdfExport, setBackgroundPdfExport] = useState<{ projectId: string; nonce: number } | null>(
     null,
   );
+  const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
+    MV_PROJECT_WORKFLOW_STATUS_FALLBACK,
+  );
+  const [workflowStatusSavingId, setWorkflowStatusSavingId] = useState<string | null>(null);
   const inspectorFilesLocationOptions = useMemo(() => {
     if (!inspectorFilesProject || !inspectorFilesSiteId) return inspectorFilesProject?.locations ?? [];
     const target = (inspectorFilesProject.locations ?? []).find(
@@ -1176,11 +1160,30 @@ export default function MvProjectsDashboard() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/mv/project-workflow-statuses", { credentials: "include" });
+        if (!response.ok || cancelled) return;
+        const rows = (await response.json()) as MvProjectWorkflowStatusOption[];
+        if (!cancelled && Array.isArray(rows) && rows.length > 0) {
+          setWorkflowStatusOptions(rows);
+        }
+      } catch {
+        /* keep fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (contactDataOpen) prefetchMvLocationCatalog();
   }, [contactDataOpen]);
 
   const metrics = useMemo(() => {
-    const withAssets = visibleProjects.filter((project) => (project.sheetCount ?? 0) > 0).length;
+    const withAssets = visibleProjects.filter((project) => projectAssetFolderCount(project) > 0).length;
     const withSubfolders = visibleProjects.filter((project) => (project.subProjectCount ?? 0) > 0).length;
     const approved = visibleProjects.filter(
       (project) => normalizeWorkflowStatus(project.workflowStatus) === "approved",
@@ -1522,6 +1525,44 @@ export default function MvProjectsDashboard() {
     return () => clearTimeout(id);
   }, [backgroundPdfExport]);
 
+  const handleWorkflowStatusChange = useCallback(
+    async (projectId: string, nextStatus: MvProjectWorkflowStatus) => {
+      if (workflowStatusSavingId) return false;
+      setWorkflowStatusSavingId(projectId);
+      try {
+        const response = await fetch(`/api/mv/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ workflowStatus: nextStatus }),
+        });
+        if (!response.ok) throw new Error();
+        const raw = (await response.json().catch(() => null)) as { project?: MvProject } | null;
+        const updatedProject = raw?.project;
+        setProjects((prev) =>
+          prev.map((project) =>
+            project._id === projectId
+              ? {
+                  ...project,
+                  ...(updatedProject ?? {}),
+                  workflowStatus: updatedProject?.workflowStatus ?? nextStatus,
+                  updatedAt: updatedProject?.updatedAt ?? new Date().toISOString(),
+                }
+              : project,
+          ),
+        );
+        toast({ description: "تم تحديث حالة المشروع." });
+        return true;
+      } catch {
+        toast({ variant: "destructive", description: "تعذّر تحديث حالة المشروع." });
+        return false;
+      } finally {
+        setWorkflowStatusSavingId(null);
+      }
+    },
+    [toast, workflowStatusSavingId],
+  );
+
   const handleDeleteProject = async (projectId: string) => {
     const target = visibleProjects.find((p) => p._id === projectId);
     if (!window.confirm(`حذف المشروع «${target?.name || projectId}»؟ سيتم حذف جميع البيانات المرتبطة به ولا يمكن التراجع.`)) return;
@@ -1548,18 +1589,17 @@ export default function MvProjectsDashboard() {
     projectQuery.trim().length > 0 || statusFilter !== "all" || !sortRecentlyWorked;
 
   return (
-    <div className={cn(tajawal.className, "min-h-screen bg-[#f5f7fb] text-slate-950")} dir="rtl">
+    <div className={cn(tajawal.className, "min-h-full text-slate-950")} dir="rtl">
       <MvTopBar
         breadcrumbs={[{ label: "المشاريع" }]}
         sticky
-        className="top-0 z-30 bg-white/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/85"
+        className="top-0 z-30 border-slate-200/70 bg-white/80 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/70"
       />
 
-      <main className="mx-auto flex w-full max-w-[1320px] flex-col gap-3 px-3 py-3 sm:px-5 lg:px-6">
-        <section className="rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:px-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
-              <h1 className="shrink-0 text-[20px] font-black text-slate-950">المشاريع</h1>
+      <main className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 px-3 py-4 sm:px-5 lg:px-6">
+        <section className="overflow-hidden rounded-lg border border-slate-950/10 bg-slate-950 px-4 py-3 text-white shadow-2xl shadow-slate-950/15 sm:px-5 lg:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+            <div className="min-w-0 flex-1">
               <ProjectMetricGrid items={metrics} />
             </div>
 
@@ -1574,7 +1614,7 @@ export default function MvProjectsDashboard() {
                   : "إنشاء مشروع جديد"
               }
               aria-label="إنشاء مشروع جديد"
-              className="h-10 shrink-0 gap-2 rounded-lg bg-slate-950 px-4 text-[13px] font-black text-white shadow-sm hover:bg-slate-800 disabled:opacity-45"
+              className="h-11 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-[13px] font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-cyan-50 disabled:opacity-45 sm:self-center"
             >
               <Plus className="h-4 w-4" aria-hidden />
               <span>إنشاء مشروع جديد</span>
@@ -1582,16 +1622,16 @@ export default function MvProjectsDashboard() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-2 border-b border-slate-200 bg-white px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(220px,1fr)_180px] lg:max-w-2xl">
+        <section className="overflow-hidden rounded-lg border border-slate-200/80 bg-white/95 shadow-xl shadow-slate-950/[0.04] backdrop-blur">
+          <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white/90 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(240px,1fr)_190px] lg:max-w-3xl">
               <div className="relative min-w-0">
                 <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={projectQuery}
                   onChange={(event) => setProjectQuery(event.target.value)}
                   placeholder="بحث في المشاريع"
-                  className="h-10 rounded-lg border-slate-200 bg-slate-50 pr-9 text-[13px] font-semibold shadow-none focus-visible:ring-slate-200"
+                  className="h-11 rounded-lg border-slate-200 bg-white pr-9 text-[13px] font-semibold shadow-none focus-visible:border-cyan-300 focus-visible:ring-cyan-200"
                 />
               </div>
 
@@ -1601,15 +1641,16 @@ export default function MvProjectsDashboard() {
               >
                 <SelectTrigger
                   aria-label="بحث متقدم حسب الحالة"
-                  className="h-10 justify-start gap-2 rounded-lg border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-700 shadow-none focus:ring-slate-200 [&>svg:last-child]:mr-auto"
+                  className="h-11 justify-start gap-2 rounded-lg border-slate-200 bg-white text-[12px] font-bold text-slate-700 shadow-none focus:ring-cyan-200 [&>svg:last-child]:mr-auto"
                 >
                   <span className="shrink-0 text-[11px] font-black text-slate-400">الحالة</span>
                   <SelectValue placeholder="كل الحالات" />
                 </SelectTrigger>
                 <SelectContent align="end">
-                  {PROJECT_STATUS_FILTERS.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {PROJECT_STATUS_FILTER_LABEL_AR[status]}
+                  <SelectItem value="all">كل الحالات</SelectItem>
+                  {workflowStatusOptions.map((status) => (
+                    <SelectItem key={status.value} value={status.value}>
+                      {status.labelAr}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1623,9 +1664,9 @@ export default function MvProjectsDashboard() {
                 size="sm"
                 onClick={() => setSortRecentlyWorked((current) => !current)}
                 className={cn(
-                  "h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black shadow-none",
+                  "h-10 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black shadow-none",
                   sortRecentlyWorked
-                    ? "border-sky-200 bg-sky-50 text-[#0C447C] hover:bg-sky-100 hover:text-[#0C447C]"
+                    ? "border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 hover:text-cyan-900"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
                 )}
                 title="ترتيب حسب آخر مشروع تم العمل عليه"
@@ -1634,7 +1675,7 @@ export default function MvProjectsDashboard() {
                 <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
                 <span>الأحدث عملاً</span>
               </Button>
-              <span className="whitespace-nowrap rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] font-bold tabular-nums text-slate-500">
+              <span className="whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] font-bold tabular-nums text-slate-600">
                 {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
               </span>
               {hasActiveFilters ? (
@@ -1642,7 +1683,7 @@ export default function MvProjectsDashboard() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  className="h-10 w-10 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                   onClick={resetFilters}
                   title="مسح التصفية"
                   aria-label="مسح التصفية"
@@ -1654,9 +1695,9 @@ export default function MvProjectsDashboard() {
           </div>
 
           {loading || authLoading ? (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 bg-white">
               {Array.from({ length: 7 }).map((_, index) => (
-                <div key={index} className="flex animate-pulse items-center gap-3 px-4 py-3">
+                <div key={index} className="flex animate-pulse items-center gap-3 px-4 py-4">
                   <div className="h-8 w-8 shrink-0 rounded-lg bg-slate-200" />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="h-3 w-[42%] max-w-sm rounded bg-slate-200" />
@@ -1706,10 +1747,10 @@ export default function MvProjectsDashboard() {
             </div>
           ) : (
             <>
-              <div className="hidden overflow-x-auto xl:block">
-                <table className="w-full min-w-[920px] table-fixed border-collapse text-right">
+              <div className="hidden overflow-x-auto bg-white xl:block">
+                <table className="w-full min-w-[960px] table-fixed border-collapse text-right">
                   <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500">
+                    <tr className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-black text-slate-500">
                       <th className="w-[56px] px-2 py-3 text-center" title="الرقم التسلسلي للتقرير داخل الشركة">#</th>
                       <th className="w-[28%] px-3 py-3">المشروع</th>
                       <th className="w-[100px] px-2 py-3">الحالة</th>
@@ -1724,13 +1765,13 @@ export default function MvProjectsDashboard() {
                   <tbody className="divide-y divide-slate-100">
                     {paginatedProjects.map((project) => {
                       const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
-                      const progress = projectProgressPct(project);
+                      const progress = projectProgressPctFromProject(project);
                       const reportType = project.reportType;
                       const reportLabel =
                         reportType === "simple" || reportType === "advanced"
                           ? MV_REPORT_TYPE_LABEL_AR[reportType]
                           : "—";
-                      const sheets = project.sheetCount ?? 0;
+                      const assetFolders = projectAssetFolderCount(project);
                       const subs = project.subProjectCount ?? 0;
 
                       const displayNumber =
@@ -1739,13 +1780,13 @@ export default function MvProjectsDashboard() {
                           : null;
 
                       return (
-                        <tr key={project._id} className="bg-white text-right transition-colors hover:bg-slate-50">
-                          <td className="px-2 py-3 text-center align-middle">
-                            <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md bg-sky-50 px-2 text-[12px] font-black tabular-nums text-[#0C447C]">
+                        <tr key={project._id} className="bg-white text-right transition-colors hover:bg-cyan-50/40">
+                          <td className="px-2 py-4 text-center align-middle">
+                            <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[12px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
                               {displayNumber == null ? "—" : numberFormatter.format(displayNumber)}
                             </span>
                           </td>
-                          <td className="px-3 py-3 align-middle">
+                          <td className="px-3 py-4 align-middle">
                             <ProjectWorkspaceLink
                               projectId={project._id}
                               title={project.name || "—"}
@@ -1754,35 +1795,37 @@ export default function MvProjectsDashboard() {
                             />
                           </td>
 
-                          <td className="px-2 py-3 align-middle">
-                            <MvStatusBadge
-                              label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
-                              tone={getStatusTone(workflowStatus)}
-                              className="whitespace-nowrap px-2 py-0.5 text-[10px]"
+                          <td className="px-2 py-4 align-middle">
+                            <MvProjectWorkflowStatusSelect
+                              projectId={project._id}
+                              value={workflowStatus}
+                              options={workflowStatusOptions}
+                              disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
+                              onChange={handleWorkflowStatusChange}
                             />
                           </td>
 
-                          <td className="px-2 py-3 align-middle text-[12px] font-semibold text-slate-600">
+                          <td className="px-2 py-4 align-middle text-[12px] font-semibold text-slate-600">
                             <span className="block truncate">{reportLabel}</span>
                           </td>
 
-                          <td className="px-2 py-3 text-center align-middle">
+                          <td className="px-2 py-4 text-center align-middle">
                             <span className="font-bold tabular-nums text-slate-800">
-                              {numberFormatter.format(sheets)}
+                              {numberFormatter.format(assetFolders)}
                             </span>
                           </td>
 
-                          <td className="px-2 py-3 text-center align-middle">
+                          <td className="px-2 py-4 text-center align-middle">
                             <span className="font-bold tabular-nums text-slate-800">
                               {numberFormatter.format(subs)}
                             </span>
                           </td>
 
-                          <td className="px-2 py-3 align-middle">
+                          <td className="px-2 py-4 align-middle">
                             <div className="flex items-center gap-2">
-                              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+                              <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
                                 <div
-                                  className="h-full rounded-full bg-slate-700 transition-[width]"
+                                  className="h-full rounded-full bg-gradient-to-l from-cyan-500 to-emerald-500 transition-[width]"
                                   style={{ width: `${progress}%` }}
                                 />
                               </div>
@@ -1792,17 +1835,17 @@ export default function MvProjectsDashboard() {
                             </div>
                           </td>
 
-                          <td className="px-2 py-3 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
+                          <td className="px-2 py-4 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
                             <span className="block truncate">{formatDateLabel(project.updatedAt)}</span>
                           </td>
 
-                          <td className="px-2 py-3 align-middle">
+                          <td className="px-2 py-4 align-middle">
                             <div className="flex items-center justify-center gap-1">
                               <Button
                                 asChild
                                 variant="outline"
                                 size="sm"
-                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
                               >
                                 <Link href={projectWorkspaceHref(project._id)}>
                                   فتح
@@ -1825,10 +1868,10 @@ export default function MvProjectsDashboard() {
                 </table>
               </div>
 
-              <div className="grid gap-2 bg-slate-50 p-2 sm:grid-cols-2 xl:hidden">
+              <div className="grid gap-3 bg-slate-50/70 p-3 sm:grid-cols-2 xl:hidden">
                 {paginatedProjects.map((project) => {
                   const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
-                  const progress = projectProgressPct(project);
+                  const progress = projectProgressPctFromProject(project);
                   const reportType = project.reportType;
                   const reportLabel =
                     reportType === "simple" || reportType === "advanced"
@@ -1840,11 +1883,11 @@ export default function MvProjectsDashboard() {
                       : null;
 
                   return (
-                    <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3">
+                    <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-cyan-200 hover:shadow-md">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex items-center gap-1.5">
-                            <span className="inline-flex h-5 min-w-[1.75rem] items-center justify-center rounded-md bg-sky-50 px-1.5 text-[10px] font-black tabular-nums text-[#0C447C]">
+                            <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center rounded-lg bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
                               #{mobileDisplayNumber == null ? "—" : numberFormatter.format(mobileDisplayNumber)}
                             </span>
                           </div>
@@ -1855,10 +1898,12 @@ export default function MvProjectsDashboard() {
                             nameClassName="text-[13px] font-black"
                           />
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            <MvStatusBadge
-                              label={MV_WORKFLOW_LABEL_AR[workflowStatus]}
-                              tone={getStatusTone(workflowStatus)}
-                              className="whitespace-nowrap px-1.5 py-0.5 text-[10px]"
+                            <MvProjectWorkflowStatusSelect
+                              projectId={project._id}
+                              value={workflowStatus}
+                              options={workflowStatusOptions}
+                              disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
+                              onChange={handleWorkflowStatusChange}
                             />
                             {reportLabel ? (
                               <span className="text-[10px] font-bold text-slate-400">{reportLabel}</span>
@@ -1875,13 +1920,13 @@ export default function MvProjectsDashboard() {
                       </div>
 
                       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-bold tabular-nums text-slate-600">
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
-                          {numberFormatter.format(project.sheetCount ?? 0)} أصول
+                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
+                          {numberFormatter.format(projectAssetFolderCount(project))} أصول
                         </span>
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
+                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
                           {numberFormatter.format(project.subProjectCount ?? 0)} فرعية
                         </span>
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-center">
+                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
                           {numberFormatter.format(progress)}٪
                         </span>
                       </div>
@@ -1894,7 +1939,7 @@ export default function MvProjectsDashboard() {
                           asChild
                           variant="outline"
                           size="sm"
-                          className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+                          className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
                         >
                           <Link href={projectWorkspaceHref(project._id)}>
                             فتح

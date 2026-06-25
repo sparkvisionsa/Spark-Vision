@@ -110,7 +110,7 @@ export default function AuthUserMenu() {
   return (
     <DropdownMenu modal={false} open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
+        <Button variant="outline" size="sm" className="gap-2 border-slate-200 bg-white text-slate-900 hover:bg-slate-50">
           <UserCircle className="h-4 w-4" />
           <span className="max-w-[120px] truncate">{displayName}</span>
           <ChevronDown className="h-4 w-4" />

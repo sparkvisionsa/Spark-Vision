@@ -324,6 +324,11 @@ export default function ValueTechHero({
           <span className="inline-flex rounded-2xl bg-white/[0.06] p-2.5 ring-1 ring-white/[0.08] backdrop-blur-sm">
             <HeroLogo size={44} />
           </span>
+          {copy.badge ? (
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-1.5 text-[11px] font-bold tracking-wide text-teal-200/90 backdrop-blur-sm">
+              {copy.badge}
+            </span>
+          ) : null}
         </div>
 
         <h1 className="value-tech-hero-title mt-8 text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-[4.25rem] lg:leading-[1.1]">

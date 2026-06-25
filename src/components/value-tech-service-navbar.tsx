@@ -202,33 +202,33 @@ export default function ValueTechServiceNavbar() {
   );
 
   return (
-    <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
-      <div className="container">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white/[0.82] text-slate-900 shadow-[0_1px_0_rgba(15,23,42,0.03),0_12px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/[0.72]">
+      <div className="mx-auto w-full max-w-[1680px] px-3 sm:px-5">
         <div className="flex h-14 items-center gap-3">
           {/* Logo + Brand */}
           <Link
             href="/value-tech"
-            className="group/logo inline-flex shrink-0 items-center gap-2.5"
+            className="group/logo inline-flex shrink-0 items-center gap-2.5 rounded-lg px-1.5 py-1 outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/40"
           >
             <span className="transition-transform duration-200 group-hover/logo:scale-[1.04]">
               <ValueTechLogo size={32} />
             </span>
-            <span className="hidden sm:inline text-[15px] font-semibold tracking-[-0.01em] text-slate-800">
+            <span className="hidden text-[15px] font-semibold text-slate-900 sm:inline">
               Value Tech
             </span>
           </Link>
 
           {/* Divider */}
-          <div className="hidden sm:block h-5 w-px shrink-0 bg-slate-200" />
+          <div className="hidden h-5 w-px shrink-0 bg-slate-200 sm:block" />
 
           {/* Home link */}
           <Link
             href="/value-tech"
             className={cn(
-              "hidden sm:inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors duration-150",
+              "hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors duration-150 sm:inline-flex",
               pathname === "/value-tech"
-                ? "text-teal-700 bg-teal-50/80"
-                : "text-slate-500 hover:text-teal-700 hover:bg-teal-50/60",
+                ? "bg-slate-950 text-white shadow-sm"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
             )}
           >
             <Home className="h-3.5 w-3.5" />
@@ -246,10 +246,10 @@ export default function ValueTechServiceNavbar() {
               >
                 <DropdownMenuTrigger
                   className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium outline-none transition-colors duration-150",
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold outline-none transition-colors duration-150",
                     isValueTechRoute
-                      ? "text-teal-700 bg-teal-50/80"
-                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-50",
+                      ? "bg-slate-950 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
                   )}
                 >
                   {t.products}
@@ -257,7 +257,7 @@ export default function ValueTechServiceNavbar() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align={isArabic ? "end" : "start"}
-                  className="min-w-[210px]"
+                  className="min-w-[230px] rounded-lg border-slate-200 p-1 shadow-xl shadow-slate-950/10"
                 >
                   {productMenuItems(() => setProductsDesktopOpen(false))}
                 </DropdownMenuContent>
@@ -273,7 +273,7 @@ export default function ValueTechServiceNavbar() {
               >
                 <DropdownMenuTrigger
                   aria-label={t.products}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 outline-none transition-colors duration-150 hover:text-slate-700 hover:bg-slate-100/70"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 outline-none transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950"
                 >
                   <LayoutGrid className="h-[18px] w-[18px]" />
                 </DropdownMenuTrigger>
@@ -290,7 +290,7 @@ export default function ValueTechServiceNavbar() {
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {/* Desktop: language + auth */}
-            <div className="hidden sm:flex items-center gap-0.5">
+            <div className="hidden items-center gap-1 sm:flex">
               <LanguageSwitcher />
               <AuthUserMenu />
             </div>
@@ -300,7 +300,7 @@ export default function ValueTechServiceNavbar() {
               <DropdownMenu>
                 <DropdownMenuTrigger
                   aria-label={t.language}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 outline-none transition-colors duration-150 hover:text-slate-700 hover:bg-slate-100/70"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 outline-none transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950"
                 >
                   <Globe className="h-[18px] w-[18px]" />
                 </DropdownMenuTrigger>

@@ -371,12 +371,13 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
 
   if (isHubPage) {
     return (
-      <div className="min-h-screen min-w-0 overflow-x-hidden bg-gradient-to-br from-slate-50 via-sky-50/40 to-emerald-50 text-slate-900 flex flex-col pt-14">
+      <div
+        className="relative flex min-h-screen min-w-0 flex-col overflow-x-hidden pt-14"
+        style={{ backgroundColor: "#0c2547" }}
+      >
         <ValueTechServiceNavbar />
-        <div className="flex-1 px-4 pt-6 pb-10 md:px-8 md:pt-8 md:pb-10">
-          <main className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-6 md:gap-8 min-h-[60vh] overflow-x-hidden">
-            {children}
-          </main>
+        <div className="relative flex flex-1 items-center px-4 pb-14 pt-5 text-white md:px-8 md:pt-6">
+          <main className="mx-auto w-full max-w-6xl min-w-0">{children}</main>
         </div>
         <ValueTechServiceFooter />
       </div>

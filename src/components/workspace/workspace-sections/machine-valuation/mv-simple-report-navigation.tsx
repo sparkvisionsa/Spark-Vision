@@ -11,7 +11,12 @@ import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproje
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvAssetDataTableModal } from "./mv-asset-data-table-modal";
+import {
+  computeCompletedSimpleReportSteps,
+  hasMeaningfulSimpleReportData,
+} from "./mv-simple-project-progress";
 
+export { hasMeaningfulSimpleReportData };
 export type MvSimpleReportStepId =
   | "report-data"
   | "asset-images"
@@ -59,35 +64,6 @@ export function writeVisitedSimpleReportSteps(
   window.localStorage.setItem(
     visitedStorageKey(projectId),
     JSON.stringify(Array.from(new Set(steps))),
-  );
-}
-
-export function hasMeaningfulSimpleReportData(
-  data: MvProjectReportData | undefined | null,
-): boolean {
-  if (!data) return false;
-  return Boolean(
-    data.valuationMethod ||
-      data.reportReference ||
-      data.reportTitle ||
-      data.valuationPurpose ||
-      data.valuePremise ||
-      data.valuationBasis ||
-      data.reportIssueDate ||
-      data.agreementDate ||
-      data.inspectionDate ||
-      data.valuationDate ||
-      data.clientName ||
-      data.clientEmail ||
-      data.clientPhone ||
-      data.clientLegalType ||
-      data.clientActivity ||
-      data.clientRepresentativeName ||
-      data.intendedUsers ||
-      data.intendedUse ||
-      data.inspectionLocation ||
-      data.inspectionMapUrl ||
-      data.finalValue != null,
   );
 }
 
@@ -434,12 +410,28 @@ export function MvProjectReportHeader({
 
   const computedCompleted = useMemo(() => {
     if (completedSteps) return completedSteps;
-    const done: MvSimpleReportStepId[] = [];
-    if (hasMeaningfulSimpleReportData(loadedProject?.reportData)) done.push("report-data");
-    if (countProjectAssetImages(loadedSubProjects) > 0) done.push("asset-images");
-    if ((loadedProject?.sheetCount ?? 0) > 0) done.push("valuation-actions");
-    return done;
-  }, [completedSteps, loadedProject?.reportData, loadedProject?.sheetCount, loadedSubProjects]);
+    const assetImageCount = countProjectAssetImages(loadedSubProjects);
+    const valuationAccountImageCount =
+      loadedProject?.valuationAccountingWorkspace?.images?.length ??
+      loadedProject?.valuationAccountImageCount ??
+      0;
+
+    return computeCompletedSimpleReportSteps({
+      reportData: loadedProject?.reportData,
+      assetImageCount:
+        assetImageCount > 0 ? assetImageCount : (loadedProject?.assetImageCount ?? 0),
+      valuationAccountImageCount,
+      visitedReportPreview: visitedSteps?.includes("report-preview"),
+    });
+  }, [
+    completedSteps,
+    loadedProject?.assetImageCount,
+    loadedProject?.reportData,
+    loadedProject?.valuationAccountImageCount,
+    loadedProject?.valuationAccountingWorkspace?.images,
+    loadedSubProjects,
+    visitedSteps,
+  ]);
 
   const topBreadcrumbs =
     breadcrumbs ??

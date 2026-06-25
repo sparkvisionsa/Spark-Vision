@@ -161,7 +161,7 @@ function MachineSidebarAccount() {
     const subtitle = profile?.email?.trim() || user.email?.trim() || "حساب فعّال";
     const avatar = (
       <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[12px] font-semibold text-[#0C447C] ring-1 ring-sky-200/80"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-300/15 text-[12px] font-semibold text-cyan-100 ring-1 ring-cyan-300/25"
         aria-hidden
       >
         {userInitials(displayName)}
@@ -173,7 +173,7 @@ function MachineSidebarAccount() {
         <Link
           href="/profile"
           title={displayName}
-          className="flex justify-center rounded-lg p-0.5 transition hover:bg-slate-100"
+          className="flex justify-center rounded-lg p-0.5 transition hover:bg-white/10"
         >
           {avatar}
         </Link>
@@ -183,13 +183,13 @@ function MachineSidebarAccount() {
     return (
       <Link
         href="/profile"
-        className="group/account flex items-center gap-2.5 rounded-lg px-0.5 py-0.5 transition hover:bg-slate-100"
+        className="group/account flex items-center gap-2.5 rounded-lg px-1 py-1 transition hover:bg-white/10"
       >
         {avatar}
         <div className="min-w-0 flex-1 text-right">
-          <p className="truncate text-[13px] font-semibold leading-tight text-slate-900">{displayName}</p>
-          <p className="mt-0.5 truncate text-[10px] leading-snug text-slate-600">{subtitle}</p>
-          <p className="mt-0.5 text-[10px] font-medium text-slate-500 group-hover/account:text-slate-700">
+          <p className="truncate text-[13px] font-semibold leading-tight text-white">{displayName}</p>
+          <p className="mt-0.5 truncate text-[10px] leading-snug text-slate-300">{subtitle}</p>
+          <p className="mt-0.5 text-[10px] font-medium text-slate-400 group-hover/account:text-cyan-100">
             الملف الشخصي
           </p>
         </div>
@@ -199,7 +199,7 @@ function MachineSidebarAccount() {
 
   const guestAvatar = (
     <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-[12px] font-semibold text-amber-900 ring-1 ring-amber-200/80"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-300/15 text-[12px] font-semibold text-amber-100 ring-1 ring-amber-300/25"
       aria-hidden
     >
       ز
@@ -212,7 +212,7 @@ function MachineSidebarAccount() {
         type="button"
         onClick={() => openAuthModal()}
         title="تسجيل الدخول"
-        className="flex w-full justify-center rounded-lg p-0.5 transition hover:bg-slate-100"
+        className="flex w-full justify-center rounded-lg p-0.5 transition hover:bg-white/10"
       >
         {guestAvatar}
       </button>
@@ -254,20 +254,20 @@ function MachineSidebarNav() {
   const collapsed = !isMobile && state === "collapsed";
 
   const activeNav =
-    "bg-sky-50 text-[#0C447C] shadow-[inset_0_0_0_1px_rgba(56,189,248,0.35)] font-medium";
-  const idleNav = "text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+    "bg-white text-slate-950 shadow-[0_10px_24px_rgba(8,47,73,0.22)] font-semibold";
+  const idleNav = "text-slate-300 hover:bg-white/10 hover:text-white";
 
   const projectsNavActive = isProjectsList || isProjectContext;
 
   return (
-    <SidebarContent className="gap-0 overflow-x-hidden pt-0.5">
-      <SidebarGroup className="px-1 py-0.5">
+    <SidebarContent className="gap-0 overflow-x-hidden px-2 pb-3 pt-1">
+      <SidebarGroup className="px-0 py-1">
         <SidebarGroupContent>
-          <SidebarMenu className="gap-0">
+          <SidebarMenu className="gap-1">
             <SidebarMenuItem>
-              <SidebarMenuButton asChild size="sm" className="h-7 text-[12px] text-slate-600 hover:bg-slate-100">
-                <Link href="/value-tech#products" className="flex items-center gap-1.5">
-                  <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-sky-600" />
+              <SidebarMenuButton asChild size="sm" className="h-9 rounded-lg text-[12px] text-slate-300 hover:bg-white/10 hover:text-white">
+                <Link href="/value-tech#products" className="flex items-center gap-2">
+                  <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-cyan-300" />
                   <span>المنتجات</span>
                 </Link>
               </SidebarMenuButton>
@@ -276,11 +276,11 @@ function MachineSidebarNav() {
         </SidebarGroupContent>
       </SidebarGroup>
 
-      <SidebarSeparator className="my-1 bg-slate-200/80" />
+      <SidebarSeparator className="mx-0 my-2 bg-white/10" />
 
-      <SidebarGroup className="px-1 py-0.5">
+      <SidebarGroup className="px-0 py-1">
         <SidebarGroupContent>
-          <SidebarMenu className="gap-0">
+          <SidebarMenu className="gap-1.5">
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
@@ -288,12 +288,12 @@ function MachineSidebarNav() {
                 size="sm"
                 tooltip={collapsed ? "المشاريع" : undefined}
                 className={cn(
-                  "h-7 text-[12px]",
+                  "h-10 rounded-lg text-[12px]",
                   projectsNavActive ? activeNav : idleNav,
                 )}
               >
-                <Link href="/machine-valuation/projects" className="flex items-center gap-1.5">
-                  <FolderKanban className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <Link href="/machine-valuation/projects" className="flex items-center gap-2">
+                  <FolderKanban className="h-3.5 w-3.5 shrink-0 text-amber-300" />
                   <span className="truncate">المشاريع</span>
                 </Link>
               </SidebarMenuButton>
@@ -305,10 +305,10 @@ function MachineSidebarNav() {
                 isActive={isCompanyPanel}
                 size="sm"
                 tooltip={collapsed ? "إعدادات عامة" : undefined}
-                className={cn("h-7 text-[12px]", isCompanyPanel ? activeNav : idleNav)}
+                className={cn("h-10 rounded-lg text-[12px]", isCompanyPanel ? activeNav : idleNav)}
               >
-                <Link href="/machine-valuation/company" className="flex items-center gap-1.5">
-                  <Building2 className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
+                <Link href="/machine-valuation/company" className="flex items-center gap-2">
+                  <Building2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
                   <span className="truncate">إعدادات عامة</span>
                 </Link>
               </SidebarMenuButton>
@@ -320,10 +320,10 @@ function MachineSidebarNav() {
                 isActive={isReportSettingsPanel}
                 size="sm"
                 tooltip={collapsed ? "بيانات إعداد التقرير النهائي" : undefined}
-                className={cn("h-7 text-[12px]", isReportSettingsPanel ? activeNav : idleNav)}
+                className={cn("h-10 rounded-lg text-[12px]", isReportSettingsPanel ? activeNav : idleNav)}
               >
-                <Link href="/machine-valuation/report-settings" className="flex items-center gap-1.5">
-                  <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                <Link href="/machine-valuation/report-settings" className="flex items-center gap-2">
+                  <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
                   <span className="truncate">بيانات إعداد التقرير النهائي</span>
                 </Link>
               </SidebarMenuButton>
@@ -335,10 +335,10 @@ function MachineSidebarNav() {
                 isActive={isClientsPanel}
                 size="sm"
                 tooltip={collapsed ? "العملاء" : undefined}
-                className={cn("h-7 text-[12px]", isClientsPanel ? activeNav : idleNav)}
+                className={cn("h-10 rounded-lg text-[12px]", isClientsPanel ? activeNav : idleNav)}
               >
-                <Link href="/machine-valuation/clients" className="flex items-center gap-1.5">
-                  <Users className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+                <Link href="/machine-valuation/clients" className="flex items-center gap-2">
+                  <Users className="h-3.5 w-3.5 shrink-0 text-violet-300" />
                   <span className="truncate">العملاء</span>
                 </Link>
               </SidebarMenuButton>
@@ -367,16 +367,16 @@ function MachineWorkspace({ children }: { children: ReactNode }) {
   return (
     <SidebarInset
       className={cn(
-        "min-h-0 min-w-0 max-h-full flex-1 flex-col overflow-hidden bg-transparent px-2 pb-6 pt-0 md:pb-8",
-        sidebarCollapsed ? "md:px-2 lg:px-3" : "md:px-4",
+        "min-h-0 min-w-0 max-h-full flex-1 flex-col overflow-hidden bg-transparent px-3 pb-6 pt-2 md:pb-8",
+        sidebarCollapsed ? "md:px-3 lg:px-4" : "md:px-5",
       )}
     >
       <SidebarTrigger className="fixed right-3 top-[4.25rem] z-40 rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 md:hidden" />
       <div
         className={cn(
           "mx-auto flex min-h-0 w-full min-w-0 flex-1 flex-col",
-          widePanel ? "max-w-none" : "max-w-[1600px]",
-          useColumnLock ? "gap-0 overflow-hidden" : "gap-3 overflow-y-auto overscroll-contain md:gap-4",
+          widePanel ? "max-w-none" : "max-w-[1680px]",
+          useColumnLock ? "gap-0 overflow-hidden" : "gap-4 overflow-y-auto overscroll-contain md:gap-5",
         )}
       >
         {children}
@@ -403,8 +403,8 @@ function MachineSidebarToggleArrow() {
         aria-label="طيّ أو فتح الشريط الجانبي"
         className={cn(
           "pointer-events-auto flex h-8 w-8 translate-x-1/2 items-center justify-center rounded-full border",
-          "border-sky-200/90 bg-white text-sky-700 shadow-md",
-          "transition-all duration-200 ease-out hover:scale-105 hover:border-sky-300 hover:bg-sky-50 active:scale-95",
+          "border-white/15 bg-slate-950 text-cyan-200 shadow-lg shadow-slate-950/25",
+          "transition-all duration-200 ease-out hover:scale-105 hover:border-cyan-300/40 hover:bg-slate-900 active:scale-95",
         )}
       >
         <ChevronLeft className={cn("h-4 w-4 transition-transform duration-300 ease-out", !isExpanded && "rotate-180")} />
@@ -428,7 +428,7 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-gradient-to-br from-slate-50 via-sky-50/40 to-amber-50/30 pt-14 text-slate-900"
+      className="flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[linear-gradient(135deg,#eef4f8_0%,#f8fafc_48%,#eef7f2_100%)] pt-14 text-slate-900"
       dir="rtl"
       onClickCapture={(event) => {
         const target = event.target as HTMLElement | null;
@@ -447,24 +447,24 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
         defaultOpen
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden",
-          "[--sidebar-background:210_40%_99%] [--sidebar-foreground:222_47%_14%]",
-          "[--sidebar-accent:205_85%_96%] [--sidebar-accent-foreground:217_91%_30%]",
-          "[--sidebar-border:214_32%_90%] [--sidebar-ring:199_89%_48%]",
+          "[--sidebar-background:217_45%_11%] [--sidebar-foreground:210_40%_96%]",
+          "[--sidebar-accent:215_28%_18%] [--sidebar-accent-foreground:210_40%_98%]",
+          "[--sidebar-border:214_32%_22%] [--sidebar-ring:188_86%_53%]",
         )}
       >
         <Sidebar
           side="right"
           variant="floating"
           collapsible="icon"
-          className="top-14 z-20 border-0 bg-transparent text-slate-800 shadow-none"
+          className="top-14 z-20 border-0 bg-transparent text-slate-100 shadow-none"
         >
-          <SidebarHeader className="m-1.5 rounded-lg border border-slate-200/90 bg-white/95 px-2.5 py-2 shadow-sm backdrop-blur-sm">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+          <SidebarHeader className="m-2 rounded-lg border border-white/10 bg-slate-950/95 px-3 py-3 shadow-2xl shadow-slate-950/25 backdrop-blur">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <div className="min-w-0 text-right">
-                <p className="text-[9px] font-semibold tracking-[0.12em] text-slate-500">MACHINE VALUATION</p>
-                <p className="truncate text-[12px] font-semibold text-[#0C447C]">تقييم الآلات</p>
+                <p className="text-[9px] font-semibold tracking-[0.12em] text-cyan-200/80">MACHINE VALUATION</p>
+                <p className="truncate text-[13px] font-semibold text-white">تقييم الآلات</p>
               </div>
-              <div className="shrink-0 rounded-lg bg-sky-50 p-1.5 text-[#0C447C] ring-1 ring-sky-100">
+              <div className="shrink-0 rounded-lg bg-cyan-300/10 p-1.5 text-cyan-200 ring-1 ring-cyan-300/20">
                 <Wrench className="h-3.5 w-3.5" />
               </div>
             </div>

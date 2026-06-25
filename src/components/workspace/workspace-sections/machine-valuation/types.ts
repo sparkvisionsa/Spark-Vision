@@ -294,6 +294,14 @@ export interface MvProject {
   updatedAt: string;
   subProjectCount?: number;
   sheetCount?: number;
+  /** إجمالي صور الأصول (يُحسب في قائمة المشاريع). */
+  assetImageCount?: number;
+  /** عدد مجلدات صور الأصول (pic assets). */
+  picAssetCount?: number;
+  /** عدد صور حسابات القيمة في إجراءات التقييم (يُحسب في قائمة المشاريع). */
+  valuationAccountImageCount?: number;
+  /** نسبة التقدّم المحسوبة من الخادم (0–100). */
+  progressPct?: number;
   workflowStatus?: MvProjectWorkflowStatus;
   reportType?: MvProjectReportType;
   reportData?: MvProjectReportData;

@@ -8,13 +8,13 @@ import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
 import {
   countProjectAssetImages,
-  hasMeaningfulSimpleReportData,
   MvProjectReportHeader,
   mvSimpleReportStepHref,
   readVisitedSimpleReportSteps,
   type MvSimpleReportStepId,
   writeVisitedSimpleReportSteps,
 } from "./mv-simple-report-navigation";
+import { computeCompletedSimpleReportSteps } from "./mv-simple-project-progress";
 import {
   createMvReportCollapsibleState,
   MV_REPORT_COLLAPSIBLE_IDS,
@@ -245,15 +245,27 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
 
   const completedSteps = useMemo(() => {
-    const completed = new Set<MvSimpleReportStepId>();
-    if (hasMeaningfulSimpleReportData(project?.reportData)) completed.add("report-data");
-    if (assetImageCount > 0) completed.add("asset-images");
-    if ((project?.sheetCount ?? 0) > 0) completed.add("valuation-actions");
-    if (hasMeaningfulSimpleReportData(project?.reportData) && visitedSteps.has("report-preview")) {
-      completed.add("report-preview");
-    }
-    return completed;
-  }, [assetImageCount, project?.reportData, project?.sheetCount, visitedSteps]);
+    const valuationAccountImageCount =
+      project?.valuationAccountingWorkspace?.images?.length ??
+      project?.valuationAccountImageCount ??
+      0;
+
+    return new Set(
+      computeCompletedSimpleReportSteps({
+        reportData: project?.reportData,
+        assetImageCount: assetImageCount > 0 ? assetImageCount : (project?.assetImageCount ?? 0),
+        valuationAccountImageCount,
+        visitedReportPreview: visitedSteps.has("report-preview"),
+      }),
+    );
+  }, [
+    assetImageCount,
+    project?.assetImageCount,
+    project?.reportData,
+    project?.valuationAccountImageCount,
+    project?.valuationAccountingWorkspace?.images,
+    visitedSteps,
+  ]);
 
   const handleSaveReportData = async () => {
     if (!project) return;

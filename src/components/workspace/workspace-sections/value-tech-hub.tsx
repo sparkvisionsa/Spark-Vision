@@ -3,7 +3,7 @@
 import { useContext } from "react";
 import Link from "@/components/prefetch-link";
 import {
-  ArrowLeft,
+  ArrowUpRight,
   Building2,
   ClipboardList,
   Cpu,
@@ -18,172 +18,128 @@ import { cn } from "@/lib/utils";
 type ProductCard = {
   href: string;
   title: string;
-  description: string;
   icon: LucideIcon;
-  accent: "emerald" | "cyan" | "sky" | "indigo" | "violet" | "orange";
   status?: string;
 };
 
 const copy = {
   en: {
-    title: "Value Tech Products",
-    subtitle: "Choose the product you want to open.",
-    open: "Open",
-    comingSoon: "Coming soon",
+    pageTitle: "Value Tech Products & Services",
+    navigate: "Go",
+    soon: "Coming soon",
     products: [
-      {
-        href: "/machine-valuation",
-        title: "Machines & Equipment Valuation",
-        description: "Workflow for machinery and equipment valuation projects.",
-        icon: Cpu,
-        accent: "indigo",
-      },
-      {
-        href: "/real-estate-valuation",
-        title: "Real Estate Valuation",
-        description: "Structured workflow for professional real estate valuation operations.",
-        icon: Building2,
-        accent: "sky",
-      },
-      {
-        href: "/value-tech-app",
-        title: "Report Upload System",
-        description: "Manage valuation reports and submissions through the desktop application.",
-        icon: LayoutGrid,
-        accent: "emerald",
-      },
-      {
-        href: "/evaluation-source",
-        title: "Information Sources",
-        description: "Reference library for market data, pricing sources, and valuation support.",
-        icon: Library,
-        accent: "cyan",
-      },
-      {
-        href: "/asset-inventory",
-        title: "Asset Inventory",
-        description: "Count, classify, and track organization assets accurately.",
-        icon: ClipboardList,
-        accent: "violet",
-        status: "Coming soon",
-      },
-      {
-        href: "/asset-inspection",
-        title: "Asset Inspection",
-        description: "Document asset condition and field inspection data.",
-        icon: Search,
-        accent: "orange",
-        status: "Coming soon",
-      },
+      { href: "/machine-valuation", title: "Machines & Equipment Valuation", icon: Cpu },
+      { href: "/real-estate-valuation", title: "Real Estate Valuation", icon: Building2 },
+      { href: "/value-tech-app", title: "Report Upload System", icon: LayoutGrid },
+      { href: "/evaluation-source", title: "Information Sources", icon: Library },
+      { href: "/asset-inventory", title: "Asset Inventory", icon: ClipboardList, status: "Coming soon" },
+      { href: "/asset-inspection", title: "Asset Inspection", icon: Search, status: "Coming soon" },
     ] satisfies ProductCard[],
   },
   ar: {
-    title: "منتجات فاليو تك",
-    subtitle: "اختر المنتج المطلوب فتحه.",
-    open: "فتح",
-    comingSoon: "قريبًا",
+    pageTitle: "منتجات وخدمات فاليو تك",
+    navigate: "انتقال",
+    soon: "قريبًا",
     products: [
-      {
-        href: "/machine-valuation",
-        title: "نظام تقييم الآلات والمعدات",
-        description: "مسار عمل لمشاريع تقييم الآلات والمعدات.",
-        icon: Cpu,
-        accent: "indigo",
-      },
-      {
-        href: "/real-estate-valuation",
-        title: "نظام تقييم العقارات",
-        description: "مسار عمل منظم لعمليات تقييم العقارات باحترافية.",
-        icon: Building2,
-        accent: "sky",
-      },
-      {
-        href: "/value-tech-app",
-        title: "نظام رفع التقارير",
-        description: "إدارة تقارير التقييم ورفعها من خلال تطبيق سطح المكتب.",
-        icon: LayoutGrid,
-        accent: "emerald",
-      },
-      {
-        href: "/evaluation-source",
-        title: "مصادر المعلومات",
-        description: "مكتبة مرجعية لبيانات السوق ومصادر الأسعار ودعم قرارات التقييم.",
-        icon: Library,
-        accent: "cyan",
-      },
-      {
-        href: "/asset-inventory",
-        title: "تطبيق حصر الأصول",
-        description: "حصر وتصنيف وتتبع أصول المنشأة بدقة.",
-        icon: ClipboardList,
-        accent: "violet",
-        status: "قريبًا",
-      },
-      {
-        href: "/asset-inspection",
-        title: "تطبيق معاينة الأصول",
-        description: "توثيق حالة الأصول وبيانات المعاينة الميدانية.",
-        icon: Search,
-        accent: "orange",
-        status: "قريبًا",
-      },
+      { href: "/machine-valuation", title: "نظام تقييم الآلات والمعدات", icon: Cpu },
+      { href: "/real-estate-valuation", title: "نظام تقييم العقارات", icon: Building2 },
+      { href: "/value-tech-app", title: "نظام رفع التقارير", icon: LayoutGrid },
+      { href: "/evaluation-source", title: "مصادر المعلومات", icon: Library },
+      { href: "/asset-inventory", title: "تطبيق حصر الأصول", icon: ClipboardList, status: "قريبًا" },
+      { href: "/asset-inspection", title: "تطبيق معاينة الأصول", icon: Search, status: "قريبًا" },
     ] satisfies ProductCard[],
   },
 } as const;
 
-const accentClasses: Record<
-  ProductCard["accent"],
-  { icon: string; ring: string; cta: string; stripe: string; glow: string; badge: string }
-> = {
-  emerald: {
-    icon: "bg-emerald-50 text-emerald-700 ring-emerald-100 group-hover:bg-emerald-600 group-hover:text-white",
-    ring: "hover:border-emerald-300 hover:shadow-emerald-900/12",
-    cta: "text-emerald-700 bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white",
-    stripe: "from-emerald-500 via-teal-400 to-cyan-400",
-    glow: "bg-emerald-50",
-    badge: "bg-emerald-50 text-emerald-700 ring-emerald-100",
-  },
-  cyan: {
-    icon: "bg-cyan-50 text-cyan-700 ring-cyan-100 group-hover:bg-cyan-600 group-hover:text-white",
-    ring: "hover:border-cyan-300 hover:shadow-cyan-900/12",
-    cta: "text-cyan-700 bg-cyan-50 group-hover:bg-cyan-600 group-hover:text-white",
-    stripe: "from-cyan-500 via-sky-400 to-blue-500",
-    glow: "bg-cyan-50",
-    badge: "bg-cyan-50 text-cyan-700 ring-cyan-100",
-  },
-  sky: {
-    icon: "bg-sky-50 text-sky-700 ring-sky-100 group-hover:bg-sky-600 group-hover:text-white",
-    ring: "hover:border-sky-300 hover:shadow-sky-900/12",
-    cta: "text-sky-700 bg-sky-50 group-hover:bg-sky-600 group-hover:text-white",
-    stripe: "from-sky-500 via-blue-400 to-indigo-500",
-    glow: "bg-sky-50",
-    badge: "bg-sky-50 text-sky-700 ring-sky-100",
-  },
-  indigo: {
-    icon: "bg-indigo-50 text-indigo-700 ring-indigo-100 group-hover:bg-indigo-600 group-hover:text-white",
-    ring: "hover:border-indigo-300 hover:shadow-indigo-900/12",
-    cta: "text-indigo-700 bg-indigo-50 group-hover:bg-indigo-600 group-hover:text-white",
-    stripe: "from-indigo-500 via-violet-500 to-sky-500",
-    glow: "bg-indigo-50",
-    badge: "bg-indigo-50 text-indigo-700 ring-indigo-100",
-  },
-  violet: {
-    icon: "bg-violet-50 text-violet-700 ring-violet-100 group-hover:bg-violet-600 group-hover:text-white",
-    ring: "hover:border-violet-300 hover:shadow-violet-900/12",
-    cta: "text-violet-700 bg-violet-50 group-hover:bg-violet-600 group-hover:text-white",
-    stripe: "from-violet-500 via-fuchsia-400 to-pink-400",
-    glow: "bg-violet-50",
-    badge: "bg-violet-50 text-violet-700 ring-violet-100",
-  },
-  orange: {
-    icon: "bg-orange-50 text-orange-700 ring-orange-100 group-hover:bg-orange-600 group-hover:text-white",
-    ring: "hover:border-orange-300 hover:shadow-orange-900/12",
-    cta: "text-orange-700 bg-orange-50 group-hover:bg-orange-600 group-hover:text-white",
-    stripe: "from-orange-500 via-amber-400 to-rose-400",
-    glow: "bg-orange-50",
-    badge: "bg-orange-50 text-orange-700 ring-orange-100",
-  },
-};
+/** لون كحلي موحّد للصفحة والكاردات */
+const NAVY = "#0c2547";
+
+function ProductCardTile({
+  product,
+  navigateLabel,
+  soonLabel,
+  isArabic,
+  index,
+}: {
+  product: ProductCard;
+  navigateLabel: string;
+  soonLabel: string;
+  isArabic: boolean;
+  index: number;
+}) {
+  const Icon = product.icon;
+  const isSoon = Boolean(product.status);
+
+  const body = (
+    <>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10"
+        aria-hidden
+      />
+
+      <div className="relative z-[1] flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] ring-1 ring-white/10 transition-colors duration-300 group-hover:bg-white/[0.11] group-hover:ring-white/20">
+          <Icon className="h-[18px] w-[18px] text-slate-200" strokeWidth={2} aria-hidden />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-[14px] font-bold leading-snug text-white sm:text-[15px]">
+            {product.title}
+          </h2>
+          {!isSoon ? (
+            <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 transition-colors group-hover:text-slate-200">
+              {navigateLabel}
+              <ArrowUpRight
+                className={cn(
+                  "h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5",
+                  isArabic && "-scale-x-100 group-hover:-translate-x-0.5",
+                )}
+                aria-hidden
+              />
+            </span>
+          ) : (
+            <span className="mt-1 inline-block text-[11px] font-medium text-slate-500">
+              {product.status ?? soonLabel}
+            </span>
+          )}
+        </div>
+
+        {!isSoon ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition-all duration-300 group-hover:border-white/20 group-hover:bg-white/[0.08] group-hover:text-white">
+            <ArrowUpRight
+              className={cn("h-3.5 w-3.5", isArabic && "-scale-x-100")}
+              aria-hidden
+            />
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const className = cn(
+    "group relative overflow-hidden rounded-2xl border border-white/[0.08] p-3.5 text-start transition-all duration-300 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
+    !isSoon && "hover:-translate-y-0.5 hover:border-white/18 hover:bg-white/[0.04]",
+    isSoon && "cursor-default opacity-55",
+  );
+
+  if (isSoon) {
+    return (
+      <div style={{ animationDelay: `${index * 40}ms`, backgroundColor: NAVY }} className={className} aria-disabled>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={product.href}
+      style={{ animationDelay: `${index * 40}ms`, backgroundColor: NAVY }}
+      className={cn(className, "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25")}
+    >
+      {body}
+    </Link>
+  );
+}
 
 export default function ValueTechHubSection() {
   const langContext = useContext(LanguageContext);
@@ -193,76 +149,29 @@ export default function ValueTechHubSection() {
   const t = isArabic ? copy.ar : copy.en;
 
   return (
-    <section id="products" className="mx-auto w-full max-w-6xl py-5" dir={isArabic ? "rtl" : "ltr"}>
-      <div className="mb-6 flex flex-col gap-2 text-start">
-        <div className="h-1.5 w-20 rounded-full bg-gradient-to-r from-indigo-500 via-sky-400 to-emerald-400" />
-        <h1 className="text-2xl font-black tracking-tight text-slate-950 md:text-3xl">{t.title}</h1>
-        <p className="max-w-xl text-sm font-medium leading-6 text-slate-500">{t.subtitle}</p>
-      </div>
+    <section
+      id="products"
+      className="flex w-full flex-col justify-center gap-6 py-4 md:gap-7 md:py-6"
+      dir={isArabic ? "rtl" : "ltr"}
+    >
+      <header className="text-center md:text-start">
+        <div className="mx-auto mb-3 h-1 w-16 rounded-full bg-white/25 md:mx-0" />
+        <h1 className="text-2xl font-black tracking-tight text-white md:text-[1.75rem]">
+          {t.pageTitle}
+        </h1>
+      </header>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {t.products.map((product, index) => {
-          const Icon = product.icon;
-          const accent = accentClasses[product.accent];
-          return (
-            <Link
-              key={product.href}
-              href={product.href}
-              style={{ animationDelay: `${index * 55}ms` }}
-              className={cn(
-                "group relative flex min-h-[188px] overflow-hidden rounded-lg border border-slate-200 bg-white p-4 text-start shadow-sm transition-all duration-300 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 hover:-translate-y-1 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20",
-                accent.ring,
-              )}
-            >
-              <span className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", accent.stripe)} aria-hidden />
-              <span
-                className={cn(
-                  "pointer-events-none absolute -top-10 end-4 h-24 w-24 rotate-45 opacity-60 transition-transform duration-500 group-hover:translate-y-2 group-hover:rotate-[55deg]",
-                  accent.glow,
-                )}
-                aria-hidden
-              />
-              <div className="flex items-start justify-between gap-3">
-                <span
-                  className={cn(
-                    "relative z-[1] flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ring-1 transition-all duration-300 group-hover:scale-105",
-                    accent.icon,
-                  )}
-                >
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
-                {product.status ? (
-                  <span className={cn("relative z-[1] rounded-full px-2.5 py-1 text-[11px] font-bold ring-1", accent.badge)}>
-                    {product.status}
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="relative z-[1] mt-4 min-w-0 flex-1">
-                <h2 className="text-[15px] font-black leading-6 text-slate-950">{product.title}</h2>
-                <p className="mt-2 line-clamp-2 text-[12px] font-medium leading-5 text-slate-500">
-                  {product.description}
-                </p>
-              </div>
-
-              <div
-                className={cn(
-                  "relative z-[1] mt-4 inline-flex w-fit items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-black transition-all duration-300",
-                  accent.cta,
-                )}
-              >
-                {t.open}
-                <ArrowLeft
-                  className={cn(
-                    "h-3.5 w-3.5 transition-transform duration-200",
-                    isArabic ? "group-hover:-translate-x-0.5" : "rotate-180 group-hover:translate-x-0.5",
-                  )}
-                  aria-hidden
-                />
-              </div>
-            </Link>
-          );
-        })}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {t.products.map((product, index) => (
+          <ProductCardTile
+            key={product.href}
+            product={product}
+            navigateLabel={t.navigate}
+            soonLabel={t.soon}
+            isArabic={isArabic}
+            index={index}
+          />
+        ))}
       </div>
     </section>
   );
