@@ -7,7 +7,19 @@ import MachineValuationShell from "@/components/machine-valuation-shell";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
 import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
-import { ArrowLeft, Building2, ChevronLeft, ClipboardList, Cpu, LayoutGrid, Library, Search, Settings, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Building2,
+  ChevronLeft,
+  ClipboardList,
+  Cpu,
+  LayoutGrid,
+  Library,
+  Search,
+  Settings,
+  Users,
+  Building,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LanguageContext } from "@/components/layout-provider";
 import {
@@ -61,6 +73,7 @@ const copy = {
     sidebarAssetInspection: "Asset Inspection System",
     sidebarClients: "Clients",
     sidebarSettings: "Settings",
+    sidebarCompany: "Company Directory",
     backToProducts: "Back to Products",
   },
   ar: {
@@ -79,6 +92,7 @@ const copy = {
     sidebarAssetInspection: "تطبيق معاينة الأصول",
     sidebarClients: "العملاء",
     sidebarSettings: "الإعدادات",
+    sidebarCompany: "دليل الشركة",
     backToProducts: "العودة إلى المنتجات",
   },
 } as const;
@@ -93,6 +107,7 @@ const VALUE_TECH_SIDEBAR_ROUTES = [
   "/evaluation-source",
   "/clients",
   "/settings",
+  "/company",
 ] as const;
 
 type ValueTechCopy = (typeof copy)["en"] | (typeof copy)["ar"];
@@ -105,12 +120,42 @@ interface ProductRoute {
 }
 
 const PRODUCT_ROUTES: ProductRoute[] = [
-  { href: "/real-estate-valuation", labelKey: "sidebarRealEstate", icon: Building2, iconColor: "text-emerald-300" },
-  { href: "/machine-valuation", labelKey: "sidebarMachines", icon: Cpu, iconColor: "text-sky-300" },
-  { href: "/evaluation-source", labelKey: "sidebarSources", icon: Library, iconColor: "text-cyan-300" },
-  { href: "/value-tech-app", labelKey: "sidebarApp", icon: LayoutGrid, iconColor: "text-amber-300" },
-  { href: "/asset-inventory", labelKey: "sidebarAssetInventory", icon: ClipboardList, iconColor: "text-violet-300" },
-  { href: "/asset-inspection", labelKey: "sidebarAssetInspection", icon: Search, iconColor: "text-orange-300" },
+  {
+    href: "/real-estate-valuation",
+    labelKey: "sidebarRealEstate",
+    icon: Building2,
+    iconColor: "text-emerald-600",
+  },
+  {
+    href: "/machine-valuation",
+    labelKey: "sidebarMachines",
+    icon: Cpu,
+    iconColor: "text-sky-600",
+  },
+  {
+    href: "/evaluation-source",
+    labelKey: "sidebarSources",
+    icon: Library,
+    iconColor: "text-cyan-600",
+  },
+  {
+    href: "/value-tech-app",
+    labelKey: "sidebarApp",
+    icon: LayoutGrid,
+    iconColor: "text-amber-600",
+  },
+  {
+    href: "/asset-inventory",
+    labelKey: "sidebarAssetInventory",
+    icon: ClipboardList,
+    iconColor: "text-violet-600",
+  },
+  {
+    href: "/asset-inspection",
+    labelKey: "sidebarAssetInspection",
+    icon: Search,
+    iconColor: "text-orange-600",
+  },
 ];
 
 function ValueTechSidebarAccount({
@@ -188,7 +233,12 @@ function ValueTechSidebarAccount({
         )}
       >
         {avatar}
-        <div className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}>
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            isArabic ? "text-right" : "text-left",
+          )}
+        >
           <p className="text-sm font-semibold leading-tight text-slate-900 truncate">
             {displayName}
           </p>
@@ -235,8 +285,12 @@ function ValueTechSidebarAccount({
   return (
     <div className="flex items-start gap-3">
       <div className="shrink-0 pt-0.5">{guestAvatar}</div>
-      <div className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}>
-        <p className="text-sm font-semibold text-slate-900">{t.sidebarUserGuest}</p>
+      <div
+        className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}
+      >
+        <p className="text-sm font-semibold text-slate-900">
+          {t.sidebarUserGuest}
+        </p>
         <p className="mt-0.5 text-[11px] leading-snug text-slate-900/80">
           {t.sidebarUserSubtitle}
         </p>
@@ -263,8 +317,11 @@ function ValueTechSidebarAccount({
   );
 }
 
-/** Main column: wider + tighter gutters when desktop sidebar is collapsed (icon rail). */
-function ValueTechSidebarWorkspace({ children }: { children: React.ReactNode }) {
+function ValueTechSidebarWorkspace({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { state, isMobile } = useSidebar();
   const sidebarCollapsed = !isMobile && state === "collapsed";
 
@@ -335,7 +392,11 @@ function SidebarToggleArrow({ isArabic }: { isArabic: boolean }) {
   );
 }
 
-export default function ValueTechShell({ children }: { children: React.ReactNode }) {
+export default function ValueTechShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const langContext = useContext(LanguageContext);
   const router = useRouter();
   const pathname = usePathname() || "/";
@@ -344,7 +405,9 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
     const timeouts: number[] = [];
     const gap = process.env.NODE_ENV === "development" ? 75 : 120;
     VALUE_TECH_SIDEBAR_ROUTES.forEach((route, i) => {
-      timeouts.push(window.setTimeout(() => void router.prefetch(route), i * gap));
+      timeouts.push(
+        window.setTimeout(() => void router.prefetch(route), i * gap),
+      );
     });
     return () => timeouts.forEach((id) => window.clearTimeout(id));
   }, [router]);
@@ -356,18 +419,22 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
 
   const isHubPage = pathname === "/value-tech";
   const isMachineValuationPage =
-    pathname === "/machine-valuation" || pathname.startsWith("/machine-valuation/");
+    pathname === "/machine-valuation" ||
+    pathname.startsWith("/machine-valuation/");
 
   const currentProduct = PRODUCT_ROUTES.find((r) =>
     r.href === "/evaluation-source"
-      ? pathname === "/evaluation-source" || pathname.startsWith("/evaluation-source/")
+      ? pathname === "/evaluation-source" ||
+        pathname.startsWith("/evaluation-source/")
       : pathname === r.href || pathname.startsWith(r.href + "/"),
   );
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(href + "/");
+
   const activeClass =
-    "bg-white/10 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.10)]";
-  const idleClass = "text-slate-200/90";
+    "bg-slate-900/5 text-black font-semibold shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]";
+  const idleClass = "text-slate-800 hover:text-black hover:bg-slate-900/5";
 
   if (isHubPage) {
     return (
@@ -397,9 +464,9 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
           side={isArabic ? "right" : "left"}
           variant="floating"
           collapsible="icon"
-          className="bg-slate-950 text-slate-50 shadow-2xl shadow-slate-900/40 top-14"
+          className="bg-white text-black border border-slate-200/80 shadow-2xl shadow-slate-900/5 top-14"
         >
-          <SidebarHeader className="border-b border-slate-800/70 bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 text-slate-900 rounded-lg m-2 px-3 py-3">
+          <SidebarHeader className="border-b border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 text-slate-900 rounded-lg m-2 px-3 py-3">
             <ValueTechSidebarAccount isArabic={isArabic} t={t} />
           </SidebarHeader>
 
@@ -409,10 +476,23 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild className="text-slate-300 hover:text-white hover:bg-white/10">
-                      <Link href="/value-tech#products" className="flex items-center gap-2">
-                        <ArrowLeft className={cn("h-4 w-4 text-cyan-400", isArabic && "rotate-180")} />
-                        <span className="text-[13px] font-medium">{t.backToProducts}</span>
+                    <SidebarMenuButton
+                      asChild
+                      className="text-slate-700 hover:text-black hover:bg-slate-900/5"
+                    >
+                      <Link
+                        href="/value-tech#products"
+                        className="flex items-center gap-2"
+                      >
+                        <ArrowLeft
+                          className={cn(
+                            "h-4 w-4 text-cyan-600",
+                            isArabic && "rotate-180",
+                          )}
+                        />
+                        <span className="text-[13px] font-medium">
+                          {t.backToProducts}
+                        </span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -420,11 +500,11 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarSeparator />
+            <SidebarSeparator className="bg-slate-200" />
 
             {/* Current product */}
             <SidebarGroup>
-              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {t.sidebarSectionTitle}
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -436,15 +516,22 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
                         isActive
                         className={activeClass}
                       >
-                        <Link href={currentProduct.href} className="flex items-center gap-2">
-                          <currentProduct.icon className={cn("h-4 w-4", currentProduct.iconColor)} />
-                          <span>{t[currentProduct.labelKey]}</span>
+                        <Link
+                          href={currentProduct.href}
+                          className="flex items-center gap-2"
+                        >
+                          <currentProduct.icon
+                            className={cn("h-4 w-4", currentProduct.iconColor)}
+                          />
+                          <span className="text-black">
+                            {t[currentProduct.labelKey]}
+                          </span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   )}
 
-                  <SidebarSeparator className="my-2" />
+                  <SidebarSeparator className="my-2 bg-slate-200" />
 
                   <SidebarMenuItem>
                     <SidebarMenuButton
@@ -453,8 +540,8 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
                       className={isActive("/clients") ? activeClass : idleClass}
                     >
                       <Link href="/clients" className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-fuchsia-300" />
-                        <span>{t.sidebarClients}</span>
+                        <Users className="h-4 w-4 text-fuchsia-600" />
+                        <span className="text-black">{t.sidebarClients}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -463,11 +550,30 @@ export default function ValueTechShell({ children }: { children: React.ReactNode
                     <SidebarMenuButton
                       asChild
                       isActive={isActive("/settings")}
-                      className={isActive("/settings") ? activeClass : idleClass}
+                      className={
+                        isActive("/settings") ? activeClass : idleClass
+                      }
                     >
-                      <Link href="/settings" className="flex items-center gap-2">
-                        <Settings className="h-4 w-4 text-slate-300" />
-                        <span>{t.sidebarSettings}</span>
+                      <Link
+                        href="/settings"
+                        className="flex items-center gap-2"
+                      >
+                        <Settings className="h-4 w-4 text-slate-600" />
+                        <span className="text-black">{t.sidebarSettings}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  {/* Company link added here explicitly alongside Clients and Settings */}
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive("/company")}
+                      className={isActive("/company") ? activeClass : idleClass}
+                    >
+                      <Link href="/company" className="flex items-center gap-2">
+                        <Building className="h-4 w-4 text-blue-600" />
+                        <span className="text-black">{t.sidebarCompany}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
