@@ -1279,14 +1279,6 @@ function emptyEval() {
       zoomAerial: "",
       zoomComparisons: "",
     },
-    appraiser: {
-      evalDate: "",
-      completedDate: "",
-      reportDate: "",
-      finalAssetValue: "",
-      appraiserDesc: "",
-      appraiserNotes: "",
-    },
     methodsMarket: {
       marketMeterPrice: "",
       marketWeightPct: "",
