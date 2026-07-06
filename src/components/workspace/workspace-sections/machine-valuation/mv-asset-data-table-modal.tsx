@@ -12,6 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Car,
+  Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -24,6 +26,7 @@ import {
   fetchPicAssetDetail,
   hydratePicAssetEntriesProgressive,
   mergePicAssetPreferFull,
+  mergePicAssetFromApi,
   picAssetNeedsMediaFetch,
   type PicAssetFolderEntry,
 } from "./mv-pic-asset-progressive-load";
@@ -33,7 +36,7 @@ import {
   readMvWorkflowSessionJson,
 } from "./mv-workflow-session-cache";
 import { buildAssetParentFolderPath } from "./mv-subproject-helpers";
-import type { MvSubProject, MvSubProjectAssetType, PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types";
+import type { MvSubProject, PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types";
 import { patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 
 const numberFormatter = new Intl.NumberFormat("ar-SA");
@@ -47,10 +50,12 @@ const dateFormatter = new Intl.DateTimeFormat("ar-SA", {
 
 const TABLE_PAGE_SIZE = 10;
 
+type AssetTab = "vehicles" | "other";
+
 interface PreviewEntry extends PicAssetFolderEntry {}
 
 const ASSET_TYPE_OPTIONS: {
-  value: MvSubProjectAssetType;
+  value: string;
   label: string;
   aliases: Set<string>;
 }[] = [
@@ -69,20 +74,55 @@ function assetTypeLabel(t: unknown): string {
   return t || "—";
 }
 
-function normalizeAssetTypeValue(t: unknown): MvSubProjectAssetType {
-  if (typeof t !== "string") return "other";
-  const k = t.toLowerCase();
-  const opt = ASSET_TYPE_OPTIONS.find((o) => o.value === k || o.aliases.has(k));
-  return opt?.value ?? "other";
+/** قراءة ‎subAssetType‎ كما يُرسل من الـ API (نص حر من كولكشن ‎assets‎). */
+function readSubAssetType(pic: PicAsset | null | undefined): string {
+  if (!pic) return "";
+  const v = pic.subAssetType;
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  return "";
 }
 
-type EditableAssetField = "name" | "assetType" | "writtenDescription" | "condition" | "notes";
+/** قراءة الكمية كما تُرسل من الـ API. */
+function readQuantity(pic: PicAsset | null | undefined): string {
+  if (!pic || pic.quantity == null) return "";
+  if (typeof pic.quantity === "number" && Number.isFinite(pic.quantity)) {
+    return String(pic.quantity);
+  }
+  if (typeof pic.quantity === "string") return pic.quantity.trim();
+  return "";
+}
+
+function quantityLabel(pic: PicAsset | null | undefined): string {
+  const t = readQuantity(pic);
+  if (!t) return "—";
+  const n = Number(t);
+  return Number.isFinite(n) ? numberFormatter.format(n) : t;
+}
+
+/** تسمية النوع الفرعي (‎subAssetType‎) للعرض في الجدول. */
+function subAssetTypeLabel(pic: PicAsset | null | undefined): string {
+  const t = readSubAssetType(pic);
+  return t ? t : "—";
+}
+
+type EditableAssetField =
+  | "name"
+  | "brand"
+  | "model"
+  | "manufactureYear"
+  | "kilometersDriven"
+  | "condition"
+  | "notes";
 
 function fieldRawValue(row: AssetTableRow, field: EditableAssetField): string {
   const pic = row.picAsset;
   if (field === "name") return (pic?.name ?? row.sub.name ?? "").trim();
   if (!pic) return "";
-  if (field === "assetType") return normalizeAssetTypeValue(pic.assetType);
+  if (field === "brand") return typeof pic.brand === "string" ? pic.brand.trim() : "";
+  if (field === "model") return typeof pic.model === "string" ? pic.model.trim() : "";
+  if (field === "manufactureYear") return pic.manufactureYear != null ? String(pic.manufactureYear).trim() : "";
+  if (field === "kilometersDriven") return pic.kilometersDriven != null ? String(pic.kilometersDriven).trim() : "";
   const v = pic[field];
   return typeof v === "string" ? v.trim() : "";
 }
@@ -168,41 +208,177 @@ function EditableTextCell({
   );
 }
 
-function EditableAssetTypeCell({
-  value,
-  onSave,
-  saving,
-}: {
-  value: MvSubProjectAssetType;
-  onSave: (next: MvSubProjectAssetType) => Promise<void>;
-  saving?: boolean;
-}) {
-  return (
-    <div className="relative mx-auto min-w-[110px]">
-      <select
-        value={value}
-        disabled={saving}
-        onChange={(e) => void onSave(e.target.value as MvSubProjectAssetType)}
-        className="w-full rounded-md border border-transparent bg-white/80 px-2 py-1.5 text-[12px] font-semibold text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
-      >
-        {ASSET_TYPE_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {saving ? (
-        <Loader2 className="pointer-events-none absolute left-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-sky-500" />
-      ) : null}
-    </div>
-  );
-}
-
 function isVehicleAsset(t: unknown): boolean {
   if (typeof t !== "string") return false;
   const k = t.toLowerCase();
   return k === "vehicles" || k === "vehicle" || k === "car" || k === "cars";
 }
+
+/** نص بحث شامل — كل حقول الأصل المعروضة والمخفية. */
+function buildAssetSearchText(row: AssetTableRow): string {
+  const pic = row.picAsset;
+  const imageCount =
+    pic && Array.isArray(pic.images) && pic.images.length > 0
+      ? pic.images.length
+      : typeof pic?.imageCount === "number"
+        ? pic.imageCount
+        : 0;
+  const voiceCount =
+    pic && Array.isArray(pic.voiceNotes) && pic.voiceNotes.length > 0
+      ? pic.voiceNotes.length
+      : typeof pic?.voiceNoteCount === "number"
+        ? pic.voiceNoteCount
+        : 0;
+  const parts = [
+    row.parentPath,
+    pic?.name ?? row.sub.name,
+    pic?._id,
+    pic?.subAssetType,
+    readSubAssetType(pic),
+    readQuantity(pic),
+    pic?.brand,
+    pic?.model,
+    pic?.code,
+    pic?.condition,
+    pic?.notes,
+    pic?.assetType,
+    assetTypeLabel(pic?.assetType),
+    formatNumberish(pic?.quantity),
+    formatNumberish(pic?.manufactureYear),
+    formatNumberish(pic?.kilometersDriven),
+    formatBool(pic?.isPresent),
+    formatBool(pic?.isDone),
+    formatDate(pic?.createdAt ?? row.sub.createdAt),
+    formatDate(pic?.updatedAt ?? row.sub.updatedAt),
+    imageCount > 0 ? String(imageCount) : "",
+    voiceCount > 0 ? String(voiceCount) : "",
+  ];
+  return parts
+    .filter((p) => typeof p === "string" && p.trim() && p !== "—")
+    .join(" ")
+    .toLowerCase();
+}
+
+function imageCountText(r: AssetTableRow): string {
+  const arr = normalizePicAssetImages(r.picAsset);
+  const c =
+    arr.length > 0
+      ? arr.length
+      : typeof r.picAsset?.imageCount === "number" && Number.isFinite(r.picAsset.imageCount)
+        ? Math.max(0, r.picAsset.imageCount)
+        : 0;
+  return c === 0 ? "—" : numberFormatter.format(c);
+}
+
+function voiceNotesSummaryText(r: AssetTableRow): string {
+  const arr = r.picAsset?.voiceNotes;
+  const c =
+    Array.isArray(arr) && arr.length > 0
+      ? arr.length
+      : typeof r.picAsset?.voiceNoteCount === "number" && Number.isFinite(r.picAsset.voiceNoteCount)
+        ? Math.max(0, r.picAsset.voiceNoteCount)
+        : 0;
+  return c === 0 ? "0" : `${numberFormatter.format(c)} مقطع`;
+}
+
+const SHARED_TAIL_COLUMNS: ColumnDef[] = [
+  {
+    key: "condition",
+    label: "الحالة",
+    text: (r) => formatText(r.picAsset?.condition),
+    minWidth: 140,
+  },
+  { key: "isPresent", label: "متواجد", text: (r) => formatBool(r.picAsset?.isPresent), minWidth: 72 },
+  { key: "isDone", label: "مُستكمل", text: (r) => formatBool(r.picAsset?.isDone), minWidth: 72 },
+  { key: "imageCount", label: "عدد الصور", text: imageCountText, minWidth: 88 },
+  {
+    key: "voiceNotes",
+    label: "الملاحظات الصوتية",
+    text: voiceNotesSummaryText,
+    render: ({ row, projectId }) => <VoiceNotesCell asset={row.picAsset} projectId={projectId} />,
+    minWidth: 220,
+  },
+  {
+    key: "notes",
+    label: "الملاحظات",
+    text: (r) => formatText(r.picAsset?.notes),
+    minWidth: 220,
+  },
+  {
+    key: "createdAt",
+    label: "تاريخ الإنشاء",
+    text: (r) => formatDate(r.picAsset?.createdAt ?? r.sub.createdAt),
+    minWidth: 150,
+  },
+  {
+    key: "updatedAt",
+    label: "آخر تحديث",
+    text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt),
+    minWidth: 150,
+  },
+];
+
+const VEHICLE_COLUMNS: ColumnDef[] = [
+  { key: "_", label: "#", text: (r) => numberFormatter.format(r.index + 1), minWidth: 56 },
+  {
+    key: "preview",
+    label: "صور",
+    text: imageCountText,
+    minWidth: 72,
+  },
+  { key: "parentPath", label: "مسار المجلد", text: (r) => r.parentPath, minWidth: 200 },
+  { key: "name", label: "اسم الأصل", text: (r) => formatText(r.picAsset?.name ?? r.sub.name), minWidth: 180 },
+  { key: "brand", label: "العلامة", text: (r) => formatText(r.picAsset?.brand), minWidth: 110 },
+  { key: "model", label: "الموديل", text: (r) => formatText(r.picAsset?.model), minWidth: 110 },
+  {
+    key: "manufactureYear",
+    label: "سنة الصنع",
+    text: (r) => formatNumberish(r.picAsset?.manufactureYear),
+    minWidth: 96,
+  },
+  {
+    key: "kilometersDriven",
+    label: "الكم المقطوع",
+    text: (r) => formatNumberish(r.picAsset?.kilometersDriven),
+    minWidth: 110,
+  },
+  ...SHARED_TAIL_COLUMNS,
+];
+
+const OTHER_COLUMNS: ColumnDef[] = [
+  { key: "_", label: "#", text: (r) => numberFormatter.format(r.index + 1), minWidth: 56 },
+  {
+    key: "preview",
+    label: "صور",
+    text: imageCountText,
+    minWidth: 72,
+  },
+  { key: "parentPath", label: "مسار المجلد", text: (r) => r.parentPath, minWidth: 200 },
+  { key: "name", label: "اسم الأصل", text: (r) => formatText(r.picAsset?.name ?? r.sub.name), minWidth: 180 },
+  {
+    key: "subAssetType",
+    label: "نوع الأصل",
+    text: (r) => subAssetTypeLabel(r.picAsset),
+    minWidth: 120,
+  },
+  {
+    key: "quantity",
+    label: "الكمية",
+    text: (r) => quantityLabel(r.picAsset),
+    minWidth: 80,
+  },
+  ...SHARED_TAIL_COLUMNS,
+];
+
+const EDITABLE_COLUMN_KEYS = new Set([
+  "name",
+  "brand",
+  "model",
+  "manufactureYear",
+  "kilometersDriven",
+  "condition",
+  "notes",
+]);
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
@@ -467,109 +643,6 @@ function AssetThumbnailCell({
   );
 }
 
-const COLUMNS: ColumnDef[] = [
-  { key: "_", label: "#", text: (r) => numberFormatter.format(r.index + 1), minWidth: 56 },
-  {
-    key: "preview",
-    label: "صور",
-    text: (r) => {
-      const arr = normalizePicAssetImages(r.picAsset);
-      const c =
-        arr.length > 0
-          ? arr.length
-          : typeof r.picAsset?.imageCount === "number" && Number.isFinite(r.picAsset.imageCount)
-            ? Math.max(0, r.picAsset.imageCount)
-            : 0;
-      return c === 0 ? "—" : numberFormatter.format(c);
-    },
-    minWidth: 72,
-  },
-  {
-    key: "parentPath",
-    label: "مسار المجلد",
-    text: (r) => r.parentPath,
-    minWidth: 220,
-  },
-  { key: "name", label: "اسم الأصل", text: (r) => formatText(r.picAsset?.name ?? r.sub.name), minWidth: 200 },
-  { key: "assetType", label: "نوع الأصل", text: (r) => assetTypeLabel(r.picAsset?.assetType), minWidth: 110 },
-  {
-    key: "writtenDescription",
-    label: "الوصف المكتوب",
-    text: (r) => formatText(r.picAsset?.writtenDescription),
-    minWidth: 240,
-  },
-  {
-    key: "condition",
-    label: "الحالة",
-    text: (r) => formatText(r.picAsset?.condition),
-    minWidth: 200,
-  },
-  { key: "isPresent", label: "متواجد", text: (r) => formatBool(r.picAsset?.isPresent) },
-  { key: "isDone", label: "مُستكمل", text: (r) => formatBool(r.picAsset?.isDone) },
-  { key: "brand", label: "العلامة", text: (r) => formatText(r.picAsset?.brand), vehicleOnly: true },
-  { key: "model", label: "الموديل", text: (r) => formatText(r.picAsset?.model), vehicleOnly: true },
-  {
-    key: "manufactureYear",
-    label: "سنة الصنع",
-    text: (r) => formatNumberish(r.picAsset?.manufactureYear),
-    vehicleOnly: true,
-  },
-  {
-    key: "kilometersDriven",
-    label: "الكم المقطوع",
-    text: (r) => formatNumberish(r.picAsset?.kilometersDriven),
-    vehicleOnly: true,
-  },
-  {
-    key: "imageCount",
-    label: "عدد الصور",
-    text: (r) => {
-      const arr = r.picAsset?.images;
-      const c =
-        Array.isArray(arr) && arr.length > 0
-          ? arr.length
-          : typeof r.picAsset?.imageCount === "number" && Number.isFinite(r.picAsset.imageCount)
-            ? Math.max(0, r.picAsset.imageCount)
-            : 0;
-      return numberFormatter.format(c);
-    },
-  },
-  {
-    key: "voiceNotes",
-    label: "الملاحظات الصوتية",
-    text: (r) => {
-      const arr = r.picAsset?.voiceNotes;
-      const c =
-        Array.isArray(arr) && arr.length > 0
-          ? arr.length
-          : typeof r.picAsset?.voiceNoteCount === "number" && Number.isFinite(r.picAsset.voiceNoteCount)
-            ? Math.max(0, r.picAsset.voiceNoteCount)
-            : 0;
-      return c === 0 ? "0" : `${numberFormatter.format(c)} مقطع`;
-    },
-    render: ({ row, projectId }) => <VoiceNotesCell asset={row.picAsset} projectId={projectId} />,
-    minWidth: 260,
-  },
-  {
-    key: "createdAt",
-    label: "تاريخ الإنشاء",
-    text: (r) => formatDate(r.picAsset?.createdAt ?? r.sub.createdAt),
-    minWidth: 160,
-  },
-  {
-    key: "updatedAt",
-    label: "آخر تحديث",
-    text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt),
-    minWidth: 160,
-  },
-  {
-    key: "notes",
-    label: "الملاحظات",
-    text: (r) => formatText(r.picAsset?.notes),
-    minWidth: 240,
-  },
-];
-
 function VoiceNotesCell({
   asset,
   projectId,
@@ -642,6 +715,7 @@ export function MvAssetDataTableModal({
 }: MvAssetDataTableModalProps) {
   const { toast } = useToast();
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<AssetTab>("vehicles");
   const [exporting, setExporting] = useState(false);
   const [entries, setEntries] = useState<PreviewEntry[]>(() => {
     if (typeof window === "undefined") return [];
@@ -704,7 +778,7 @@ export function MvAssetDataTableModal({
           setEntries((prev) => {
             const merged = prev.map((e) =>
               e.sub._id === subId
-                ? { sub: next.sub, picAsset: mergePicAssetPreferFull(e.picAsset, next.picAsset) }
+                ? { sub: next.sub, picAsset: mergePicAssetFromApi(e.picAsset, next.picAsset) }
                 : e,
             );
             persistEntriesCache(merged, lookup);
@@ -755,8 +829,17 @@ export function MvAssetDataTableModal({
             sub: { ...e.sub, name: trimmed },
             picAsset: mergePicAssetPreferFull(e.picAsset, { ...updated, name: trimmed }),
           }));
-        } else if (field === "assetType") {
-          const updated = await patchMvSubprojectPicAsset(projectId, subId, { assetType: nextValue });
+        } else if (field === "manufactureYear" || field === "kilometersDriven") {
+          const trimmed = nextValue.trim();
+          const payload = { [field]: trimmed ? trimmed : null };
+          const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
+          applyEntryUpdate(subId, (e) => ({
+            ...e,
+            picAsset: mergePicAssetPreferFull(e.picAsset, updated),
+          }));
+        } else if (field === "brand" || field === "model") {
+          const payload = { [field]: nextValue.trim() || null };
+          const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
           applyEntryUpdate(subId, (e) => ({
             ...e,
             picAsset: mergePicAssetPreferFull(e.picAsset, updated),
@@ -788,23 +871,21 @@ export function MvAssetDataTableModal({
 
   const renderEditableCell = useCallback(
     (colKey: string, row: AssetTableRow) => {
+      if (!EDITABLE_COLUMN_KEYS.has(colKey)) return null;
       const field = colKey as EditableAssetField;
       const saving = savingCell === `${row.sub._id}:${field}`;
-      if (field === "assetType") {
-        return (
-          <EditableAssetTypeCell
-            value={normalizeAssetTypeValue(row.picAsset?.assetType)}
-            saving={saving}
-            onSave={async (v) => saveAssetField(row, "assetType", v)}
-          />
-        );
-      }
+      const singleLine =
+        field === "name" ||
+        field === "brand" ||
+        field === "model" ||
+        field === "manufactureYear" ||
+        field === "kilometersDriven";
       return (
         <EditableTextCell
           value={fieldRawValue(row, field)}
           saving={saving}
           required={field === "name"}
-          multiline={field !== "name"}
+          multiline={!singleLine}
           placeholder={field === "name" ? "اسم الأصل" : "—"}
           onSave={async (v) => saveAssetField(row, field, v)}
         />
@@ -824,7 +905,7 @@ export function MvAssetDataTableModal({
             setEntries((prev) =>
               prev.map((e) =>
                 e.sub._id === subProjectId
-                  ? { ...e, picAsset: mergePicAssetPreferFull(e.picAsset, row.picAsset) }
+                  ? { ...e, picAsset: mergePicAssetFromApi(e.picAsset, row.picAsset) }
                   : e,
               ),
             );
@@ -875,7 +956,7 @@ export function MvAssetDataTableModal({
           const prevBySubId = new Map(prev.map((e) => [e.sub._id, e]));
           mergedEntries = summaryEntries.map((entry) => {
             const existing = prevBySubId.get(entry.sub._id);
-            const mergedPic = mergePicAssetPreferFull(existing?.picAsset ?? null, entry.picAsset);
+            const mergedPic = mergePicAssetFromApi(existing?.picAsset ?? null, entry.picAsset);
             const mergedName =
               mergedPic?.name?.trim() ||
               entry.sub.name ||
@@ -913,9 +994,9 @@ export function MvAssetDataTableModal({
 
   useEffect(() => {
     setPage(0);
-  }, [query]);
+  }, [query, activeTab]);
 
-  const rows = useMemo<AssetTableRow[]>(() => {
+  const allRows = useMemo<AssetTableRow[]>(() => {
     const filtered = entries.filter((e) => e.picAsset != null);
     const sorted = filtered.sort((a, b) => {
       const an = (a.picAsset?.name ?? a.sub.name ?? "").toString();
@@ -932,30 +1013,48 @@ export function MvAssetDataTableModal({
     }));
   }, [entries, folderLookup]);
 
-  const hasAnyVehicle = useMemo(
-    () => rows.some((r) => isVehicleAsset(r.picAsset?.assetType)),
-    [rows],
-  );
-
-  const visibleColumns = useMemo(
-    () => COLUMNS.filter((col) => (col.vehicleOnly ? hasAnyVehicle : true)),
-    [hasAnyVehicle],
-  );
-
-  const visibleRows = useMemo(() => {
+  const searchedRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => {
-      return visibleColumns.some((col) => {
-        try {
-          const v = col.text(r);
-          return typeof v === "string" && v.toLowerCase().includes(q);
-        } catch {
-          return false;
-        }
-      });
-    });
-  }, [rows, visibleColumns, query]);
+    if (!q) return allRows;
+    return allRows.filter((r) => buildAssetSearchText(r).includes(q));
+  }, [allRows, query]);
+
+  const vehicleRowsAll = useMemo(
+    () =>
+      allRows
+        .filter((r) => isVehicleAsset(r.picAsset?.assetType))
+        .map((row, index) => ({ ...row, index })),
+    [allRows],
+  );
+
+  const otherRowsAll = useMemo(
+    () =>
+      allRows
+        .filter((r) => !isVehicleAsset(r.picAsset?.assetType))
+        .map((row, index) => ({ ...row, index })),
+    [allRows],
+  );
+
+  const vehicleRows = useMemo(
+    () =>
+      searchedRows
+        .filter((r) => isVehicleAsset(r.picAsset?.assetType))
+        .map((row, index) => ({ ...row, index })),
+    [searchedRows],
+  );
+
+  const otherRows = useMemo(
+    () =>
+      searchedRows
+        .filter((r) => !isVehicleAsset(r.picAsset?.assetType))
+        .map((row, index) => ({ ...row, index })),
+    [searchedRows],
+  );
+
+  const visibleColumns = activeTab === "vehicles" ? VEHICLE_COLUMNS : OTHER_COLUMNS;
+  const tabRowsAll = activeTab === "vehicles" ? vehicleRowsAll : otherRowsAll;
+  const visibleRows = activeTab === "vehicles" ? vehicleRows : otherRows;
+  const rows = allRows;
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / TABLE_PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -982,7 +1081,7 @@ export function MvAssetDataTableModal({
         setEntries((prev) => {
           const merged = prev.map((e) =>
             e.sub._id === row.sub._id
-              ? { sub: detail.sub, picAsset: mergePicAssetPreferFull(e.picAsset, detail.picAsset) }
+              ? { sub: detail.sub, picAsset: mergePicAssetFromApi(e.picAsset, detail.picAsset) }
               : e,
           );
           persistEntriesCache(merged);
@@ -1003,19 +1102,29 @@ export function MvAssetDataTableModal({
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const header = visibleColumns.map((c) => c.label);
-      const body = visibleRows.map((r) => visibleColumns.map((c) => c.text(r)));
-      const aoa = [header, ...body];
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws["!cols"] = visibleColumns.map((c) => ({
-        wch: Math.max(10, Math.min(60, Math.ceil((c.minWidth ?? 140) / 8))),
-      }));
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "بيانات الأصول");
+      const appendSheet = (sheetName: string, cols: ColumnDef[], data: AssetTableRow[]) => {
+        if (data.length === 0) return;
+        const header = cols.map((c) => c.label);
+        const body = data.map((r) => cols.map((c) => c.text(r)));
+        const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+        ws["!cols"] = cols.map((c) => ({
+          wch: Math.max(10, Math.min(60, Math.ceil((c.minWidth ?? 140) / 8))),
+        }));
+        XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+      };
+      appendSheet("المركبات", VEHICLE_COLUMNS, vehicleRows);
+      appendSheet("أصول أخرى", OTHER_COLUMNS, otherRows);
+      if (wb.SheetNames.length === 0) {
+        toast({ variant: "destructive", description: "لا توجد بيانات للتصدير." });
+        return;
+      }
       const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
       const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
       XLSX.writeFile(wb, `بيانات-الأصول-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
-      toast({ description: `تم تصدير ${numberFormatter.format(visibleRows.length)} صفاً إلى Excel.` });
+      toast({
+        description: `تم تصدير ${numberFormatter.format(vehicleRows.length + otherRows.length)} صفاً إلى Excel.`,
+      });
     } catch (e) {
       toast({
         variant: "destructive",
@@ -1051,11 +1160,12 @@ export function MvAssetDataTableModal({
               </h2>
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-sky-100/90">
                 <span>
-                  إجمالي الأصول: {numberFormatter.format(rows.length)} — المعروض:{" "}
-                  {numberFormatter.format(visibleRows.length)}
+                  إجمالي الأصول: {numberFormatter.format(rows.length)} — المركبات:{" "}
+                  {numberFormatter.format(vehicleRows.length)} — أخرى:{" "}
+                  {numberFormatter.format(otherRows.length)}
                 </span>
                 <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
-                  الحقول: اسم الأصل، النوع، الوصف، الحالة، الملاحظات — قابلة للتعديل (يُحفظ عند الخروج من الحقل)
+                  بحث شامل في كل الحقول — التعديل يُحفظ عند الخروج من الحقل
                 </span>
                 {loading || loadingDetails ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/80">
@@ -1071,8 +1181,8 @@ export function MvAssetDataTableModal({
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="بحث في الأصول…"
-                  className="h-9 w-[200px] border-white/20 bg-white/10 pe-2 ps-7 text-[12px] text-white placeholder:text-white/50 focus-visible:ring-white/40"
+                  placeholder="بحث شامل في بيانات الأصول…"
+                  className="h-9 w-[min(92vw,280px)] border-white/20 bg-white/10 pe-2 ps-7 text-[12px] text-white placeholder:text-white/50 focus-visible:ring-white/40"
                   dir="auto"
                 />
                 {query ? (
@@ -1102,6 +1212,41 @@ export function MvAssetDataTableModal({
               </Button>
             </div>
           </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-4 pt-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("vehicles")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
+              activeTab === "vehicles"
+                ? "border-sky-200 bg-sky-50 text-sky-900"
+                : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+            )}
+          >
+            <Car className="h-3.5 w-3.5" />
+            المركبات
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-600 shadow-sm">
+              {numberFormatter.format(vehicleRows.length)}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("other")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
+              activeTab === "other"
+                ? "border-violet-200 bg-violet-50 text-violet-900"
+                : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+            )}
+          >
+            <Package className="h-3.5 w-3.5" />
+            أصول أخرى
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-600 shadow-sm">
+              {numberFormatter.format(otherRows.length)}
+            </span>
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50/40">
@@ -1134,7 +1279,13 @@ export function MvAssetDataTableModal({
           ) : visibleRows.length === 0 ? (
             <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-6 text-center text-slate-500">
               <Search className="h-7 w-7 text-slate-300" />
-              <p className="text-[12px] font-medium">لا توجد نتائج مطابقة لبحثك.</p>
+              <p className="text-[12px] font-medium">
+                {query.trim()
+                  ? "لا توجد نتائج مطابقة لبحثك في هذا التبويب."
+                  : activeTab === "vehicles"
+                    ? "لا توجد مركبات مسجّلة بعد."
+                    : "لا توجد أصول أخرى مسجّلة بعد."}
+              </p>
             </div>
           ) : (
             <table className="w-full border-separate border-spacing-0 text-[12px]" dir="rtl">
@@ -1165,6 +1316,8 @@ export function MvAssetDataTableModal({
                       const isFirst = idx === 0;
                       const isName = col.key === "name";
                       const isParentPath = col.key === "parentPath";
+                      const isSubAssetType = col.key === "subAssetType";
+                      const isQuantity = col.key === "quantity";
                       return (
                         <td
                           key={col.key}
@@ -1174,6 +1327,7 @@ export function MvAssetDataTableModal({
                               "sticky right-0 z-10 bg-white font-bold tabular-nums text-slate-500 shadow-[1px_0_0_0_rgb(241,245,249)] group-hover:bg-sky-50/60",
                             isName && "font-semibold text-slate-900",
                             isParentPath && "text-right text-[11px] leading-relaxed",
+                            (isSubAssetType || isQuantity) && "font-medium tabular-nums text-slate-900",
                             textValue === "—" && !isFirst && col.key !== "preview" && "text-slate-400",
                           )}
                           style={{ minWidth: col.minWidth ?? 120 }}
@@ -1187,12 +1341,10 @@ export function MvAssetDataTableModal({
                               loadingDetails={loadingDetails}
                               onOpenGallery={(asset, name, subId) => void openAssetGallery(asset, name, subId)}
                             />
-                          ) : col.key === "name" ||
-                            col.key === "assetType" ||
-                            col.key === "writtenDescription" ||
-                            col.key === "condition" ||
-                            col.key === "notes" ? (
-                            renderEditableCell(col.key, row)
+                          ) : EDITABLE_COLUMN_KEYS.has(col.key) ? (
+                            renderEditableCell(col.key, row) ?? (
+                              <div className="mx-auto max-w-[420px] whitespace-pre-wrap break-words">{textValue}</div>
+                            )
                           ) : col.render ? (
                             col.render({ row, projectId })
                           ) : (
@@ -1219,9 +1371,10 @@ export function MvAssetDataTableModal({
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-500">
           <div className="flex flex-wrap items-center gap-3">
             <span>
-              {visibleRows.length === rows.length
-                ? `إجمالي ${numberFormatter.format(rows.length)} أصل`
-                : `معروض ${numberFormatter.format(visibleRows.length)} من ${numberFormatter.format(rows.length)} أصل`}
+              {query.trim()
+                ? `معروض ${numberFormatter.format(visibleRows.length)} من ${numberFormatter.format(tabRowsAll.length)} — ${activeTab === "vehicles" ? "المركبات" : "أصول أخرى"}`
+                : `${activeTab === "vehicles" ? "المركبات" : "أصول أخرى"}: ${numberFormatter.format(visibleRows.length)}`}
+              {" — "}إجمالي المشروع: {numberFormatter.format(rows.length)}
             </span>
             {visibleRows.length > TABLE_PAGE_SIZE ? (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 tabular-nums">

@@ -1,0 +1,124 @@
+import type { MvProjectReportData } from "@/components/workspace/workspace-sections/machine-valuation/types";
+import type { MvWordBookmarkTextField } from "./bookmarks";
+
+export type MvWordMergeImageItem = {
+  image: ArrayBuffer;
+  caption?: string;
+  width?: number;
+  height?: number;
+};
+
+export type MvWordMergeInput = {
+  projectName: string;
+  displayNumber?: number | null;
+  reportData: MvProjectReportData;
+  assetImages: MvWordMergeImageItem[];
+  valuationImages: MvWordMergeImageItem[];
+};
+
+function hasMergeValue(value: unknown): value is string | number {
+  if (value == null) return false;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string") return value.trim().length > 0;
+  return false;
+}
+
+function formatDateAr(value?: unknown) {
+  if (value == null) return "";
+  const raw =
+    value instanceof Date
+      ? value.toISOString()
+      : typeof value === "string" || typeof value === "number"
+        ? String(value).trim()
+        : "";
+  if (!raw) return "";
+  const dateOnly = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? raw;
+  const date = new Date(`${dateOnly}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return raw;
+  return new Intl.DateTimeFormat("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(date);
+}
+
+function coerceFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const normalized = value
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[^\d.-]/g, "");
+  if (!normalized.trim()) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatFinalValueAmount(value: unknown): string {
+  const amount = coerceFiniteNumber(value);
+  if (amount == null) return "";
+  return new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 0 }).format(amount);
+}
+
+function formatFinalValue(value: unknown, currency?: string | null) {
+  const formatted = formatFinalValueAmount(value);
+  if (!formatted) return "";
+  const suffix = currency?.trim() ? ` ${currency.trim()}` : " ر.س";
+  return `${formatted}${suffix}`;
+}
+
+function buildClientIdentity(reportData: MvProjectReportData): string {
+  const parts = [
+    reportData.clientLegalType?.trim(),
+    reportData.clientRepresentativeName?.trim(),
+    reportData.clientRepresentativeRole?.trim(),
+    reportData.intendedUsers?.trim(),
+  ].filter(Boolean);
+  return parts.join(" — ");
+}
+
+/** قيم الحقول النصية المرتبطة بالإشارات المرجعية */
+export function buildBookmarkTextValues(input: MvWordMergeInput): Record<MvWordBookmarkTextField, string> {
+  const { reportData, projectName } = input;
+
+  const values: Record<MvWordBookmarkTextField, string> = {
+    reportTitle: reportData.reportTitle?.trim() || projectName?.trim() || "",
+    clientName: reportData.clientName?.trim() || "",
+    clientIdentity: buildClientIdentity(reportData),
+    valuationBasis: reportData.valuationBasis?.trim() ?? "",
+    valuationPurpose: reportData.valuationPurpose?.trim() ?? "",
+    agreementDate: formatDateAr(reportData.agreementDate),
+    reportIssueDate: formatDateAr(reportData.reportIssueDate),
+    valuationDate: formatDateAr(reportData.valuationDate),
+    inspectionDate: formatDateAr(reportData.inspectionDate),
+    valuePremise: reportData.valuePremise?.trim() ?? "",
+    finalValue: formatFinalValue(reportData.finalValue, reportData.currencyLabel),
+    finalValueAmount: formatFinalValueAmount(reportData.finalValue),
+    finalValueWords: reportData.finalValueWords?.trim() ?? "",
+    inspectionLocation: reportData.inspectionLocation?.trim() ?? "",
+    inspectionMapUrl: reportData.inspectionMapUrl?.trim() ?? "",
+  };
+
+  for (const [key, value] of Object.entries(reportData.reportTextOverrides ?? {})) {
+    if (!value?.trim()) continue;
+    if (key in values) {
+      (values as Record<string, string>)[key] = value.trim();
+    }
+  }
+
+  return values;
+}
+
+export function buildImageLoopData(images: MvWordMergeImageItem[]) {
+  return images.map((item) => ({
+    caption: item.caption ?? "",
+    image: item.image,
+    width: item.width,
+    height: item.height,
+  }));
+}
+
+/** @deprecated استخدم buildBookmarkTextValues */
+export function buildScalarMergeValues(input: MvWordMergeInput): Record<string, string> {
+  return buildBookmarkTextValues(input) as unknown as Record<string, string>;
+}

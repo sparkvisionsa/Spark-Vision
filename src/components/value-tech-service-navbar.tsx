@@ -1,18 +1,21 @@
 "use client";
 
-import { useContext, useEffect, useId, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   ChevronDown,
   Globe,
   Home,
   LayoutGrid,
+  Package,
+  UserCircle,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import AuthUserMenu from "@/components/auth-user-menu";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +25,8 @@ import {
 
 const copy = {
   en: {
+    brandName: "فاليو تك",
+    brandSubtitle: "Value Tech",
     home: "Home",
     valueTechApp: "Report Upload System",
     realEstate: "Real Estate Valuation System",
@@ -31,8 +36,11 @@ const copy = {
     assetInspection: "Asset Inspection System",
     products: "Products",
     language: "Language",
+    login: "Login",
   },
   ar: {
+    brandName: "فاليو تك",
+    brandSubtitle: "حلول تقييم الأصول",
     home: "الرئيسية",
     valueTechApp: "نظام رفع التقارير",
     realEstate: "نظام تقييم العقارات",
@@ -42,62 +50,305 @@ const copy = {
     assetInspection: "تطبيق معاينة الأصول",
     products: "المنتجات",
     language: "اللغة",
+    login: "تسجيل الدخول",
   },
 } as const;
 
-function ValueTechLogo({ size = 32 }: { size?: number }) {
-  const id = useId();
+function HubLanguageSwitcher() {
+  const langContext = useContext(LanguageContext);
+  if (!langContext) return null;
+
+  const { language, setLanguage } = langContext;
+
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 36 36"
-      fill="none"
-      aria-hidden="true"
-    >
-      <defs>
-        <linearGradient
-          id={`${id}-bg`}
-          x1="0"
-          y1="0"
-          x2="36"
-          y2="36"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="#0d9488" />
-          <stop offset="1" stopColor="#0ea5e9" />
-        </linearGradient>
-        <linearGradient
-          id={`${id}-shine`}
-          x1="18"
-          y1="0"
-          x2="18"
-          y2="22"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="white" stopOpacity="0.28" />
-          <stop offset="1" stopColor="white" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <rect width="36" height="36" rx="9" fill={`url(#${id}-bg)`} />
-      <rect width="36" height="36" rx="9" fill={`url(#${id}-shine)`} />
-      <path
-        d="M11.5 11L18 26L24.5 11"
-        stroke="white"
-        strokeWidth="2.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 7.5L19.2 9.5L18 11.5L16.8 9.5Z"
-        fill="white"
-        fillOpacity="0.8"
-      />
-    </svg>
+    <div className="vt-hub-lang-switch" role="group" aria-label="Language">
+      <button
+        type="button"
+        className={cn("vt-hub-lang-btn", language === "ar" && "vt-hub-lang-btn--active")}
+        onClick={() => setLanguage("ar")}
+      >
+        AR
+      </button>
+      <button
+        type="button"
+        className={cn("vt-hub-lang-btn", language === "en" && "vt-hub-lang-btn--active")}
+        onClick={() => setLanguage("en")}
+      >
+        EN
+      </button>
+    </div>
   );
 }
 
-export default function ValueTechServiceNavbar() {
+function HubAuthPill() {
+  const { user, loading } = useAuthTracking();
+  const langContext = useContext(LanguageContext);
+  const language = langContext?.language ?? "ar";
+  const t = copy[language];
+
+  const openAuth = () => {
+    window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
+  };
+
+  const hubTriggerClass =
+    "vt-hub-user-pill h-auto shadow-none";
+
+  if (loading) {
+    return <div className="h-8 w-24 animate-pulse rounded-full bg-[rgba(232,184,90,0.12)]" />;
+  }
+
+  if (!user) {
+    return (
+      <button type="button" onClick={openAuth} className="vt-hub-user-pill">
+        <UserCircle className="h-4 w-4 text-[#f5cd7b]" aria-hidden />
+        <span>{t.login}</span>
+        <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+      </button>
+    );
+  }
+
+  return <AuthUserMenu triggerClassName={hubTriggerClass} />;
+}
+
+function HubBrandLink({ isArabic }: { isArabic: boolean }) {
+  const langContext = useContext(LanguageContext);
+  const language = langContext?.language ?? "ar";
+  const t = copy[language];
+
+  return (
+    <Link
+      href="/value-tech"
+      className="vt-hub-brand group/logo shrink-0 outline-none transition focus-visible:ring-2 focus-visible:ring-[#c9963a]/40"
+      aria-label={t.brandName}
+    >
+      <span className="vt-hub-brand-logo">
+        <Image
+          src="/value-tech-icon.png"
+          alt=""
+          width={80}
+          height={80}
+          quality={100}
+          priority
+          sizes="40px"
+          className="h-[2rem] w-[2rem] object-contain sm:h-[2.15rem] sm:w-[2.15rem] transition-transform duration-200 group-hover/logo:scale-[1.04]"
+          aria-hidden
+        />
+      </span>
+      <span className={cn("vt-hub-brand-copy", isArabic && "text-right")}>
+        <span className="vt-hub-brand-title">{t.brandName}</span>
+        <span className="vt-hub-brand-subtitle">{t.brandSubtitle}</span>
+      </span>
+    </Link>
+  );
+}
+
+function HubNavbar() {
+  const router = useRouter();
+  const langContext = useContext(LanguageContext);
+  const language = langContext?.language ?? "ar";
+  const setLanguage = langContext?.setLanguage;
+  const isArabic = language === "ar";
+  const t = copy[language];
+  const pathname = usePathname() || "/";
+  const [productsDesktopOpen, setProductsDesktopOpen] = useState(false);
+  const [productsMobileOpen, setProductsMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setProductsDesktopOpen(false);
+    setProductsMobileOpen(false);
+  }, [pathname]);
+
+  const isHubHome = pathname === "/value-tech";
+  const isProductsSection =
+    pathname.startsWith("/value-tech-app") ||
+    pathname.startsWith("/evaluation-source") ||
+    pathname.startsWith("/real-estate-valuation") ||
+    pathname.startsWith("/machine-valuation") ||
+    pathname.startsWith("/asset-inventory") ||
+    pathname.startsWith("/asset-inspection");
+
+  const productMenuItems = (close: () => void) => (
+    <>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/value-tech-app");
+        }}
+      >
+        {t.valueTechApp}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/real-estate-valuation");
+        }}
+      >
+        {t.realEstate}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/machine-valuation");
+        }}
+      >
+        {t.machines}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/evaluation-source");
+        }}
+      >
+        {t.sources}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/asset-inventory");
+        }}
+      >
+        {t.assetInventory}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+        onSelect={(e) => {
+          e.preventDefault();
+          close();
+          router.push("/asset-inspection");
+        }}
+      >
+        {t.assetInspection}
+      </DropdownMenuItem>
+    </>
+  );
+
+  const hubProductsMenuClass =
+    "z-[120] min-w-[230px] rounded-xl border border-[rgba(232,184,90,0.32)] bg-[linear-gradient(155deg,#122a4a_0%,#0f2240_52%,#0a1628_100%)] p-1 text-[#f5cd7b] shadow-xl shadow-black/30";
+
+  return (
+    <header className="vt-hub-navbar-shell">
+      <div className="vt-hub-navbar" dir={isArabic ? "rtl" : "ltr"}>
+        <HubBrandLink isArabic={isArabic} />
+
+        <nav className="flex min-w-0 flex-1 items-center justify-center gap-1">
+          <Link
+            href="/value-tech"
+            className={cn("vt-hub-nav-link", isHubHome && "vt-hub-nav-link--active")}
+          >
+            <Home className="h-3.5 w-3.5" aria-hidden />
+            {t.home}
+          </Link>
+
+          <DropdownMenu
+            modal={false}
+            open={productsDesktopOpen}
+            onOpenChange={setProductsDesktopOpen}
+          >
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "vt-hub-nav-link outline-none",
+                  isProductsSection && "vt-hub-nav-link--active",
+                )}
+              >
+                <Package className="h-3.5 w-3.5" aria-hidden />
+                {t.products}
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" sideOffset={8} className={hubProductsMenuClass}>
+              {productMenuItems(() => setProductsDesktopOpen(false))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </nav>
+
+        <div className="hidden sm:block">
+          <HubLanguageSwitcher />
+        </div>
+
+        <div className="hidden min-w-0 sm:block">
+          <HubAuthPill />
+        </div>
+
+        <div className="flex items-center gap-1 sm:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={t.language}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#f5cd7b] outline-none transition hover:bg-[rgba(232,184,90,0.12)]"
+            >
+              <Globe className="h-[18px] w-[18px]" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={isArabic ? "end" : "start"}>
+              <DropdownMenuItem
+                onClick={() => setLanguage?.("ar")}
+                className={cn("text-[13px]", language === "ar" && "font-semibold")}
+              >
+                العربية
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setLanguage?.("en")}
+                className={cn("text-[13px]", language === "en" && "font-semibold")}
+              >
+                English
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu
+            modal={false}
+            open={productsMobileOpen}
+            onOpenChange={setProductsMobileOpen}
+          >
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t.products}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#f5cd7b] outline-none transition hover:bg-[rgba(232,184,90,0.12)]"
+              >
+                <LayoutGrid className="h-[18px] w-[18px]" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align={isArabic ? "end" : "start"}
+              sideOffset={8}
+              className={hubProductsMenuClass}
+            >
+              <DropdownMenuItem
+                className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setProductsMobileOpen(false);
+                  router.push("/value-tech");
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <Home className="h-3.5 w-3.5" />
+                  {t.home}
+                </span>
+              </DropdownMenuItem>
+              {productMenuItems(() => setProductsMobileOpen(false))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <HubAuthPill />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function DefaultNavbar() {
   const router = useRouter();
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
@@ -205,23 +456,25 @@ export default function ValueTechServiceNavbar() {
     <header className="fixed inset-x-0 top-0 z-50 border-b border-slate-200/70 bg-white/[0.82] text-slate-900 shadow-[0_1px_0_rgba(15,23,42,0.03),0_12px_40px_rgba(15,23,42,0.06)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/[0.72]">
       <div className="mx-auto w-full max-w-[1680px] px-3 sm:px-5">
         <div className="flex h-14 items-center gap-3">
-          {/* Logo + Brand */}
           <Link
             href="/value-tech"
             className="group/logo inline-flex shrink-0 items-center gap-2.5 rounded-lg px-1.5 py-1 outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-400/40"
           >
-            <span className="transition-transform duration-200 group-hover/logo:scale-[1.04]">
-              <ValueTechLogo size={32} />
-            </span>
+            <Image
+              src="/value-tech-icon.png"
+              alt=""
+              width={32}
+              height={32}
+              className="h-8 w-8 transition-transform duration-200 group-hover/logo:scale-[1.04]"
+              aria-hidden
+            />
             <span className="hidden text-[15px] font-semibold text-slate-900 sm:inline">
               Value Tech
             </span>
           </Link>
 
-          {/* Divider */}
           <div className="hidden h-5 w-px shrink-0 bg-slate-200 sm:block" />
 
-          {/* Home link */}
           <Link
             href="/value-tech"
             className={cn(
@@ -235,9 +488,7 @@ export default function ValueTechServiceNavbar() {
             {t.home}
           </Link>
 
-          {/* Products navigation */}
           <nav className="flex min-w-0 items-center">
-            {/* Desktop */}
             <div className="hidden sm:flex items-center">
               <DropdownMenu
                 modal={false}
@@ -264,7 +515,6 @@ export default function ValueTechServiceNavbar() {
               </DropdownMenu>
             </div>
 
-            {/* Mobile */}
             <div className="flex sm:hidden">
               <DropdownMenu
                 modal={false}
@@ -284,18 +534,35 @@ export default function ValueTechServiceNavbar() {
             </div>
           </nav>
 
-          {/* Spacer */}
           <div className="flex-1 min-w-0" />
 
-          {/* Right-side actions */}
           <div className="flex items-center gap-1">
-            {/* Desktop: language + auth */}
             <div className="hidden items-center gap-1 sm:flex">
-              <LanguageSwitcher />
+              <div className="flex items-center rounded-full border p-1 text-sm">
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-full h-7 px-3 text-sm transition",
+                    language === "en" && "bg-muted text-foreground",
+                  )}
+                  onClick={() => setLanguage?.("en")}
+                >
+                  EN
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "rounded-full h-7 px-3 text-sm transition",
+                    language === "ar" && "bg-muted text-foreground",
+                  )}
+                  onClick={() => setLanguage?.("ar")}
+                >
+                  AR
+                </button>
+              </div>
               <AuthUserMenu />
             </div>
 
-            {/* Mobile: language icon */}
             <div className="sm:hidden">
               <DropdownMenu>
                 <DropdownMenuTrigger
@@ -321,14 +588,24 @@ export default function ValueTechServiceNavbar() {
               </DropdownMenu>
             </div>
 
-            {/* Mobile: auth */}
             <div className="sm:hidden">
               <AuthUserMenu />
             </div>
-
           </div>
         </div>
       </div>
     </header>
   );
+}
+
+export default function ValueTechServiceNavbar({
+  variant = "default",
+}: {
+  variant?: "default" | "hub";
+}) {
+  if (variant === "hub") {
+    return <HubNavbar />;
+  }
+
+  return <DefaultNavbar />;
 }

@@ -17,6 +17,7 @@ import {
   ClipboardList,
   Eye,
   FileText,
+  FileType,
   ImageIcon,
   ListTree,
   Loader2,
@@ -70,6 +71,12 @@ import {
   type MvValuationAccountingStore,
 } from "./mv-valuation-accounting-store";
 import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-export-menu";
+import { MvWordTemplateModal } from "./mv-word-template-modal";
+import {
+  downloadWordBlob,
+  mergeWordReportTemplateSmart,
+  prepareMvWordMergeInput,
+} from "@/lib/mv-word-template";
 import { MvReportImagesControlPanel } from "./mv-report-images-control-panel";
 import { mvAutoPdfDownloadStorageKey, postReportPdfExportToParent } from "./mv-home-routes";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
@@ -842,6 +849,21 @@ function normalizeReportPageOrientations(raw: unknown): ReportPageOrientations {
 
 const DEFAULT_REPORT_TEMPLATE_ID = "default-report-template";
 const COMPANY_LETTERHEAD_TEMPLATE_ID = "company-letterhead";
+const AI_REPORT_TEMPLATE_ID_PREFIX = "ai-template:";
+
+type MvCompanyAiTemplate = {
+  id: string;
+  name: string;
+  analysisSummary?: string;
+  sourceFileName?: string;
+  coverImageDataUrl?: string | null;
+  pageImageDataUrl?: string | null;
+  landscapePageImageDataUrl?: string | null;
+  theme?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+  sections?: Array<{ id?: string; title?: string; order?: number }>;
+  dynamicVariables?: Array<{ key?: string; label?: string; source?: string }>;
+};
 
 type MvReportTemplateOption = {
   id: string;
@@ -861,8 +883,11 @@ type MvReportTemplateOption = {
     | "premium"
     | "creative"
     | "deck"
-    | "letterhead";
+    | "letterhead"
+    | "ai";
   usesCompanyLetterhead?: boolean;
+  usesAiTemplate?: boolean;
+  aiTemplate?: MvCompanyAiTemplate;
 };
 
 const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
@@ -973,7 +998,57 @@ function findReportTemplateOption(id: string | null | undefined): MvReportTempla
 }
 
 function normalizeReportTemplateId(id: string | null | undefined): string {
+  if (typeof id === "string" && id.startsWith(AI_REPORT_TEMPLATE_ID_PREFIX)) return id.trim().slice(0, 180);
   return findReportTemplateOption(typeof id === "string" ? id : null).id;
+}
+
+function findReportTemplateOptionFrom(
+  options: MvReportTemplateOption[],
+  id: string | null | undefined,
+): MvReportTemplateOption {
+  return options.find((item) => item.id === id) ?? REPORT_TEMPLATE_OPTIONS[0];
+}
+
+function normalizeReportTemplateIdFrom(options: MvReportTemplateOption[], id: string | null | undefined): string {
+  if (typeof id !== "string") return REPORT_TEMPLATE_OPTIONS[0].id;
+  return findReportTemplateOptionFrom(options, id).id;
+}
+
+function normalizeCompanyAiTemplatesForReport(raw: unknown): MvCompanyAiTemplate[] {
+  if (!Array.isArray(raw)) return [];
+  const image = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/")
+      ? trimmed
+      : null;
+  };
+  return raw
+    .slice(0, 20)
+    .map((item, index) => {
+      const data = item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : {};
+      const id = typeof data.id === "string" && data.id.trim() ? data.id.trim() : `ai-template-${index + 1}`;
+      const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : `قالب ذكاء اصطناعي ${index + 1}`;
+      return {
+        id,
+        name,
+        analysisSummary: typeof data.analysisSummary === "string" ? data.analysisSummary : "",
+        sourceFileName: typeof data.sourceFileName === "string" ? data.sourceFileName : "",
+        coverImageDataUrl: image(data.coverImageDataUrl),
+        pageImageDataUrl: image(data.pageImageDataUrl),
+        landscapePageImageDataUrl: image(data.landscapePageImageDataUrl),
+        theme: data.theme && typeof data.theme === "object" && !Array.isArray(data.theme) ? (data.theme as Record<string, unknown>) : {},
+        layout:
+          data.layout && typeof data.layout === "object" && !Array.isArray(data.layout)
+            ? (data.layout as Record<string, unknown>)
+            : {},
+        sections: Array.isArray(data.sections) ? data.sections.slice(0, 60) as MvCompanyAiTemplate["sections"] : [],
+        dynamicVariables: Array.isArray(data.dynamicVariables)
+          ? data.dynamicVariables.slice(0, 120) as MvCompanyAiTemplate["dynamicVariables"]
+          : [],
+      };
+    })
+    .filter((template) => template.name.trim());
 }
 
 function hasCompanyLetterheadImages(template: MvCompanyReportLetterheadTemplate | null | undefined): boolean {
@@ -1013,7 +1088,15 @@ function ReportTemplateArtwork({
 
   return (
     <div className={cn("absolute inset-0 overflow-hidden", large ? "text-[11px]" : "text-[9px]")}>
-      {option.previewKind === "executive" ? (
+      {option.previewKind === "ai" ? (
+        <>
+          <div className="absolute inset-0 bg-violet-950" />
+          <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-violet-700 via-sky-600 to-emerald-500" />
+          <div className="absolute right-[9%] top-[23%] h-[18%] w-[34%] rounded-sm border border-white/25 bg-white/10" />
+          <div className="absolute bottom-[12%] left-[9%] right-[9%] h-px bg-white/30" />
+          <div className="absolute bottom-[16%] left-[12%] h-[16%] w-[28%] rounded bg-white/15" />
+        </>
+      ) : option.previewKind === "executive" ? (
         <>
           <div className="absolute inset-y-0 right-0 w-[35%] bg-slate-950" />
           <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-sky-500 via-[#0C447C] to-slate-950" />
@@ -1436,6 +1519,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   });
   const [companyDefaultSections, setCompanyDefaultSections] = useState<MvCompanyReportCustomSection[]>([]);
   const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
+  const [companyAiTemplates, setCompanyAiTemplates] = useState<MvCompanyAiTemplate[]>([]);
+  const [companyWordTemplateReady, setCompanyWordTemplateReady] = useState(false);
   const [preparerFieldEdits, setPreparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
   );
@@ -1498,6 +1583,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingPptx, setDownloadingPptx] = useState(false);
   const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [downloadingDocxTemplate, setDownloadingDocxTemplate] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [assetImagesPreviewOpen, setAssetImagesPreviewOpen] = useState(false);
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
@@ -1507,6 +1593,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   /** Toggles the right-side floating settings drawer (page metrics + images). */
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
   const [settingsDrawerTab, setSettingsDrawerTab] = useState<"templates" | "layout" | "images">("templates");
+  const [wordTemplateModalOpen, setWordTemplateModalOpen] = useState(false);
   const [settingsImagesTab, setSettingsImagesTab] = useState<"assets" | "valuation">("assets");
   const [pendingReportTemplateId, setPendingReportTemplateId] = useState(() =>
     normalizeReportTemplateId(initialProject?.reportData?.reportTemplateId),
@@ -1774,9 +1861,30 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     projectRef.current = project;
   }, [project]);
 
+  const reportTemplateOptions = useMemo<MvReportTemplateOption[]>(
+    () => [
+      ...REPORT_TEMPLATE_OPTIONS,
+      ...companyAiTemplates.map((template) => ({
+        id: `${AI_REPORT_TEMPLATE_ID_PREFIX}${template.id}`,
+        title: template.name,
+        description:
+          template.analysisSummary ||
+          template.sourceFileName ||
+          "قالب ذكاء اصطناعي محفوظ من PDF شركة.",
+        badge: "AI",
+        outputFormat: "pdf" as const,
+        accentClass: "from-violet-700 via-sky-600 to-emerald-500",
+        previewKind: "ai" as const,
+        usesAiTemplate: true,
+        aiTemplate: template,
+      })),
+    ],
+    [companyAiTemplates],
+  );
+
   useEffect(() => {
-    setPendingReportTemplateId(normalizeReportTemplateId(project?.reportData?.reportTemplateId));
-  }, [project?._id, project?.reportData?.reportTemplateId]);
+    setPendingReportTemplateId(normalizeReportTemplateIdFrom(reportTemplateOptions, project?.reportData?.reportTemplateId));
+  }, [project?._id, project?.reportData?.reportTemplateId, reportTemplateOptions]);
 
   useEffect(() => {
     const rd = project?.reportData;
@@ -1835,6 +1943,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               body?: string;
             }>;
             letterhead?: MvCompanyReportLetterheadTemplate | null;
+            aiTemplates?: unknown[];
+            wordTemplate?: { fileUrl?: string | null } | null;
           } | null;
         };
         setCompanyBrand({
@@ -1907,6 +2017,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 signatureStampDataUrl: image(rawLetterhead.signatureStampDataUrl),
               }
             : null,
+        );
+        setCompanyAiTemplates(normalizeCompanyAiTemplatesForReport(data.reportDefaults?.aiTemplates));
+        const companyWordTemplateUrl = data.reportDefaults?.wordTemplate?.fileUrl;
+        setCompanyWordTemplateReady(
+          typeof companyWordTemplateUrl === "string" &&
+            companyWordTemplateUrl.trim().startsWith("/uploads/company-report-templates/"),
         );
       } catch {
         /* ignore */
@@ -2298,10 +2414,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [project?.reportData],
   );
   const draftMode = isReportDraftMode(reportData);
-  const appliedReportTemplateId = normalizeReportTemplateId(reportData.reportTemplateId);
-  const appliedReportTemplate = findReportTemplateOption(appliedReportTemplateId);
+  const appliedReportTemplateId = normalizeReportTemplateIdFrom(reportTemplateOptions, reportData.reportTemplateId);
+  const appliedReportTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
   const reportTemplatePreviewOption = reportTemplatePreviewId
-    ? findReportTemplateOption(reportTemplatePreviewId)
+    ? findReportTemplateOptionFrom(reportTemplateOptions, reportTemplatePreviewId)
     : null;
   const companyLetterheadReady = hasCompanyLetterheadImages(letterheadTemplate);
   const includeAssetImages = reportData.includeAssetImages !== false;
@@ -2425,6 +2541,82 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       .filter((file): file is MvDriveFile => file != null && !hiddenImageIds.has(file._id));
   }, [hiddenImageIds, imageOrder, selectedImages]);
 
+  const wordTemplateAssetImageSources = useMemo(
+    () =>
+      orderedImages
+        .filter((file) => !file.mimeType?.startsWith("video/"))
+        .map((file) => {
+          const fileWithSource = file as MvDriveFile & { sourceUrl?: string };
+          const url =
+            fileWithSource.sourceUrl ||
+            `/api/mv/projects/${projectId}/files/${encodeURIComponent(String(file._id))}/download`;
+          return { url, caption: file.name };
+        })
+        .filter((row) => Boolean(row.url)),
+    [orderedImages, projectId],
+  );
+
+  const wordTemplateValuationImageSources = useMemo(
+    () =>
+      orderedValuationImages.map((image) => ({
+        url: resolveValuationAccountingImageSrc(projectId, image),
+        caption: image.name || image.sourceFileName,
+      })).filter((row) => Boolean(row.url)),
+    [orderedValuationImages, projectId],
+  );
+
+  const wordTemplateReady = companyWordTemplateReady;
+  const isSimpleReport = (project?.reportType ?? "simple") === "simple";
+
+  const downloadAsDocxTemplate = useCallback(async () => {
+    if (!companyWordTemplateReady || loading || reportMediaLoading) return;
+    setDownloadingDocxTemplate(true);
+    setPdfExportProgress(8);
+    setPdfExportLabel("تحضير بيانات Word…");
+    try {
+      const mergeInput = await prepareMvWordMergeInput({
+        projectName: project?.name || "report",
+        displayNumber: project?.displayNumber,
+        reportData,
+        assetImageSources: wordTemplateAssetImageSources,
+        valuationImageSources: wordTemplateValuationImageSources,
+      });
+      setPdfExportProgress(55);
+      setPdfExportLabel("دمج البيانات والصور في القالب…");
+      const result = await mergeWordReportTemplateSmart({
+        projectId,
+        templateBuffer: new ArrayBuffer(0),
+        mergeInput,
+        assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
+        valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
+      });
+      const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
+      downloadWordBlob(result.blob, `${safeName}-merged-report.docx`);
+      setPdfExportProgress(100);
+      toast({ description: "تم تصدير التقرير من قالب Word." });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        description: error instanceof Error ? error.message : "تعذر تصدير التقرير من قالب Word.",
+      });
+    } finally {
+      setDownloadingDocxTemplate(false);
+      setPdfExportProgress(null);
+      setPdfExportLabel("");
+    }
+  }, [
+    companyWordTemplateReady,
+    loading,
+    project?.displayNumber,
+    project?.name,
+    projectId,
+    reportData,
+    reportMediaLoading,
+    toast,
+    wordTemplateAssetImageSources,
+    wordTemplateValuationImageSources,
+  ]);
+
   const assetFolderLabels = useMemo(() => {
     const set = new Set<string>();
     orderedImages.forEach((file) => set.add(folderPathFromFile(file)));
@@ -2482,6 +2674,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (letterheadTemplate?.logoDataUrl) sources.push(letterheadTemplate.logoDataUrl);
     if (letterheadTemplate?.footerImageDataUrl) sources.push(letterheadTemplate.footerImageDataUrl);
     if (letterheadTemplate?.signatureStampDataUrl) sources.push(letterheadTemplate.signatureStampDataUrl);
+    for (const template of companyAiTemplates) {
+      if (template.coverImageDataUrl) sources.push(template.coverImageDataUrl);
+      if (template.pageImageDataUrl) sources.push(template.pageImageDataUrl);
+      if (template.landscapePageImageDataUrl) sources.push(template.landscapePageImageDataUrl);
+    }
     for (const file of orderedImages.slice(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT)) {
       sources.push(reportDriveFileImageSrc(projectId, file));
     }
@@ -2493,7 +2690,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
     }
     return sources.filter(Boolean);
-  }, [companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
+  }, [companyAiTemplates, companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
 
   const reportImageSourcesKey = useMemo(
     () =>
@@ -2511,7 +2708,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const renderedLetterheadTemplate = useMemo<MvCompanyReportLetterheadTemplate | null>(() => {
     if (appliedReportTemplateId === DEFAULT_REPORT_TEMPLATE_ID) return null;
-    const appliedTemplate = findReportTemplateOption(appliedReportTemplateId);
+    const appliedTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
+    if (appliedTemplate.usesAiTemplate && appliedTemplate.aiTemplate) {
+      const image = (src?: string | null) => (src ? getCachedReportImageSrc(src) : null);
+      const aiTemplate = appliedTemplate.aiTemplate;
+      const hasAiBackground = Boolean(aiTemplate.coverImageDataUrl || aiTemplate.pageImageDataUrl || aiTemplate.landscapePageImageDataUrl);
+      return {
+        enabled: hasAiBackground,
+        templateId: appliedTemplate.id,
+        outputFormat: "pdf",
+        coverImageDataUrl: image(aiTemplate.coverImageDataUrl),
+        pageImageDataUrl: image(aiTemplate.pageImageDataUrl),
+        landscapePageImageDataUrl: image(aiTemplate.landscapePageImageDataUrl),
+      };
+    }
     if (appliedReportTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID) {
       return {
         enabled: false,
@@ -2533,7 +2743,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       footerImageDataUrl: image(letterheadTemplate.footerImageDataUrl),
       signatureStampDataUrl: image(letterheadTemplate.signatureStampDataUrl),
     };
-  }, [appliedReportTemplateId, letterheadTemplate, reportImageCacheVersion]);
+  }, [appliedReportTemplateId, letterheadTemplate, reportImageCacheVersion, reportTemplateOptions]);
 
   useEffect(() => {
     if (loading || reportImageSources.length === 0) return;
@@ -2642,7 +2852,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   );
 
   const applyReportTemplateById = useCallback((templateId: string) => {
-    const option = findReportTemplateOption(templateId);
+    const option = findReportTemplateOptionFrom(reportTemplateOptions, templateId);
     setPendingReportTemplateId(option.id);
     if (option.usesCompanyLetterhead && !companyLetterheadReady) {
       toast({
@@ -2653,7 +2863,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }
     onReportDataPatch({ reportTemplateId: option.id });
     toast({ description: `تم تطبيق قالب ${option.title}.` });
-  }, [companyLetterheadReady, onReportDataPatch, toast]);
+  }, [companyLetterheadReady, onReportDataPatch, reportTemplateOptions, toast]);
 
   const applyProjectReportTemplate = useCallback(() => {
     applyReportTemplateById(pendingReportTemplateId);
@@ -3037,9 +3247,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const exportingFormat = useMemo<MvReportExportFormat | null>(() => {
     if (downloadingPdf) return "pdf";
     if (downloadingPptx) return "pptx";
+    if (downloadingDocxTemplate) return "docx-template";
     if (downloadingDocx) return "docx";
     return null;
-  }, [downloadingPdf, downloadingPptx, downloadingDocx]);
+  }, [downloadingPdf, downloadingPptx, downloadingDocx, downloadingDocxTemplate]);
 
   const exportActionsDisabled = loading || reportMediaLoading || exportingFormat != null;
 
@@ -3048,9 +3259,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       if (exportActionsDisabled) return;
       if (format === "pdf") void downloadAsPdf();
       else if (format === "pptx") void downloadAsPptx();
+      else if (format === "docx-template") void downloadAsDocxTemplate();
       else void downloadAsDocx();
     },
-    [downloadAsDocx, downloadAsPdf, downloadAsPptx, exportActionsDisabled],
+    [downloadAsDocx, downloadAsDocxTemplate, downloadAsPdf, downloadAsPptx, exportActionsDisabled],
   );
 
   useEffect(() => {
@@ -3196,7 +3408,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     <SelectValue placeholder="اختيار قالب التقرير" />
                   </SelectTrigger>
                   <SelectContent className="z-[760]">
-                    {REPORT_TEMPLATE_OPTIONS.map((option) => (
+                    {reportTemplateOptions.map((option) => (
                       <SelectItem
                         key={option.id}
                         value={option.id}
@@ -3208,6 +3420,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   </SelectContent>
                 </Select>
               </div>
+
+              {isSimpleReport ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 shrink-0 gap-1.5 rounded-lg border-sky-200 bg-sky-50/80 px-2.5 text-[10.5px] font-black text-[#0C447C] hover:bg-sky-100"
+                  disabled={loading || reportMediaLoading}
+                  onClick={() => setWordTemplateModalOpen(true)}
+                  title="تنزيل تقرير Word من بيانات المشروع"
+                >
+                  <FileType className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">تنزيل تقرير Word</span>
+                </Button>
+              ) : null}
 
               <label
                 htmlFor="mv-report-draft-mode-switch"
@@ -3264,6 +3491,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 disabled={exportActionsDisabled}
                 exportingFormat={exportingFormat}
                 onExport={handleReportExport}
+                wordTemplateReady={wordTemplateReady}
               />
 
               <Button
@@ -3497,7 +3725,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="z-[760]">
-                            {REPORT_TEMPLATE_OPTIONS.map((option) => (
+                            {reportTemplateOptions.map((option) => (
                               <SelectItem
                                 key={option.id}
                                 value={option.id}
@@ -3520,11 +3748,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       </div>
 
                       <div className="grid gap-2">
-                        {REPORT_TEMPLATE_OPTIONS.map((option) => {
+                        {reportTemplateOptions.map((option) => {
                           const active = option.id === appliedReportTemplateId;
                           const pending = option.id === pendingReportTemplateId;
                           const disabled = Boolean(option.usesCompanyLetterhead && !companyLetterheadReady);
-                          const previewImage = option.usesCompanyLetterhead
+                          const previewImage = option.usesAiTemplate
+                            ? option.aiTemplate?.coverImageDataUrl || option.aiTemplate?.pageImageDataUrl
+                            : option.usesCompanyLetterhead
                             ? letterheadTemplate?.coverImageDataUrl ||
                               letterheadTemplate?.pageImageDataUrl ||
                               letterheadTemplate?.landscapePageImageDataUrl
@@ -3819,6 +4049,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         </div>
       ) : null}
 
+      {isSimpleReport ? (
+        <MvWordTemplateModal
+          open={wordTemplateModalOpen}
+          onOpenChange={setWordTemplateModalOpen}
+          projectId={projectId}
+          projectName={project?.name || "report"}
+          displayNumber={project?.displayNumber}
+          reportData={reportData}
+          assetImageSources={wordTemplateAssetImageSources}
+          valuationImageSources={wordTemplateValuationImageSources}
+          onReportDataPatch={onReportDataPatch}
+          disabled={loading || reportMediaLoading}
+        />
+      ) : null}
+
       <Dialog
         open={reportTemplatePreviewOption != null}
         onOpenChange={(open) => {
@@ -3838,7 +4083,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   <ReportTemplateArtwork
                     option={reportTemplatePreviewOption}
                     previewImage={
-                      reportTemplatePreviewOption.usesCompanyLetterhead
+                      reportTemplatePreviewOption.usesAiTemplate
+                        ? reportTemplatePreviewOption.aiTemplate?.coverImageDataUrl ||
+                          reportTemplatePreviewOption.aiTemplate?.pageImageDataUrl ||
+                          null
+                        : reportTemplatePreviewOption.usesCompanyLetterhead
                         ? letterheadTemplate?.coverImageDataUrl ||
                           letterheadTemplate?.pageImageDataUrl ||
                           letterheadTemplate?.landscapePageImageDataUrl
@@ -3880,6 +4129,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               disabled={exportActionsDisabled}
               exportingFormat={exportingFormat}
               onExport={handleReportExport}
+              wordTemplateReady={wordTemplateReady}
               className="self-end sm:self-auto"
             />
           </DialogHeader>

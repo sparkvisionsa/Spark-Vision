@@ -1,19 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
-import { PhoneNumberInput } from "@/components/phone-number-input";
+import { ValueTechLoginCard } from "@/components/value-tech-login-experience";
 
 export default function AuthModal({
   open,
@@ -25,7 +15,7 @@ export default function AuthModal({
   const { login } = useAuthTracking();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,7 +24,7 @@ export default function AuthModal({
       setError("");
       setPhone("");
       setPassword("");
-      setRememberMe(false);
+      setRememberMe(true);
     }
   }, [open]);
 
@@ -42,14 +32,11 @@ export default function AuthModal({
     setSubmitting(true);
     setError("");
     try {
-      const normalizedPhone = phone.trim();
-      await login({ phone: normalizedPhone, password, rememberMe });
+      await login({ phone: phone.trim(), password, rememberMe });
       onOpenChange(false);
       setPassword("");
     } catch (submitError) {
-      setError(
-        submitError instanceof Error ? submitError.message : "Authentication failed."
-      );
+      setError(submitError instanceof Error ? submitError.message : "فشل تسجيل الدخول.");
     } finally {
       setSubmitting(false);
     }
@@ -57,62 +44,22 @@ export default function AuthModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" dir="rtl">
-        <DialogHeader>
-          <DialogTitle>تسجيل الدخول — Spark Vision</DialogTitle>
-          <DialogDescription>
-            أدخل بيانات الحصول الصادرة عن المسؤول. التسجيل الذاتي غير متاح.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="auth-phone">رقم الهاتف</Label>
-            <PhoneNumberInput
-              id="auth-phone"
-              value={phone}
-              onChange={setPhone}
-              autoComplete="tel"
-              allowRawIdentifier
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="auth-password">كلمة المرور</Label>
-            <Input
-              id="auth-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="********"
-              autoComplete="current-password"
-            />
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(event) => setRememberMe(event.target.checked)}
-            />
-            تذكرني
-          </label>
-
-          {error ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </p>
-          ) : null}
-
-          <Button
-            type="button"
-            className="w-full"
-            disabled={submitting || !phone || !password}
-            onClick={onSubmit}
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            دخول
-          </Button>
-        </div>
+      <DialogContent
+        dir="rtl"
+        className="w-[min(32rem,calc(100vw-2rem))] border-0 bg-transparent p-0 shadow-none sm:max-w-none [&>button]:left-5 [&>button]:right-auto [&>button]:top-5 [&>button]:z-20 [&>button]:rounded-full [&>button]:border [&>button]:border-[#f4cf86]/40 [&>button]:bg-[#071528]/75 [&>button]:p-2 [&>button]:text-[#f7d693] [&>button]:opacity-100 [&>button]:backdrop-blur"
+      >
+        <ValueTechLoginCard
+          mode="modal"
+          phone={phone}
+          password={password}
+          rememberMe={rememberMe}
+          submitting={submitting}
+          error={error}
+          onPhoneChange={setPhone}
+          onPasswordChange={setPassword}
+          onRememberMeChange={setRememberMe}
+          onSubmit={onSubmit}
+        />
       </DialogContent>
     </Dialog>
   );

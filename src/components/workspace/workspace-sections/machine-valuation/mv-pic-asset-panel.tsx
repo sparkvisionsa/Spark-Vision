@@ -88,6 +88,20 @@ function picAssetIsVehicle(t: unknown): boolean {
   return k === "vehicles" || k === "vehicle" || k === "car" || k === "cars";
 }
 
+function picAssetIsOther(t: unknown): boolean {
+  if (typeof t !== "string") return true;
+  const k = t.toLowerCase();
+  return k === "other";
+}
+
+function picAssetTypeDisplayValue(asset: PicAsset): string {
+  if (picAssetIsOther(asset.assetType)) {
+    const sub = typeof asset.subAssetType === "string" ? asset.subAssetType.trim() : "";
+    return sub || "—";
+  }
+  return picAssetTypeLabel(String(asset.assetType));
+}
+
 function formatFullDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -555,20 +569,22 @@ export function MvPicAssetPanel({
               <DataSection title="التعريف الأساسي" icon={<Tag className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   <Field label="اسم المجلد" value={asset.name} className="sm:col-span-2" />
-                  <Field label="نوع الأصل" value={picAssetTypeLabel(String(asset.assetType))} />
+                  {picAssetIsVehicle(asset.assetType) ? (
+                    <Field label="العلامة" value={asset.brand} />
+                  ) : (
+                    <Field label="نوع الأصل" value={picAssetTypeDisplayValue(asset)} />
+                  )}
+                  {!picAssetIsVehicle(asset.assetType) ? (
+                    <Field label="الكمية" value={formatNumberish(asset.quantity)} />
+                  ) : null}
                   <Field label="الرمز" value={asset.code} />
                   <Field label="مُستكمل" value={asset.isDone ? "نعم" : "لا"} />
                   <Field label="متواجد" value={asset.isPresent ? "نعم" : "لا"} />
                 </div>
               </DataSection>
 
-              <DataSection title="الوصف والحالة" icon={<FileText className="h-3.5 w-3.5" />}>
+              <DataSection title="الحالة والملاحظات" icon={<FileText className="h-3.5 w-3.5" />}>
                 <div className="space-y-3">
-                  <LongTextField
-                    label="الوصف المكتوب"
-                    value={asset.writtenDescription}
-                    placeholder="لم يُضَف وصف لهذا الأصل بعد."
-                  />
                   <LongTextField
                     label="الحالة"
                     value={asset.condition}

@@ -36,7 +36,8 @@ function picAssetTimestamp(pic: PicAsset | null): number {
 
 /**
  * دمج سجل أصل: الحقول النصية من الأحدث (حسب ‎updatedAt‎، والسيرفر عند التساوي)،
- * والوسائط (صور/صوت) من الأكثر اكتمالاً.
+ * والوسائط (صور/صوت) من الأكثر اكتمالاً. يُكمّل الحقول الناقصة من المصدر الآخر
+ * (مثل ‎subAssetType‎ الذي قد يغيب من ذاكرة الجلسة القديمة).
  */
 export function mergePicAssetPreferFull(
   existing: PicAsset | null,
@@ -53,26 +54,67 @@ export function mergePicAssetPreferFull(
 
   const existingTs = picAssetTimestamp(existing);
   const incomingTs = picAssetTimestamp(incoming);
-  const scalarSource = incomingTs >= existingTs ? incoming : existing;
+  const primary = incomingTs >= existingTs ? incoming : existing;
+  const secondary = primary === incoming ? existing : incoming;
+
+  const pickScalar = <K extends keyof PicAsset>(key: K): PicAsset[K] => {
+    const a = primary[key];
+    const b = secondary[key];
+    if (a !== null && a !== undefined && a !== "") return a;
+    if (b !== null && b !== undefined && b !== "") return b;
+    return a ?? b;
+  };
 
   return {
-    ...scalarSource,
+    ...primary,
+    name: pickScalar("name"),
+    writtenDescription: pickScalar("writtenDescription"),
+    condition: pickScalar("condition"),
+    notes: pickScalar("notes"),
+    assetType: pickScalar("assetType"),
+    subAssetType: pickScalar("subAssetType"),
+    quantity: pickScalar("quantity"),
+    brand: pickScalar("brand"),
+    code: pickScalar("code"),
+    model: pickScalar("model"),
+    manufactureYear: pickScalar("manufactureYear"),
+    kilometersDriven: pickScalar("kilometersDriven"),
+    isPresent: primary.isPresent ?? secondary.isPresent,
+    isDone: primary.isDone ?? secondary.isDone,
     images: existingImages.length >= incomingImages.length ? existingImages : incomingImages,
     voiceNotes: existingVoice.length >= incomingVoice.length ? existingVoice : incomingVoice,
     imageCount: Math.max(
-      scalarSource.imageCount ?? 0,
-      existing.imageCount ?? 0,
-      incoming.imageCount ?? 0,
+      primary.imageCount ?? 0,
+      secondary.imageCount ?? 0,
       existingImages.length,
       incomingImages.length,
     ),
     voiceNoteCount: Math.max(
-      scalarSource.voiceNoteCount ?? 0,
-      existing.voiceNoteCount ?? 0,
-      incoming.voiceNoteCount ?? 0,
+      primary.voiceNoteCount ?? 0,
+      secondary.voiceNoteCount ?? 0,
       existingVoice.length,
       incomingVoice.length,
     ),
+  };
+}
+
+/** دمج مع أولوية صريحة لحقول ‎subAssetType‎ و‎quantity‎ من استجابة الـ API. */
+export function mergePicAssetFromApi(
+  cached: PicAsset | null,
+  fromApi: PicAsset | null,
+): PicAsset | null {
+  const merged = mergePicAssetPreferFull(cached, fromApi);
+  if (!merged || !fromApi) return merged;
+  return {
+    ...merged,
+    subAssetType:
+      fromApi.subAssetType !== undefined && fromApi.subAssetType !== null && fromApi.subAssetType !== ""
+        ? fromApi.subAssetType
+        : merged.subAssetType ?? null,
+    quantity:
+      fromApi.quantity !== undefined && fromApi.quantity !== null && fromApi.quantity !== ""
+        ? fromApi.quantity
+        : merged.quantity ?? null,
   };
 }
 
@@ -159,7 +201,7 @@ export function hydratePicAssetEntriesProgressive(
         if (!row) return;
         options.onUpdate(entry.sub._id, {
           sub: row.sub,
-          picAsset: mergePicAssetPreferFull(entry.picAsset, row.picAsset),
+          picAsset: mergePicAssetFromApi(entry.picAsset, row.picAsset),
         });
       });
     } finally {

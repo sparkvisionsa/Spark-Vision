@@ -488,3 +488,690 @@
 .mv-curtain-content[data-state="closed"] {
   animation: mv-curtain-up 320ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
+
+.vt-login-screen {
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 58% 42%, rgba(16, 185, 129, 0.12), transparent 29%),
+    linear-gradient(120deg, #010715 0%, #031226 44%, #061421 100%);
+  color: #f8efe0;
+}
+
+.vt-login-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background-image:
+    linear-gradient(90deg, rgba(0, 6, 18, 0.08), rgba(0, 8, 20, 0.02) 48%, rgba(0, 6, 18, 0.12)),
+    url("/value-tech-login-bg.png");
+  background-position: center;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.vt-login-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 4, 12, 0.1), transparent 30%, rgba(0, 4, 12, 0.14)),
+    radial-gradient(ellipse at 57% 40%, rgba(30, 216, 180, 0.1), transparent 30%),
+    radial-gradient(ellipse at 84% 69%, rgba(236, 181, 78, 0.12), transparent 31%);
+}
+
+.vt-login-card-shell {
+  transform: translateX(4.35vw);
+}
+
+.vt-login-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(247, 205, 124, 0.92);
+  border-radius: 2.15rem;
+  background:
+    linear-gradient(145deg, rgba(7, 22, 39, 0.86), rgba(5, 18, 34, 0.76) 58%, rgba(3, 13, 27, 0.86)),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 228, 174, 0.09), transparent 42%);
+  box-shadow:
+    0 0 0 1px rgba(255, 230, 172, 0.08) inset,
+    0 0 24px rgba(245, 202, 117, 0.2),
+    0 24px 70px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px) saturate(128%);
+}
+
+.vt-login-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 248, 226, 0.18), transparent 13%),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 233, 177, 0.2), transparent 20%);
+}
+
+.vt-login-card::after {
+  content: "";
+  position: absolute;
+  right: -8%;
+  bottom: -16%;
+  width: 76%;
+  height: 36%;
+  pointer-events: none;
+  transform: rotate(-8deg);
+  background: linear-gradient(90deg, transparent, rgba(230, 188, 112, 0.13), rgba(255, 236, 185, 0.04), transparent);
+  filter: blur(18px);
+}
+
+.vt-login-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.vt-login-title {
+  color: transparent;
+  background-image: linear-gradient(180deg, #ffe5a6 0%, #f5cd7b 56%, #dcaa55 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  text-shadow: 0 0 28px rgba(246, 203, 123, 0.26);
+}
+
+.vt-login-field {
+  height: 3.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(226, 213, 196, 0.46);
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(180deg, rgba(8, 22, 39, 0.62), rgba(4, 15, 30, 0.7)),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.05), transparent 60%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 14px 28px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.vt-login-phone-field {
+  display: flex;
+}
+
+.vt-login-field:focus-within {
+  border-color: rgba(249, 211, 138, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(249, 211, 138, 0.16),
+    0 0 26px rgba(243, 195, 102, 0.16),
+    0 14px 28px rgba(0, 0, 0, 0.18);
+}
+
+.vt-login-field input:-webkit-autofill,
+.vt-login-field input:-webkit-autofill:hover,
+.vt-login-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f8efe0;
+  caret-color: #f8efe0;
+  transition: background-color 9999s ease-in-out 0s;
+  box-shadow: 0 0 0 1000px rgba(5, 17, 33, 0.92) inset;
+}
+
+.vt-login-submit {
+  border: 1px solid rgba(255, 224, 159, 0.9);
+  background:
+    linear-gradient(180deg, rgba(255, 231, 163, 0.95) 0%, rgba(213, 151, 54, 0.98) 60%, rgba(173, 114, 32, 0.98) 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16) inset,
+    0 16px 34px rgba(177, 113, 31, 0.24),
+    0 0 32px rgba(245, 198, 104, 0.22);
+  text-shadow: 0 1px 1px rgba(80, 44, 0, 0.32);
+}
+
+.vt-login-submit::before {
+  content: "";
+  position: absolute;
+  inset: 0.08rem 0.16rem auto;
+  height: 43%;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), transparent);
+  opacity: 0.88;
+}
+
+.vt-login-submit:hover {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.2) inset,
+    0 18px 38px rgba(177, 113, 31, 0.3),
+    0 0 40px rgba(245, 198, 104, 0.28);
+}
+
+@media (max-width: 1180px) {
+  .vt-login-card-shell {
+    transform: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .vt-login-screen {
+    align-items: center;
+    padding-block: 1rem;
+  }
+
+  .vt-login-card {
+    min-height: auto;
+    border-radius: 1.35rem;
+  }
+
+  .vt-login-title {
+    font-size: clamp(1.65rem, 7.2vw, 2.05rem);
+  }
+
+  .vt-login-field {
+    height: 3.45rem;
+  }
+
+  .vt-login-submit {
+    height: 3.85rem;
+  }
+}
+
+/* ── Value Tech products hub ── */
+
+html.vt-products-hub-active,
+body.vt-products-hub-active {
+  background: #fffef9 !important;
+  overscroll-behavior: none;
+}
+
+.vt-products-screen {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 100vh;
+  height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
+  max-height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fffef9;
+  color: #e8b85a;
+}
+
+.vt-products-screen::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -6%, rgba(232, 184, 90, 0.3) 0%, rgba(255, 248, 235, 0.14) 36%, transparent 68%),
+    radial-gradient(ellipse 48% 38% at 96% 88%, rgba(201, 150, 58, 0.18) 0%, transparent 72%),
+    radial-gradient(ellipse 42% 34% at 4% 62%, rgba(245, 205, 123, 0.16) 0%, transparent 70%),
+    linear-gradient(
+      180deg,
+      #fff8eb 0%,
+      #fffef9 22%,
+      #ffffff 48%,
+      #fff9ee 78%,
+      #fffef9 100%
+    );
+}
+
+.vt-products-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding-top: var(--vt-hub-nav-offset, 3.65rem);
+}
+
+.vt-products-main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: 1.25rem;
+  padding-block: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .vt-products-main {
+    padding-inline: 2rem;
+    padding-block: 1rem;
+  }
+}
+
+.vt-hub-navbar-shell {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  --vt-hub-nav-offset: 3.65rem;
+  padding: 0.4rem 0.85rem 0;
+  pointer-events: none;
+}
+
+.vt-hub-navbar {
+  pointer-events: auto;
+  display: flex;
+  width: min(100%, 72rem);
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(232, 184, 90, 0.38);
+  border-radius: 9999px;
+  background: linear-gradient(155deg, #122a4a 0%, #0f2240 52%, #0a1628 100%);
+  box-shadow:
+    0 0 0 1px rgba(232, 184, 90, 0.06) inset,
+    0 8px 28px rgba(10, 22, 40, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  padding: 0.28rem 0.55rem;
+}
+
+.vt-hub-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  border-radius: 9999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(245, 205, 123, 0.88);
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.vt-hub-nav-link:hover {
+  color: #fff8eb;
+  background: rgba(232, 184, 90, 0.12);
+}
+
+.vt-hub-nav-link--active {
+  color: #ffffff;
+  border: 1px solid rgba(201, 150, 58, 0.55);
+  background: linear-gradient(180deg, #e8b85a 0%, #c9963a 52%, #a8762a 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.25) inset,
+    0 4px 14px rgba(168, 118, 42, 0.22);
+}
+
+.vt-hub-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid rgba(232, 184, 90, 0.28);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.2rem 0.65rem 0.2rem 0.28rem;
+  box-shadow: 0 0 0 1px rgba(232, 184, 90, 0.04) inset;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.vt-hub-brand:hover {
+  border-color: rgba(232, 184, 90, 0.48);
+  background: rgba(232, 184, 90, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(232, 184, 90, 0.08) inset,
+    0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+.vt-hub-brand-logo {
+  position: relative;
+  display: flex;
+  height: 2.35rem;
+  width: 2.35rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0.14rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(232, 184, 90, 0.42);
+  background: linear-gradient(145deg, #1a3a5c 0%, #0a1628 100%);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+.vt-hub-brand-logo::after {
+  display: none;
+}
+
+.vt-hub-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.02rem;
+  line-height: 1.05;
+}
+
+.vt-hub-brand-title {
+  font-family: Tajawal, Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: transparent;
+  background-image: linear-gradient(180deg, #fff8eb 0%, #f5cd7b 58%, #e8b85a 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.vt-hub-brand-subtitle {
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: rgba(245, 205, 123, 0.58);
+}
+
+[dir="rtl"] .vt-hub-brand {
+  padding: 0.2rem 0.28rem 0.2rem 0.65rem;
+}
+
+@media (min-width: 640px) {
+  .vt-hub-navbar-shell {
+    --vt-hub-nav-offset: 3.75rem;
+    padding: 0.45rem 0.9rem 0;
+  }
+
+  .vt-hub-navbar {
+    padding: 0.32rem 0.6rem;
+    gap: 0.5rem;
+  }
+
+  .vt-hub-brand-logo {
+    height: 2.5rem;
+    width: 2.5rem;
+    padding: 0.16rem;
+    border-radius: 0.7rem;
+  }
+
+  .vt-hub-brand-title {
+    font-size: 1rem;
+  }
+
+  .vt-hub-brand-subtitle {
+    font-size: 0.62rem;
+  }
+}
+
+.vt-hub-lang-switch {
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(232, 184, 90, 0.28);
+  border-radius: 9999px;
+  padding: 0.1rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.vt-hub-lang-btn {
+  border-radius: 9999px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(245, 205, 123, 0.55);
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.vt-hub-lang-btn--active {
+  color: #ffffff;
+  border: 1px solid rgba(201, 150, 58, 0.55);
+  background: linear-gradient(180deg, #e8b85a 0%, #c9963a 52%, #a8762a 100%);
+  box-shadow: 0 4px 12px rgba(168, 118, 42, 0.2);
+}
+
+.vt-hub-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(232, 184, 90, 0.32);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.26rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #f5cd7b;
+  box-shadow: 0 0 0 1px rgba(232, 184, 90, 0.04) inset;
+}
+
+.vt-hub-user-pill:hover {
+  border-color: rgba(232, 184, 90, 0.55);
+  background: rgba(232, 184, 90, 0.1);
+  color: #fff8eb;
+}
+
+.vt-product-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(232, 184, 90, 0.32);
+  background: linear-gradient(155deg, #122a4a 0%, #0f2240 48%, #0a1628 100%);
+  box-shadow:
+    0 0 0 1px rgba(232, 184, 90, 0.05) inset,
+    0 4px 20px rgba(10, 22, 40, 0.22),
+    0 2px 6px rgba(0, 0, 0, 0.1);
+  transition:
+    transform 240ms ease,
+    box-shadow 240ms ease,
+    border-color 240ms ease;
+}
+
+.vt-product-card::before {
+  content: "";
+  position: absolute;
+  inset-inline: 1.25rem;
+  top: 0;
+  height: 2px;
+  pointer-events: none;
+  border-radius: 0 0 9999px 9999px;
+  background: linear-gradient(90deg, transparent, #e8b85a 20%, #c9963a 50%, #e8b85a 80%, transparent);
+  opacity: 0.85;
+}
+
+.vt-product-card::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: -18%;
+  top: -28%;
+  width: 42%;
+  height: 42%;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(232, 184, 90, 0.08), transparent 68%);
+}
+
+.vt-product-card:hover:not(.vt-product-card--soon) {
+  transform: translateY(-4px);
+  border-color: rgba(232, 184, 90, 0.58);
+  box-shadow:
+    0 0 0 1px rgba(232, 184, 90, 0.1) inset,
+    0 12px 36px rgba(10, 22, 40, 0.32),
+    0 0 24px rgba(232, 184, 90, 0.1);
+}
+
+.vt-product-card--soon {
+  opacity: 0.78;
+  border-style: dashed;
+  border-color: rgba(232, 184, 90, 0.28);
+}
+
+.vt-product-icon-ring {
+  position: relative;
+  display: flex;
+  height: 3.5rem;
+  width: 3.5rem;
+  shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1rem;
+  border: 1px solid rgba(232, 184, 90, 0.35);
+  background: linear-gradient(145deg, #1a3a5c 0%, #0f2544 100%);
+  box-shadow:
+    0 0 0 1px rgba(232, 184, 90, 0.06) inset,
+    0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+.vt-product-icon {
+  position: relative;
+  z-index: 1;
+  height: 1.55rem;
+  width: 1.55rem;
+  color: #f5cd7b;
+}
+
+.vt-product-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: transparent;
+  background-image: linear-gradient(180deg, #fff8eb 0%, #f5cd7b 52%, #e8b85a 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.vt-product-card-footer {
+  border-top: 1px solid rgba(232, 184, 90, 0.18);
+}
+
+.vt-product-soon-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(232, 184, 90, 0.4);
+  background: rgba(232, 184, 90, 0.1);
+  padding: 0.16rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #f5cd7b;
+}
+
+.vt-product-navigate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(232, 184, 90, 0.35);
+  background: rgba(232, 184, 90, 0.08);
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #f5cd7b;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.vt-product-card:hover:not(.vt-product-card--soon) .vt-product-navigate {
+  color: #ffffff;
+  background: linear-gradient(180deg, #e8b85a 0%, #c9963a 52%, #a8762a 100%);
+  border-color: rgba(201, 150, 58, 0.55);
+}
+
+.vt-products-hero {
+  margin-bottom: 1.35rem;
+  text-align: center;
+}
+
+.vt-products-hero-title {
+  color: transparent;
+  background-image: linear-gradient(180deg, #e8b85a 0%, #c9963a 48%, #a8762a 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.vt-products-hero-divider {
+  position: relative;
+  margin: 0.65rem auto 0;
+  height: 1px;
+  width: min(100%, 24rem);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(201, 150, 58, 0.18) 12%,
+    rgba(201, 150, 58, 0.55) 50%,
+    rgba(201, 150, 58, 0.18) 88%,
+    transparent
+  );
+}
+
+.vt-products-hero-divider::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.42rem;
+  height: 0.42rem;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border: 1px solid rgba(201, 150, 58, 0.75);
+  background: #fffef9;
+  box-shadow: 0 0 0 3px rgba(201, 150, 58, 0.08);
+}
+
+.vt-products-hero-subtitle {
+  margin-inline: auto;
+  max-width: 34rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(168, 118, 42, 0.72);
+}
+
+.vt-hub-footer {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(232, 184, 90, 0.22);
+  background: linear-gradient(180deg, #0f2240 0%, #0a1628 100%);
+}
+
+.vt-hub-footer-v {
+  display: inline-flex;
+  height: 1rem;
+  width: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: transparent;
+  background-image: linear-gradient(180deg, #fff8eb 0%, #f5cd7b 56%, #e8b85a 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.vt-hub-footer-trust-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: rgba(245, 205, 123, 0.92);
+}
+
+@media (max-width: 768px) {
+  .vt-hub-navbar {
+    border-radius: 1.15rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 0.32rem 0.5rem;
+  }
+
+  .vt-hub-navbar-shell {
+    --vt-hub-nav-offset: 4.1rem;
+    padding-inline: 0.55rem;
+    padding-top: 0.35rem;
+  }
+}

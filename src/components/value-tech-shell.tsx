@@ -412,12 +412,25 @@ export default function ValueTechShell({
     return () => timeouts.forEach((id) => window.clearTimeout(id));
   }, [router]);
 
+  const isHubPage = pathname === "/value-tech";
+
+  useEffect(() => {
+    if (!isHubPage) return;
+
+    document.documentElement.classList.add("vt-products-hub-active");
+    document.body.classList.add("vt-products-hub-active");
+
+    return () => {
+      document.documentElement.classList.remove("vt-products-hub-active");
+      document.body.classList.remove("vt-products-hub-active");
+    };
+  }, [isHubPage]);
+
   if (!langContext) return null;
 
   const isArabic = langContext.language === "ar";
   const t = isArabic ? copy.ar : copy.en;
 
-  const isHubPage = pathname === "/value-tech";
   const isMachineValuationPage =
     pathname === "/machine-valuation" ||
     pathname.startsWith("/machine-valuation/");
@@ -438,15 +451,14 @@ export default function ValueTechShell({
 
   if (isHubPage) {
     return (
-      <div
-        className="relative flex min-h-screen min-w-0 flex-col overflow-x-hidden pt-14"
-        style={{ backgroundColor: "#0c2547" }}
-      >
-        <ValueTechServiceNavbar />
-        <div className="relative flex flex-1 items-center px-4 pb-14 pt-5 text-white md:px-8 md:pt-6">
-          <main className="mx-auto w-full max-w-6xl min-w-0">{children}</main>
+      <div className="vt-products-screen min-w-0">
+        <ValueTechServiceNavbar variant="hub" />
+        <div className="vt-products-body">
+          <main className="vt-products-main">
+            <div className="mx-auto w-full max-w-6xl min-w-0">{children}</div>
+          </main>
+          <ValueTechServiceFooter variant="hub" />
         </div>
-        <ValueTechServiceFooter />
       </div>
     );
   }

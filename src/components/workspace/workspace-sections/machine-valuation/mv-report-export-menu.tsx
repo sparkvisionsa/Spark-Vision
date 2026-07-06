@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-export type MvReportExportFormat = "pdf" | "pptx" | "docx";
+export type MvReportExportFormat = "pdf" | "pptx" | "docx" | "docx-template";
 
 const FORMAT_OPTIONS: Array<{
   id: MvReportExportFormat;
@@ -20,6 +20,7 @@ const FORMAT_OPTIONS: Array<{
   hint: string;
   icon: typeof FileText;
   iconClass: string;
+  requiresWordTemplate?: boolean;
 }> = [
   {
     id: "pdf",
@@ -42,6 +43,14 @@ const FORMAT_OPTIONS: Array<{
     icon: FileText,
     iconClass: "text-sky-700",
   },
+  {
+    id: "docx-template",
+    label: "Word — قالب الشركة",
+    hint: "دمج قالبك المرفوع مع بيانات المشروع",
+    icon: FileText,
+    iconClass: "text-emerald-700",
+    requiresWordTemplate: true,
+  },
 ];
 
 export interface MvReportExportMenuProps {
@@ -50,6 +59,8 @@ export interface MvReportExportMenuProps {
   onExport: (format: MvReportExportFormat) => void;
   variant?: "toolbar" | "preview";
   className?: string;
+  /** يظهر خيار «Word — قالب الشركة» عند رفع قالب .docx */
+  wordTemplateReady?: boolean;
 }
 
 export function MvReportExportMenu({
@@ -58,9 +69,11 @@ export function MvReportExportMenu({
   onExport,
   variant = "toolbar",
   className,
+  wordTemplateReady = false,
 }: MvReportExportMenuProps) {
   const exporting = exportingFormat != null;
   const activeOption = FORMAT_OPTIONS.find((opt) => opt.id === exportingFormat);
+  const visibleOptions = FORMAT_OPTIONS.filter((opt) => !opt.requiresWordTemplate || wordTemplateReady);
 
   return (
     <DropdownMenu modal={false}>
@@ -92,7 +105,7 @@ export function MvReportExportMenu({
           اختر صيغة التصدير
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {FORMAT_OPTIONS.map((opt) => {
+        {visibleOptions.map((opt) => {
           const Icon = opt.icon;
           const isActive = exportingFormat === opt.id;
           return (

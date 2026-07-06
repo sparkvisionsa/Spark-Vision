@@ -7,7 +7,7 @@ import {
   Building2,
   ClipboardList,
   Cpu,
-  LayoutGrid,
+  FileText,
   Library,
   Search,
   type LucideIcon,
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 type ProductCard = {
   href: string;
   title: string;
+  description: string;
   icon: LucideIcon;
   status?: string;
 };
@@ -25,34 +26,98 @@ type ProductCard = {
 const copy = {
   en: {
     pageTitle: "Value Tech Products & Services",
+    // pageSubtitle:
+    //   "Smart asset valuation solutions to support your decisions with confidence and professionalism.",
     navigate: "Go",
     soon: "Coming soon",
     products: [
-      { href: "/machine-valuation", title: "Machines & Equipment Valuation", icon: Cpu },
-      { href: "/real-estate-valuation", title: "Real Estate Valuation", icon: Building2 },
-      { href: "/value-tech-app", title: "Report Upload System", icon: LayoutGrid },
-      { href: "/evaluation-source", title: "Information Sources", icon: Library },
-      { href: "/asset-inventory", title: "Asset Inventory", icon: ClipboardList, status: "Coming soon" },
-      { href: "/asset-inspection", title: "Asset Inspection", icon: Search, status: "Coming soon" },
+      {
+        href: "/machine-valuation",
+        title: "Machines & Equipment Valuation",
+        description: "Professional appraisal workflows for industrial assets and equipment.",
+        icon: Cpu,
+      },
+      {
+        href: "/real-estate-valuation",
+        title: "Real Estate Valuation",
+        description: "Structured property valuation aligned with market standards.",
+        icon: Building2,
+      },
+      {
+        href: "/value-tech-app",
+        title: "Report Upload System",
+        description: "Upload and manage valuation reports with confidence.",
+        icon: FileText,
+      },
+      {
+        href: "/evaluation-source",
+        title: "Information Sources",
+        description: "Centralized references and valuation data sources.",
+        icon: Library,
+      },
+      {
+        href: "/asset-inventory",
+        title: "Asset Inventory",
+        description: "Field-ready workflows for asset counting and verification.",
+        icon: ClipboardList,
+        status: "Coming soon",
+      },
+      {
+        href: "/asset-inspection",
+        title: "Asset Inspection",
+        description: "On-site inspection tools for asset condition review.",
+        icon: Search,
+        status: "Coming soon",
+      },
     ] satisfies ProductCard[],
   },
   ar: {
     pageTitle: "منتجات وخدمات فاليو تك",
+    // pageSubtitle: "حلول تقييم الأصول الذكية لدعم قراراتك بثقة واحترافية",
     navigate: "انتقال",
     soon: "قريبًا",
     products: [
-      { href: "/machine-valuation", title: "نظام تقييم الآلات والمعدات", icon: Cpu },
-      { href: "/real-estate-valuation", title: "نظام تقييم العقارات", icon: Building2 },
-      { href: "/value-tech-app", title: "نظام رفع التقارير", icon: LayoutGrid },
-      { href: "/evaluation-source", title: "مصادر المعلومات", icon: Library },
-      { href: "/asset-inventory", title: "تطبيق حصر الأصول", icon: ClipboardList, status: "قريبًا" },
-      { href: "/asset-inspection", title: "تطبيق معاينة الأصول", icon: Search, status: "قريبًا" },
+      {
+        href: "/machine-valuation",
+        title: "نظام تقييم الآلات والمعدات",
+        description: "منصة متكاملة لتقييم الآلات والمعدات الصناعية وفق أعلى المعايير المهنية.",
+        icon: Cpu,
+      },
+      {
+        href: "/real-estate-valuation",
+        title: "نظام تقييم العقارات",
+        description: "حلول تقييم عقاري منظمة ومتوافقة مع متطلبات السوق والمعايير المعتمدة.",
+        icon: Building2,
+      },
+      {
+        href: "/value-tech-app",
+        title: "نظام رفع التقارير",
+        description: "رفع وإدارة تقارير التقييم بسهولة وموثوقية عالية.",
+        icon: FileText,
+      },
+      {
+        href: "/evaluation-source",
+        title: "مصادر المعلومات",
+        description: "مرجع موحد لمصادر البيانات والمعلومات الداعمة لعمليات التقييم.",
+        icon: Library,
+      },
+      {
+        href: "/asset-inventory",
+        title: "تطبيق حصر الأصول",
+        description: "أدوات ميدانية لحصر الأصول والتحقق منها بدقة.",
+        icon: ClipboardList,
+        status: "قريبًا",
+      },
+      {
+        href: "/asset-inspection",
+        title: "تطبيق معاينة الأصول",
+        description: "معاينة ميدانية لحالة الأصول وتوثيقها بشكل احترافي.",
+        icon: Search,
+        status: "قريبًا",
+      },
     ] satisfies ProductCard[],
   },
 } as const;
-
-/** لون كحلي موحّد للصفحة والكاردات */
-const NAVY = "#0c2547";
 
 function ProductCardTile({
   product,
@@ -71,60 +136,57 @@ function ProductCardTile({
   const isSoon = Boolean(product.status);
 
   const body = (
-    <>
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/10"
-        aria-hidden
-      />
-
-      <div className="relative z-[1] flex items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] ring-1 ring-white/10 transition-colors duration-300 group-hover:bg-white/[0.11] group-hover:ring-white/20">
-          <Icon className="h-[18px] w-[18px] text-slate-200" strokeWidth={2} aria-hidden />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[14px] font-bold leading-snug text-white sm:text-[15px]">
-            {product.title}
-          </h2>
-          {!isSoon ? (
-            <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 transition-colors group-hover:text-slate-200">
-              {navigateLabel}
-              <ArrowUpRight
-                className={cn(
-                  "h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5",
-                  isArabic && "-scale-x-100 group-hover:-translate-x-0.5",
-                )}
-                aria-hidden
-              />
-            </span>
-          ) : (
-            <span className="mt-1 inline-block text-[11px] font-medium text-slate-500">
-              {product.status ?? soonLabel}
-            </span>
-          )}
+    <div
+      className="relative z-[1] flex h-full min-h-[9rem] flex-col p-5 sm:min-h-[9.25rem] sm:p-6"
+      dir={isArabic ? "rtl" : "ltr"}
+    >
+      <div className="flex items-start gap-4">
+        <div className="vt-product-icon-ring">
+          <Icon className="vt-product-icon" strokeWidth={1.65} aria-hidden />
         </div>
 
-        {!isSoon ? (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300 transition-all duration-300 group-hover:border-white/20 group-hover:bg-white/[0.08] group-hover:text-white">
+        <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+          <h2 className="vt-product-title sm:text-[1.02rem]">{product.title}</h2>
+          {isSoon ? (
+            <span className="vt-product-soon-badge">{product.status ?? soonLabel}</span>
+          ) : null}
+        </div>
+      </div>
+
+      {!isSoon ? (
+        <div
+          className={cn(
+            "vt-product-card-footer mt-auto flex pt-4",
+            isArabic ? "justify-end" : "justify-start",
+          )}
+        >
+          <span className="vt-product-navigate">
+            {navigateLabel}
             <ArrowUpRight
-              className={cn("h-3.5 w-3.5", isArabic && "-scale-x-100")}
+              className={cn(
+                "h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
+                isArabic && "-scale-x-100 group-hover:translate-x-[-2px]",
+              )}
               aria-hidden
             />
           </span>
-        ) : null}
-      </div>
-    </>
+        </div>
+      ) : null}
+    </div>
   );
 
   const className = cn(
-    "group relative overflow-hidden rounded-2xl border border-white/[0.08] p-3.5 text-start transition-all duration-300 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
-    !isSoon && "hover:-translate-y-0.5 hover:border-white/18 hover:bg-white/[0.04]",
-    isSoon && "cursor-default opacity-55",
+    "group vt-product-card text-start motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
+    isSoon && "vt-product-card--soon cursor-default",
   );
 
   if (isSoon) {
     return (
-      <div style={{ animationDelay: `${index * 40}ms`, backgroundColor: NAVY }} className={className} aria-disabled>
+      <div
+        style={{ animationDelay: `${index * 50}ms` }}
+        className={className}
+        aria-disabled
+      >
         {body}
       </div>
     );
@@ -133,8 +195,11 @@ function ProductCardTile({
   return (
     <Link
       href={product.href}
-      style={{ animationDelay: `${index * 40}ms`, backgroundColor: NAVY }}
-      className={cn(className, "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25")}
+      style={{ animationDelay: `${index * 50}ms` }}
+      className={cn(
+        className,
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c9963a]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
+      )}
     >
       {body}
     </Link>
@@ -151,17 +216,18 @@ export default function ValueTechHubSection() {
   return (
     <section
       id="products"
-      className="flex w-full flex-col justify-center gap-6 py-4 md:gap-7 md:py-6"
+      className="flex w-full flex-col py-0"
       dir={isArabic ? "rtl" : "ltr"}
     >
-      <header className="text-center md:text-start">
-        <div className="mx-auto mb-3 h-1 w-16 rounded-full bg-white/25 md:mx-0" />
-        <h1 className="text-2xl font-black tracking-tight text-white md:text-[1.75rem]">
+      <header className="vt-products-hero">
+        <h1 className="vt-products-hero-title text-xl font-black tracking-tight sm:text-[1.65rem]">
           {t.pageTitle}
         </h1>
+        <div className="vt-products-hero-divider" aria-hidden />
+        {/* <p className="vt-products-hero-subtitle">{t.pageSubtitle}</p> */}
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 sm:gap-5 xl:grid-cols-3 xl:gap-6">
         {t.products.map((product, index) => (
           <ProductCardTile
             key={product.href}

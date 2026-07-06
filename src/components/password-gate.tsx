@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { ValueTechPasswordGateScreen } from "@/components/value-tech-login-experience";
 
 type GateState = "checking" | "allowed" | "locked";
 
@@ -48,52 +49,32 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
 
   if (gateState === "checking") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background p-6" dir="rtl">
-        <div className="h-10 w-10 animate-pulse rounded-full bg-muted" aria-label="جاري التحميل" />
+      <main className="vt-login-screen fixed inset-0 z-[100] flex items-center justify-center" dir="rtl">
+        <div className="h-12 w-12 animate-pulse rounded-full border border-[#f5c76e]/50 bg-[#f5c76e]/25" aria-label="جاري التحميل" />
       </main>
     );
   }
 
   if (gateState === "locked") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background p-6" dir="rtl">
-        <form
-          className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-right shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (password === PASSWORD) {
-              cachedGateState = "allowed";
-              storeAllowedGateState();
-              setGateState("allowed");
-              setError("");
-              return;
-            }
-            setError("كلمة المرور غير صحيحة");
-          }}
-        >
-          <h1 className="text-lg font-bold text-foreground">دخول Spark Vision</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            أدخل كلمة المرور لعرض الواجهة.
-          </p>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => {
-              setPassword(event.target.value);
-              setError("");
-            }}
-            autoFocus
-            className="mt-5 h-11 w-full rounded-xl border border-input bg-background px-3 text-right text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring"
-          />
-          {error ? <p className="mt-3 text-sm font-semibold text-destructive">{error}</p> : null}
-          <button
-            type="submit"
-            className="mt-5 h-11 w-full rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition hover:opacity-90"
-          >
-            دخول
-          </button>
-        </form>
-      </main>
+      <ValueTechPasswordGateScreen
+        password={password}
+        error={error}
+        onPasswordChange={(value) => {
+          setPassword(value);
+          setError("");
+        }}
+        onSubmit={() => {
+          if (password === PASSWORD) {
+            cachedGateState = "allowed";
+            storeAllowedGateState();
+            setGateState("allowed");
+            setError("");
+            return;
+          }
+          setError("كلمة المرور غير صحيحة");
+        }}
+      />
     );
   }
 

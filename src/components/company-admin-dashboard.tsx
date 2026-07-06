@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PDFPageProxy } from "pdfjs-dist";
 import Link from "@/components/prefetch-link";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { PhoneNumberInput } from "@/components/phone-number-input";
@@ -58,8 +59,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { downloadPptxFromPngSlides } from "@/lib/pptx-export";
+import { scanDocxBookmarks } from "@/lib/mv-word-template";
 import {
   Building2,
+  CheckCircle2,
   ClipboardList,
   Download,
   Eye,
@@ -73,10 +76,12 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Sparkles,
   Stamp,
   Trash2,
   Upload,
   Users,
+  Wand2,
 } from "lucide-react";
 
 export type CompanyAdminDashboardVariant = "standalone" | "embedded";
@@ -131,6 +136,49 @@ type CompanyReportLetterheadForm = {
   signatureStampDataUrl: string | null;
 };
 
+type CompanyReportWordTemplateForm = {
+  fileName: string;
+  fileUrl: string | null;
+  fileDataUrl?: string | null;
+  uploadedAt: string;
+  sizeBytes?: number;
+  bookmarkNames: string[];
+};
+
+type CompanyAiTemplateVariableForm = {
+  key: string;
+  label: string;
+  source: string;
+  required?: boolean;
+};
+
+type CompanyAiTemplateSectionForm = {
+  id: string;
+  title: string;
+  order: number;
+  description?: string;
+  dynamicVariables?: string[];
+};
+
+type CompanyAiTemplateForm = {
+  id: string;
+  type: "AI Template";
+  name: string;
+  sourceFileName?: string;
+  createdAt: string;
+  updatedAt: string;
+  analysisSummary?: string;
+  coverImageDataUrl?: string | null;
+  pageImageDataUrl?: string | null;
+  landscapePageImageDataUrl?: string | null;
+  theme: Record<string, unknown>;
+  layout: Record<string, unknown>;
+  sections: CompanyAiTemplateSectionForm[];
+  dynamicVariables: CompanyAiTemplateVariableForm[];
+  rules: string[];
+  templateJson: Record<string, unknown>;
+};
+
 /**
  * Templates rendered (and editable) on the new "بيانات إعداد التقرير النهائي"
  * tab. Values feed the report preview as fallback narrative when the project
@@ -166,6 +214,8 @@ type CompanyReportDefaultsForm = {
   customGroups: CompanyReportCustomGroupForm[];
   customSections: CompanyReportCustomSectionForm[];
   letterhead: CompanyReportLetterheadForm;
+  aiTemplates: CompanyAiTemplateForm[];
+  wordTemplate: CompanyReportWordTemplateForm | null;
 };
 
 function emptyReportLetterhead(): CompanyReportLetterheadForm {
@@ -258,6 +308,8 @@ function emptyReportDefaults(): CompanyReportDefaultsForm {
     customGroups: [],
     customSections: [],
     letterhead: emptyReportLetterhead(),
+    aiTemplates: [],
+    wordTemplate: null,
   };
 }
 
@@ -265,6 +317,153 @@ function isReportTemplateImageSource(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/");
+}
+
+function isCompanyWordTemplateUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return (
+    (trimmed.startsWith("/uploads/company-report-templates/") || trimmed.startsWith("/files/")) &&
+    trimmed.toLowerCase().endsWith(".docx")
+  );
+}
+
+function normalizeCompanyWordTemplate(raw: unknown): CompanyReportWordTemplateForm | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const data = raw as Partial<CompanyReportWordTemplateForm>;
+  const fileUrl = isCompanyWordTemplateUrl(data.fileUrl) ? data.fileUrl.trim() : null;
+  const fileDataUrl = typeof data.fileDataUrl === "string" && data.fileDataUrl.startsWith("data:")
+    ? data.fileDataUrl
+    : null;
+  if (!fileUrl && !fileDataUrl) return null;
+  return {
+    fileName: typeof data.fileName === "string" && data.fileName.trim() ? data.fileName.trim() : "word-template.docx",
+    fileUrl,
+    ...(fileDataUrl ? { fileDataUrl } : {}),
+    uploadedAt: typeof data.uploadedAt === "string" ? data.uploadedAt : new Date().toISOString(),
+    sizeBytes: typeof data.sizeBytes === "number" && Number.isFinite(data.sizeBytes) ? data.sizeBytes : undefined,
+    bookmarkNames: Array.isArray(data.bookmarkNames) ? data.bookmarkNames.map(String).filter(Boolean).slice(0, 300) : [],
+  };
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
+}
+
+function normalizeAiTemplateRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function normalizeAiTemplateStringList(value: unknown, max = 80): string[] {
+  return Array.isArray(value)
+    ? value
+        .slice(0, max)
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter(Boolean)
+    : [];
+}
+
+function normalizeCompanyAiTemplates(raw: unknown): CompanyAiTemplateForm[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(0, 20)
+    .map((item, index) => {
+      const data = normalizeAiTemplateRecord(item);
+      const id = typeof data.id === "string" && data.id.trim() ? data.id.trim() : `ai-template-${index + 1}`;
+      const name =
+        typeof data.name === "string" && data.name.trim()
+          ? data.name.trim()
+          : `قالب ذكاء اصطناعي ${index + 1}`;
+      const sections = Array.isArray(data.sections)
+        ? data.sections.slice(0, 60).map((section, sectionIndex) => {
+            const sectionData = normalizeAiTemplateRecord(section);
+            return {
+              id:
+                typeof sectionData.id === "string" && sectionData.id.trim()
+                  ? sectionData.id.trim()
+                  : `section-${sectionIndex + 1}`,
+              title:
+                typeof sectionData.title === "string" && sectionData.title.trim()
+                  ? sectionData.title.trim()
+                  : `قسم ${sectionIndex + 1}`,
+              order:
+                typeof sectionData.order === "number" && Number.isFinite(sectionData.order)
+                  ? sectionData.order
+                  : sectionIndex + 1,
+              description: typeof sectionData.description === "string" ? sectionData.description : "",
+              dynamicVariables: normalizeAiTemplateStringList(sectionData.dynamicVariables),
+            };
+          })
+        : [];
+      const dynamicVariables = Array.isArray(data.dynamicVariables)
+        ? data.dynamicVariables.slice(0, 120).map((variable, variableIndex) => {
+            const variableData = normalizeAiTemplateRecord(variable);
+            return {
+              key:
+                typeof variableData.key === "string" && variableData.key.trim()
+                  ? variableData.key.trim()
+                  : `variable_${variableIndex + 1}`,
+              label:
+                typeof variableData.label === "string" && variableData.label.trim()
+                  ? variableData.label.trim()
+                  : `متغير ${variableIndex + 1}`,
+              source:
+                typeof variableData.source === "string" && variableData.source.trim()
+                  ? variableData.source.trim()
+                  : "project",
+              required: variableData.required === true,
+            };
+          })
+        : [];
+      return {
+        id,
+        type: "AI Template",
+        name,
+        sourceFileName: typeof data.sourceFileName === "string" ? data.sourceFileName : "",
+        createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
+        updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : new Date().toISOString(),
+        analysisSummary: typeof data.analysisSummary === "string" ? data.analysisSummary : "",
+        coverImageDataUrl: isReportTemplateImageSource(data.coverImageDataUrl) ? data.coverImageDataUrl.trim() : null,
+        pageImageDataUrl: isReportTemplateImageSource(data.pageImageDataUrl) ? data.pageImageDataUrl.trim() : null,
+        landscapePageImageDataUrl: isReportTemplateImageSource(data.landscapePageImageDataUrl)
+          ? data.landscapePageImageDataUrl.trim()
+          : null,
+        theme: normalizeAiTemplateRecord(data.theme),
+        layout: normalizeAiTemplateRecord(data.layout),
+        sections,
+        dynamicVariables,
+        rules: normalizeAiTemplateStringList(data.rules),
+        templateJson: normalizeAiTemplateRecord(data.templateJson),
+      } satisfies CompanyAiTemplateForm;
+    })
+    .filter((item) => item.name.trim());
+}
+
+function getAiTemplatePalette(template: CompanyAiTemplateForm): string[] {
+  const palette = Array.isArray(template.theme.palette) ? template.theme.palette : [];
+  return palette
+    .filter((color): color is string => typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color.trim()))
+    .map((color) => color.trim())
+    .slice(0, 8);
+}
+
+function getAiTemplateFonts(template: CompanyAiTemplateForm): string[] {
+  const fonts = new Set<string>();
+  const fontFamily = template.theme.fontFamily;
+  if (typeof fontFamily === "string" && fontFamily.trim()) fonts.add(fontFamily.trim());
+  const detectedFonts = Array.isArray(template.theme.detectedFonts) ? template.theme.detectedFonts : [];
+  for (const font of detectedFonts) {
+    if (typeof font === "string" && font.trim()) fonts.add(font.trim());
+  }
+  return Array.from(fonts).slice(0, 4);
 }
 
 /**
@@ -332,6 +531,8 @@ function normalizeReportDefaults(
       footerImageDataUrl: image(letterheadRaw.footerImageDataUrl),
       signatureStampDataUrl: image(letterheadRaw.signatureStampDataUrl),
     },
+    aiTemplates: normalizeCompanyAiTemplates((raw as { aiTemplates?: unknown }).aiTemplates),
+    wordTemplate: normalizeCompanyWordTemplate((raw as { wordTemplate?: unknown }).wordTemplate),
   };
 }
 
@@ -729,6 +930,261 @@ function newReportDefaultId() {
     : `company-section-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function buildAiTemplateJson(template: Omit<CompanyAiTemplateForm, "templateJson">): Record<string, unknown> {
+  const visualRef = (value?: string | null) =>
+    value?.startsWith("/uploads/company-report-templates/") ? value : value ? "stored-visual-asset" : null;
+  return {
+    type: "AI Template",
+    version: 1,
+    name: template.name,
+    sourceFileName: template.sourceFileName,
+    analysisSummary: template.analysisSummary,
+    visualAssets: {
+      coverImageDataUrl: visualRef(template.coverImageDataUrl),
+      pageImageDataUrl: visualRef(template.pageImageDataUrl),
+      landscapePageImageDataUrl: visualRef(template.landscapePageImageDataUrl),
+    },
+    theme: template.theme,
+    layout: template.layout,
+    sections: template.sections,
+    dynamicVariables: template.dynamicVariables,
+    rules: template.rules,
+    binding: {
+      projectData: [
+        "basicInformation",
+        "assetImages",
+        "valuationCalculationImages",
+        "reportSettings",
+        "signatories",
+      ],
+      fillMode: "auto",
+    },
+  };
+}
+
+function buildLocalAiTemplateAnalysis(
+  file: File,
+  text: string,
+  pageCount: number,
+  visual?: Pick<AiTemplatePdfExtraction, "dominantColors" | "fontNames" | "pageSize">,
+): Omit<CompanyAiTemplateForm, "id" | "type" | "createdAt" | "updatedAt" | "templateJson"> {
+  const lines = text
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 3);
+  const sectionCandidates = lines.filter((line) =>
+    /^(\d{1,2}([.\-]\d{1,2})?\s+|[IVX]{1,6}[.\-]\s+|[أ-ي]\s*[-.)])/.test(line) ||
+    /^(scope|methodology|valuation|assumptions|appendix|executive|الفهرس|نطاق|منهجية|الأصل|الافتراضات|المرفقات)/i.test(line),
+  );
+  const uniqueSections = Array.from(new Set(sectionCandidates))
+    .slice(0, 18)
+    .map((title, index) => ({
+      id: `section_${index + 1}`,
+      title: title.slice(0, 180),
+      order: index + 1,
+      description: "قسم مستخرج من بنية التقرير المرفوع.",
+      dynamicVariables: index === 0 ? ["projectName", "clientName", "valuationDate"] : [],
+    }));
+  const sections =
+    uniqueSections.length > 0
+      ? uniqueSections
+      : [
+          { id: "cover", title: "الغلاف", order: 1, description: "صفحة الغلاف والهوية البصرية.", dynamicVariables: ["projectName", "clientName"] },
+          { id: "scope", title: "نطاق العمل", order: 2, description: "نطاق العمل والقيود.", dynamicVariables: ["purpose", "valuationDate"] },
+          { id: "assets", title: "الأصول محل التقييم", order: 3, description: "وصف الأصول والجداول والصور.", dynamicVariables: ["assetsTable", "assetImages"] },
+          { id: "valuation", title: "رأي القيمة", order: 4, description: "نتائج القيمة والتوقيعات.", dynamicVariables: ["finalValue", "signatories"] },
+        ];
+  const hasToc = /الفهرس|table of contents|contents/i.test(text);
+  const hasWatermark = /watermark|علامة مائية|سري|confidential/i.test(text);
+  const hasLogo = /logo|شعار|company|شركة/i.test(text);
+  const hasTables = /جدول|table|القيمة|value|amount|total/i.test(text);
+  const hasSignatures = /توقيع|signature|approved|اعتماد/i.test(text);
+  const variableMap: CompanyAiTemplateVariableForm[] = [
+    { key: "companyName", label: "اسم الشركة", source: "company.name", required: true },
+    { key: "projectName", label: "اسم المشروع", source: "project.name", required: true },
+    { key: "clientName", label: "اسم العميل", source: "project.clientName", required: true },
+    { key: "valuationDate", label: "تاريخ التقييم", source: "reportData.valuationDate", required: true },
+    { key: "reportDate", label: "تاريخ التقرير", source: "reportData.reportDate", required: false },
+    { key: "assetsTable", label: "جدول الأصول", source: "project.assets", required: true },
+    { key: "assetImages", label: "صور الأصول", source: "project.assetImages", required: false },
+    {
+      key: "valuationCalculationImages",
+      label: "صور حسابات القيمة",
+      source: "project.valuationAccountingWorkspace.images",
+      required: false,
+    },
+    { key: "finalValue", label: "رأي القيمة النهائي", source: "reportData.finalValue", required: true },
+    { key: "signatories", label: "التوقيعات", source: "company.reportSignatoryRows", required: false },
+  ];
+  return {
+    name: file.name.replace(/\.pdf$/i, "").slice(0, 120) || "AI Template",
+    sourceFileName: file.name,
+    analysisSummary: `تم استخراج قالب بصري من ${pageCount} صفحة. يتضمن ${sections.length} قسم و${variableMap.length} متغير ديناميكي، مع حفظ خلفيات الغلاف والصفحات وألوان وخطوط التقرير الأصلي.`,
+    theme: {
+      primaryColor: visual?.dominantColors[0] ?? "#0C447C",
+      secondaryColor: visual?.dominantColors[1] ?? "#1F7A8C",
+      accentColor: visual?.dominantColors[2] ?? "#C9A227",
+      palette: visual?.dominantColors ?? [],
+      fontFamily:
+        visual?.fontNames[0] ??
+        (/arabic|عربي|تقييم|شركة/i.test(text) ? "Arabic report font" : "Document default font"),
+      detectedFonts: visual?.fontNames ?? [],
+      visualIdentity: hasLogo ? "تم رصد مؤشرات هوية شركة أو شعار داخل النص." : "لم تظهر مؤشرات شعار واضحة من النص المستخرج.",
+      logo: hasLogo ? "logo-detected" : "not-detected",
+      watermark: hasWatermark ? "watermark-detected" : "not-detected",
+    },
+    layout: {
+      pageSize: `${visual?.pageSize.width ?? 595}x${visual?.pageSize.height ?? 842}`,
+      orientation: visual?.pageSize.orientation ?? "portrait",
+      margins: "هوامش قياسية قابلة للمراجعة بعد المعاينة.",
+      header: hasLogo ? "Header يحتوي على هوية الشركة أو الشعار." : "Header افتراضي.",
+      footer: /footer|صفحة|page/i.test(text) ? "Footer مرصود من ترقيم أو نصوص أسفل الصفحات." : "Footer افتراضي.",
+      tableStyle: hasTables ? "جداول مالية/وصفية مرصودة." : "جداول اختيارية حسب بيانات المشروع.",
+      imagePlacement: "صور الأصول وصور حسابات القيمة تملأ مواضع الصور تلقائيا.",
+      signaturePlacement: hasSignatures ? "مواضع توقيع مرصودة." : "توقيعات الشركة تضاف في نهاية رأي القيمة.",
+      tableOfContents: hasToc ? "فهرس مرصود." : "فهرس اختياري.",
+    },
+    sections,
+    dynamicVariables: variableMap,
+    rules: [
+      "استخدم بيانات المشروع الحالية لملء جميع المتغيرات دون إعادة تحليل PDF.",
+      "اترك الحقول غير المتوفرة فارغة ولا تستبدلها بنص تخميني.",
+      "حافظ على ترتيب الأقسام المستخرج من التقرير المرفوع.",
+      "أدرج صور الأصول في مواضع الصور، وصور حسابات القيمة في قسم التحليل أو المرفقات.",
+      "استخدم توقيعات الشركة المحفوظة عند وجود موضع توقيع.",
+    ],
+  };
+}
+
+type AiTemplatePdfExtraction = {
+  text: string;
+  pageCount: number;
+  coverImageDataUrl: string | null;
+  pageImageDataUrl: string | null;
+  landscapePageImageDataUrl: string | null;
+  dominantColors: string[];
+  fontNames: string[];
+  pageSize: {
+    width: number;
+    height: number;
+    orientation: "portrait" | "landscape" | "mixed";
+  };
+};
+
+function rgbToHex(r: number, g: number, b: number) {
+  return `#${[r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function sampleCanvasPalette(canvas: HTMLCanvasElement, maxColors = 8): string[] {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return [];
+  const { width, height } = canvas;
+  if (width <= 0 || height <= 0) return [];
+  const step = Math.max(10, Math.floor(Math.min(width, height) / 80));
+  const counts = new Map<string, number>();
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const [rRaw, gRaw, bRaw, alpha = 255] = ctx.getImageData(x, y, 1, 1).data;
+      if (alpha < 180) continue;
+      const r = Math.round(rRaw / 24) * 24;
+      const g = Math.round(gRaw / 24) * 24;
+      const b = Math.round(bRaw / 24) * 24;
+      const bright = (r + g + b) / 3;
+      if (bright > 242 || bright < 18) continue;
+      const key = rgbToHex(r, g, b);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, maxColors)
+    .map(([color]) => color);
+}
+
+async function renderPdfPageDataUrl(page: PDFPageProxy) {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxEdge = 1500;
+  const scale = Math.min(2, maxEdge / Math.max(baseViewport.width, baseViewport.height));
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { dataUrl: null, palette: [] as string[] };
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, canvas, viewport }).promise;
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+    palette: sampleCanvasPalette(canvas),
+  };
+}
+
+async function extractPdfTextForAiTemplate(file: File): Promise<AiTemplatePdfExtraction> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc ||= new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
+  const buffer = await file.arrayBuffer();
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await loadingTask.promise;
+  const pages: string[] = [];
+  const palette = new Set<string>();
+  const fontNames = new Set<string>();
+  const orientations = new Set<"portrait" | "landscape">();
+  let coverImageDataUrl: string | null = null;
+  let pageImageDataUrl: string | null = null;
+  let landscapePageImageDataUrl: string | null = null;
+  let pageSize = { width: 595, height: 842 };
+  const maxPages = Math.min(pdf.numPages, 30);
+  for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    if (pageNumber === 1) pageSize = { width: Math.round(viewport.width), height: Math.round(viewport.height) };
+    const orientation = viewport.width > viewport.height ? "landscape" : "portrait";
+    orientations.add(orientation);
+    const content = await page.getTextContent();
+    const styles = (content as { styles?: Record<string, { fontFamily?: string }> }).styles ?? {};
+    for (const style of Object.values(styles)) {
+      if (style.fontFamily) fontNames.add(style.fontFamily.replace(/["']/g, "").trim());
+    }
+    const pageText = content.items
+      .map((item) => {
+        const textItem = item as { str?: unknown; fontName?: unknown };
+        if (typeof textItem.fontName === "string") {
+          const style = styles[textItem.fontName];
+          if (style?.fontFamily) fontNames.add(style.fontFamily.replace(/["']/g, "").trim());
+          else fontNames.add(textItem.fontName);
+        }
+        return typeof textItem.str === "string" ? textItem.str : "";
+      })
+      .filter(Boolean)
+      .join(" ");
+    pages.push(pageText);
+
+    if (pageNumber <= Math.min(6, pdf.numPages)) {
+      if (pageNumber === 1 || pageNumber === 2 || (orientation === "landscape" && !landscapePageImageDataUrl)) {
+        const rendered = await renderPdfPageDataUrl(page);
+        rendered.palette.forEach((color) => palette.add(color));
+        if (pageNumber === 1) coverImageDataUrl = rendered.dataUrl;
+        if (pageNumber === 2 || (pageNumber === 1 && pdf.numPages === 1)) pageImageDataUrl = rendered.dataUrl;
+        if (orientation === "landscape" && !landscapePageImageDataUrl) landscapePageImageDataUrl = rendered.dataUrl;
+      }
+    }
+  }
+  return {
+    text: pages.join("\n").slice(0, 60_000),
+    pageCount: pdf.numPages,
+    coverImageDataUrl,
+    pageImageDataUrl: pageImageDataUrl ?? coverImageDataUrl,
+    landscapePageImageDataUrl,
+    dominantColors: Array.from(palette).slice(0, 10),
+    fontNames: Array.from(fontNames).filter(Boolean).slice(0, 12),
+    pageSize: {
+      ...pageSize,
+      orientation: orientations.size > 1 ? "mixed" : orientations.has("landscape") ? "landscape" : "portrait",
+    },
+  };
+}
+
 async function imageFileToReportTemplateDataUrl(
   file: File,
   options: { maxEdge: number; transparent?: boolean },
@@ -1016,6 +1472,11 @@ export default function CompanyAdminDashboard({
   const [reportSectionBody, setReportSectionBody] = useState("");
   const [letterheadImagesOpen, setLetterheadImagesOpen] = useState(false);
   const [letterheadPreviewId, setLetterheadPreviewId] = useState<string | null>(null);
+  const [aiTemplateFile, setAiTemplateFile] = useState<File | null>(null);
+  const [aiTemplateAnalyzing, setAiTemplateAnalyzing] = useState(false);
+  const [aiTemplateReview, setAiTemplateReview] = useState<CompanyAiTemplateForm | null>(null);
+  const [aiTemplateReviewJson, setAiTemplateReviewJson] = useState("");
+  const [aiTemplateError, setAiTemplateError] = useState<string | null>(null);
   const [personalEmail, setPersonalEmail] = useState("");
   const [personalPhone, setPersonalPhone] = useState("");
   const [personalJobTitle, setPersonalJobTitle] = useState("");
@@ -1350,6 +1811,248 @@ export default function CompanyAdminDashboard({
     [],
   );
 
+  const persistReportDefaults = useCallback(async (nextReportDefaults: CompanyReportDefaultsForm = reportDefaults) => {
+    setReportDefaultsSaving(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      const payload = await apiJson<{ reportDefaults?: Partial<CompanyReportDefaultsForm> | null }>(
+        "/api/company/admin/report-defaults",
+        csrfToken,
+        {
+          method: "PATCH",
+          body: JSON.stringify(nextReportDefaults),
+        },
+      );
+      if (payload.reportDefaults) {
+        const normalized = normalizeReportDefaults(payload.reportDefaults);
+        setReportDefaults(normalized);
+        setReportDefaultsBaseline(normalized);
+      } else {
+        setReportDefaultsBaseline(nextReportDefaults);
+      }
+      setReportDefaultsDirty(false);
+      setStatus("تم حفظ أقسام التقرير.");
+      return true;
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل حفظ أقسام التقرير.");
+      return false;
+    } finally {
+      setReportDefaultsSaving(false);
+    }
+  }, [csrfToken, reportDefaults]);
+
+  const analyzeAiTemplatePdf = useCallback(async () => {
+    if (!aiTemplateFile) {
+      setAiTemplateError("ارفع ملف PDF أولا.");
+      return;
+    }
+    if (!aiTemplateFile.name.toLowerCase().endsWith(".pdf")) {
+      setAiTemplateError("يجب رفع ملف PDF فقط.");
+      return;
+    }
+    setAiTemplateAnalyzing(true);
+    setAiTemplateError(null);
+    setSubmitError(null);
+    try {
+      const extracted = await extractPdfTextForAiTemplate(aiTemplateFile);
+      if (!extracted.text.trim()) {
+        throw new Error("تعذر استخراج نص من PDF. جرّب ملفا يحتوي على نص قابل للنسخ.");
+      }
+
+      let analysis: Omit<CompanyAiTemplateForm, "id" | "type" | "createdAt" | "updatedAt" | "templateJson">;
+      try {
+        const response = await fetch("/api/mv/ai-template/analyze", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: aiTemplateFile.name,
+            pageCount: extracted.pageCount,
+            text: extracted.text,
+            visualSummary: {
+              dominantColors: extracted.dominantColors,
+              fontNames: extracted.fontNames,
+              pageSize: extracted.pageSize,
+              hasCoverImage: Boolean(extracted.coverImageDataUrl),
+              hasPageImage: Boolean(extracted.pageImageDataUrl),
+              hasLandscapePageImage: Boolean(extracted.landscapePageImageDataUrl),
+            },
+          }),
+        });
+        const payload = (await response.json()) as {
+          template?: Partial<Omit<CompanyAiTemplateForm, "id" | "type" | "createdAt" | "updatedAt" | "templateJson">>;
+          message?: string;
+        };
+        if (!response.ok || !payload.template) {
+          throw new Error(payload.message || "تعذر تشغيل تحليل Gemini.");
+        }
+        const fallback = buildLocalAiTemplateAnalysis(aiTemplateFile, extracted.text, extracted.pageCount, extracted);
+        analysis = {
+          ...fallback,
+          ...payload.template,
+          theme: {
+            ...fallback.theme,
+            ...normalizeAiTemplateRecord(payload.template.theme),
+            palette: extracted.dominantColors,
+            detectedFonts: extracted.fontNames,
+          },
+          layout: {
+            ...fallback.layout,
+            ...normalizeAiTemplateRecord(payload.template.layout),
+            pageSize: `${extracted.pageSize.width}x${extracted.pageSize.height}`,
+            orientation: extracted.pageSize.orientation,
+          },
+          sections: normalizeCompanyAiTemplates([
+            {
+              name: "preview",
+              sections: payload.template.sections,
+              dynamicVariables: payload.template.dynamicVariables,
+            },
+          ])[0]?.sections ?? fallback.sections,
+          dynamicVariables:
+            normalizeCompanyAiTemplates([
+              {
+                name: "preview",
+                sections: payload.template.sections,
+                dynamicVariables: payload.template.dynamicVariables,
+              },
+            ])[0]?.dynamicVariables ?? fallback.dynamicVariables,
+          rules: normalizeAiTemplateStringList(payload.template.rules).length
+            ? normalizeAiTemplateStringList(payload.template.rules)
+            : fallback.rules,
+        };
+      } catch {
+        analysis = buildLocalAiTemplateAnalysis(aiTemplateFile, extracted.text, extracted.pageCount, extracted);
+      }
+
+      const now = new Date().toISOString();
+      const templateWithoutJson = {
+        id: `ai-template-${newReportDefaultId()}`,
+        type: "AI Template" as const,
+        name: analysis.name || aiTemplateFile.name.replace(/\.pdf$/i, ""),
+        sourceFileName: aiTemplateFile.name,
+        createdAt: now,
+        updatedAt: now,
+        analysisSummary: analysis.analysisSummary,
+        coverImageDataUrl: extracted.coverImageDataUrl,
+        pageImageDataUrl: extracted.pageImageDataUrl,
+        landscapePageImageDataUrl: extracted.landscapePageImageDataUrl,
+        theme: analysis.theme,
+        layout: analysis.layout,
+        sections: analysis.sections,
+        dynamicVariables: analysis.dynamicVariables,
+        rules: analysis.rules,
+      };
+      const template: CompanyAiTemplateForm = {
+        ...templateWithoutJson,
+        templateJson: buildAiTemplateJson(templateWithoutJson),
+      };
+      setAiTemplateReview(template);
+      setAiTemplateReviewJson(JSON.stringify(template.templateJson, null, 2));
+      setStatus("تم تحليل PDF. راجع القالب ثم احفظه.");
+    } catch (error) {
+      setAiTemplateError(error instanceof Error ? error.message : "تعذر تحليل PDF.");
+    } finally {
+      setAiTemplateAnalyzing(false);
+    }
+  }, [aiTemplateFile]);
+
+  const saveAiTemplateReview = useCallback(async () => {
+    if (!aiTemplateReview) return;
+    let templateJson: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(aiTemplateReviewJson || "{}") as unknown;
+      templateJson = normalizeAiTemplateRecord(parsed);
+    } catch {
+      setAiTemplateError("JSON غير صالح. أصلح المراجعة قبل الحفظ.");
+      return;
+    }
+    const now = new Date().toISOString();
+    const template: CompanyAiTemplateForm = {
+      ...aiTemplateReview,
+      updatedAt: now,
+      templateJson,
+    };
+    const next: CompanyReportDefaultsForm = {
+      ...reportDefaults,
+      aiTemplates: [
+        template,
+        ...reportDefaults.aiTemplates.filter((item) => item.id !== template.id),
+      ].slice(0, 20),
+    };
+    setReportDefaults(next);
+    setReportDefaultsDirty(true);
+    const saved = await persistReportDefaults(next);
+    if (saved) {
+      setAiTemplateFile(null);
+      setAiTemplateReview(null);
+      setAiTemplateReviewJson("");
+      setAiTemplateError(null);
+      setStatus("تم حفظ قالب الذكاء الاصطناعي.");
+    }
+  }, [aiTemplateReview, aiTemplateReviewJson, persistReportDefaults, reportDefaults]);
+
+  const removeAiTemplate = useCallback(
+    async (templateId: string) => {
+      if (!window.confirm("سيتم حذف قالب الذكاء الاصطناعي من إعدادات الشركة. هل تريد المتابعة؟")) return;
+      const next: CompanyReportDefaultsForm = {
+        ...reportDefaults,
+        aiTemplates: reportDefaults.aiTemplates.filter((template) => template.id !== templateId),
+      };
+      setReportDefaults(next);
+      setReportDefaultsDirty(true);
+      await persistReportDefaults(next);
+    },
+    [persistReportDefaults, reportDefaults],
+  );
+
+  const uploadCompanyWordTemplate = useCallback(
+    async (file: File) => {
+      if (!file.name.toLowerCase().endsWith(".docx")) {
+        setSubmitError("يرجى رفع ملف Word بصيغة .docx فقط.");
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        setSubmitError("حجم قالب Word يجب ألا يتجاوز 25MB.");
+        return;
+      }
+      setSubmitError(null);
+      setStatus(null);
+      try {
+        const buffer = await file.arrayBuffer();
+        const bookmarkNames = scanDocxBookmarks(buffer);
+        const next: CompanyReportDefaultsForm = {
+          ...reportDefaults,
+          wordTemplate: {
+            fileName: file.name,
+            fileDataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${arrayBufferToBase64(buffer)}`,
+            fileUrl: null,
+            uploadedAt: new Date().toISOString(),
+            sizeBytes: file.size,
+            bookmarkNames,
+          },
+        };
+        setReportDefaults(next);
+        setReportDefaultsDirty(true);
+        const saved = await persistReportDefaults(next);
+        if (saved) setStatus("تم حفظ قالب ملف Word للشركة.");
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : "تعذر قراءة قالب Word.");
+      }
+    },
+    [persistReportDefaults, reportDefaults],
+  );
+
+  const removeCompanyWordTemplate = useCallback(async () => {
+    if (!window.confirm("سيتم حذف قالب Word من إعدادات الشركة. هل تريد المتابعة؟")) return;
+    const next: CompanyReportDefaultsForm = { ...reportDefaults, wordTemplate: null };
+    setReportDefaults(next);
+    setReportDefaultsDirty(true);
+    const saved = await persistReportDefaults(next);
+    if (saved) setStatus("تم حذف قالب ملف Word.");
+  }, [persistReportDefaults, reportDefaults]);
+
   const downloadPowerPointTemplateSample = useCallback(() => {
     if (typeof document === "undefined") return;
     const canvas = document.createElement("canvas");
@@ -1414,37 +2117,6 @@ export default function CompanyAdminDashboard({
       "Spark Vision PowerPoint Template",
     );
   }, []);
-
-  const persistReportDefaults = useCallback(async () => {
-    setReportDefaultsSaving(true);
-    setSubmitError(null);
-    setStatus(null);
-    try {
-      const payload = await apiJson<{ reportDefaults?: Partial<CompanyReportDefaultsForm> | null }>(
-        "/api/company/admin/report-defaults",
-        csrfToken,
-        {
-          method: "PATCH",
-          body: JSON.stringify(reportDefaults),
-        },
-      );
-      if (payload.reportDefaults) {
-        const normalized = normalizeReportDefaults(payload.reportDefaults);
-        setReportDefaults(normalized);
-        setReportDefaultsBaseline(normalized);
-      } else {
-        setReportDefaultsBaseline(reportDefaults);
-      }
-      setReportDefaultsDirty(false);
-      setStatus("تم حفظ أقسام التقرير.");
-      return true;
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "فشل حفظ أقسام التقرير.");
-      return false;
-    } finally {
-      setReportDefaultsSaving(false);
-    }
-  }, [csrfToken, reportDefaults]);
 
   const resetReportDefaults = useCallback(() => {
     if (!reportDefaultsBaseline) return;
@@ -1800,6 +2472,18 @@ export default function CompanyAdminDashboard({
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 الأكلاشية والقوالب
+              </TabsTrigger>
+              <TabsTrigger
+                value="ai-templates"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                قالب الذكاء الاصطناعي
+              </TabsTrigger>
+              <TabsTrigger
+                value="word-template"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                قالب ملف Word
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -2462,6 +3146,421 @@ export default function CompanyAdminDashboard({
                   </section>
 
                 </>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="word-template" className="m-0 outline-none">
+            <div className="m-0 space-y-3 p-0">
+              <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                      <FileText className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <h2 className="text-[15px] font-black text-slate-900">قالب ملف Word</h2>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                        قالب DOCX موحد للشركة يستخدمه دمج التقرير النهائي في مشاريع تقييم الآلات.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {!reportDefaultsLoaded ? (
+                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                </div>
+              ) : (
+                <section className="grid gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <label className="grid cursor-pointer place-items-center gap-3 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-5 text-center transition hover:border-emerald-300 hover:bg-emerald-50">
+                    <input
+                      type="file"
+                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      className="sr-only"
+                      disabled={reportDefaultsSaving}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        event.target.value = "";
+                        if (file) void uploadCompanyWordTemplate(file);
+                      }}
+                    />
+                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
+                      {reportDefaultsSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                    </span>
+                    <span className="text-[13px] font-black text-slate-900">
+                      {reportDefaults.wordTemplate ? "استبدال قالب Word" : "رفع قالب Word للشركة"}
+                    </span>
+                    <span className="text-[11px] font-semibold leading-5 text-slate-500">
+                      يقبل ملفات .docx فقط. سيتم حفظه مرة واحدة واستخدامه تلقائيا عند تنزيل تقرير Word.
+                    </span>
+                  </label>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                    {reportDefaults.wordTemplate ? (
+                      <div className="grid gap-3">
+                        <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-100 bg-white p-3">
+                          <div className="min-w-0 text-right">
+                            <p className="truncate text-[13px] font-black text-slate-900">
+                              {reportDefaults.wordTemplate.fileName}
+                            </p>
+                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                              {reportDefaults.wordTemplate.sizeBytes
+                                ? `${(reportDefaults.wordTemplate.sizeBytes / 1024 / 1024).toFixed(2)} MB`
+                                : "ملف محفوظ"}
+                              {" · "}
+                              {reportDefaults.wordTemplate.uploadedAt
+                                ? new Date(reportDefaults.wordTemplate.uploadedAt).toLocaleDateString("ar")
+                                : "بدون تاريخ"}
+                            </p>
+                          </div>
+                          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <Badge className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-800">
+                            {reportDefaults.wordTemplate.bookmarkNames.length} Bookmark
+                          </Badge>
+                          {reportDefaults.wordTemplate.fileUrl ? (
+                            <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+                              محفوظ على الشركة
+                            </Badge>
+                          ) : null}
+                        </div>
+                        {reportDefaults.wordTemplate.bookmarkNames.length > 0 ? (
+                          <p className="max-h-24 overflow-y-auto rounded-xl bg-white px-3 py-2 text-right text-[10.5px] font-semibold leading-5 text-slate-600">
+                            {reportDefaults.wordTemplate.bookmarkNames.slice(0, 40).join("، ")}
+                          </p>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 gap-2 rounded-xl text-[12px] font-black text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                          disabled={reportDefaultsSaving}
+                          onClick={() => void removeCompanyWordTemplate()}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          حذف قالب Word
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-48 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-4 text-center text-[12px] font-semibold leading-6 text-slate-500">
+                        لا يوجد قالب Word محفوظ للشركة حتى الآن.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="ai-templates" className="m-0 outline-none">
+            <div className="m-0 space-y-3 p-0">
+              <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
+                      <Sparkles className="h-5 w-5" />
+                    </span>
+                    <div>
+                      <h2 className="text-[15px] font-black text-slate-900">قالب الذكاء الاصطناعي</h2>
+                      <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                        قالب اختياري مستقل يعتمد على PDF شركة ولا يغيّر القوالب الحالية.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-1.5 rounded-xl text-[12px] font-bold"
+                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                      onClick={resetReportDefaults}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      تراجع
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[12px] font-black hover:bg-[#0a3a66]"
+                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                      onClick={() => void persistReportDefaults()}
+                    >
+                      {reportDefaultsSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      حفظ
+                    </Button>
+                  </div>
+                </div>
+              </section>
+
+              {!reportDefaultsLoaded ? (
+                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                </div>
+              ) : (
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                    <div className="mb-4 grid gap-2 sm:grid-cols-4">
+                      {["رفع PDF", "تحليل", "مراجعة", "حفظ"].map((step, index) => {
+                        const active =
+                          (index === 0 && !aiTemplateFile && !aiTemplateReview) ||
+                          (index === 1 && aiTemplateFile && !aiTemplateReview) ||
+                          (index === 2 && aiTemplateReview) ||
+                          false;
+                        return (
+                          <div
+                            key={step}
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-center text-[11px] font-black",
+                              active ? "border-violet-200 bg-violet-50 text-violet-800" : "border-slate-100 bg-slate-50 text-slate-500",
+                            )}
+                          >
+                            {index + 1}. {step}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <label className="grid cursor-pointer gap-3 rounded-2xl border border-dashed border-violet-200 bg-violet-50/40 p-4 text-center transition hover:border-violet-300 hover:bg-violet-50">
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] ?? null;
+                          event.target.value = "";
+                          setAiTemplateFile(file);
+                          setAiTemplateReview(null);
+                          setAiTemplateReviewJson("");
+                          setAiTemplateError(null);
+                        }}
+                      />
+                      <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-violet-700 shadow-sm">
+                        <Upload className="h-5 w-5" />
+                      </span>
+                      <span className="text-[13px] font-black text-slate-900">
+                        {aiTemplateFile ? aiTemplateFile.name : "إنشاء قالب بالذكاء الاصطناعي"}
+                      </span>
+                      <span className="text-[11px] font-semibold leading-5 text-slate-500">
+                        ارفع PDF لتقرير شركة، ثم استخرج منه الهوية البصرية والأقسام والمتغيرات الديناميكية.
+                      </span>
+                    </label>
+
+                    {aiTemplateError ? (
+                      <p className="mt-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-700">
+                        {aiTemplateError}
+                      </p>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      className="mt-3 h-10 w-full gap-2 rounded-xl bg-violet-700 text-[12px] font-black hover:bg-violet-800"
+                      disabled={!aiTemplateFile || aiTemplateAnalyzing}
+                      onClick={() => void analyzeAiTemplatePdf()}
+                    >
+                      {aiTemplateAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      تحليل PDF
+                    </Button>
+
+                    {aiTemplateReview ? (
+                      <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-700" />
+                          <div className="text-right">
+                            <p className="text-[12px] font-black text-emerald-900">{aiTemplateReview.name}</p>
+                            <p className="mt-1 text-[11px] font-semibold leading-5 text-emerald-800">
+                              {aiTemplateReview.analysisSummary}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          className="mt-3 h-9 w-full gap-2 rounded-xl bg-emerald-700 text-[12px] font-black hover:bg-emerald-800"
+                          disabled={reportDefaultsSaving}
+                          onClick={() => void saveAiTemplateReview()}
+                        >
+                          {reportDefaultsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          حفظ القالب
+                        </Button>
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="text-right">
+                        <h3 className="text-[14px] font-black text-slate-900">المراجعة والقوالب المحفوظة</h3>
+                        <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+                          JSON المحفوظ يستخدم لاحقا بدون إعادة تحليل PDF.
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">
+                        {reportDefaults.aiTemplates.length}
+                      </Badge>
+                    </div>
+
+                    {aiTemplateReview ? (
+                      <div className="mb-4 grid gap-3">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="grid gap-1.5 text-right">
+                            <span className="text-[11px] font-bold text-slate-600">اسم القالب</span>
+                            <Input
+                              value={aiTemplateReview.name}
+                              onChange={(event) =>
+                                setAiTemplateReview((current) =>
+                                  current ? { ...current, name: event.target.value, updatedAt: new Date().toISOString() } : current,
+                                )
+                              }
+                              className="h-9 rounded-xl text-[12px] font-bold"
+                            />
+                          </label>
+                          <div className="grid gap-1.5 text-right">
+                            <span className="text-[11px] font-bold text-slate-600">المخرجات</span>
+                            <div className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 px-3 text-[11px] font-bold text-slate-600">
+                              <span>{aiTemplateReview.sections.length} قسم</span>
+                              <span className="h-1 w-1 rounded-full bg-slate-300" />
+                              <span>{aiTemplateReview.dynamicVariables.length} متغير</span>
+                            </div>
+                          </div>
+                        </div>
+                        {(() => {
+                          const previewImage =
+                            aiTemplateReview.coverImageDataUrl ||
+                            aiTemplateReview.pageImageDataUrl ||
+                            aiTemplateReview.landscapePageImageDataUrl;
+                          const palette = getAiTemplatePalette(aiTemplateReview);
+                          const fonts = getAiTemplateFonts(aiTemplateReview);
+                          return (
+                            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 lg:grid-cols-[160px_minmax(0,1fr)]">
+                              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                {previewImage ? (
+                                  <img
+                                    src={previewImage}
+                                    alt="معاينة شكل قالب الذكاء الاصطناعي"
+                                    className="aspect-[3/4] h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex aspect-[3/4] items-center justify-center text-slate-300">
+                                    <ImageIcon className="h-8 w-8" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="grid content-start gap-3 text-right">
+                                <div>
+                                  <div className="mb-2 flex items-center justify-end gap-1.5 text-[11px] font-black text-slate-700">
+                                    <span>الألوان المستخرجة</span>
+                                    <Palette className="h-3.5 w-3.5" />
+                                  </div>
+                                  {palette.length ? (
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      {palette.map((color) => (
+                                        <span key={color} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">
+                                          <span className="h-3.5 w-3.5 rounded-full ring-1 ring-black/10" style={{ backgroundColor: color }} />
+                                          {color}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[11px] font-semibold text-slate-500">لم يتم رصد ألوان واضحة من ملف PDF.</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="mb-2 flex items-center justify-end gap-1.5 text-[11px] font-black text-slate-700">
+                                    <span>الخطوط ونمط الصفحات</span>
+                                    <FileText className="h-3.5 w-3.5" />
+                                  </div>
+                                  <div className="flex flex-wrap justify-end gap-1.5">
+                                    {fonts.length ? (
+                                      fonts.map((font) => (
+                                        <span key={font} className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">
+                                          {font}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
+                                        خط افتراضي حسب القالب
+                                      </span>
+                                    )}
+                                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">
+                                      {typeof aiTemplateReview.layout.orientation === "string" ? aiTemplateReview.layout.orientation : "portrait"}
+                                    </span>
+                                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-slate-200">
+                                      {typeof aiTemplateReview.layout.pageSize === "string" ? aiTemplateReview.layout.pageSize : "A4"}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="text-[11px] font-semibold leading-5 text-slate-500">
+                                  هذه المعاينة تحفظ خلفيات الصفحات وهوية التقرير لتطبيقها عند اختيار قالب AI داخل إعداد التقرير النهائي.
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        <Textarea
+                          value={aiTemplateReviewJson}
+                          onChange={(event) => setAiTemplateReviewJson(event.target.value)}
+                          dir="ltr"
+                          rows={16}
+                          className="min-h-[320px] rounded-xl border-slate-200 bg-slate-950 px-3 py-2 font-mono text-[11px] leading-5 text-slate-50"
+                        />
+                      </div>
+                    ) : (
+                      <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-[12px] font-semibold text-slate-500">
+                        ارفع PDF ثم اضغط تحليل لعرض JSON القالب هنا.
+                      </div>
+                    )}
+
+                    <div className="grid gap-2">
+                      {reportDefaults.aiTemplates.length === 0 ? (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-center text-[12px] font-semibold text-slate-500">
+                          لا توجد قوالب ذكاء اصطناعي محفوظة.
+                        </div>
+                      ) : (
+                        reportDefaults.aiTemplates.map((template) => (
+                          <div key={template.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 text-right">
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                  <Badge className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] text-violet-800">
+                                    AI Template
+                                  </Badge>
+                                  <h4 className="min-w-0 truncate text-[13px] font-black text-slate-900">{template.name}</h4>
+                                </div>
+                                <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-5 text-slate-500">
+                                  {template.analysisSummary || template.sourceFileName || "قالب محفوظ من PDF."}
+                                </p>
+                                <div className="mt-2 flex flex-wrap justify-end gap-1.5 text-[10px] font-bold text-slate-500">
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{template.sections.length} قسم</span>
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{template.dynamicVariables.length} متغير</span>
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5">
+                                    {template.updatedAt ? new Date(template.updatedAt).toLocaleDateString("ar") : "—"}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 shrink-0 rounded-lg text-rose-600 hover:bg-rose-50"
+                                onClick={() => void removeAiTemplate(template.id)}
+                                title="حذف القالب"
+                                aria-label="حذف القالب"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                </div>
               )}
             </div>
           </TabsContent>

@@ -1,29 +1,31 @@
 "use client";
 
-import { useId } from "react";
+import Image from "next/image";
 
 /**
- * شاشة الانتقال الموحّدة (نفس تصميم جذر التطبيق) — تُعرض أثناء تحميل المقطع أو الـ dynamic import.
+ * شاشة الانتقال الموحّدة — تُعرض أثناء تحميل المقطع أو الـ dynamic import.
  */
 export default function PageTransitionLoader() {
-  const uid = useId().replace(/:/g, "");
-  const idBg = `sv-ld-bg-${uid}`;
-  const idSh = `sv-ld-sh-${uid}`;
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/[0.97]">
+    <div className="sv-page-loader fixed inset-0 z-[100] flex items-center justify-center">
       <style>{`
+        .sv-page-loader {
+          background:
+            radial-gradient(ellipse 90% 55% at 50% -6%, rgba(232, 184, 90, 0.3) 0%, rgba(255, 248, 235, 0.14) 36%, transparent 68%),
+            radial-gradient(ellipse 48% 38% at 96% 88%, rgba(201, 150, 58, 0.18) 0%, transparent 72%),
+            linear-gradient(180deg, #fff8eb 0%, #fffef9 22%, #ffffff 48%, #fff9ee 78%, #fffef9 100%);
+        }
         @keyframes sv-glow {
-          0%, 100% { opacity: 0.4; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.08); }
+          0%, 100% { opacity: 0.45; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.06); }
         }
         @keyframes sv-bar {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(250%); }
         }
         @keyframes sv-fade {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 0.8; }
+          0%, 100% { opacity: 0.55; }
+          50% { opacity: 1; }
         }
         .sv-glow { animation: sv-glow 2s ease-in-out infinite; }
         .sv-bar-track { overflow: hidden; }
@@ -33,63 +35,31 @@ export default function PageTransitionLoader() {
 
       <div className="flex flex-col items-center gap-7">
         <div className="relative">
-          <div className="sv-glow absolute -inset-5 rounded-3xl bg-gradient-to-br from-teal-500/20 to-sky-500/20 blur-xl" />
-          <div className="relative rounded-2xl bg-white/[0.04] p-4 ring-1 ring-white/[0.06] backdrop-blur-sm">
-            <svg
-              width="52"
-              height="52"
-              viewBox="0 0 36 36"
-              fill="none"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient
-                  id={idBg}
-                  x1="0"
-                  y1="0"
-                  x2="36"
-                  y2="36"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stopColor="#0d9488" />
-                  <stop offset="1" stopColor="#0ea5e9" />
-                </linearGradient>
-                <linearGradient
-                  id={idSh}
-                  x1="18"
-                  y1="0"
-                  x2="18"
-                  y2="22"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stopColor="white" stopOpacity="0.28" />
-                  <stop offset="1" stopColor="white" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <rect width="36" height="36" rx="9" fill={`url(#${idBg})`} />
-              <rect width="36" height="36" rx="9" fill={`url(#${idSh})`} />
-              <path
-                d="M11.5 11L18 26L24.5 11"
-                stroke="white"
-                strokeWidth="2.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M18 7.5L19.2 9.5L18 11.5L16.8 9.5Z"
-                fill="white"
-                fillOpacity="0.8"
-              />
-            </svg>
+          <div className="sv-glow absolute -inset-5 rounded-3xl bg-gradient-to-br from-[#e8b85a]/28 to-[#c9963a]/16 blur-xl" />
+          <div className="relative rounded-2xl border border-[rgba(201,150,58,0.32)] bg-white p-3.5 shadow-[0_8px_28px_rgba(168,118,42,0.14)]">
+            <Image
+              src="/value-tech-icon.png"
+              alt=""
+              width={72}
+              height={72}
+              priority
+              className="h-14 w-14 object-contain sm:h-[3.75rem] sm:w-[3.75rem]"
+              aria-hidden
+            />
           </div>
         </div>
 
-        <p className="text-[15px] font-semibold tracking-tight text-white/70">
-          Value Tech
-        </p>
+        <div className="sv-fade text-center">
+          <p className="bg-gradient-to-b from-[#e8b85a] via-[#c9963a] to-[#a8762a] bg-clip-text text-[1.15rem] font-extrabold tracking-tight text-transparent sm:text-xl">
+            فاليو تك
+          </p>
+          <p className="mt-1 bg-gradient-to-b from-[#c9963a] to-[#a8762a] bg-clip-text text-[13px] font-semibold tracking-[0.12em] text-transparent">
+            Value Tech
+          </p>
+        </div>
 
-        <div className="sv-bar-track h-[2px] w-40 rounded-full bg-white/[0.06]">
-          <div className="sv-bar-fill h-full w-12 rounded-full bg-gradient-to-r from-transparent via-teal-400/70 to-transparent" />
+        <div className="sv-bar-track h-[2px] w-40 rounded-full bg-[rgba(201,150,58,0.18)]">
+          <div className="sv-bar-fill h-full w-12 rounded-full bg-gradient-to-r from-transparent via-[#e8b85a]/85 to-transparent" />
         </div>
       </div>
     </div>

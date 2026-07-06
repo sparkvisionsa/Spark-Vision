@@ -219,6 +219,12 @@ export interface MvProjectReportData {
   reportHiddenAnchorIds?: string[];
   /** اتجاهات صفحات التقرير اليدوية، مفاتيحها anchor الصفحة أو معرف الصورة. */
   reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
+  /** معرف ملف قالب Word (.docx) المرفوع لدمج التقرير النهائي. */
+  wordReportTemplateFileId?: string;
+  wordReportTemplateFileName?: string;
+  /** علامات الدمج المستخرجة من القالب عند آخر تحليل. */
+  wordReportTemplatePlaceholders?: string[];
+  wordReportTemplateAnalyzedAt?: string;
 }
 
 export interface MvProjectLocation {
@@ -376,6 +382,10 @@ export interface PicAsset {
   notes?: string | null;
   /** يُطبَّع في الـ API (‎vehicle‎ → ‎vehicles‎) */
   assetType: MvSubProjectAssetType | string;
+  /** نوع فرعي عند ‎assetType === "other"‎ (مثل ‎sofa‎) */
+  subAssetType?: string | null;
+  /** الكمية — لأصول ‎other‎ */
+  quantity?: number | string | null;
   brand: string | null;
   code: string | null;
   model: string | null;

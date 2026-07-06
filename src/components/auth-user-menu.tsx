@@ -15,6 +15,7 @@ import {
 import AuthModal from "@/components/auth-modal";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { LanguageContext } from "@/components/layout-provider";
+import { cn } from "@/lib/utils";
 
 const copy = {
   en: {
@@ -25,7 +26,11 @@ const copy = {
   },
 } as const;
 
-export default function AuthUserMenu() {
+type AuthUserMenuProps = {
+  triggerClassName?: string;
+};
+
+export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout, guestAccess, loading } = useAuthTracking();
@@ -92,7 +97,7 @@ export default function AuthUserMenu() {
         <Button
           size="sm"
           variant="outline"
-          className="gap-2"
+          className={cn("gap-2", triggerClassName)}
           onClick={() => {
             setOpenAuthModal(true);
           }}
@@ -110,7 +115,14 @@ export default function AuthUserMenu() {
   return (
     <DropdownMenu modal={false} open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 border-slate-200 bg-white text-slate-900 hover:bg-slate-50">
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "gap-2 border-slate-200 bg-white text-slate-900 hover:bg-slate-50",
+            triggerClassName,
+          )}
+        >
           <UserCircle className="h-4 w-4" />
           <span className="max-w-[120px] truncate">{displayName}</span>
           <ChevronDown className="h-4 w-4" />
