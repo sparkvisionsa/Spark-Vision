@@ -1883,13 +1883,34 @@ export function NewTransactionPage({
       fetch(toApiUrl("/api/clients"), {
         credentials: "include",
         cache: "no-store",
-      }).then((r) => r.json()),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(`/api/clients failed: ${r.status}`);
+        return r.json();
+      }),
       fetch(toApiUrl("/api/form-templates"), {
         credentials: "include",
         cache: "no-store",
-      }).then((r) => r.json()),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(`/api/form-templates failed: ${r.status}`);
+        return r.json();
+      }),
     ])
-      .then(([cls, tpls]: [ClientOption[], TemplateOption[]]) => {
+      .then(([clsRaw, tplsRaw]) => {
+        // Normalize in case the API wraps the array, e.g. { data: [...] } or { clients: [...] }
+        const cls: ClientOption[] = Array.isArray(clsRaw)
+          ? clsRaw
+          : (clsRaw?.data ?? clsRaw?.clients ?? []);
+        const tpls: TemplateOption[] = Array.isArray(tplsRaw)
+          ? tplsRaw
+          : (tplsRaw?.data ?? tplsRaw?.templates ?? []);
+
+        if (!Array.isArray(cls) || !Array.isArray(tpls)) {
+          console.error("Unexpected response shape", { clsRaw, tplsRaw });
+          setClients([]);
+          setTemplates([]);
+          return;
+        }
+
         setClients(cls);
         setTemplates(tpls);
         const individualClient = cls.find(
@@ -1900,7 +1921,11 @@ export function NewTransactionPage({
           set("client", individualClient.id);
         }
       })
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err);
+        setClients([]);
+        setTemplates([]);
+      })
       .finally(() => setLoadingClients(false));
   }, []);
   // ── Validation ──────────────────────────────────────────────────────────────
