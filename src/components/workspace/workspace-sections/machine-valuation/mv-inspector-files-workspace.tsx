@@ -33,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { MvInspectorFile, MvInspectorLogicalFileType, MvProject } from "./types";
-import { MvTopBar } from "./mv-ui";
+import { MvErrorState, MvTopBar } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import {
   MV_ALL_LOCATIONS_VALUE,
@@ -42,6 +42,7 @@ import {
   mvLocationLabel,
   normalizeMvLocationSelection,
 } from "./mv-location-multi-select";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
 
 const font = Tajawal({
   subsets: ["arabic"],
@@ -189,6 +190,7 @@ export function MvInspectorFilesPanel({
   const [project, setProject] = useState<MvProject | null>(initialProject);
   const [files, setFiles] = useState<MvInspectorFile[]>(initialProject?.inspectorFiles ?? []);
   const [loading, setLoading] = useState(!initialProject);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
   const uploadQueueRef = useRef(Promise.resolve());
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -235,24 +237,24 @@ export function MvInspectorFilesPanel({
     const showLoading = options.showLoading ?? true;
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
-        credentials: "include",
-      });
-      if (!res.ok) {
-        if (showLoading) {
-          setProject(null);
-          setFiles([]);
-        }
-        return;
-      }
-      const data = (await res.json()) as { project?: MvProject };
+      if (showLoading) setLoadError(null);
+      const data = await mvFetchJson<{ project?: MvProject }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز ملفات المعاين…",
+        },
+      );
       setProject(data.project ?? null);
       setFiles(data.project?.inspectorFiles ?? []);
       if (data.project) onProjectLoadedRef.current?.(data.project);
-    } catch {
+    } catch (error) {
       if (showLoading) {
         setProject(null);
         setFiles([]);
+        setLoadError(mvErrorMessage(error, "تعذر تحميل ملفات المعاين."));
       }
     } finally {
       setLoading(false);
@@ -533,20 +535,28 @@ export function MvInspectorFilesPanel({
   if (!project) {
     if (embedded) {
       return (
-        <div className={cn(font.className, "p-8 text-center")} dir="rtl">
-          <p className="font-semibold text-slate-800">تعذر تحميل المشروع.</p>
-        </div>
+        <MvErrorState
+          compact
+          title="تعذر تحميل المشروع"
+          description={loadError ?? "تعذر تحميل ملفات المعاين."}
+          onRetry={() => void load()}
+          className={font.className}
+        />
       );
     }
     return (
       <div className={cn(font.className, "min-h-screen")} dir="rtl">
         <MvTopBar breadcrumbs={[{ label: "ملفات المعاين" }]} saveState="error" />
-        <div className="mx-auto max-w-md px-4 py-16 text-center">
-          <p className="font-semibold text-slate-800">تعذر تحميل المشروع.</p>
-          <Button className="mt-4" variant="outline" asChild>
-            <a href={MV_PROJECTS_TABLE_PATH}>المشاريع</a>
-          </Button>
-        </div>
+        <MvErrorState
+          title="تعذر تحميل المشروع"
+          description={loadError ?? "تعذر تحميل ملفات المعاين."}
+          onRetry={() => void load()}
+          action={
+            <Button variant="outline" asChild className="rounded-xl">
+              <a href={MV_PROJECTS_TABLE_PATH}>المشاريع</a>
+            </Button>
+          }
+        />
       </div>
     );
   }

@@ -32,8 +32,9 @@ import {
 import { readActiveImportSheetRef, writeActiveImportSheetRef } from "./mv-asset-import-active-sheet";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { MvTopBar } from "./mv-ui";
+import { MvErrorState, MvPageLoading, MvTopBar } from "./mv-ui";
 import type { MvProject } from "./types";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
 
 const ACCEPTED_ASSET_FILES =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv,application/zip,application/octet-stream";
@@ -259,6 +260,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [project, setProject] = useState<MvProject | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [importResult, setImportResult] = useState<AssetImportResult | null>(null);
@@ -312,11 +314,20 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   const loadProject = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/mv/projects/${projectId}`, { credentials: "include" });
-      if (res.ok) {
-        const data = (await res.json()) as { project: MvProject };
-        setProject(data.project);
-      }
+      setLoadError(null);
+      const data = await mvFetchJson<{ project: MvProject }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز بيانات الأصول…",
+        },
+      );
+      setProject(data.project);
+    } catch (error) {
+      setProject(null);
+      setLoadError(mvErrorMessage(error, "تعذر تحميل مشروع استيراد الأصول."));
     } finally {
       setLoading(false);
     }
@@ -379,11 +390,19 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       }
 
       try {
-        const response = await fetch(`/api/assets/imports?projectId=${encodeURIComponent(projectId)}`, {
-          credentials: "include",
-        });
-        if (!response.ok) return;
-        const persisted = normalizeImportResult((await response.json()) as AssetImportResult);
+        const persisted = normalizeImportResult(
+          await mvFetchJson<AssetImportResult>(
+            `/api/assets/imports?projectId=${encodeURIComponent(projectId)}`,
+            {},
+            {
+              cacheKey: `asset-import-summary:${projectId}`,
+              cacheTtlMs: 3_000,
+              retries: 1,
+              timeoutMs: 12_000,
+              trackLoading: false,
+            },
+          ),
+        );
         if (persisted.projectId !== projectId || cancelled || importTouchedRef.current) return;
         const next = persisted.summary.sheets.length > 0 ? persisted : null;
         if (next) {
@@ -617,9 +636,20 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
     return (
       <div className="min-h-screen" dir="rtl">
         <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" />
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
-        </div>
+        <MvPageLoading label="جارٍ تجهيز بيانات الأصول…" />
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="min-h-screen" dir="rtl">
+        <MvTopBar breadcrumbs={[{ label: "إضافة بيانات الأصول" }]} saveState="error" />
+        <MvErrorState
+          title="تعذر فتح بيانات الأصول"
+          description={loadError ?? "تعذر تحميل المشروع."}
+          onRetry={() => void loadProject()}
+        />
       </div>
     );
   }

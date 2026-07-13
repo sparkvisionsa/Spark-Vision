@@ -54,6 +54,8 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "location",
       "etag",
       "x-accel-buffering",
+      "x-asset-folder-count",
+      "x-asset-image-count",
       "x-word-merge-stats",
     ] as const;
     for (const name of passthrough) {

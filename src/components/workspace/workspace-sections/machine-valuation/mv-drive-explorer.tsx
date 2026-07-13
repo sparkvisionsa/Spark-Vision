@@ -31,10 +31,11 @@ import { cn } from "@/lib/utils";
 import CreateDialog from "./create-dialog";
 import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
-import { MvEmptyState, MvTopBar } from "./mv-ui";
+import { MvEmptyState, MvErrorState, MvTopBar } from "./mv-ui";
 import { MvProjectFoldersMenu } from "./mv-simple-report-navigation";
 import type { MvDriveFile, MvProject, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+import { MvApiError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 
 /** تحميل كسول لتقليل حجم الحزمة عند مستكشف الملفات الذي لا يعرض لوحة الصور فورًا */
 const MvPicAssetPanel = dynamic(
@@ -157,6 +158,7 @@ export default function MvDriveExplorer({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [refetching, setRefetching] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const rootExplorerHref = `/machine-valuation/${projectId}/files`;
 
@@ -165,6 +167,7 @@ export default function MvDriveExplorer({
       const signal = opts?.signal;
       try {
         if (!opts?.silent) setLoading(true);
+        if (!opts?.silent) setLoadError(null);
 
         const filesQuery = currentSubProjectId
           ? `?${new URLSearchParams({ subProjectId: currentSubProjectId }).toString()}`
@@ -174,59 +177,50 @@ export default function MvDriveExplorer({
         projectQ.set("picAssetMode", "summary");
         const projectUrl = `/api/mv/projects/${projectId}?${projectQ.toString()}`;
 
-        const detailPromise = currentSubProjectId
-          ? fetch(
+        const detailPromise: Promise<MvSubProject | null> = currentSubProjectId
+          ? mvFetchJson<MvSubProject>(
               `/api/mv/projects/${projectId}/subprojects/${encodeURIComponent(currentSubProjectId)}`,
-              { credentials: "include", signal },
-            )
-          : Promise.resolve(null as Response | null);
+              { signal },
+              { retries: 1, timeoutMs: 15_000, trackLoading: false },
+            ).catch((error) => {
+              if (error instanceof MvApiError && error.status === 404) return null;
+              return null;
+            })
+          : Promise.resolve(null);
 
-        const [projectRes, filesRes, subDetailRes] = await Promise.all([
-          fetch(projectUrl, { credentials: "include", signal }),
-          fetch(`/api/mv/projects/${projectId}/files${filesQuery}`, { credentials: "include", signal }),
-          detailPromise,
-        ]);
+        const projectPromise = mvFetchJson<{ project: MvProject; subProjects: MvSubProject[] }>(
+          projectUrl,
+          { signal },
+          {
+            cacheKey: `project-summary:${projectId}`,
+            cacheTtlMs: 12_000,
+            retries: 1,
+            timeoutMs: 15_000,
+            trackLoading: false,
+          },
+        );
+        const filesPromise = mvFetchJson<MvDriveFile[]>(
+          `/api/mv/projects/${projectId}/files${filesQuery}`,
+          { signal },
+          { retries: 1, timeoutMs: 15_000, trackLoading: false },
+        ).catch(() => null);
+
+        const projectData = await projectPromise;
 
         if (signal?.aborted) return;
+        setProject(projectData.project);
+        setSubProjects(projectData.subProjects ?? []);
+        if (!opts?.silent) setLoading(false);
 
-        if (projectRes.ok) {
-          try {
-            const projectData = (await projectRes.json()) as {
-              project: MvProject;
-              subProjects: MvSubProject[];
-            };
-            if (!signal?.aborted) {
-              setProject(projectData.project);
-              setSubProjects(projectData.subProjects ?? []);
-            }
-          } catch {
-            /* non-JSON or parse error — keep prior state */
-          }
-        } else if (!signal?.aborted) {
-          setProject(null);
-          setSubProjects([]);
-        }
-
-        if (subDetailRes && subDetailRes.ok) {
-          try {
-            const row = (await subDetailRes.json()) as MvSubProject;
-            if (!signal?.aborted) setActiveFolderDetail(row);
-          } catch {
-            if (!signal?.aborted) setActiveFolderDetail(null);
-          }
-        } else if (!signal?.aborted) {
+        const [filesRows, subDetail] = await Promise.all([filesPromise, detailPromise]);
+        if (signal?.aborted) return;
+        if (subDetail) {
+          setActiveFolderDetail(subDetail);
+        } else {
           setActiveFolderDetail(null);
         }
-
-        if (filesRes.ok) {
-          try {
-            const rows = (await filesRes.json()) as MvDriveFile[];
-            if (!signal?.aborted) setFiles(rows);
-          } catch {
-            if (!signal?.aborted) setFiles([]);
-          }
-        } else if (!signal?.aborted) {
-          setFiles([]);
+        if (Array.isArray(filesRows)) {
+          setFiles(filesRows);
         }
       } catch (e) {
         const aborted =
@@ -238,6 +232,7 @@ export default function MvDriveExplorer({
           setSubProjects([]);
           setFiles([]);
           setActiveFolderDetail(null);
+          setLoadError(mvErrorMessage(e, "تعذر تحميل ملفات المشروع."));
         }
       } finally {
         if (!opts?.silent && !signal?.aborted) setLoading(false);
@@ -485,6 +480,22 @@ export default function MvDriveExplorer({
           <div className="h-28 animate-pulse rounded-xl bg-white/80" />
           <div className="h-52 animate-pulse rounded-xl bg-white/80" />
         </div>
+      </div>
+    );
+  }
+
+  if (!project && loadError) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+        <DriveExplorerStickyTopBar>
+          <MvTopBar breadcrumbs={[{ label: "ملفات المشروع" }]} saveState="error" sticky={false} />
+        </DriveExplorerStickyTopBar>
+        <MvErrorState
+          title="تعذر تحميل ملفات المشروع"
+          description={loadError}
+          onRetry={() => void load()}
+          className="flex-1"
+        />
       </div>
     );
   }

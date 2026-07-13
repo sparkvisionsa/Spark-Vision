@@ -18,7 +18,35 @@ function resolveFetchUrl(url: string): string {
   return trimmed;
 }
 
-export async function loadWordMergeImages(sources: MvWordImageSource[]): Promise<MvWordMergeImageItem[]> {
+async function readBrowserImageDimensions(
+  image: ArrayBuffer,
+): Promise<{ width: number; height: number } | null> {
+  if (typeof window === "undefined" || typeof Image === "undefined") return null;
+  try {
+    const blob = new Blob([image]);
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error("decode"));
+        el.src = url;
+      });
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      return width > 0 && height > 0 ? { width, height } : null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
+export async function loadWordMergeImages(
+  sources: MvWordImageSource[],
+  options: { readDimensions?: boolean } = {},
+): Promise<MvWordMergeImageItem[]> {
   const validSources = sources.filter((source) => source.url?.trim());
   if (validSources.length === 0) return [];
 
@@ -37,7 +65,13 @@ export async function loadWordMergeImages(sources: MvWordImageSource[]): Promise
           if (!response.ok) return null;
           const image = await response.arrayBuffer();
           if (image.byteLength < 32) return null;
-          return { image, caption: source.caption } satisfies MvWordMergeImageItem;
+          const dimensions = options.readDimensions ? await readBrowserImageDimensions(image) : null;
+          return {
+            image,
+            caption: source.caption,
+            width: dimensions?.width,
+            height: dimensions?.height,
+          } satisfies MvWordMergeImageItem;
         } catch {
           return null;
         }
@@ -60,7 +94,7 @@ export async function prepareMvWordMergeInput(params: {
 }): Promise<MvWordMergeInput> {
   const [assetImages, valuationImages] = await Promise.all([
     loadWordMergeImages(params.assetImageSources),
-    loadWordMergeImages(params.valuationImageSources),
+    loadWordMergeImages(params.valuationImageSources, { readDimensions: true }),
   ]);
 
   return {

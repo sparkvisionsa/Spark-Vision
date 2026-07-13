@@ -56,6 +56,8 @@ import {
   MvInPageNavigationProvider,
   useMvInPageNavigation,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-inpage-navigation";
+import { MvExperienceBoundary } from "@/components/workspace/workspace-sections/machine-valuation/mv-experience-boundary";
+
 function openAuthModal() {
   window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
 }
@@ -427,18 +429,32 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
   const { navigate, isMachineValuationPath } = useMvInPageNavigation();
 
   return (
+    <MvExperienceBoundary>
     <div
-      className="flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[linear-gradient(135deg,#eef4f8_0%,#f8fafc_48%,#eef7f2_100%)] pt-14 text-slate-900"
+      className="mv-system-scope flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[linear-gradient(135deg,#eef4f8_0%,#f8fafc_48%,#eef7f2_100%)] pt-14 text-slate-900"
       dir="rtl"
       onClickCapture={(event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) return;
         const target = event.target as HTMLElement | null;
         const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
         if (!anchor) return;
+        if (anchor.target && anchor.target !== "_self") return;
+        if (anchor.hasAttribute("download")) return;
         const href = anchor.getAttribute("href");
         if (!href || href.startsWith("#")) return;
-        if (!isMachineValuationPath(href)) return;
+        const url = new URL(href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        const internalPath = `${url.pathname}${url.search}${url.hash}`;
+        if (!isMachineValuationPath(internalPath)) return;
         event.preventDefault();
-        navigate(href);
+        navigate(internalPath);
       }}
     >
       <ValueTechServiceNavbar />
@@ -479,5 +495,6 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
         <MachineWorkspace>{children}</MachineWorkspace>
       </SidebarProvider>
     </div>
+    </MvExperienceBoundary>
   );
 }

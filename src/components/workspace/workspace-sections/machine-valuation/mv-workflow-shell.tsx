@@ -9,6 +9,9 @@ import { MV_MAIN_WORKFLOW_STEPS, type MvMainWorkflowSlug } from "./mv-main-workf
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import type { MvProject } from "./types";
+import { isMvAbortError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { MvErrorState, MvPageLoading } from "./mv-ui";
+import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 
 interface MvWorkflowShellProps {
   projectId: string;
@@ -52,16 +55,46 @@ function WorkflowPlaceholder({
 }
 
 export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }: MvWorkflowShellProps) {
-  const [project, setProject] = useState<MvProject | null>(null);
+  const [project, setProject] = useState<MvProject | null>(() =>
+    readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))?.project ?? null,
+  );
+  const [loadingProject, setLoadingProject] = useState(() =>
+    stepSlug !== "import" &&
+    readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))?.project == null,
+  );
+  const [projectError, setProjectError] = useState<string | null>(null);
 
-  const loadProject = useCallback(async () => {
+  const loadProject = useCallback(async (signal?: AbortSignal) => {
+    setLoadingProject(true);
+    setProjectError(null);
     try {
-      const response = await fetch(`/api/mv/projects/${projectId}`, { credentials: "include" });
-      if (!response.ok) return;
-      const data = (await response.json()) as { project: MvProject };
+      const data = await mvFetchJson<{ project: MvProject }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        { signal },
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          retries: 1,
+          timeoutMs: 15_000,
+          loadingLabel: "جارٍ تجهيز بيانات المشروع…",
+        },
+      );
+      if (signal?.aborted) return;
       setProject(data.project);
-    } catch {
-      setProject(null);
+      const cachedSummary = readMvWorkflowSessionJson<Record<string, unknown>>(
+        MV_WORKFLOW_SESSION.projectSummary(projectId),
+      );
+      writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
+        ...(cachedSummary ?? {}),
+        project: data.project,
+        fetchedAt: Date.now(),
+      });
+    } catch (error) {
+      if (signal?.aborted || isMvAbortError(error)) return;
+      setProject((current) => (current?._id === projectId ? current : null));
+      setProjectError(mvErrorMessage(error, "تعذر تحميل بيانات المشروع."));
+    } finally {
+      if (!signal?.aborted) setLoadingProject(false);
     }
   }, [projectId]);
 
@@ -69,27 +102,45 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
     if (stepSlug === "import") {
       return;
     }
-    void loadProject();
+    const controller = new AbortController();
+    void loadProject(controller.signal);
+    return () => controller.abort();
   }, [loadProject, stepSlug]);
+
+  const activeProject = project?._id === projectId ? project : null;
 
   if (stepSlug === "import") {
     return <MvAssetDataWorkspace projectId={projectId} />;
   }
 
+  if (loadingProject && !activeProject) {
+    return <MvPageLoading label="جارٍ تحميل المشروع ومرحلة العمل…" />;
+  }
+
+  if (!activeProject) {
+    return (
+      <MvErrorState
+        title="تعذر فتح المشروع"
+        description={projectError ?? "لم نتمكن من تحميل بيانات المشروع."}
+        onRetry={() => void loadProject()}
+      />
+    );
+  }
+
   if (stepSlug === "asset-images") {
     if (assetImagesSub === "local") {
-      return <MvAssetImagesLocalWorkspace projectId={projectId} projectName={project?.name ?? null} />;
+      return <MvAssetImagesLocalWorkspace projectId={projectId} projectName={activeProject.name ?? null} />;
     }
     if (assetImagesSub === "system") {
-      return <MvAssetImagesSystemWorkspace projectId={projectId} projectName={project?.name ?? null} />;
+      return <MvAssetImagesSystemWorkspace projectId={projectId} projectName={activeProject.name ?? null} />;
     }
-    return <MvAssetImagesHub projectId={projectId} projectName={project?.name ?? null} />;
+    return <MvAssetImagesHub projectId={projectId} projectName={activeProject.name ?? null} />;
   }
 
   return (
     <WorkflowPlaceholder
       projectId={projectId}
-      projectName={project?.name ?? projectId}
+      projectName={activeProject.name ?? projectId}
       stepSlug={stepSlug}
     />
   );

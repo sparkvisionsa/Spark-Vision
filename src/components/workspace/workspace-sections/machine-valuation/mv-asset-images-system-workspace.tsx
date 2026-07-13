@@ -1,18 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/components/prefetch-link";
 import { ImageIcon, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { patchMvSubprojectPicAsset, mvPicAssetImagesToPatchPayload, MvPicAssetPanel } from "./mv-pic-asset-panel";
-import { isPhotosSubfolderName, isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
-import { MvEmptyState, MvTopBar } from "./mv-ui";
-import { fetchWithRetry } from "./mv-concurrent-fetch";
+import { MvEmptyState, MvErrorState, MvPageLoading, MvTopBar } from "./mv-ui";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import type { MvSubProject, PicAsset, PicAssetImage } from "./types";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import {
+  buildPhotosRootAssetEntries,
+  entryHasFullPicAssetMedia,
+  hydratePicAssetEntriesProgressive,
+  mergePicAssetPreferFull,
+  picAssetNeedsMediaFetch,
+} from "./mv-pic-asset-progressive-load";
 
 interface MvAssetImagesSystemWorkspaceProps {
   projectId: string;
@@ -56,58 +62,87 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
   const [blocks, setBlocks] = useState<FolderBlock[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [visibleLimit, setVisibleLimit] = useState(40);
+  const [hydration, setHydration] = useState({ active: false, completed: 0, total: 0 });
+  const hydrateCancelRef = useRef<(() => void) | null>(null);
+  const loadIdRef = useRef(0);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const showFullPageLoad = !opts?.silent;
+    const myLoadId = ++loadIdRef.current;
+    hydrateCancelRef.current?.();
+    hydrateCancelRef.current = null;
     if (showFullPageLoad) setLoading(true);
+    if (showFullPageLoad) setLoadError(null);
     try {
-      const res = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error();
-      const data = (await res.json()) as { subProjects?: MvSubProject[] };
+      const data = await mvFetchJson<{ subProjects?: MvSubProject[] }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: opts?.silent ? 0 : 12_000,
+          forceRefresh: opts?.silent === true,
+          retries: 1,
+          timeoutMs: 15_000,
+          loadingLabel: "جارٍ تجهيز مجلدات صور الأصول…",
+        },
+      );
+      if (myLoadId !== loadIdRef.current) return;
       const subProjects = data.subProjects ?? [];
-      const previewRoot = subProjects.find((s) => isRootSubProjectParent(s.parent) && isPhotosSubfolderName(s.name));
-      if (!previewRoot) {
-        setBlocks([]);
-        return;
-      }
-      const byId = new Map(subProjects.map((s) => [s._id, s]));
-      const isUnderPhotosRoot = (sub: MvSubProject) => {
-        let parent = sub.parent;
-        const seen = new Set<string>();
-        while (parent && parent.trim()) {
-          if (parent === previewRoot._id) return true;
-          if (seen.has(parent)) return false;
-          seen.add(parent);
-          parent = byId.get(parent)?.parent ?? null;
-        }
-        return false;
-      };
-      const children = sortSubProjectsForDisplay(subProjects.filter(isUnderPhotosRoot));
-
-      const entries: FolderBlock[] = [];
-      for (const sub of children) {
-        const r = await fetchWithRetry(`/api/mv/projects/${projectId}/subprojects/${sub._id}`, {
-          credentials: "include",
-        });
-        if (!r.ok) {
-          entries.push({ sub, picAsset: sub.picAsset ?? null });
-          continue;
-        }
-        const row = (await r.json()) as MvSubProject & { picAsset?: PicAsset | null };
-        entries.push({ sub, picAsset: row.picAsset ?? null });
-      }
+      const entries = buildPhotosRootAssetEntries(subProjects).entries;
       setBlocks(entries);
-    } catch {
-      setBlocks([]);
+      setVisibleLimit(40);
+      setLoadError(null);
+      setLoading(false);
+
+      const hydrationJob = hydratePicAssetEntriesProgressive(projectId, entries, {
+        prioritySubIds: entries.slice(0, 40).map((entry) => entry.sub._id),
+        shouldSkip: (entry) => entryHasFullPicAssetMedia(entry.picAsset),
+        isCancelled: () => myLoadId !== loadIdRef.current,
+        onBatchUpdate: (updates) => {
+          if (myLoadId !== loadIdRef.current) return;
+          const byId = new Map(updates.map((update) => [update.subId, update.next]));
+          setBlocks((current) => current.map((row) => {
+            const next = byId.get(row.sub._id);
+            return next
+              ? {
+                  sub: { ...row.sub, ...next.sub },
+                  picAsset: mergePicAssetPreferFull(row.picAsset, next.picAsset),
+                }
+              : row;
+          }));
+        },
+        onProgress: (completed, total) => {
+          if (myLoadId !== loadIdRef.current) return;
+          setHydration({ active: completed < total, completed, total });
+        },
+        onComplete: () => {
+          if (myLoadId !== loadIdRef.current) return;
+          setHydration((current) => ({ ...current, active: false }));
+        },
+      });
+      hydrateCancelRef.current = hydrationJob.cancel;
+    } catch (error) {
+      if (myLoadId !== loadIdRef.current) return;
+      if (showFullPageLoad) {
+        setBlocks([]);
+        setLoadError(mvErrorMessage(error, "تعذر تحميل صور النظام."));
+      } else {
+        toast({ variant: "destructive", description: mvErrorMessage(error, "تعذر تحديث الصور.") });
+      }
     } finally {
-      if (showFullPageLoad) setLoading(false);
+      if (myLoadId === loadIdRef.current && showFullPageLoad) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, toast]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadIdRef.current += 1;
+      hydrateCancelRef.current?.();
+      hydrateCancelRef.current = null;
+    };
   }, [load]);
 
   const allSelectionKeys = useMemo(() => {
@@ -239,10 +274,27 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
     return (
       <div className="min-h-screen" dir="rtl">
         <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" />
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-        </div>
+        <MvPageLoading label="جارٍ تحميل صور الأصول من النظام…" />
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
+        <MvProjectReportHeader
+          compact
+          projectId={projectId}
+          activeStep="asset-images"
+          breadcrumbs={[{ label: projectName ?? projectId }, { label: "تحديث الصور من النظام" }]}
+        />
+        <MvErrorState
+          title="تعذر تحميل صور النظام"
+          description={loadError}
+          onRetry={() => void load()}
+          className="flex-1"
+        />
+      </MvWorkflowPageFrame>
     );
   }
 
@@ -305,6 +357,17 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
 
       <MvWorkflowPageScrollBody>
       <div className="mx-auto min-h-full max-w-7xl space-y-3 px-3 py-3 pb-8">
+        {hydration.active && hydration.total > 0 ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-sky-900">
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              جارٍ استكمال تفاصيل المجلدات في الخلفية
+            </span>
+            <span className="font-semibold tabular-nums">
+              {hydration.completed} / {hydration.total}
+            </span>
+          </div>
+        ) : null}
         {blocks.length === 0 ? (
           <MvEmptyState
             icon={<ImageIcon className="h-6 w-6" />}
@@ -313,8 +376,9 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
           />
         ) : (
           <div className="space-y-4">
-            {blocks.map((b) => {
+            {blocks.slice(0, visibleLimit).map((b) => {
               const images = b.picAsset?.images ?? [];
+              const folderHydrating = hydration.active && picAssetNeedsMediaFetch(b.picAsset);
               const folderSelectedCount = images.reduce(
                 (n, _, i) => n + (selected.has(selectionKey(b.sub._id, i)) ? 1 : 0),
                 0,
@@ -348,6 +412,11 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                         />
                         تحديد الكل في المجلد ({images.length})
                       </label>
+                    ) : folderHydrating ? (
+                      <span className="flex items-center gap-1.5 text-[11px] text-sky-700">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        جارٍ تحميل الصور
+                      </span>
                     ) : (
                       <span className="text-[11px] text-slate-400">لا صور</span>
                     )}
@@ -373,6 +442,18 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                 </section>
               );
             })}
+            {visibleLimit < blocks.length ? (
+              <div className="flex justify-center pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 min-w-40 text-[12px]"
+                  onClick={() => setVisibleLimit((current) => Math.min(current + 40, blocks.length))}
+                >
+                  عرض المزيد ({Math.min(40, blocks.length - visibleLimit)})
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

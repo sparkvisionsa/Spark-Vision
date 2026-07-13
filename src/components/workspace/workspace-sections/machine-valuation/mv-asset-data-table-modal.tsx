@@ -773,14 +773,16 @@ export function MvAssetDataTableModal({
         prioritySubIds,
         isCancelled: () => loadIdRef.current !== loadId,
         shouldSkip: (entry) => entryHasFullPicAssetMedia(entry.picAsset),
-        onUpdate: (subId, next) => {
+        onBatchUpdate: (updates) => {
           if (loadIdRef.current !== loadId) return;
+          const byId = new Map(updates.map((update) => [update.subId, update.next]));
           setEntries((prev) => {
-            const merged = prev.map((e) =>
-              e.sub._id === subId
-                ? { sub: next.sub, picAsset: mergePicAssetFromApi(e.picAsset, next.picAsset) }
-                : e,
-            );
+            const merged = prev.map((entry) => {
+              const next = byId.get(entry.sub._id);
+              return next
+                ? { sub: next.sub, picAsset: mergePicAssetFromApi(entry.picAsset, next.picAsset) }
+                : entry;
+            });
             persistEntriesCache(merged, lookup);
             return merged;
           });
@@ -1076,7 +1078,7 @@ export function MvAssetDataTableModal({
     void (async () => {
       for (const row of targets) {
         if (cancelled) return;
-        const detail = await fetchPicAssetDetail(projectId, row.sub._id);
+        const detail = await fetchPicAssetDetail(projectId, row.sub._id).catch(() => null);
         if (cancelled || !detail?.picAsset) continue;
         setEntries((prev) => {
           const merged = prev.map((e) =>

@@ -6,6 +6,8 @@ import type { SmartGridAssetRecord, SmartGridAssetType } from "@/components/smar
 import type { MvSaveState, MvWorkflowStepId } from "./mv-ui";
 import {
   MV_WORKFLOW_STEPS,
+  MvErrorState,
+  MvPageLoading,
   MvStatusBadge,
   MvStepper,
   MvTopBar,
@@ -18,6 +20,7 @@ import {
   type MvMainWorkflowSlug,
 } from "./mv-main-workflow-model";
 import type { MvProject, MvSheetData, MvSubProject } from "./types";
+import { isMvAbortError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 
 function resolveStepFromHash(hash: string): MvWorkflowStepId {
   const normalized = hash.replace(/^#/, "") as MvWorkflowStepId;
@@ -82,36 +85,58 @@ export default function MvProjectWorkspace({
   const [subProjects, setSubProjects] = useState<MvSubProject[]>([]);
   const [sheets, setSheets] = useState<MvSheetData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<MvWorkflowStepId>("import");
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<MvAssetWorkspaceSnapshot | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       setLoading(true);
-      const [projectResponse, sheetsResponse] = await Promise.all([
-        fetch(`/api/mv/projects/${projectId}`, { credentials: "include" }),
-        fetch(`/api/mv/sheets?projectId=${projectId}`, { credentials: "include" }),
-      ]);
-
-      if (projectResponse.ok) {
-        const data = (await projectResponse.json()) as {
-          project: MvProject;
-          subProjects: MvSubProject[];
-        };
-        setProject(data.project);
-        setSubProjects(data.subProjects ?? []);
-      }
-
-      if (sheetsResponse.ok) {
-        setSheets((await sheetsResponse.json()) as MvSheetData[]);
-      }
-    } finally {
+      setLoadError(null);
+      const sheetsPromise = mvFetchJson<MvSheetData[]>(
+        `/api/mv/sheets?projectId=${encodeURIComponent(projectId)}`,
+        { signal },
+        {
+          cacheKey: `project-sheets:${projectId}`,
+          cacheTtlMs: 15_000,
+          retries: 1,
+          timeoutMs: 15_000,
+          trackLoading: false,
+        },
+      ).catch(() => null);
+      const projectData = await mvFetchJson<{ project: MvProject; subProjects?: MvSubProject[] }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        { signal },
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          retries: 1,
+          timeoutMs: 15_000,
+          loadingLabel: "جارٍ تجهيز بيانات المشروع…",
+        },
+      );
+      if (signal?.aborted) return;
+      setProject(projectData.project);
+      setSubProjects(projectData.subProjects ?? []);
       setLoading(false);
+
+      const sheetsData = await sheetsPromise;
+      if (!signal?.aborted && Array.isArray(sheetsData)) setSheets(sheetsData);
+    } catch (error) {
+      if (signal?.aborted || isMvAbortError(error)) return;
+      setProject(null);
+      setSubProjects([]);
+      setSheets([]);
+      setLoadError(mvErrorMessage(error, "تعذر تحميل بيانات المشروع."));
+    } finally {
+      if (!signal?.aborted) setLoading(false);
     }
   }, [projectId]);
 
   useEffect(() => {
-    void fetchData();
+    const controller = new AbortController();
+    void fetchData(controller.signal);
+    return () => controller.abort();
   }, [fetchData]);
 
   useEffect(() => {
@@ -135,18 +160,16 @@ export default function MvProjectWorkspace({
   const topBarSaveState = (workspaceSnapshot?.saveState ?? "idle") as MvSaveState;
 
   if (loading) {
+    return <MvPageLoading label="جارٍ تجهيز المشروع وبياناته…" />;
+  }
+
+  if (!project) {
     return (
-      <div className="min-h-screen" dir="rtl">
-        <MvTopBar
-          breadcrumbs={[{ label: "تحميل المشروع..." }]}
-          saveState="idle"
-        />
-        <div className="space-y-4 px-5 py-5">
-          <div className="h-24 animate-pulse rounded-2xl bg-white/80" />
-          <div className="h-16 animate-pulse rounded-2xl bg-white/80" />
-          <div className="h-[32rem] animate-pulse rounded-2xl bg-white/80" />
-        </div>
-      </div>
+      <MvErrorState
+        title="تعذر فتح المشروع"
+        description={loadError ?? "تعذر تحميل بيانات المشروع. تحقق من الاتصال ثم أعد المحاولة."}
+        onRetry={() => void fetchData()}
+      />
     );
   }
 

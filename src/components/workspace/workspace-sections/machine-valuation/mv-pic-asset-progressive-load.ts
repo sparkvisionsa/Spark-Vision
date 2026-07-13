@@ -1,4 +1,4 @@
-import { fetchWithRetry, mapWithConcurrency } from "./mv-concurrent-fetch";
+import { fetchWithRetry } from "./mv-concurrent-fetch";
 import {
   buildAssetParentFolderPath,
   isPhotosSubfolderName,
@@ -9,19 +9,25 @@ import type { MvSubProject, PicAsset } from "./types";
 
 export type PicAssetFolderEntry = { sub: MvSubProject; picAsset: PicAsset | null };
 
+const picAssetDetailInFlight = new Map<
+  string,
+  Promise<{ sub: MvSubProject; picAsset: PicAsset | null } | null>
+>();
+
 export function picAssetNeedsMediaFetch(pic: PicAsset | null): boolean {
   if (!pic) return false;
   const expectedImages =
     typeof pic.imageCount === "number" && Number.isFinite(pic.imageCount)
       ? Math.max(0, pic.imageCount)
-      : 0;
-  if (expectedImages > 0 && (!Array.isArray(pic.images) || pic.images.length === 0)) return true;
+      : null;
+  if (!Array.isArray(pic.images)) return true;
+  if (expectedImages !== null && pic.images.length !== expectedImages) return true;
   const expectedVoice =
     typeof pic.voiceNoteCount === "number" && Number.isFinite(pic.voiceNoteCount)
       ? Math.max(0, pic.voiceNoteCount)
-      : 0;
-  const voiceArr = Array.isArray(pic.voiceNotes) ? pic.voiceNotes : [];
-  return expectedVoice > 0 && voiceArr.length === 0;
+      : null;
+  if (!Array.isArray(pic.voiceNotes)) return true;
+  return expectedVoice !== null && pic.voiceNotes.length !== expectedVoice;
 }
 
 export function entryHasFullPicAssetMedia(pic: PicAsset | null): boolean {
@@ -57,6 +63,48 @@ export function mergePicAssetPreferFull(
   const primary = incomingTs >= existingTs ? incoming : existing;
   const secondary = primary === incoming ? existing : incoming;
 
+  const completeMediaArray = (
+    pic: PicAsset,
+    key: "images" | "voiceNotes",
+    countKey: "imageCount" | "voiceNoteCount",
+  ) => {
+    const media = pic[key];
+    if (!Array.isArray(media)) return false;
+    const rawCount = pic[countKey];
+    if (typeof rawCount !== "number" || !Number.isFinite(rawCount)) return true;
+    return media.length === Math.max(0, rawCount);
+  };
+
+  const existingImagesComplete = completeMediaArray(existing, "images", "imageCount");
+  const incomingImagesComplete = completeMediaArray(incoming, "images", "imageCount");
+  const existingVoiceComplete = completeMediaArray(existing, "voiceNotes", "voiceNoteCount");
+  const incomingVoiceComplete = completeMediaArray(incoming, "voiceNotes", "voiceNoteCount");
+
+  const chooseMedia = <T>(
+    existingRows: T[],
+    incomingRows: T[],
+    existingComplete: boolean,
+    incomingComplete: boolean,
+  ) => {
+    if (incomingComplete && (!existingComplete || incomingTs >= existingTs)) return incomingRows;
+    if (existingComplete) return existingRows;
+    if (incomingComplete) return incomingRows;
+    return incomingRows.length >= existingRows.length ? incomingRows : existingRows;
+  };
+
+  const selectedImages = chooseMedia(
+    existingImages,
+    incomingImages,
+    existingImagesComplete,
+    incomingImagesComplete,
+  );
+  const selectedVoice = chooseMedia(
+    existingVoice,
+    incomingVoice,
+    existingVoiceComplete,
+    incomingVoiceComplete,
+  );
+
   const pickScalar = <K extends keyof PicAsset>(key: K): PicAsset[K] => {
     const a = primary[key];
     const b = secondary[key];
@@ -81,20 +129,21 @@ export function mergePicAssetPreferFull(
     kilometersDriven: pickScalar("kilometersDriven"),
     isPresent: primary.isPresent ?? secondary.isPresent,
     isDone: primary.isDone ?? secondary.isDone,
-    images: existingImages.length >= incomingImages.length ? existingImages : incomingImages,
-    voiceNotes: existingVoice.length >= incomingVoice.length ? existingVoice : incomingVoice,
-    imageCount: Math.max(
-      primary.imageCount ?? 0,
-      secondary.imageCount ?? 0,
-      existingImages.length,
-      incomingImages.length,
-    ),
-    voiceNoteCount: Math.max(
-      primary.voiceNoteCount ?? 0,
-      secondary.voiceNoteCount ?? 0,
-      existingVoice.length,
-      incomingVoice.length,
-    ),
+    images: selectedImages,
+    voiceNotes: selectedVoice,
+    // العدد الأحدث يبقى مرجع الاكتمال؛ اختلافه عن المصفوفة القديمة يفرض hydration جديدًا.
+    imageCount:
+      typeof primary.imageCount === "number"
+        ? Math.max(0, primary.imageCount)
+        : typeof secondary.imageCount === "number"
+          ? Math.max(0, secondary.imageCount)
+          : selectedImages.length,
+    voiceNoteCount:
+      typeof primary.voiceNoteCount === "number"
+        ? Math.max(0, primary.voiceNoteCount)
+        : typeof secondary.voiceNoteCount === "number"
+          ? Math.max(0, secondary.voiceNoteCount)
+          : selectedVoice.length,
   };
 }
 
@@ -154,17 +203,50 @@ export function cacheHasFullPicAssetEntries(entries: PicAssetFolderEntry[]): boo
   return entries.every((e) => entryHasFullPicAssetMedia(e.picAsset));
 }
 
-export async function fetchPicAssetDetail(
+export function fetchPicAssetDetail(
   projectId: string,
   subProjectId: string,
 ): Promise<{ sub: MvSubProject; picAsset: PicAsset | null } | null> {
-  const r = await fetchWithRetry(
-    `/api/mv/projects/${encodeURIComponent(projectId)}/subprojects/${encodeURIComponent(subProjectId)}`,
-    { credentials: "include" },
+  const key = `${projectId}:${subProjectId}`;
+  const current = picAssetDetailInFlight.get(key);
+  if (current) return current;
+  const request = (async () => {
+    const r = await fetchWithRetry(
+      `/api/mv/projects/${encodeURIComponent(projectId)}/subprojects/${encodeURIComponent(subProjectId)}`,
+      { credentials: "include" },
+      { maxRetries: 2, timeoutMs: 20_000 },
+    );
+    if (!r.ok) return null;
+    const row = (await r.json()) as MvSubProject & { picAsset?: PicAsset | null };
+    return { sub: row, picAsset: row.picAsset ?? null };
+  })().finally(() => {
+    if (picAssetDetailInFlight.get(key) === request) picAssetDetailInFlight.delete(key);
+  });
+  picAssetDetailInFlight.set(key, request);
+  return request;
+}
+
+async function fetchPicAssetDetailsBatch(
+  projectId: string,
+  subProjectIds: string[],
+  signal: AbortSignal,
+) {
+  if (subProjectIds.length === 0) return [];
+  const query = new URLSearchParams({ ids: subProjectIds.join(",") });
+  const response = await fetchWithRetry(
+    `/api/mv/projects/${encodeURIComponent(projectId)}/subproject-details?${query.toString()}`,
+    { credentials: "include", signal },
+    { maxRetries: 3, timeoutMs: 20_000 },
   );
-  if (!r.ok) return null;
-  const row = (await r.json()) as MvSubProject & { picAsset?: PicAsset | null };
-  return { sub: row, picAsset: row.picAsset ?? null };
+  if (!response.ok) {
+    const error = new Error(`تعذر تحميل دفعة تفاصيل الأصول (${response.status}).`);
+    error.name = "PicAssetBatchError";
+    throw error;
+  }
+  const body = (await response.json()) as {
+    items?: Array<MvSubProject & { picAsset?: PicAsset | null }>;
+  };
+  return Array.isArray(body.items) ? body.items : [];
 }
 
 export type HydratePicAssetsOptions = {
@@ -172,7 +254,9 @@ export type HydratePicAssetsOptions = {
   prioritySubIds?: readonly string[];
   shouldSkip?: (entry: PicAssetFolderEntry) => boolean;
   isCancelled?: () => boolean;
-  onUpdate: (subId: string, next: PicAssetFolderEntry) => void;
+  onUpdate?: (subId: string, next: PicAssetFolderEntry) => void;
+  onBatchUpdate?: (updates: Array<{ subId: string; next: PicAssetFolderEntry }>) => void;
+  onProgress?: (completed: number, total: number) => void;
   onComplete?: () => void;
 };
 
@@ -183,6 +267,7 @@ export function hydratePicAssetEntriesProgressive(
   options: HydratePicAssetsOptions,
 ): { cancel: () => void } {
   let cancelled = false;
+  const controller = new AbortController();
   const priority = new Set(options.prioritySubIds ?? []);
   const ordered = [...entries].sort((a, b) => {
     const ap = priority.has(a.sub._id) ? 0 : 1;
@@ -191,19 +276,48 @@ export function hydratePicAssetEntriesProgressive(
     return 0;
   });
 
+  const pending = ordered.filter((entry) => !options.shouldSkip?.(entry));
+  options.onProgress?.(0, pending.length);
+
   void (async () => {
+    let completed = 0;
     try {
-      await mapWithConcurrency(ordered, options.concurrency ?? 4, async (entry) => {
-        if (cancelled || options.isCancelled?.()) return;
-        if (options.shouldSkip?.(entry)) return;
-        const row = await fetchPicAssetDetail(projectId, entry.sub._id);
-        if (cancelled || options.isCancelled?.()) return;
-        if (!row) return;
-        options.onUpdate(entry.sub._id, {
-          sub: row.sub,
-          picAsset: mergePicAssetFromApi(entry.picAsset, row.picAsset),
-        });
-      });
+      const batchSize = 40;
+      for (let offset = 0; offset < pending.length; offset += batchSize) {
+        if (cancelled || options.isCancelled?.()) break;
+        const batch = pending.slice(offset, offset + batchSize);
+        const rows = await fetchPicAssetDetailsBatch(
+          projectId,
+          batch.map((entry) => entry.sub._id),
+          controller.signal,
+        );
+        if (cancelled || options.isCancelled?.()) break;
+        const entriesById = new Map(batch.map((entry) => [entry.sub._id, entry]));
+        const updates: Array<{ subId: string; next: PicAssetFolderEntry }> = [];
+        for (const row of rows) {
+          const entry = entriesById.get(row._id);
+          if (!entry) continue;
+          updates.push({
+            subId: row._id,
+            next: {
+              sub: row,
+              picAsset: mergePicAssetFromApi(entry.picAsset, row.picAsset ?? null),
+            },
+          });
+        }
+        if (updates.length > 0) {
+          if (options.onBatchUpdate) options.onBatchUpdate(updates);
+          else for (const update of updates) options.onUpdate?.(update.subId, update.next);
+        }
+        completed += batch.length;
+        options.onProgress?.(Math.min(completed, pending.length), pending.length);
+        if (offset + batchSize < pending.length) {
+          await new Promise((resolve) => window.setTimeout(resolve, 60));
+        }
+      }
+    } catch (error) {
+      const aborted = error instanceof Error && error.name === "AbortError";
+      if (!aborted) options.onProgress?.(completed, pending.length);
     } finally {
       if (!cancelled) options.onComplete?.();
     }
@@ -212,6 +326,7 @@ export function hydratePicAssetEntriesProgressive(
   return {
     cancel: () => {
       cancelled = true;
+      controller.abort();
     },
   };
 }

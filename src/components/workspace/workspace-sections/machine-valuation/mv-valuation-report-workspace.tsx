@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  startTransition,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -86,6 +87,8 @@ import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { downloadDocxFromSheets, type DocxSheetSource } from "@/lib/docx-export";
 import { downloadPptxFromPngSlides, type PptxImageSlide } from "@/lib/pptx-export";
 import { MvWorkflowPageFrame } from "./mv-workflow-page-frame";
+import { MvErrorState } from "./mv-ui";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import { ReportRichSelectionToolbar } from "./mv-report-rich-selection-toolbar";
 import { MvValuationReportDocumentBody } from "./mv-valuation-report-document-body";
 import {
@@ -1404,6 +1407,81 @@ type ValuationReportSessionBundle = {
   reportPageOrientations?: ReportPageOrientations;
 };
 
+type ReportAssetImageFilesPage = {
+  items: MvDriveFile[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+};
+
+type ReportPicAssetSubProject = MvSubProject & {
+  picAsset?: { images?: PicAssetImage[] } | null;
+};
+
+function reportRowsFromPicAssetSubProject(
+  projectId: string,
+  sub: ReportPicAssetSubProject,
+): (MvDriveFile & { sourceUrl?: string })[] {
+  const images = (sub.picAsset?.images ?? []) as PicAssetImage[];
+  return images
+    .map((im, idx): (MvDriveFile & { sourceUrl?: string }) | null => {
+      const isExternal = typeof (im as { url?: unknown }).url === "string";
+      const url = isExternal ? String((im as { url: string }).url) : "";
+      const fileId = "fileId" in (im as object) ? String((im as { fileId?: string }).fileId || "") : "";
+      const sourceUrl = url || (fileId ? `/api/mv/projects/${projectId}/files/${fileId}/download` : "");
+      if (!sourceUrl) return null;
+      const includeInReport =
+        typeof (im as { includeInReport?: unknown }).includeInReport === "boolean"
+          ? (im as { includeInReport: boolean }).includeInReport
+          : false;
+      const keyPart =
+        (im as { _id?: string })._id ||
+        (im as { publicId?: string }).publicId ||
+        sourceUrl;
+      const mimeRaw = (im as { mimeType?: unknown }).mimeType;
+      const mime =
+        typeof mimeRaw === "string" && mimeRaw.trim().length > 0
+          ? mimeRaw.trim()
+          : /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(sourceUrl)
+            ? "video/mp4"
+            : "image/jpeg";
+      const isVid = mime.startsWith("video/");
+      return {
+        _id: `picasset:${sub._id}:${keyPart}:${idx}`,
+        projectId,
+        name: isVid ? `video-${idx + 1}.mp4` : `image-${idx + 1}.jpg`,
+        scope: "asset-images",
+        relativePath: `${sub.name}/${isVid ? `video-${idx + 1}.mp4` : `image-${idx + 1}.jpg`}`,
+        folderPath: sub.name,
+        mimeType: mime,
+        sizeBytes: 0,
+        uploadedAt: (im as { createdAt?: string }).createdAt || new Date(0).toISOString(),
+        updatedAt: (im as { createdAt?: string }).createdAt || new Date(0).toISOString(),
+        includeInReport,
+        sourceUrl,
+      };
+    })
+    .filter((row): row is MvDriveFile & { sourceUrl?: string } => row != null);
+}
+
+function dedupeReportMediaRows(rows: MvDriveFile[]): MvDriveFile[] {
+  const seen = new Set<string>();
+  const output: MvDriveFile[] = [];
+  for (const file of rows) {
+    const sourceUrl = (file as MvDriveFile & { sourceUrl?: string }).sourceUrl?.trim() || "";
+    const fileIdFromUrl = sourceUrl.match(/\/files\/([^/?#]+)\/download(?:[?#]|$)/i)?.[1];
+    const key = sourceUrl
+      ? fileIdFromUrl
+        ? `file:${decodeURIComponent(fileIdFromUrl)}`
+        : `url:${sourceUrl}`
+      : `file:${file._id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(file);
+  }
+  return output;
+}
+
 const defaultReportLayout: ReportLayoutPrefs = {
   marginX: 0,
   marginY: 20,
@@ -1495,6 +1573,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const draftModeOverrideRef = useRef<boolean | null>(null);
   const [files, setFiles] = useState<MvDriveFile[]>(() => initialFiles);
   const [loading, setLoading] = useState(() => initialProject == null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reportMediaLoading, setReportMediaLoading] = useState(false);
   const [valuationAccountStore, setValuationAccountStore] =
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
@@ -1589,6 +1668,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
   const reportImageWarmKeyRef = useRef("");
   const loadRunRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
   const [reportSaving, setReportSaving] = useState(false);
   /** Toggles the right-side floating settings drawer (page metrics + images). */
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
@@ -1647,6 +1727,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const load = useCallback(async () => {
     const runId = ++loadRunRef.current;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     const reportSessionProject = readMvWorkflowSessionJson<ValuationReportSessionBundle>(
       MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId),
     )?.project;
@@ -1655,25 +1738,26 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     )?.project;
     const hasFastProject = reportSessionProject != null || summarySessionProject != null || projectRef.current != null;
     if (!hasFastProject) setLoading(true);
+    setLoadError(null);
     try {
       const projectSummaryUrl = `/api/mv/projects/${projectId}?picAssetMode=summary`;
-      const projectRequest = fetch(projectSummaryUrl, { credentials: "include" });
-      const filesRequest = fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
-        credentials: "include",
-      }).catch(() => null);
+      const projectRequest = mvFetchJson<{ project?: MvProject; subProjects?: MvSubProject[] }>(
+        projectSummaryUrl,
+        { signal: controller.signal },
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز بيانات التقرير…",
+        },
+      );
 
-      const projectRes = await projectRequest;
-      if (runId !== loadRunRef.current) return;
-
-      const projectPayload = projectRes.ok
-        ? ((await projectRes.json()) as { project?: MvProject; subProjects?: MvSubProject[] })
-        : null;
+      const projectPayload = await projectRequest;
       if (runId !== loadRunRef.current) return;
 
       const fetchedProject = withDraftDefaultProject(projectPayload?.project ?? null);
-      const previewSubs = Array.isArray(projectPayload?.subProjects) ? projectPayload!.subProjects! : [];
+      const previewSubs = Array.isArray(projectPayload?.subProjects) ? projectPayload.subProjects : [];
       const quickProject =
-        projectRes.ok && fetchedProject
+        fetchedProject
           ? {
               ...fetchedProject,
               reportData: {
@@ -1692,6 +1776,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       const cachedFiles =
         cachedReportBundle?.files ??
         (Array.isArray(cachedAssetRows?.rows) ? cachedAssetRows.rows : []);
+      const mergeWithCachedMedia = (incoming: MvDriveFile[]) => {
+        const seen = new Set(incoming.map((file) => file._id));
+        return dedupeReportMediaRows([
+          ...incoming,
+          ...cachedFiles.filter((file) => !seen.has(file._id)),
+        ]);
+      };
       setProject((prev) => {
         const nextP = quickProject ?? prev;
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
@@ -1713,82 +1804,97 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setLoading(false);
       setReportMediaLoading(true);
 
-      const filesRes = await filesRequest;
-      if (runId !== loadRunRef.current) return;
-      const driveRowsRaw = filesRes?.ok
-        ? ((await filesRes.json().catch(() => [])) as unknown)
-        : [];
-      const driveRows = Array.isArray(driveRowsRaw) ? (driveRowsRaw as MvDriveFile[]) : [];
-      setFiles(driveRows);
-
+      let driveRows: MvDriveFile[] = [];
       let picRows: (MvDriveFile & { sourceUrl?: string })[] = [];
-      try {
-        const photoSubs = previewSubs.filter((s) => Boolean(s.picAsset?._id));
-        if (photoSubs.length > 0) {
-          // Run sub-project detail fetches in parallel with high concurrency to
-          // minimise the time before report images become available.
-          const details = (
-            await mapWithConcurrency(photoSubs, 8, async (s) => {
-              const r = await fetchWithRetry(
-                `/api/mv/projects/${projectId}/subprojects/${encodeURIComponent(s._id)}`,
-                { credentials: "include" },
-              );
-              if (!r.ok) return null;
-              return (await r.json()) as MvSubProject & { picAsset?: { images?: PicAssetImage[] } | null };
-            })
-          ).filter(
-            (row): row is MvSubProject & { picAsset?: { images?: PicAssetImage[] } | null } => row != null,
+      const publishPartialMedia = () => {
+        if (runId !== loadRunRef.current) return;
+        const next = mergeWithCachedMedia(dedupeReportMediaRows([...driveRows, ...picRows]));
+        startTransition(() => setFiles(next));
+      };
+
+      const loadDriveRowsProgressively = async () => {
+        const seenIds = new Set<string>();
+        const seenCursors = new Set<string>();
+        let cursor = "0";
+        let firstPage = true;
+        let completed = false;
+        while (!seenCursors.has(cursor)) {
+          seenCursors.add(cursor);
+          const limit = firstPage ? 100 : 250;
+          const query = new URLSearchParams({ cursor, limit: String(limit) });
+          const payload = await mvFetchJson<ReportAssetImageFilesPage | MvDriveFile[]>(
+            `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files?${query.toString()}`,
+            { signal: controller.signal },
+            {
+              cacheKey: `asset-image-files-page:${projectId}:${cursor}:${limit}`,
+              cacheTtlMs: 2_000,
+              retries: 1,
+              retryBaseMs: 650,
+              timeoutMs: firstPage ? 12_000 : 18_000,
+              trackLoading: false,
+            },
           );
-          picRows = details.flatMap((sub) => {
-            const images = (sub.picAsset?.images ?? []) as PicAssetImage[];
-            const mapped: ((MvDriveFile & { sourceUrl?: string }) | null)[] = images.map((im, idx) => {
-              const isExternal = typeof (im as { url?: unknown }).url === "string";
-              const url = isExternal ? String((im as { url: string }).url) : "";
-              const fileId = "fileId" in (im as object) ? String((im as { fileId?: string }).fileId || "") : "";
-              const sourceUrl = url || (fileId ? `/api/mv/projects/${projectId}/files/${fileId}/download` : "");
-              if (!sourceUrl) return null;
-              /** صور التطبيق في التقرير فقط عند التحديد الصريح في خطوة صور الأصول */
-              const includeInReport =
-                typeof (im as { includeInReport?: unknown }).includeInReport === "boolean"
-                  ? (im as { includeInReport: boolean }).includeInReport
-                  : false;
-              const keyPart =
-                (im as { _id?: string })._id ||
-                (im as { publicId?: string }).publicId ||
-                sourceUrl;
-              const mimeRaw = (im as { mimeType?: unknown }).mimeType;
-              const mime =
-                typeof mimeRaw === "string" && mimeRaw.trim().length > 0
-                  ? mimeRaw.trim()
-                  : /\.(mp4|webm|mov|m4v)(\?|#|$)/i.test(sourceUrl)
-                    ? "video/mp4"
-                    : "image/jpeg";
-              const isVid = mime.startsWith("video/");
-              return {
-                _id: `picasset:${sub._id}:${keyPart}:${idx}`,
-                projectId,
-                name: isVid ? `video-${idx + 1}.mp4` : `image-${idx + 1}.jpg`,
-                scope: "asset-images",
-                relativePath: `${sub.name}/${isVid ? `video-${idx + 1}.mp4` : `image-${idx + 1}.jpg`}`,
-                folderPath: sub.name,
-                mimeType: mime,
-                sizeBytes: 0,
-                uploadedAt: (im as { createdAt?: string }).createdAt || new Date(0).toISOString(),
-                updatedAt: (im as { createdAt?: string }).createdAt || new Date(0).toISOString(),
-                includeInReport,
-                sourceUrl,
+          if (runId !== loadRunRef.current) return;
+          const page: ReportAssetImageFilesPage = Array.isArray(payload)
+            ? { items: payload, nextCursor: null, hasMore: false, total: payload.length }
+            : {
+                items: Array.isArray(payload.items) ? payload.items : [],
+                nextCursor: typeof payload.nextCursor === "string" ? payload.nextCursor : null,
+                hasMore: payload.hasMore === true,
+                total: Number.isFinite(payload.total) ? payload.total : 0,
               };
-            });
-            return mapped.filter((x): x is MvDriveFile & { sourceUrl?: string } => x != null);
-          });
+          for (const row of page.items) {
+            if (!row?._id || seenIds.has(row._id)) continue;
+            seenIds.add(row._id);
+            driveRows.push(row);
+          }
+          publishPartialMedia();
+          firstPage = false;
+          if (!page.hasMore || !page.nextCursor) {
+            completed = true;
+            break;
+          }
+          cursor = page.nextCursor;
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 35));
         }
-      } catch {
-        // ignore pic asset load failures; drive files still show
-      }
+        if (!completed) throw new Error("report_asset_image_pagination_incomplete");
+      };
+
+      const loadPicRowsProgressively = async () => {
+        const photoSubs = previewSubs.filter((sub) => Boolean(sub.picAsset?._id));
+        for (let offset = 0; offset < photoSubs.length; offset += 40) {
+          const ids = photoSubs.slice(offset, offset + 40).map((sub) => sub._id);
+          const query = new URLSearchParams({ ids: ids.join(",") });
+          const payload = await mvFetchJson<{ items?: ReportPicAssetSubProject[] }>(
+            `/api/mv/projects/${encodeURIComponent(projectId)}/subproject-details?${query.toString()}`,
+            { signal: controller.signal },
+            {
+              retries: 1,
+              retryBaseMs: 700,
+              timeoutMs: 18_000,
+              trackLoading: false,
+            },
+          );
+          if (runId !== loadRunRef.current) return;
+          const rows = Array.isArray(payload.items) ? payload.items : [];
+          picRows = [...picRows, ...rows.flatMap((sub) => reportRowsFromPicAssetSubProject(projectId, sub))];
+          publishPartialMedia();
+          if (offset + 40 < photoSubs.length) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+          }
+        }
+      };
+
+      const mediaResults = await Promise.allSettled([
+        loadDriveRowsProgressively(),
+        loadPicRowsProgressively(),
+      ]);
 
       if (runId !== loadRunRef.current) return;
       setReportMediaLoading(false);
-      const merged = [...driveRows, ...picRows];
+      const streamedMedia = dedupeReportMediaRows([...driveRows, ...picRows]);
+      const mediaComplete = mediaResults.every((result) => result.status === "fulfilled");
+      const merged = mediaComplete ? streamedMedia : mergeWithCachedMedia(streamedMedia);
       setFiles(merged);
       // Eagerly warm the image cache for the merged set so the preview renders
       // with real images immediately instead of swapping in after the warm
@@ -1810,7 +1916,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
       setProject((prev) => {
         const nextP =
-          projectRes.ok && fetchedProject
+          fetchedProject
             ? {
                 ...fetchedProject,
                 reportData: {
@@ -1825,7 +1931,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         writeMvWorkflowSessionJson(sessionKey, {
           ...prevBundle,
           project: nextP,
-          files: merged,
+          // دفعة تمهيدية للجلسة فقط؛ بقية الصور تُستعاد تدريجيًا دون تجميد التخزين المتزامن.
+          files: merged.slice(0, 500),
           fetchedAt: Date.now(),
         });
         if (nextP) {
@@ -1837,16 +1944,26 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         }
         return nextP;
       });
+    } catch (error) {
+      if (runId === loadRunRef.current) {
+        setLoadError(mvErrorMessage(error, "تعذر تحميل بيانات إعداد التقرير."));
+      }
     } finally {
       if (runId === loadRunRef.current) {
         setLoading(false);
         setReportMediaLoading(false);
+        if (loadAbortRef.current === controller) loadAbortRef.current = null;
       }
     }
   }, [projectId, sessionKey]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRunRef.current += 1;
+      loadAbortRef.current?.abort();
+      loadAbortRef.current = null;
+    };
   }, [load, projectId]);
 
   useEffect(() => {
@@ -3278,6 +3395,25 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }, 120);
     return () => window.clearTimeout(timer);
   }, [assetImagesPreviewOpen]);
+
+  if (!project && !loading && loadError) {
+    return (
+      <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", reportFont.className)} dir="rtl">
+        <MvProjectReportHeader
+          compact
+          projectId={projectId}
+          activeStep="report-preview"
+          breadcrumbs={[{ label: projectId }, { label: "إعداد التقرير" }]}
+        />
+        <MvErrorState
+          title="تعذر فتح إعداد التقرير"
+          description={loadError}
+          onRetry={() => void load()}
+          className="flex-1"
+        />
+      </MvWorkflowPageFrame>
+    );
+  }
 
   return (
     <MvWorkflowPageFrame

@@ -25,6 +25,8 @@ import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { MvErrorState, MvPageLoading } from "./mv-ui";
 
 const reportFont = Tajawal({
   subsets: ["arabic"],
@@ -153,6 +155,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [subProjects, setSubProjects] = useState<MvSubProject[]>(initialCached?.subProjects ?? []);
   /** مع وجود كاش الجلسة لا نُظهر شاشة التحميل أثناء إعادة المزامنة */
   const [loading, setLoading] = useState(() => initialCached?.project == null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const reportDataDirtyRef = useRef(false);
   const projectNameDirtyRef = useRef(false);
@@ -168,26 +171,35 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     createMvReportCollapsibleState(false),
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     const cached = readCachedReportState(projectId);
     const blockUi = cached?.project == null;
     if (blockUi) setLoading(true);
+    setLoadError(null);
     try {
-      const response = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
-        credentials: "include",
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as {
+      const data = await mvFetchJson<{
         project: MvProject;
         subProjects: MvSubProject[];
-      };
+      }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        { signal },
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز بيانات التقرير…",
+        },
+      );
+      if (signal?.aborted) return;
       setProject(data.project);
       setSubProjects(data.subProjects ?? []);
       writeCachedReportState(projectId, { project: data.project, subProjects: data.subProjects ?? [] });
       if (!projectNameDirtyRef.current) setEditableProjectName(data.project.name ?? "");
       if (!reportDataDirtyRef.current) setReportData(normalizeReportData(data.project.reportData));
+    } catch (error) {
+      if (signal?.aborted) return;
+      setLoadError(mvErrorMessage(error, "تعذر تحميل بيانات المشروع."));
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [projectId]);
 
@@ -202,7 +214,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     setLoading(cached?.project == null);
     setVisitedSteps(new Set(readVisitedSimpleReportSteps(projectId)));
     setOpenSections(createMvReportCollapsibleState(false));
-    void load();
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
   }, [load, projectId]);
 
   const markVisited = useCallback(
@@ -225,12 +239,17 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     let cancelled = false;
     const loadMachineClients = async () => {
       try {
-        const response = await fetch("/api/clients?productId=machine-valuation", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!response.ok) return;
-        const rows = (await response.json()) as MachineClient[];
+        const rows = await mvFetchJson<MachineClient[]>(
+          "/api/clients?productId=machine-valuation",
+          {},
+          {
+            cacheKey: "machine-valuation:clients",
+            cacheTtlMs: 30_000,
+            retries: 1,
+            timeoutMs: 12_000,
+            trackLoading: false,
+          },
+        );
         if (!cancelled) setMachineClients(Array.isArray(rows) ? rows : []);
       } catch {
         if (!cancelled) setMachineClients([]);
@@ -340,9 +359,15 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   if (!project) {
     return (
       <MvWorkflowPageFrame className={reportFont.className} dir="rtl">
-        <div className="mx-auto max-w-xl px-4 py-16 text-center text-sm text-slate-500">
-          {loading ? "جاري التحميل…" : "تعذر تحميل بيانات المشروع."}
-        </div>
+        {loading ? (
+          <MvPageLoading label="جارٍ تحميل بيانات التقرير…" />
+        ) : (
+          <MvErrorState
+            title="تعذر تحميل بيانات المشروع"
+            description={loadError ?? "تحقق من الاتصال ثم أعد المحاولة."}
+            onRetry={() => void load()}
+          />
+        )}
       </MvWorkflowPageFrame>
     );
   }

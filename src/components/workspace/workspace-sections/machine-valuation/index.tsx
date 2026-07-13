@@ -4,28 +4,21 @@ import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { isMvMainWorkflowSlug } from "./mv-main-workflow-model";
 import { parseValuationPhaseSlug } from "./mv-valuation-workflow-model";
-import MvReportDataWorkspace from "./mv-report-data-workspace";
-import MvValuationReportWorkspace from "./mv-valuation-report-workspace";
-import MvValuationShell from "./mv-valuation-shell";
-import MvWorkflowShell from "./mv-workflow-shell";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import CompanyAdminDashboard from "@/components/company-admin-dashboard";
+import { MvPageLoading } from "./mv-ui";
 
 /** هيكل خفيف أثناء تحميل مقطع ديناميكي — دون تغطية كاملة للشاشة (يختلف عن PageTransitionLoader لجذر الـ workspace). */
 function MvRouteSkeleton() {
-  return (
-    <div className="animate-pulse space-y-4 rounded-2xl border border-slate-200/80 bg-white/60 p-6">
-      <div className="h-8 w-48 rounded-lg bg-slate-200/80" />
-      <div className="h-32 w-full rounded-xl bg-slate-100" />
-      <div className="h-24 w-full rounded-xl bg-slate-100" />
-    </div>
-  );
+  return <MvPageLoading label="جارٍ فتح مساحة العمل…" />;
 }
 
 const ProjectsList = dynamic(() => import("./projects-list"), {
   loading: () => <MvRouteSkeleton />,
 });
 const ClientsPage = dynamic(() => import("@/components/clients/clients-page"), {
+  loading: () => <MvRouteSkeleton />,
+});
+const CompanyAdminDashboard = dynamic(() => import("@/components/company-admin-dashboard"), {
   loading: () => <MvRouteSkeleton />,
 });
 const MvProjectWorkspace = dynamic(() => import("./mv-project-workspace"), {
@@ -38,6 +31,18 @@ const MvInspectorFilesWorkspace = dynamic(() => import("./mv-inspector-files-wor
   loading: () => <MvRouteSkeleton />,
 });
 const SubProjectDetail = dynamic(() => import("./sub-project-detail"), {
+  loading: () => <MvRouteSkeleton />,
+});
+const MvWorkflowShell = dynamic(() => import("./mv-workflow-shell"), {
+  loading: () => <MvRouteSkeleton />,
+});
+const MvValuationShell = dynamic(() => import("./mv-valuation-shell"), {
+  loading: () => <MvRouteSkeleton />,
+});
+const MvReportDataWorkspace = dynamic(() => import("./mv-report-data-workspace"), {
+  loading: () => <MvRouteSkeleton />,
+});
+const MvValuationReportWorkspace = dynamic(() => import("./mv-valuation-report-workspace"), {
   loading: () => <MvRouteSkeleton />,
 });
 

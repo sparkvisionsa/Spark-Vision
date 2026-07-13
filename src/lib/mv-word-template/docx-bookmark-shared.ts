@@ -36,6 +36,38 @@ export type MvWordBookmarkMergeStats = {
   imageErrors: string[];
 };
 
+const COVER_BOOKMARK_FONT_FAMILY = "Tajawal";
+const COVER_TITLE_BOOKMARK_NAMES = ["عنوان", "عنوانغ", "غلاف", "عنواناصل"];
+const COVER_CLIENT_BOOKMARK_NAMES = ["عميلغلاف"];
+
+function normalizeCoverBookmarkName(name: string): string {
+  return name
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/[\s_\-.،؛:\u060C\u061B\u0640]+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isCoverFontBookmark(name: string): boolean {
+  const normalized = normalizeCoverBookmarkName(name);
+  return [...COVER_TITLE_BOOKMARK_NAMES, ...COVER_CLIENT_BOOKMARK_NAMES].some(
+    (item) => normalizeCoverBookmarkName(item) === normalized,
+  );
+}
+
+function applyCoverBookmarkFont(name: string, rPr: string): string {
+  if (!isCoverFontBookmark(name)) return rPr;
+
+  const fonts = `<w:rFonts w:ascii="${COVER_BOOKMARK_FONT_FAMILY}" w:hAnsi="${COVER_BOOKMARK_FONT_FAMILY}" w:eastAsia="${COVER_BOOKMARK_FONT_FAMILY}" w:cs="${COVER_BOOKMARK_FONT_FAMILY}" w:hint="cs"/>`;
+  if (!rPr.trim()) return `<w:rPr>${fonts}</w:rPr>`;
+
+  const withoutFonts = rPr.replace(/<w:rFonts\b[^>]*(?:\/>|>[\s\S]*?<\/w:rFonts>)/g, "");
+  if (/^<w:rPr\b[^>]*\/>$/.test(withoutFonts.trim())) {
+    return withoutFonts.replace(/\/>\s*$/, `>${fonts}</w:rPr>`);
+  }
+  return withoutFonts.replace(/<w:rPr\b[^>]*>/, (match) => `${match}${fonts}`);
+}
+
 export function findBookmarkRanges(xml: string): BookmarkRange[] {
   const endById = new Map<string, { innerEnd: number; endIndex: number }>();
   const endTagRe = /<w:bookmarkEnd\b([^>]*?)(?:\s*\/>|>\s*<\/w:bookmarkEnd>)/g;
@@ -285,27 +317,30 @@ export function replaceBookmarkTextSafely(xml: string, range: BookmarkRange, tex
   const startInsideRun = isInsideRun(xml, range.startIndex);
   const rPr =
     extractFirstRunProperties(inner) || extractRunPropertiesAtPosition(xml, range.startIndex);
+  const styledRPr = applyCoverBookmarkFont(range.name, rPr);
 
   if (/<\/w:r>\s*<w:r\b/.test(inner)) {
-    return replaceSpanningBookmark(xml, range, text, rPr);
+    return replaceSpanningBookmark(xml, range, text, styledRPr);
   }
 
   if (!isSimpleBookmarkInner(inner, startInsideRun)) {
     if (startInsideRun && /<w:r\b/.test(inner)) {
-      return replaceSpanningBookmark(xml, range, text, rPr);
+      return replaceSpanningBookmark(xml, range, text, styledRPr);
     }
-    const bookmarkBlock = `${startTag}${buildBookmarkTextContent(text, rPr, startInsideRun)}${endTag}`;
+    const bookmarkBlock = `${startTag}${buildBookmarkTextContent(text, styledRPr, startInsideRun)}${endTag}`;
     return xml.slice(0, range.startIndex) + bookmarkBlock + xml.slice(range.endIndex);
   }
 
   let newInner: string;
 
   if (/<w:t\b/.test(inner)) {
-    newInner = writeWtTextNodes(inner, text);
+    newInner = isCoverFontBookmark(range.name)
+      ? buildBookmarkTextContent(text, styledRPr, startInsideRun)
+      : writeWtTextNodes(inner, text);
   } else if (startInsideRun) {
-    newInner = buildTextRunContentOnly(text, rPr);
+    newInner = buildTextRunContentOnly(text, styledRPr);
   } else {
-    newInner = buildTextRunWithFormatting(text, rPr);
+    newInner = buildTextRunWithFormatting(text, styledRPr);
   }
 
   return xml.slice(0, range.startIndex) + startTag + newInner + endTag + xml.slice(range.endIndex);
@@ -325,9 +360,10 @@ export function replaceBookmarkTextFallback(
   const rPr =
     extractFirstRunProperties(xml.slice(range.innerStart, range.innerEnd)) ||
     extractRunPropertiesAtPosition(xml, range.startIndex);
+  const styledRPr = applyCoverBookmarkFont(range.name, rPr);
   const newInner = startInsideRun
-    ? buildTextRunContentOnly(text, rPr)
-    : buildTextRunWithFormatting(text, rPr);
+    ? buildTextRunContentOnly(text, styledRPr)
+    : buildTextRunWithFormatting(text, styledRPr);
 
   return xml.slice(0, range.startIndex) + startTag + newInner + endTag + xml.slice(range.endIndex);
 }

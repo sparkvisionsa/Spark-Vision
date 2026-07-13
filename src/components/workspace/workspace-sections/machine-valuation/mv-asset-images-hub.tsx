@@ -68,6 +68,8 @@ import {
 } from "./mv-pic-asset-progressive-load";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { MvUploadProgressToast } from "./mv-upload-progress-toast";
+import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
+import { mvFetchJson } from "./mv-api-client";
 
 interface MvAssetImagesHubProps {
   projectId: string;
@@ -88,6 +90,8 @@ type ImageFolderNode = {
   videos: AssetImageViewFile[];
   imageCount: number;
   videoCount: number;
+  includedImageCount: number;
+  includedVideoCount: number;
   picAssetId?: string;
   isSynthetic?: boolean;
   sheetName?: string | null;
@@ -178,6 +182,20 @@ type AssetImagesSearchResult = {
 
 type PreviewPhotoFolderEntry = { sub: MvSubProject; picAsset: PicAsset | null };
 type PreviewFolderCreateKind = "folder" | "asset";
+
+type AssetImageFilesPage = {
+  items: MvDriveFile[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+};
+
+type AssetImageListProgress = {
+  active: boolean;
+  loaded: number;
+  total: number;
+  partial: boolean;
+};
 
 function isExternalPicAssetVideo(image: PicAssetImage): boolean {
   const mt = (image as { mediaType?: unknown }).mediaType;
@@ -393,7 +411,17 @@ function picAssetImageDisplayFile(
 }
 
 function createFolderNode(name: string, path: string): ImageFolderNode {
-  return { name, path, folders: [], images: [], videos: [], imageCount: 0, videoCount: 0 };
+  return {
+    name,
+    path,
+    folders: [],
+    images: [],
+    videos: [],
+    imageCount: 0,
+    videoCount: 0,
+    includedImageCount: 0,
+    includedVideoCount: 0,
+  };
 }
 
 function buildImageTree(files: MvDriveFile[]) {
@@ -445,6 +473,12 @@ function buildImageTree(files: MvDriveFile[]) {
       node.images.length + node.folders.reduce((total, folder) => total + sortNode(folder), 0);
     node.videoCount =
       node.videos.length + node.folders.reduce((total, folder) => total + (folder.videoCount ?? 0), 0);
+    node.includedImageCount =
+      node.images.filter(isReportImageIncluded).length +
+      node.folders.reduce((total, folder) => total + folder.includedImageCount, 0);
+    node.includedVideoCount =
+      node.videos.filter(isReportImageIncluded).length +
+      node.folders.reduce((total, folder) => total + folder.includedVideoCount, 0);
     return node.imageCount;
   };
 
@@ -976,6 +1010,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const filePickInputRef = useRef<HTMLInputElement>(null);
   const folderPickInputRef = useRef<HTMLInputElement>(null);
   const assetSearchInputRef = useRef<HTMLInputElement>(null);
+  const assetDownloadButtonRef = useRef<HTMLButtonElement>(null);
   /** blob: للمعاينة الفورية قبل اكتمال الرفع — يُحرَّر عند الاستبدال أو إلغاء التثبيت */
   const optimisticPreviewUrlsRef = useRef<Map<string, string>>(new Map());
   const recentlyCreatedPreviewFoldersRef = useRef<Map<string, PreviewPhotoFolderEntry>>(new Map());
@@ -990,6 +1025,19 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (typeof window === "undefined") return true;
     return readMvWorkflowSessionJson(MV_WORKFLOW_SESSION.assetImageFiles(projectId)) == null;
   });
+  const [assetImageListProgress, setAssetImageListProgress] = useState<AssetImageListProgress>({
+    active: false,
+    loaded: 0,
+    total: 0,
+    partial: false,
+  });
+  const assetFilesLoadIdRef = useRef(0);
+  const assetFilesAbortRef = useRef<AbortController | null>(null);
+  const assetFilesLoadingRef = useRef(false);
+  const assetFilesQueuedRefreshRef = useRef(false);
+  const loadImagesRef = useRef<((mode?: "full" | "revalidate") => Promise<void>) | null>(null);
+  const filesRef = useRef(files);
+  filesRef.current = files;
   const [dragging, setDragging] = useState(false);
   const [selectedPath, setSelectedPath] = useState("");
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set([""]));
@@ -1088,44 +1136,160 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, []);
 
   const loadImages = useCallback(async (mode: "full" | "revalidate" = "full") => {
+    if (mode === "revalidate" && assetFilesLoadingRef.current) {
+      assetFilesQueuedRefreshRef.current = true;
+      return;
+    }
+    assetFilesLoadingRef.current = true;
     const cacheKey = MV_WORKFLOW_SESSION.assetImageFiles(projectId);
     const cached = readMvWorkflowSessionJson<{ rows: MvDriveFile[] }>(cacheKey);
-    let blockListSpinner = false;
+    const cachedRows = cached?.rows && Array.isArray(cached.rows) ? cached.rows : [];
+    const myLoadId = ++assetFilesLoadIdRef.current;
+    const baselineServerRows = filesRef.current.filter((file) => !isLocalPreviewDriveId(file._id));
+    assetFilesAbortRef.current?.abort();
+    const controller = new AbortController();
+    assetFilesAbortRef.current = controller;
+
     if (mode === "full") {
-      if (cached?.rows && Array.isArray(cached.rows)) {
+      if (cachedRows.length > 0) {
         setFiles((prev) =>
-          mergeServerListWithStillPendingLocals(cached.rows, prev.filter((f) => isLocalPreviewDriveId(f._id))),
+          mergeServerListWithStillPendingLocals(cachedRows, prev.filter((f) => isLocalPreviewDriveId(f._id))),
         );
+        setLoading(false);
       } else {
-        blockListSpinner = true;
         setLoading(true);
       }
     }
+
+    setAssetImageListProgress({
+      active: true,
+      loaded: cachedRows.length,
+      total: 0,
+      partial: false,
+    });
+
+    const serverRows: MvDriveFile[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let cursor = "0";
+    let firstPage = true;
+    let knownTotal = 0;
+    let completedAllPages = false;
+
     try {
-      const response = await fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        if (mode === "full") setFiles((prev) => prev.filter((f) => !isLocalPreviewDriveId(f._id)));
-        return;
+      while (!seenCursors.has(cursor)) {
+        seenCursors.add(cursor);
+        const limit = firstPage ? 80 : 250;
+        const params = new URLSearchParams({ cursor, limit: String(limit) });
+        const payload = await mvFetchJson<AssetImageFilesPage | MvDriveFile[]>(
+          `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files?${params.toString()}`,
+          { signal: controller.signal },
+          {
+            cacheKey: mode === "full" ? `asset-image-files-page:${projectId}:${cursor}:${limit}` : undefined,
+            cacheTtlMs: 2_000,
+            retries: 1,
+            retryBaseMs: 650,
+            timeoutMs: firstPage ? 12_000 : 18_000,
+            trackLoading: false,
+          },
+        );
+        if (myLoadId !== assetFilesLoadIdRef.current) return;
+
+        const page: AssetImageFilesPage = Array.isArray(payload)
+          ? {
+              items: payload,
+              nextCursor: null,
+              hasMore: false,
+              total: payload.length,
+            }
+          : {
+              items: Array.isArray(payload.items) ? payload.items : [],
+              nextCursor: typeof payload.nextCursor === "string" ? payload.nextCursor : null,
+              hasMore: payload.hasMore === true,
+              total: Number.isFinite(payload.total) ? Math.max(0, payload.total) : 0,
+            };
+
+        for (const row of page.items) {
+          if (!row?._id || seenIds.has(row._id)) continue;
+          seenIds.add(row._id);
+          serverRows.push(row);
+        }
+        knownTotal = Math.max(knownTotal, page.total, serverRows.length);
+
+        const pageComplete = !page.hasMore || !page.nextCursor;
+        setFiles((previous) =>
+          mergeServerListWithStillPendingLocals(
+            serverRows,
+            [
+              ...previous.filter((file) => isLocalPreviewDriveId(file._id)),
+              ...(pageComplete ? [] : baselineServerRows),
+            ],
+          ),
+        );
+        if (firstPage) setLoading(false);
+        setAssetImageListProgress({
+          active: page.hasMore && Boolean(page.nextCursor),
+          loaded: serverRows.length,
+          total: knownTotal,
+          partial: false,
+        });
+
+        // نخزن عينة أولية صغيرة فقط حتى لا يجمّد JSON.stringify المتصفح مع آلاف الصور.
+        if (pageComplete || (firstPage && cachedRows.length === 0)) {
+          writeMvWorkflowSessionJson(cacheKey, { rows: serverRows.slice(0, 500) });
+        }
+
+        firstPage = false;
+        if (pageComplete) {
+          completedAllPages = true;
+          break;
+        }
+        cursor = page.nextCursor!;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 35));
       }
-      const rows = (await response.json()) as MvDriveFile[];
-      setFiles((prev) =>
-        mergeServerListWithStillPendingLocals(rows, prev.filter((f) => isLocalPreviewDriveId(f._id))),
-      );
-      writeMvWorkflowSessionJson(cacheKey, { rows });
+      if (!completedAllPages) throw new Error("asset_image_pagination_incomplete");
+      if (myLoadId === assetFilesLoadIdRef.current) {
+        setAssetImageListProgress({
+          active: false,
+          loaded: serverRows.length,
+          total: Math.max(knownTotal, serverRows.length),
+          partial: false,
+        });
+      }
+    } catch {
+      if (myLoadId !== assetFilesLoadIdRef.current) return;
+      // نحافظ على الدفعات المكتملة أو نسخة الجلسة؛ لا نرفع خطأ غير معالج للمتصفح.
+      setAssetImageListProgress({
+        active: false,
+        loaded: serverRows.length || cachedRows.length,
+        total: Math.max(knownTotal, serverRows.length, cachedRows.length),
+        partial: true,
+      });
     } finally {
-      if (blockListSpinner) setLoading(false);
+      if (myLoadId === assetFilesLoadIdRef.current) {
+        setLoading(false);
+        assetFilesLoadingRef.current = false;
+        if (assetFilesAbortRef.current === controller) assetFilesAbortRef.current = null;
+        if (assetFilesQueuedRefreshRef.current) {
+          assetFilesQueuedRefreshRef.current = false;
+          window.setTimeout(() => void loadImagesRef.current?.("revalidate"), 180);
+        }
+      }
     }
   }, [projectId]);
+  loadImagesRef.current = loadImages;
 
   const loadReportSettings = useCallback(async () => {
     try {
-      const response = await fetch(`/api/mv/projects/${projectId}`, {
-        credentials: "include",
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as { project?: MvProject };
+      const data = await mvFetchJson<{ project?: MvProject }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز إعدادات المشروع…",
+        },
+      );
       const nextReportData = data.project?.reportData ?? {};
       setReportData({ ...nextReportData, includeAssetImages: nextReportData.includeAssetImages !== false });
       setIncludeAssetImagesInReport(nextReportData.includeAssetImages !== false);
@@ -1163,16 +1327,18 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       }
     }
     try {
-      const res = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
-        credentials: "include",
-      });
-      if (!res.ok) {
-        setPreviewPhotoFolders([]);
-        setPhotosRootId(null);
-        writeMvWorkflowSessionJson(cacheKey, { photosRootId: null, entries: [] });
-        return;
-      }
-      const data = (await res.json()) as { subProjects?: MvSubProject[] };
+      const data = await mvFetchJson<{ subProjects?: MvSubProject[] }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: mode === "full" ? `project-summary:${projectId}` : undefined,
+          cacheTtlMs: 12_000,
+          retries: 1,
+          timeoutMs: 15_000,
+          trackLoading: false,
+        },
+      );
+      if (previewFoldersLoadIdRef.current !== myLoadId) return;
       const { previewRoot, entries: baseEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []);
       if (!previewRoot) {
         setPhotosRootId(null);
@@ -1237,20 +1403,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           prioritySubIds: priorityIds,
           isCancelled: () => previewFoldersLoadIdRef.current !== myLoadId,
           shouldSkip: (entry) => entryHasFullPicAssetMedia(entry.picAsset),
-          onUpdate: (subId, next) => {
+          onBatchUpdate: (updates) => {
             if (previewFoldersLoadIdRef.current !== myLoadId) return;
-            setPreviewPhotoFolders((prev) => {
-              const merged = prev.map((e) =>
-                e.sub._id === subId
-                  ? { sub: next.sub, picAsset: mergePicAssetPreferFull(e.picAsset, next.picAsset) }
-                  : e,
-              );
-              writeMvWorkflowSessionJson(cacheKey, {
-                photosRootId: previewRoot._id,
-                entries: merged,
-              });
-              return merged;
-            });
+            const byId = new Map(updates.map((update) => [update.subId, update.next]));
+            setPreviewPhotoFolders((prev) =>
+              prev.map((entry) => {
+                const next = byId.get(entry.sub._id);
+                return next
+                  ? { sub: next.sub, picAsset: mergePicAssetPreferFull(entry.picAsset, next.picAsset) }
+                  : entry;
+              }),
+            );
           },
           onComplete: () => {
             if (previewFoldersLoadIdRef.current !== myLoadId) return;
@@ -1272,7 +1435,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return next;
       });
     } catch {
-      if (mode === "full") {
+      if (mode === "full" && !(cached?.entries && Array.isArray(cached.entries))) {
         setPreviewPhotoFolders([]);
         setPhotosRootId(null);
       }
@@ -1293,11 +1456,19 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }
 
     try {
-      const response = await fetch(`/api/assets/imports?projectId=${encodeURIComponent(projectId)}`, {
-        credentials: "include",
-      });
-      if (!response.ok) return;
-      const persisted = normalizeImportResult((await response.json()) as AssetImportResult);
+      const persisted = normalizeImportResult(
+        await mvFetchJson<AssetImportResult>(
+          `/api/assets/imports?projectId=${encodeURIComponent(projectId)}`,
+          {},
+          {
+            cacheKey: `asset-import-summary:${projectId}`,
+            cacheTtlMs: 3_000,
+            retries: 1,
+            timeoutMs: 12_000,
+            trackLoading: false,
+          },
+        ),
+      );
       const next = persisted.projectId === projectId && persisted.summary.sheets.length > 0 ? persisted : null;
       applyAssetImportResult(next);
       if (typeof window !== "undefined") {
@@ -1332,6 +1503,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     void loadAssetImportSummary();
     return () => {
       window.clearTimeout(imageLoadTimer);
+      assetFilesLoadIdRef.current += 1;
+      assetFilesAbortRef.current?.abort();
+      assetFilesAbortRef.current = null;
+      assetFilesLoadingRef.current = false;
+      assetFilesQueuedRefreshRef.current = false;
       previewHydrateCancelRef.current?.();
     };
   }, [loadAssetImportSummary, loadImages, loadPreviewPhotoFolders, loadReportSettings]);
@@ -1340,7 +1516,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (!selectedPreviewFolderId || selectedPreviewFolderId === "__pv_root__") return;
     let cancelled = false;
     void (async () => {
-      const row = await fetchPicAssetDetail(projectId, selectedPreviewFolderId);
+      const row = await fetchPicAssetDetail(projectId, selectedPreviewFolderId).catch(() => null);
       if (cancelled || !row?.picAsset) return;
       setPreviewPhotoFolders((prev) => {
         const entry = prev.find((e) => e.sub._id === selectedPreviewFolderId);
@@ -1498,6 +1674,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const awaitingInitialListFetch = loading && files.length === 0;
+  const assetImageListPercent = assetImageListProgress.total > 0
+    ? Math.min(100, Math.round((assetImageListProgress.loaded / assetImageListProgress.total) * 100))
+    : 4;
 
   const driveFilesForUploadTree = useMemo(() => files.filter((f) => !f.picAssetId), [files]);
   const { root, foldersByPath } = useMemo(
@@ -1505,37 +1684,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     [driveFilesForUploadTree],
   );
   const selectedFolder = foldersByPath.get(selectedPath) ?? root;
-
-  const { previewRoot: legacyPreviewRoot, previewFoldersById: legacyPreviewFoldersById } = useMemo(() => {
-    const fb = new Map<string, ImageFolderNode>([["__pv_root__", createFolderNode("معاينة الصور", "__pv_root__")]]);
-    const rootNode = fb.get("__pv_root__")!;
-    for (const row of previewPhotoFolders) {
-      const id = row.sub._id;
-      const node = createFolderNode(row.sub.name, id);
-      node.images = files
-        .filter((f) => f.picAssetId === id)
-        .slice()
-        .sort((a, b) => {
-          const oa = typeof a.displayOrder === "number" ? a.displayOrder : null;
-          const ob = typeof b.displayOrder === "number" ? b.displayOrder : null;
-          if (oa !== null && ob !== null && oa !== ob) return oa - ob;
-          if (oa !== null && ob === null) return -1;
-          if (oa === null && ob !== null) return 1;
-          return fileNameFromPath(a.relativePath || a.name).localeCompare(
-            fileNameFromPath(b.relativePath || b.name),
-            "ar",
-          );
-        });
-      node.imageCount = node.images.length;
-      node.videoCount = 0;
-      fb.set(id, node);
-      rootNode.folders.push(node);
+  const filesByPicAssetId = useMemo(() => {
+    const grouped = new Map<string, MvDriveFile[]>();
+    for (const file of files) {
+      const key = file.picAssetId?.trim();
+      if (!key) continue;
+      const current = grouped.get(key);
+      if (current) current.push(file);
+      else grouped.set(key, [file]);
     }
-    rootNode.folders.sort((a, b) => a.name.localeCompare(b.name, "ar"));
-    rootNode.imageCount = rootNode.folders.reduce((s, f) => s + f.imageCount, 0);
-    rootNode.videoCount = rootNode.folders.reduce((s, f) => s + f.videoCount, 0);
-    return { previewRoot: rootNode, previewFoldersById: fb };
-  }, [previewPhotoFolders, files]);
+    return grouped;
+  }, [files]);
 
   const { previewRoot, previewFoldersById } = useMemo(() => {
     const fb = new Map<string, ImageFolderNode>();
@@ -1570,11 +1729,21 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       node.sheetName = row.picAsset?.sheetName ?? null;
       /** نفس منطق «صور المعاينة»: كل ملف مرتبط بـ picAssetId يظهر في المجلد */
       const assetFileRowsAll = picAssetId
-        ? files.filter((f) => f.picAssetId === picAssetId || f.picAssetId === id)
+        ? Array.from(
+            new Map(
+              [...(filesByPicAssetId.get(picAssetId) ?? []), ...(filesByPicAssetId.get(id) ?? [])]
+                .map((file) => [file._id, file]),
+            ).values(),
+          )
         : [];
       const assetImageRows = assetFileRowsAll.filter((f) => !isMvDriveFileVideo(f));
       const assetVideoRows = assetFileRowsAll.filter((f) => isMvDriveFileVideo(f));
       const assetFileIds = new Set(assetFileRowsAll.map((file) => file._id));
+      const assetSourceUrls = new Set(
+        assetFileRowsAll
+          .map((file) => file.sourceUrl?.trim())
+          .filter((url): url is string => Boolean(url)),
+      );
       const assetFileOrders = new Set(
         assetFileRowsAll
           .map((file) => file.displayOrder)
@@ -1605,12 +1774,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             if (!file) return false;
             if (assetFileIds.has(file.downloadFileId ?? file._id)) return false;
             const u = file.sourceUrl?.trim();
-            if (
-              u &&
-              assetFileRowsAll.some(
-                (r) => typeof r.sourceUrl === "string" && r.sourceUrl.trim() === u,
-              )
-            ) {
+            if (u && assetSourceUrls.has(u)) {
               return false;
             }
             return typeof file.displayOrder !== "number" || !assetFileOrders.has(file.displayOrder);
@@ -1692,11 +1856,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       }
       node.imageCount = node.images.length + node.folders.reduce((sum, folder) => sum + folder.imageCount, 0);
       node.videoCount = node.videos.length + node.folders.reduce((sum, folder) => sum + folder.videoCount, 0);
+      node.includedImageCount =
+        node.images.filter(isReportImageIncluded).length +
+        node.folders.reduce((sum, folder) => sum + folder.includedImageCount, 0);
+      node.includedVideoCount =
+        node.videos.filter(isReportImageIncluded).length +
+        node.folders.reduce((sum, folder) => sum + folder.includedVideoCount, 0);
     };
 
     sortAndCount(rootNode);
     return { previewRoot: rootNode, previewFoldersById: fb };
-  }, [files, previewPhotoFolders, projectId]);
+  }, [filesByPicAssetId, previewPhotoFolders, projectId]);
 
   const previewRowsById = useMemo(
     () => new Map(previewPhotoFolders.map((row) => [row.sub._id, row])),
@@ -1775,6 +1945,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const activeParentBreadcrumbNode =
     activeBreadcrumbNodes.length > 1 ? activeBreadcrumbNodes[activeBreadcrumbNodes.length - 2] : null;
   const assetSearchRows = useMemo<AssetImagesSearchResult[]>(() => {
+    if (!assetSearchOpen && !appliedAssetSearch) return [];
     const rows: AssetImagesSearchResult[] = [];
     const compactChips = (chips: Array<string | null | undefined | false>) =>
       chips.filter((chip): chip is string => Boolean(chip && chip.trim()));
@@ -1889,7 +2060,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
     visit(previewRoot, [previewRoot.name], ["__pv_root__"], false);
     return rows;
-  }, [previewRoot]);
+  }, [appliedAssetSearch, assetSearchOpen, previewRoot]);
   const assetSearchStats = useMemo(
     () => ({
       folders: assetSearchRows.filter((row) => row.kind === "folder").length,
@@ -4257,10 +4428,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const hasChildren = node.folders.length > 0 || leafFiles.length > 0;
     const expanded = expandedPreviewIds.has(node.path);
     const active = selectedPreviewFolderId === node.path && appPreviewMediaTab === treeMedia;
-    const folderFiles = treeMedia === "videos" ? collectFolderVideos(node) : collectFolderImages(node);
-    const selectableFiles = folderFiles;
-    const selected = selectableFiles.length > 0 && selectableFiles.every(isReportImageIncluded);
-    const partiallySelected = !selected && selectableFiles.some(isReportImageIncluded);
+    const totalSelectable = treeMedia === "videos" ? node.videoCount : node.imageCount;
+    const includedSelectable = treeMedia === "videos" ? node.includedVideoCount : node.includedImageCount;
+    const selected = totalSelectable > 0 && includedSelectable === totalSelectable;
+    const partiallySelected = includedSelectable > 0 && includedSelectable < totalSelectable;
     const countLabel =
       treeMedia === "videos" ? numberFormatter.format(node.videoCount) : previewFolderStatsLabel(node);
     const kindLabel = previewFolderKindLabel(node);
@@ -4535,10 +4706,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           تحديث
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            window.location.href = `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files/download`;
-          }}
+          onSelect={() => assetDownloadButtonRef.current?.click()}
           className="cursor-pointer text-[12px]"
         >
           <Download className="h-4 w-4 text-emerald-700" />
@@ -4635,9 +4803,57 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           { label: "تحديد صور الأصول" },
         ]}
       />
+      <MvAssetImagesDownloadButton
+        projectId={projectId}
+        buttonRef={assetDownloadButtonRef}
+        className="hidden"
+      >
+        <span>تنزيل صور الأصول</span>
+      </MvAssetImagesDownloadButton>
 
       <MvWorkflowPageScrollBody>
       <div className="mx-auto max-w-7xl px-3 pt-1 pb-2 sm:px-5">
+          {assetImageListProgress.active || assetImageListProgress.partial ? (
+            <div className="mt-1 mb-2 overflow-hidden rounded-lg border border-sky-100 bg-white shadow-sm" role="status" aria-live="polite">
+              <div className="h-1 bg-sky-50">
+                <div
+                  className={cn(
+                    "h-full bg-gradient-to-l from-sky-400 to-[#0C447C] transition-[width] duration-500",
+                    assetImageListProgress.active && "animate-pulse",
+                  )}
+                  style={{ width: `${assetImageListPercent}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px]">
+                <span className="flex items-center gap-2 font-semibold text-slate-700">
+                  {assetImageListProgress.active ? <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-700" /> : <RefreshCw className="h-3.5 w-3.5 text-sky-700" />}
+                  {assetImageListProgress.active
+                    ? assetImageListProgress.total > 0
+                      ? "تم عرض الدفعة الأولى، ويجري استكمال بقية الصور في الخلفية"
+                      : "جارٍ تحميل الدفعة الأولى من صور الأصول"
+                    : "تم الاحتفاظ بالصور المحمّلة ويمكن استكمال بقية البيانات"}
+                </span>
+                <span className="flex items-center gap-2">
+                  {assetImageListProgress.total > 0 ? (
+                    <b className="tabular-nums text-[#0C447C]">
+                      {numberFormatter.format(assetImageListProgress.loaded)} / {numberFormatter.format(assetImageListProgress.total)}
+                    </b>
+                  ) : null}
+                  {assetImageListProgress.partial ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[10px] font-bold text-[#0C447C]"
+                      onClick={() => void loadImages("revalidate")}
+                    >
+                      استكمال الآن
+                    </Button>
+                  ) : null}
+                </span>
+              </div>
+            </div>
+          ) : null}
           <section className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="m-0">
               <input

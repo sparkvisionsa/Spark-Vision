@@ -1,9 +1,19 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 
 type MvInPageNavigationValue = {
   currentPath: string;
+  isNavigating: boolean;
   navigate: (nextPath: string) => void;
   isMachineValuationPath: (path: string) => boolean;
 };
@@ -32,6 +42,22 @@ export function MvInPageNavigationProvider({
   children: ReactNode;
 }) {
   const [currentPath, setCurrentPath] = useState(() => normalizePath(initialPath));
+  const [isNavigating, startNavigation] = useTransition();
+
+  useEffect(() => {
+    const normalized = normalizePath(initialPath);
+    setCurrentPath((current) => (current === normalized ? current : normalized));
+  }, [initialPath]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const next = normalizePath(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+      if (!next.startsWith("/machine-valuation")) return;
+      startNavigation(() => setCurrentPath(next));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const isMachineValuationPath = useCallback((path: string) => {
     return normalizePath(path).startsWith("/machine-valuation");
@@ -40,12 +66,16 @@ export function MvInPageNavigationProvider({
   const navigate = useCallback((nextPath: string) => {
     const normalized = normalizePath(nextPath);
     if (!normalized.startsWith("/machine-valuation")) return;
-    setCurrentPath(normalized);
+    if (typeof window !== "undefined") {
+      const currentBrowserPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentBrowserPath !== normalized) window.history.pushState({}, "", normalized);
+    }
+    startNavigation(() => setCurrentPath(normalized));
   }, []);
 
   const value = useMemo<MvInPageNavigationValue>(
-    () => ({ currentPath, navigate, isMachineValuationPath }),
-    [currentPath, navigate, isMachineValuationPath],
+    () => ({ currentPath, isNavigating, navigate, isMachineValuationPath }),
+    [currentPath, isNavigating, navigate, isMachineValuationPath],
   );
 
   return (

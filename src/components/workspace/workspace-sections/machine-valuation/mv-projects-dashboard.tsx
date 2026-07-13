@@ -1,7 +1,7 @@
 "use client";
 
 import { Tajawal } from "next/font/google";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownWideNarrow,
   Check,
@@ -74,13 +74,15 @@ import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
 import { prefetchMvLocationCatalog } from "./use-mv-location-catalog";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
+import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import {
   MV_ALL_LOCATIONS_VALUE,
   MvLocationMultiSelect,
   mvLocationId,
   mvLocationSelectionSummary,
 } from "./mv-location-multi-select";
-import { MvEmptyState, MvTopBar } from "./mv-ui";
+import { MvEmptyState, MvErrorState, MvTopBar } from "./mv-ui";
+import { MvApiError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import {
   MV_PROJECT_WORKFLOW_STATUS_FALLBACK,
   MvProjectWorkflowStatusSelect,
@@ -202,7 +204,9 @@ function ProjectActionsMenu({
   onDownloadFinalReport: (project: MvProject) => void;
   onDelete: (projectId: string) => void;
 }) {
+  const assetDownloadButtonRef = useRef<HTMLButtonElement>(null);
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
@@ -225,9 +229,7 @@ function ProjectActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
-          onSelect={() => {
-            window.location.href = `/api/mv/projects/${encodeURIComponent(project._id)}/asset-image-files/download`;
-          }}
+          onSelect={() => assetDownloadButtonRef.current?.click()}
         >
           <FileDown className="h-4 w-4 shrink-0 text-emerald-700" />
           تنزيل صور الأصول
@@ -248,6 +250,14 @@ function ProjectActionsMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <MvAssetImagesDownloadButton
+      projectId={project._id}
+      buttonRef={assetDownloadButtonRef}
+      className="hidden"
+    >
+      <span>تنزيل صور الأصول</span>
+    </MvAssetImagesDownloadButton>
+    </>
   );
 }
 
@@ -1026,6 +1036,7 @@ export default function MvProjectsDashboard() {
   const { user, csrfToken, loading: authLoading } = useAuthTracking();
   const [projects, setProjects] = useState<MvProject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<CompanyOptionRow[]>([]);
@@ -1095,8 +1106,20 @@ export default function MvProjectsDashboard() {
   const fetchProjects = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/mv/projects", { credentials: "include" });
-      if (response.status === 401) {
+      setLoadError(null);
+      const rows = await mvFetchJson<MvProject[]>(
+        "/api/mv/projects",
+        {},
+        {
+          cacheKey: "projects:list",
+          cacheTtlMs: 750,
+          trackLoading: true,
+          loadingLabel: "جارٍ تحميل المشاريع…",
+        },
+      );
+      setProjects(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      if (error instanceof MvApiError && error.status === 401) {
         setProjects([]);
         toast({
           variant: "destructive",
@@ -1104,18 +1127,14 @@ export default function MvProjectsDashboard() {
         });
         return;
       }
-      if (response.status === 403) {
-        await response.json().catch(() => undefined);
+      if (error instanceof MvApiError && error.status === 403) {
         setProjects([]);
         return;
       }
-      if (!response.ok) {
-        throw new Error();
-      }
-      setProjects((await response.json()) as MvProject[]);
-    } catch {
       setProjects([]);
-      toast({ variant: "destructive", description: "تعذّر تحميل قائمة المشاريع." });
+      const message = mvErrorMessage(error, "تعذّر تحميل قائمة المشاريع.");
+      setLoadError(message);
+      toast({ variant: "destructive", description: message });
     } finally {
       setLoading(false);
     }
@@ -1163,9 +1182,12 @@ export default function MvProjectsDashboard() {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch("/api/mv/project-workflow-statuses", { credentials: "include" });
-        if (!response.ok || cancelled) return;
-        const rows = (await response.json()) as MvProjectWorkflowStatusOption[];
+        const rows = await mvFetchJson<MvProjectWorkflowStatusOption[]>(
+          "/api/mv/project-workflow-statuses",
+          {},
+          { cacheKey: "project-workflow-statuses", cacheTtlMs: 60_000 },
+        );
+        if (cancelled) return;
         if (!cancelled && Array.isArray(rows) && rows.length > 0) {
           setWorkflowStatusOptions(rows);
         }
@@ -1706,6 +1728,13 @@ export default function MvProjectsDashboard() {
                 </div>
               ))}
             </div>
+          ) : loadError ? (
+            <MvErrorState
+              compact
+              title="تعذر تحميل المشاريع"
+              description={loadError}
+              onRetry={() => void fetchProjects()}
+            />
           ) : needsCompanyMembership ? (
             <div className="py-6">
               <MvEmptyState title="الحساب غير مرتبط بشركة." />

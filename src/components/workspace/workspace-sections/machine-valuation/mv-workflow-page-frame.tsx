@@ -17,7 +17,7 @@ export function MvWorkflowPageFrame({
   dir?: "rtl" | "ltr";
 }) {
   return (
-    <div dir={dir} className={cn("flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden", className)}>
+    <div dir={dir} className={cn("mv-page-frame flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden", className)}>
       {children}
     </div>
   );
@@ -29,7 +29,7 @@ export function MvWorkflowPageScrollBody({
   ...rest
 }: { children: React.ReactNode; className?: string } & Omit<ComponentProps<"div">, "children" | "className">) {
   return (
-    <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain", className)} {...rest}>
+    <div className={cn("mv-scroll-region min-h-0 flex-1 overflow-y-auto overscroll-contain", className)} {...rest}>
       {children}
     </div>
   );

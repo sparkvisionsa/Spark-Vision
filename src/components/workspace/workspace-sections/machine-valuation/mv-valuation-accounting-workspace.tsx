@@ -89,6 +89,7 @@ import {
 import { uploadProjectFileAndReturnId } from "./mv-project-gridfs-upload";
 import { writeReportSlice, type MvValuationReportSlice } from "./mv-valuation-report-slice";
 import type { MvProject, MvProjectReportData } from "./types";
+import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
 
 const EXCEL_ACCEPT =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv";
@@ -2819,6 +2820,7 @@ export default function MvValuationAccountingWorkspace({
   const [previewEnhanceBrightness, setPreviewEnhanceBrightness] = useState(1.03);
   const [previewEnhanceBusy, setPreviewEnhanceBusy] = useState(false);
   const [previewSaving, setPreviewSaving] = useState(false);
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
 
   type CropHandle = "move" | "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
   const cropDragRef = useRef<{
@@ -2976,13 +2978,21 @@ export default function MvValuationAccountingWorkspace({
   }, [flushAccountingWorkspaceToServer, projectId, toast]);
 
   const loadProject = useCallback(async () => {
+    setProjectLoadError(null);
     try {
-      const res = await fetch(`/api/mv/projects/${projectId}`, { credentials: "include" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { project?: MvProject };
+      const data = await mvFetchJson<{ project?: MvProject }>(
+        `/api/mv/projects/${projectId}?picAssetMode=summary`,
+        {},
+        {
+          cacheKey: `project-summary:${projectId}`,
+          cacheTtlMs: 12_000,
+          loadingLabel: "جارٍ تجهيز مساحة التقييم…",
+        },
+      );
       setProject(data.project ?? null);
-    } catch {
+    } catch (error) {
       setProject(null);
+      setProjectLoadError(mvErrorMessage(error, "تعذر مزامنة بيانات المشروع."));
     }
   }, [projectId]);
 
@@ -4446,6 +4456,20 @@ export default function MvValuationAccountingWorkspace({
           { label: "إجراءات التقييم" },
         ]}
       />
+
+      {projectLoadError ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[11px] font-bold text-amber-900">
+          <span>تعذر الاتصال بالمشروع؛ يمكنك متابعة العمل محليًا. {projectLoadError}</span>
+          <button
+            type="button"
+            onClick={() => void loadProject()}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 text-amber-900 hover:bg-amber-100"
+          >
+            <RefreshCw className="h-3 w-3" />
+            إعادة الاتصال
+          </button>
+        </div>
+      ) : null}
 
       <div className="shrink-0 border-b border-slate-200 bg-white/95">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3">

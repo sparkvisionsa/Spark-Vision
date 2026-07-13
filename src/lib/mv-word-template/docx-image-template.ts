@@ -44,16 +44,34 @@ export function cloneImageRunTemplate(
     .replace(/"([A-Za-z_:][\w:.-]*=)/g, '" $1');
 }
 
+type ImageParagraphOptions = {
+  align?: "left" | "center" | "right";
+  leftIndentTwips?: number;
+  rightIndentTwips?: number;
+  startIndentTwips?: number;
+  endIndentTwips?: number;
+};
+
 export function buildImageParagraphFromTemplate(
   runTemplate: string,
   embedId: string,
   docPrId: number,
   cx: number,
   cy: number,
-  centered = true,
+  options: boolean | ImageParagraphOptions = true,
 ): string {
+  const opts: ImageParagraphOptions =
+    typeof options === "boolean" ? { align: options ? "center" : "left" } : options;
+  const { align = "center", leftIndentTwips, rightIndentTwips, startIndentTwips, endIndentTwips } = opts;
+  const indents =
+    leftIndentTwips !== undefined ||
+    rightIndentTwips !== undefined ||
+    startIndentTwips !== undefined ||
+    endIndentTwips !== undefined
+      ? `<w:ind${leftIndentTwips !== undefined ? ` w:left="${leftIndentTwips}"` : ""}${rightIndentTwips !== undefined ? ` w:right="${rightIndentTwips}"` : ""}${startIndentTwips !== undefined ? ` w:start="${startIndentTwips}"` : ""}${endIndentTwips !== undefined ? ` w:end="${endIndentTwips}"` : ""}/>`
+      : "";
+  const pPr = `<w:pPr><w:bidi/><w:jc w:val="${align}"/>${indents}</w:pPr>`;
   const run = cloneImageRunTemplate(runTemplate, embedId, docPrId, cx, cy);
-  const pPr = centered ? `<w:pPr><w:jc w:val="center"/><w:bidi/></w:pPr>` : `<w:pPr><w:bidi/></w:pPr>`;
   return `<w:p>${pPr}${run}</w:p>`;
 }
 
@@ -65,5 +83,5 @@ export function buildImageCellFromTemplate(
   cy: number,
 ): string {
   const run = cloneImageRunTemplate(runTemplate, embedId, docPrId, cx, cy);
-  return `<w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:bidi/></w:pPr>${run}</w:p></w:tc>`;
+  return `<w:tc><w:tcPr><w:tcW w:w="3000" w:type="dxa"/><w:tcMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tcMar></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:bidi/></w:pPr>${run}</w:p></w:tc>`;
 }

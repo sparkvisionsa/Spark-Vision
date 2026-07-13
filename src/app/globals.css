@@ -1175,3 +1175,139 @@ body.vt-products-hub-active {
     padding-top: 0.35rem;
   }
 }
+
+/* Machine valuation experience — scoped so the rest of Value Tech is unaffected. */
+.mv-system-scope {
+  --mv-navy: #0c447c;
+  --mv-navy-strong: #082f55;
+  --mv-cyan: #0891b2;
+  --mv-emerald: #08745d;
+  --mv-gold: #c99532;
+  --mv-surface: #ffffff;
+  --mv-surface-soft: #f7fafc;
+  --mv-border: #dbe4ec;
+  --mv-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+  font-family: "Tajawal", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "kern" 1, "liga" 1;
+  text-rendering: optimizeLegibility;
+}
+
+.mv-system-scope :where(button, a, input, textarea, select, [role="button"]) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mv-system-scope :where(button, a, [role="button"]) {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mv-system-scope :where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid rgba(8, 145, 178, 0.75);
+  outline-offset: 2px;
+}
+
+.mv-system-scope :where(input, textarea, select) {
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.mv-system-scope :where(input, textarea, select):focus {
+  border-color: rgba(8, 145, 178, 0.55);
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.1);
+}
+
+.mv-system-scope .mv-page-frame {
+  color: #172033;
+  background-color: transparent;
+}
+
+.mv-system-scope .mv-scroll-region {
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
+}
+
+.mv-system-scope * {
+  scrollbar-width: thin;
+  scrollbar-color: #aab9c7 transparent;
+}
+
+.mv-system-scope *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.mv-system-scope *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #aab9c7;
+  background-clip: padding-box;
+}
+
+.mv-system-scope *::-webkit-scrollbar-thumb:hover {
+  background-color: #8093a5;
+}
+
+@keyframes mv-route-progress {
+  0% { transform: translateX(170%); }
+  55% { transform: translateX(-35%); }
+  100% { transform: translateX(-250%); }
+}
+
+@keyframes mv-loader-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes mv-loader-orbit-reverse {
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes mv-loader-logo {
+  0%, 100% { transform: translateY(0) scale(0.98); filter: drop-shadow(0 8px 18px rgba(201, 150, 58, 0.16)); }
+  50% { transform: translateY(-4px) scale(1.025); filter: drop-shadow(0 12px 26px rgba(231, 194, 112, 0.32)); }
+}
+
+@keyframes mv-loader-halo {
+  0%, 100% { opacity: 0.45; transform: scale(0.88); }
+  50% { opacity: 0.95; transform: scale(1.08); }
+}
+
+@keyframes mv-loader-sheen {
+  0% { transform: translateX(250%); opacity: 0; }
+  18% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { transform: translateX(-250%); opacity: 0; }
+}
+
+.mv-machine-loader {
+  animation: mv-loader-overlay-in 180ms ease-out both;
+}
+
+@keyframes mv-loader-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mv-loader-orbit { animation: mv-loader-orbit 1.55s linear infinite; }
+.mv-loader-orbit-reverse { animation: mv-loader-orbit-reverse 2.4s linear infinite; }
+.mv-loader-logo { animation: mv-loader-logo 1.8s ease-in-out infinite; }
+.mv-loader-halo { animation: mv-loader-halo 2s ease-in-out infinite; }
+.mv-loader-sheen > span { animation: mv-loader-sheen 1.45s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-system-scope,
+  .mv-system-scope *,
+  .mv-system-scope *::before,
+  .mv-system-scope *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .mv-machine-loader *,
+  .mv-machine-loader *::before,
+  .mv-machine-loader *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

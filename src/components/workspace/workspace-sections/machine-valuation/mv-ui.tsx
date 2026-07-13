@@ -1,17 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   Circle,
   FileBarChart2,
   FolderKanban,
   Lock,
+  RefreshCw,
   Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { beginMvLoading } from "./mv-loading-state";
 
 export type MvAssetType = "vehicles" | "machinery" | "electronics" | "furniture" | "other";
 export type MvSaveState = "idle" | "saving" | "saved" | "error";
@@ -204,8 +207,8 @@ export function MvTopBar({
     <div
       className={cn(
         sticky
-          ? "sticky top-14 z-40 border-b bg-[var(--color-background-primary)]"
-          : "border-b bg-[var(--color-background-primary)]",
+          ? "sticky top-14 z-40 border-b border-slate-200/80 bg-white/90 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/75"
+          : "border-b border-slate-200/80 bg-white/90",
         className,
       )}
       style={{ borderColor: "var(--color-border-tertiary)" }}
@@ -214,7 +217,7 @@ export function MvTopBar({
         className={cn(
           "flex flex-wrap items-center justify-between",
           compact
-            ? "min-h-7 gap-1.5 px-2.5 py-0.5 md:min-h-7 md:py-0.5"
+            ? "min-h-9 gap-2 px-3 py-1.5 md:min-h-10 md:px-4"
             : "min-h-12 gap-3 px-5 py-2 md:py-0",
         )}
       >
@@ -238,13 +241,13 @@ export function MvTopBar({
                   </span>
                 ) : null}
                 {isLast || !segment.href ? (
-                  <span className="truncate font-medium" style={{ color: "var(--color-text-primary)" }}>
+                  <span className="truncate font-bold" style={{ color: "var(--color-text-primary)" }}>
                     {segment.label}
                   </span>
                 ) : (
                   <Link
                     href={segment.href}
-                    className="truncate transition-colors"
+                    className="truncate font-medium transition-colors hover:text-sky-800"
                     style={{ color: "var(--color-text-tertiary)" }}
                   >
                     {segment.label}
@@ -436,7 +439,7 @@ export function MvMetricCard({
   hint?: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-[var(--color-background-secondary)] p-4" style={{ borderColor: "var(--color-border-tertiary)" }}>
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
@@ -471,7 +474,7 @@ export function MvEmptyState({
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
       <div
-        className="flex h-12 w-12 items-center justify-center rounded-2xl border"
+        className="flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm"
         style={{
           borderColor: "var(--color-border-tertiary)",
           color: "var(--color-text-tertiary)",
@@ -481,7 +484,7 @@ export function MvEmptyState({
         {icon ?? <FolderKanban className="h-6 w-6" />}
       </div>
       <div className={description ? "space-y-1" : undefined}>
-        <h3 className="text-[14px] font-medium" style={{ color: "var(--color-text-primary)" }}>
+        <h3 className="text-[14px] font-bold" style={{ color: "var(--color-text-primary)" }}>
           {title}
         </h3>
         {description ? (
@@ -509,7 +512,7 @@ export function MvSectionHeader({
   return (
     <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between", className)}>
       <div className="space-y-1">
-        <h2 className="text-[14px] font-medium" style={{ color: "var(--color-text-primary)" }}>
+        <h2 className="text-[14px] font-bold" style={{ color: "var(--color-text-primary)" }}>
           {title}
         </h2>
         {description ? (
@@ -580,7 +583,7 @@ export function MvMiniPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border bg-white p-4 shadow-sm" style={{ borderColor: "var(--color-border-tertiary)" }}>
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-sky-200/80 hover:shadow-md">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           {icon ?? <FileBarChart2 className="h-4 w-4 text-[#378ADD]" />}
@@ -592,5 +595,76 @@ export function MvMiniPanel({
       </div>
       {children}
     </section>
+  );
+}
+
+export function MvPageLoading({
+  label = "جارٍ تحميل البيانات…",
+  compact = false,
+  className,
+}: {
+  label?: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  useEffect(() => beginMvLoading(label), [label]);
+
+  return (
+    <div
+      className={cn(
+        "w-full",
+        compact ? "min-h-24" : "min-h-[45vh]",
+        className,
+      )}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      dir="rtl"
+    >
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+export function MvErrorState({
+  title = "تعذر تحميل البيانات",
+  description = "تحقق من الاتصال ثم أعد المحاولة. لن تفقد أي بيانات محفوظة.",
+  onRetry,
+  action,
+  compact = false,
+  className,
+}: {
+  title?: string;
+  description?: string;
+  onRetry?: () => void;
+  action?: ReactNode;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn("mx-auto flex w-full max-w-xl items-center justify-center px-4", compact ? "py-6" : "py-12", className)} dir="rtl">
+      <div className="w-full rounded-2xl border border-red-200/70 bg-white p-5 text-center shadow-sm">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600">
+          <AlertTriangle className="h-5 w-5" />
+        </div>
+        <h2 className="mt-3 text-sm font-black text-slate-900">{title}</h2>
+        <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">{description}</p>
+        {onRetry || action ? (
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                إعادة المحاولة
+              </button>
+            ) : null}
+            {action}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
