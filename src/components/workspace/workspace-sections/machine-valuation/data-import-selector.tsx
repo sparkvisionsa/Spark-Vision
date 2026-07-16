@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { FileUp, Table2, ChevronDown } from "lucide-react";
 import {
   DropdownMenu,
@@ -8,21 +8,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
-
-const copy = {
-  en: {
-    label: "Add Asset Data",
-    importFile: "Import data (Excel / PDF / Word / Image)",
-    createSheet: "Add data manually",
-  },
-  ar: {
-    label: "إضافة بيانات",
-    importFile: "استيراد ملف (Excel / PDF / Word)",
-    createSheet: "جدول جديد",
-  },
-} as const;
+import { useMvI18n } from "./mv-i18n";
 
 interface DataImportSelectorProps {
   onSelectImport: () => void;
@@ -39,9 +26,13 @@ export default function DataImportSelector({
   onSelectCreate,
   labels,
 }: DataImportSelectorProps) {
-  const langCtx = useContext(LanguageContext);
-  const isArabic = langCtx?.language === "ar";
-  const t = { ...(isArabic ? copy.ar : copy.en), ...labels };
+  const { t, dir } = useMvI18n();
+  const copy = {
+    label: t("import.selector.label"),
+    importFile: t("import.selector.importFile"),
+    createSheet: t("import.selector.newSheet"),
+  };
+  const text = { ...copy, ...labels };
   const [open, setOpen] = useState(false);
 
   return (
@@ -49,6 +40,7 @@ export default function DataImportSelector({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          dir={dir}
           className={cn(
             "inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] font-semibold",
             "bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-500/15",
@@ -60,7 +52,7 @@ export default function DataImportSelector({
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white/15">
             <Table2 className="h-3.5 w-3.5" />
           </span>
-          {t.label}
+          {text.label}
           <ChevronDown
             className={cn(
               "h-3.5 w-3.5 opacity-90 transition-transform duration-200",
@@ -73,6 +65,7 @@ export default function DataImportSelector({
         align="start"
         className="w-[min(100vw-2rem,20rem)] rounded-lg border border-slate-200/90 p-1 shadow-lg"
       >
+        <div dir={dir}>
         <DropdownMenuItem
           onClick={onSelectImport}
           className={cn(
@@ -85,7 +78,7 @@ export default function DataImportSelector({
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-700 transition-colors group-data-[highlighted]:bg-sky-200/90">
             <FileUp className="h-3.5 w-3.5 text-sky-700" />
           </span>
-          <span className="min-w-0 leading-tight">{t.importFile}</span>
+          <span className="min-w-0 leading-tight">{text.importFile}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={onSelectCreate}
@@ -99,8 +92,9 @@ export default function DataImportSelector({
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-800 transition-colors group-data-[highlighted]:bg-emerald-200/90">
             <Table2 className="h-3.5 w-3.5 text-emerald-800" />
           </span>
-          <span className="min-w-0 leading-tight">{t.createSheet}</span>
+          <span className="min-w-0 leading-tight">{text.createSheet}</span>
         </DropdownMenuItem>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,17 +1,48 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import MvAssetDataWorkspace from "./mv-asset-data-workspace";
-import MvAssetImagesHub from "./mv-asset-images-hub";
-import MvAssetImagesLocalWorkspace from "./mv-asset-images-local-workspace";
-import MvAssetImagesSystemWorkspace from "./mv-asset-images-system-workspace";
-import { MV_MAIN_WORKFLOW_STEPS, type MvMainWorkflowSlug } from "./mv-main-workflow-model";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import type { MvProject } from "./types";
 import { isMvAbortError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
+import type { MvMainWorkflowSlug } from "./mv-main-workflow-model";
+import { useMvI18n } from "./mv-i18n";
+
+function MvWorkflowImportLoading() {
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("workflow.loading.import")} />;
+}
+
+function MvWorkflowAssetImagesLoading() {
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("workflow.loading.assetImages")} />;
+}
+
+function MvWorkflowLocalImagesLoading() {
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("workflow.loading.localImages")} />;
+}
+
+function MvWorkflowSystemImagesLoading() {
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("workflow.loading.systemImages")} />;
+}
+
+const MvAssetDataWorkspace = dynamic(() => import("./mv-asset-data-workspace"), {
+  loading: () => <MvWorkflowImportLoading />,
+});
+const MvAssetImagesHub = dynamic(() => import("./mv-asset-images-hub"), {
+  loading: () => <MvWorkflowAssetImagesLoading />,
+});
+const MvAssetImagesLocalWorkspace = dynamic(() => import("./mv-asset-images-local-workspace"), {
+  loading: () => <MvWorkflowLocalImagesLoading />,
+});
+const MvAssetImagesSystemWorkspace = dynamic(() => import("./mv-asset-images-system-workspace"), {
+  loading: () => <MvWorkflowSystemImagesLoading />,
+});
 
 interface MvWorkflowShellProps {
   projectId: string;
@@ -20,41 +51,8 @@ interface MvWorkflowShellProps {
   assetImagesSub?: "local" | "system" | null;
 }
 
-function WorkflowPlaceholder({
-  projectId,
-  projectName,
-  stepSlug,
-}: {
-  projectId: string;
-  projectName: string;
-  stepSlug: MvMainWorkflowSlug;
-}) {
-  const title = MV_MAIN_WORKFLOW_STEPS.find((step) => step.slug === stepSlug)?.label ?? stepSlug;
-
-  return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
-      <MvProjectReportHeader
-        compact
-        projectId={projectId}
-        activeStep={stepSlug === "asset-images" ? "asset-images" : "valuation-actions"}
-        breadcrumbs={[{ label: projectName }, { label: title }]}
-      />
-      <MvWorkflowPageScrollBody>
-        <div className="mx-auto max-w-3xl px-4 py-8">
-          <div className="rounded-2xl border border-slate-200/80 bg-white px-5 py-6 shadow-sm">
-            <h1 className="text-[15px] font-semibold text-slate-900">{title}</h1>
-            <p className="mt-2 text-[12px] leading-6 text-slate-600">
-              هذه الصفحة ستُحدَّث في المرحلة التالية حسب مسار العمل الجديد. تم إلغاء شريط الخطوات
-              القديم، وسيبقى الدخول إلى هذه الخطوة مباشرة من قائمة الإجراءات.
-            </p>
-          </div>
-        </div>
-      </MvWorkflowPageScrollBody>
-    </MvWorkflowPageFrame>
-  );
-}
-
 export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }: MvWorkflowShellProps) {
+  const { t, dir } = useMvI18n();
   const [project, setProject] = useState<MvProject | null>(() =>
     readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))?.project ?? null,
   );
@@ -76,7 +74,7 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
           cacheTtlMs: 12_000,
           retries: 1,
           timeoutMs: 15_000,
-          loadingLabel: "جارٍ تجهيز بيانات المشروع…",
+          loadingLabel: t("workflow.loading.projectData"),
         },
       );
       if (signal?.aborted) return;
@@ -92,11 +90,11 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
     } catch (error) {
       if (signal?.aborted || isMvAbortError(error)) return;
       setProject((current) => (current?._id === projectId ? current : null));
-      setProjectError(mvErrorMessage(error, "تعذر تحميل بيانات المشروع."));
+      setProjectError(mvErrorMessage(error, t("workflow.error.loadProjectData")));
     } finally {
       if (!signal?.aborted) setLoadingProject(false);
     }
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     if (stepSlug === "import") {
@@ -114,14 +112,14 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
   }
 
   if (loadingProject && !activeProject) {
-    return <MvPageLoading label="جارٍ تحميل المشروع ومرحلة العمل…" />;
+    return <MvPageLoading label={t("workflow.loading.project")} />;
   }
 
   if (!activeProject) {
     return (
       <MvErrorState
-        title="تعذر فتح المشروع"
-        description={projectError ?? "لم نتمكن من تحميل بيانات المشروع."}
+        title={t("workflow.error.openProject")}
+        description={projectError ?? t("workflow.error.loadProjectData")}
         onRetry={() => void loadProject()}
       />
     );
@@ -138,10 +136,23 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
   }
 
   return (
-    <WorkflowPlaceholder
-      projectId={projectId}
-      projectName={activeProject.name ?? projectId}
-      stepSlug={stepSlug}
-    />
+    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
+      <MvProjectReportHeader
+        compact
+        projectId={projectId}
+        activeStep="report-data"
+        breadcrumbs={[{ label: activeProject.name ?? projectId }]}
+      />
+      <MvWorkflowPageScrollBody>
+        <div className="mx-auto max-w-3xl px-4 py-8">
+          <div className="rounded-2xl border border-slate-200/80 bg-white px-5 py-6 shadow-sm">
+            <h1 className="text-[15px] font-semibold text-slate-900">{t("navigation.unavailablePath.title")}</h1>
+            <p className="mt-2 text-[12px] leading-6 text-slate-600">
+              {t("navigation.unavailablePath.body")}
+            </p>
+          </div>
+        </div>
+      </MvWorkflowPageScrollBody>
+    </MvWorkflowPageFrame>
   );
 }

@@ -11,47 +11,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 export type MvReportExportFormat = "pdf" | "pptx" | "docx" | "docx-template";
-
-const FORMAT_OPTIONS: Array<{
-  id: MvReportExportFormat;
-  label: string;
-  hint: string;
-  icon: typeof FileText;
-  iconClass: string;
-  requiresWordTemplate?: boolean;
-}> = [
-  {
-    id: "pdf",
-    label: "PDF",
-    hint: "تقرير جاهز للطباعة والمشاركة",
-    icon: Download,
-    iconClass: "text-[#0C447C]",
-  },
-  {
-    id: "pptx",
-    label: "PowerPoint",
-    hint: "عرض تقديمي — شريحة لكل صفحة",
-    icon: Presentation,
-    iconClass: "text-amber-700",
-  },
-  {
-    id: "docx",
-    label: "Word",
-    hint: "مستند قابل للتعديل",
-    icon: FileText,
-    iconClass: "text-sky-700",
-  },
-  {
-    id: "docx-template",
-    label: "Word — قالب الشركة",
-    hint: "دمج قالبك المرفوع مع بيانات المشروع",
-    icon: FileText,
-    iconClass: "text-emerald-700",
-    requiresWordTemplate: true,
-  },
-];
 
 export interface MvReportExportMenuProps {
   disabled?: boolean;
@@ -71,9 +33,50 @@ export function MvReportExportMenu({
   className,
   wordTemplateReady = false,
 }: MvReportExportMenuProps) {
+  const { t } = useMvI18n();
   const exporting = exportingFormat != null;
-  const activeOption = FORMAT_OPTIONS.find((opt) => opt.id === exportingFormat);
-  const visibleOptions = FORMAT_OPTIONS.filter((opt) => !opt.requiresWordTemplate || wordTemplateReady);
+
+  const formatOptions: Array<{
+    id: MvReportExportFormat;
+    label: string;
+    hint: string;
+    icon: typeof FileText;
+    iconClass: string;
+    requiresWordTemplate?: boolean;
+  }> = [
+    {
+      id: "pdf",
+      label: "PDF",
+      hint: t("report.exportMenu.pdfHint"),
+      icon: Download,
+      iconClass: "text-[#0C447C]",
+    },
+    {
+      id: "pptx",
+      label: "PowerPoint",
+      hint: t("report.exportMenu.pptxHint"),
+      icon: Presentation,
+      iconClass: "text-amber-700",
+    },
+    {
+      id: "docx",
+      label: "Word",
+      hint: t("report.exportMenu.docxHint"),
+      icon: FileText,
+      iconClass: "text-sky-700",
+    },
+    {
+      id: "docx-template",
+      label: t("report.exportMenu.docxTemplateLabel"),
+      hint: t("report.exportMenu.docxTemplateHint"),
+      icon: FileText,
+      iconClass: "text-emerald-700",
+      requiresWordTemplate: true,
+    },
+  ];
+
+  const activeOption = formatOptions.find((opt) => opt.id === exportingFormat);
+  const visibleOptions = formatOptions.filter((opt) => !opt.requiresWordTemplate || wordTemplateReady);
 
   return (
     <DropdownMenu modal={false}>
@@ -95,14 +98,16 @@ export function MvReportExportMenu({
             <Download className="h-3.5 w-3.5 shrink-0" />
           )}
           <span className="max-w-[7rem] truncate sm:max-w-none">
-            {exporting ? `تصدير ${activeOption?.label ?? ""}…` : "تصدير"}
+            {exporting
+              ? t("report.exportMenu.exporting", { format: activeOption?.label ?? "" })
+              : t("report.exportMenu.export")}
           </span>
           {!exporting ? <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-85" /> : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="z-[760] min-w-[12.5rem] rounded-xl p-1.5">
         <DropdownMenuLabel className="px-2 py-1 text-[10px] font-black text-slate-500">
-          اختر صيغة التصدير
+          {t("report.exportMenu.chooseFormat")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {visibleOptions.map((opt) => {

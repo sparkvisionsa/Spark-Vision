@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
+  
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import SmartGrid, { type CellChange } from "@/components/smart-grid/SmartGrid";
 import DataImportSelector from "./data-import-selector";
 import {
@@ -33,8 +34,9 @@ import { readActiveImportSheetRef, writeActiveImportSheetRef } from "./mv-asset-
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MvErrorState, MvPageLoading, MvTopBar } from "./mv-ui";
-import type { MvProject } from "./types";
+import type { MvProject } from "./types"
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n } from "./mv-i18n";
 
 const ACCEPTED_ASSET_FILES =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv,application/zip,application/octet-stream";
@@ -50,6 +52,7 @@ interface GridModalProps {
 }
 
 function GridModal({ open, onOpenChange, title, children }: GridModalProps) {
+  const { t, dir } = useMvI18n();
   const contentRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const cachedEl = useRef<HTMLElement | null>(null);
@@ -174,9 +177,9 @@ function GridModal({ open, onOpenChange, title, children }: GridModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0 [&>button:last-child]:!left-3 [&>button:last-child]:!top-2 [&>button:last-child]:!right-auto [&>button:last-child]:!z-[60] [&>button:last-child]:rounded-lg [&>button:last-child]:bg-slate-100 [&>button:last-child]:p-1.5"
-        dir="rtl"
+      <MvDialogContent
+        className="flex h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-0"
+        dir={dir}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
 
@@ -227,7 +230,7 @@ function GridModal({ open, onOpenChange, title, children }: GridModalProps) {
             ) : (
               <div className="flex h-full items-center justify-center gap-1.5 select-none">
                 <GripVertical className="h-3 w-3 text-slate-300" />
-                <span className="text-[9px] text-slate-300">⟷ تمرير أفقي</span>
+                <span className="text-[9px] text-slate-300">{t("import.assetData.horizontalScroll")}</span>
               </div>
             )}
           </div>
@@ -243,7 +246,7 @@ function GridModal({ open, onOpenChange, title, children }: GridModalProps) {
             <ChevronLeft className="h-4 w-4" />
           </button>
         </div>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }
@@ -253,6 +256,8 @@ interface MvAssetDataWorkspaceProps {
 }
 
 export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspaceProps) {
+  const { t, dir, isArabic } = useMvI18n();
+  const numberLocale = isArabic ? "ar-SA" : "en-US";
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const storageKey = `sv:asset-import:${projectId}`;
@@ -321,17 +326,17 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز بيانات الأصول…",
+          loadingLabel: t("import.assetData.loading"),
         },
       );
       setProject(data.project);
     } catch (error) {
       setProject(null);
-      setLoadError(mvErrorMessage(error, "تعذر تحميل مشروع استيراد الأصول."));
+      setLoadError(mvErrorMessage(error, t("import.assetData.loadFailed")));
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     void loadProject();
@@ -454,7 +459,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       });
       const text = await response.text();
       if (!response.ok) {
-        let msg = "تعذّر استيراد ملف الأصول.";
+        let msg = t("import.assetData.importFailed");
         try {
           const j = JSON.parse(text) as { message?: string | string[] };
           if (j?.message) msg = Array.isArray(j.message) ? j.message.join(" ") : String(j.message);
@@ -467,9 +472,9 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       importTouchedRef.current = true;
       setImportResult((prev) => mergeImportResults(prev, result));
       setRefreshToken((c) => c + 1);
-      toast({ description: "تم استيراد الأصول." });
+      toast({ description: t("import.success") });
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "تعذّر استيراد ملف الأصول.");
+      setUploadError(e instanceof Error ? e.message : t("import.assetData.importFailed"));
     } finally {
       setIsUploading(false);
     }
@@ -479,13 +484,13 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
     setUploadError("");
     setIsCreatingManual(true);
     try {
-      const headers = Array.from({ length: 10 }, (_, i) => `عمود${i + 1}`).join(",");
+      const headers = Array.from({ length: 10 }, (_, i) => t("import.assetData.defaultColumn", { n: i + 1 })).join(",");
       const placeholderRow = new Array(10).fill("-").join(",");
       const bom = "\uFEFF";
       const blob = new Blob([bom + [headers, placeholderRow].join("\n")], {
         type: "text/csv;charset=utf-8",
       });
-      const file = new File([blob], "إدخال يدوي.csv", { type: "text/csv" });
+      const file = new File([blob], `${t("import.assetData.manualEntry")}.csv`, { type: "text/csv" });
 
       const formData = new FormData();
       formData.append("file", file);
@@ -499,7 +504,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       });
       const text = await response.text();
       if (!response.ok) {
-        let msg = "تعذّر إنشاء الجدول.";
+        let msg = t("import.assetData.createSheetFailed");
         try {
           const j = JSON.parse(text) as { message?: string | string[] };
           if (j?.message) msg = Array.isArray(j.message) ? j.message.join(" ") : String(j.message);
@@ -535,7 +540,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       setManualGridOpen(true);
       setRefreshToken((c) => c + 1);
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "تعذّر إنشاء الجدول.");
+      setUploadError(e instanceof Error ? e.message : t("import.assetData.createSheetFailed"));
     } finally {
       setIsCreatingManual(false);
     }
@@ -545,7 +550,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
 
   const handleDeleteAll = async () => {
     if (!importResult) return;
-    if (!window.confirm("حذف جميع الشيتات والبيانات المرتبطة بها؟ لا يمكن التراجع.")) return;
+    if (!window.confirm(t("import.assetData.deleteAllConfirm"))) return;
     setIsDeletingAll(true);
     setUploadError("");
     try {
@@ -562,7 +567,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
         });
         if (!res.ok) {
           const text = await res.text();
-          let msg = `تعذّر حذف ورقة «${s.sheetName}».`;
+          let msg = t("import.assetData.deleteSheetFailed");
           try {
             const j = JSON.parse(text) as { message?: string | string[] };
             if (j.message) msg = Array.isArray(j.message) ? j.message.join(" ") : j.message;
@@ -575,9 +580,9 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       writeActiveImportSheetRef(projectId, null);
       setViewingSheet(null);
       setRefreshToken((c) => c + 1);
-      toast({ description: "تم حذف جميع الشيتات." });
+      toast({ description: t("import.deletedAllSheets") });
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "تعذّر حذف الشيتات.");
+      setUploadError(e instanceof Error ? e.message : t("import.assetData.deleteAllFailed"));
     } finally {
       setIsDeletingAll(false);
     }
@@ -587,7 +592,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
     if (!importResult) return;
     const norm = withSheetImportIds(importResult);
     const sid = sheet.importId ?? norm.importId;
-    if (!window.confirm(`حذف ورقة «${sheet.sheetName}»؟ لا يمكن التراجع.`)) return;
+    if (!window.confirm(t("import.assetData.deleteSheetConfirm", { name: sheet.sheetName }))) return;
     setDeletingSheet(`${sid}:${sheet.sheetName}`);
     setUploadError("");
     try {
@@ -602,7 +607,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
       });
       const text = await res.text();
       if (!res.ok) {
-        let msg = "تعذّر حذف الورقة.";
+        let msg = t("import.assetData.deleteSheetFailed");
         try {
           const j = JSON.parse(text) as { message?: string | string[] };
           if (j.message) msg = Array.isArray(j.message) ? j.message.join(" ") : j.message;
@@ -622,9 +627,9 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
         setViewingSheet(null);
       }
       setRefreshToken((c) => c + 1);
-      toast({ description: `تم حذف ورقة «${sheet.sheetName}».` });
+      toast({ description: t("import.assetData.deleteSheetSuccess", { name: sheet.sheetName }) });
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "تعذّر حذف الورقة.");
+      setUploadError(e instanceof Error ? e.message : t("import.assetData.deleteSheetFailed"));
     } finally {
       setDeletingSheet(null);
     }
@@ -634,20 +639,20 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
 
   if (loading) {
     return (
-      <div className="min-h-screen" dir="rtl">
+      <div className="min-h-screen" dir={dir}>
         <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" />
-        <MvPageLoading label="جارٍ تجهيز بيانات الأصول…" />
+        <MvPageLoading label={t("import.assetData.loading")} />
       </div>
     );
   }
 
   if (!project) {
     return (
-      <div className="min-h-screen" dir="rtl">
-        <MvTopBar breadcrumbs={[{ label: "إضافة بيانات الأصول" }]} saveState="error" />
+      <div className="min-h-screen" dir={dir}>
+        <MvTopBar breadcrumbs={[{ label: t("import.assetData.breadcrumb") }]} saveState="error" />
         <MvErrorState
-          title="تعذر فتح بيانات الأصول"
-          description={loadError ?? "تعذر تحميل المشروع."}
+          title={t("import.assetData.openFailedTitle")}
+          description={loadError ?? t("import.assetData.loadProjectFailed")}
           onRetry={() => void loadProject()}
         />
       </div>
@@ -655,9 +660,9 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-background-primary)]" dir="rtl">
+    <div className="min-h-screen bg-[var(--color-background-primary)]" dir={dir}>
       <MvTopBar
-        breadcrumbs={[{ label: project?.name ?? projectId }, { label: "إضافة بيانات الأصول" }]}
+        breadcrumbs={[{ label: project?.name ?? projectId }, { label: t("import.assetData.breadcrumb") }]}
         saveState="idle"
       />
 
@@ -673,7 +678,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
             className="h-8 border-slate-200 bg-white text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
             onClick={() => navigate(MV_PROJECTS_TABLE_PATH)}
           >
-            العودة لجدول المشاريع
+            {t("import.assetData.backToProjects")}
           </Button>
           <Button
             type="button"
@@ -682,7 +687,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
             onClick={() => navigate(`/machine-valuation/${projectId}/workflow/asset-images`)}
           >
             <Images className="h-3.5 w-3.5" />
-            التالي: تحديد صور الأصول
+            {t("import.assetData.nextAssetImages")}
           </Button>
         </div>
       </div>
@@ -706,15 +711,15 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
               onSelectImport={() => inputRef.current?.click()}
               onSelectCreate={() => void handleCreateManualSheet()}
               labels={{
-                label: "إضافة بيانات الأصول",
-                importFile: "استيراد بيانات",
-                createSheet: "إضافة بيانات يدويا",
+                label: t("import.assetData.addDataLabel"),
+                importFile: t("import.assetData.importData"),
+                createSheet: t("import.assetData.addManually"),
               }}
             />
             {isUploading || isCreatingManual ? (
               <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {isCreatingManual ? "جارٍ إنشاء الجدول…" : "جارٍ الاستيراد…"}
+                {isCreatingManual ? t("import.assetData.creatingSheet") : t("import.assetData.importing")}
               </span>
             ) : null}
           </div>
@@ -733,7 +738,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
               ) : (
                 <Trash2 className="h-3 w-3" />
               )}
-              حذف الكل
+              {t("import.assetData.deleteAll")}
             </Button>
           ) : null}
         </div>
@@ -773,7 +778,10 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                       {s.sheetName}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      {s.rowCount} صف · {s.columnCount} عمود
+                      {t("import.assetData.rowsColumns", {
+                        rows: s.rowCount,
+                        columns: s.columnCount,
+                      })}
                     </p>
                   </div>
                   <span
@@ -805,12 +813,12 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
           <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-white/60 text-center">
             <FileSpreadsheet className="mb-2 h-7 w-7 text-slate-300" />
             <p className="text-[11px] text-slate-500">
-              اضغط على "إضافة بيانات الأصول" لاستيراد ملف أو إدخال بيانات يدوياً
+              {t("import.assetData.emptyHint")}
             </p>
           </div>
         ) : (
           <p className="py-4 text-center text-[11px] text-slate-400">
-            لا توجد أوراق ببيانات في هذا الاستيراد.
+            {t("import.assetData.noSheetsWithData")}
           </p>
         )}
       </div>
@@ -825,7 +833,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
             originalSheetNameRef.current = null;
           }
         }}
-        title={sheetDisplayName ?? viewingSheet?.sheetName ?? manualSheetName ?? "إدخال يدوي"}
+        title={sheetDisplayName ?? viewingSheet?.sheetName ?? manualSheetName ?? t("import.assetData.manualEntry")}
       >
         <SmartGrid
           projectId={projectId}
@@ -843,7 +851,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
           rowCheckboxColumn
           allowAppendImportRows
           quickAddMode={manualGridOpen}
-          displaySheetName={sheetDisplayName ?? viewingSheet?.sheetName ?? manualSheetName ?? "إدخال يدوي"}
+          displaySheetName={sheetDisplayName ?? viewingSheet?.sheetName ?? manualSheetName ?? t("import.assetData.manualEntry")}
           onSheetNameChange={(newName) => {
             const oldName = originalSheetNameRef.current ?? viewingSheet?.sheetName ?? manualSheetName ?? "";
             const impId =
@@ -868,7 +876,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                 });
                 if (!res.ok) {
                   const body = await res.text().catch(() => "");
-                  let msg = "تعذّر حفظ اسم الورقة.";
+                  let msg = t("import.sheetRenameFailed");
                   try { const j = JSON.parse(body); if (j?.message) msg = Array.isArray(j.message) ? j.message.join(" ") : j.message; } catch {}
                   toast({ variant: "destructive", description: msg });
                   setSheetDisplayName(oldName);
@@ -894,9 +902,9 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                     },
                   };
                 });
-                toast({ description: "تم تحديث اسم الورقة." });
+                toast({ description: t("import.sheetRenamed") });
               } catch {
-                toast({ variant: "destructive", description: "تعذّر حفظ اسم الورقة." });
+                toast({ variant: "destructive", description: t("import.sheetRenameFailed") });
                 setSheetDisplayName(oldName);
               }
             })();

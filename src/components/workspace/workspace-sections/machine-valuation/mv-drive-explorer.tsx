@@ -36,16 +36,22 @@ import { MvProjectFoldersMenu } from "./mv-simple-report-navigation";
 import type { MvDriveFile, MvProject, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MvApiError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n } from "./mv-i18n";
+
+function DrivePicPanelLoading() {
+  const { t } = useMvI18n();
+  return (
+    <section className="rounded-2xl border border-slate-200/70 bg-white px-4 py-6 text-center text-[11px] text-slate-500 shadow-sm">
+      {t("drive.loadPicPanel")}
+    </section>
+  );
+}
 
 /** تحميل كسول لتقليل حجم الحزمة عند مستكشف الملفات الذي لا يعرض لوحة الصور فورًا */
 const MvPicAssetPanel = dynamic(
   () => import("./mv-pic-asset-panel").then((m) => ({ default: m.MvPicAssetPanel })),
   {
-    loading: () => (
-      <section className="rounded-2xl border border-slate-200/70 bg-white px-4 py-6 text-center text-[11px] text-slate-500 shadow-sm">
-        جاري تحميل لوحة الصور…
-      </section>
-    ),
+    loading: () => <DrivePicPanelLoading />,
     ssr: false,
   },
 );
@@ -76,24 +82,27 @@ interface MvDriveExplorerProps {
   showProjectsBackAction?: boolean;
 }
 
-const numberFormatter = new Intl.NumberFormat("ar-SA");
-
-function formatFileSize(sizeBytes: number) {
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return "0 ب";
-  if (sizeBytes < 1024) return `${numberFormatter.format(sizeBytes)} ب`;
+function formatFileSize(sizeBytes: number, locale: string) {
+  const numberFormatter = new Intl.NumberFormat(locale);
+  const unitB = locale.startsWith("ar") ? "ب" : "B";
+  const unitKb = locale.startsWith("ar") ? "ك.ب" : "KB";
+  const unitMb = locale.startsWith("ar") ? "م.ب" : "MB";
+  const unitGb = locale.startsWith("ar") ? "ج.ب" : "GB";
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return `0 ${unitB}`;
+  if (sizeBytes < 1024) return `${numberFormatter.format(sizeBytes)} ${unitB}`;
   if (sizeBytes < 1024 * 1024) {
-    return `${numberFormatter.format(Math.round(sizeBytes / 1024))} ك.ب`;
+    return `${numberFormatter.format(Math.round(sizeBytes / 1024))} ${unitKb}`;
   }
   if (sizeBytes < 1024 * 1024 * 1024) {
-    return `${numberFormatter.format(Number((sizeBytes / (1024 * 1024)).toFixed(1)))} م.ب`;
+    return `${numberFormatter.format(Number((sizeBytes / (1024 * 1024)).toFixed(1)))} ${unitMb}`;
   }
-  return `${numberFormatter.format(Number((sizeBytes / (1024 * 1024 * 1024)).toFixed(1)))} ج.ب`;
+  return `${numberFormatter.format(Number((sizeBytes / (1024 * 1024 * 1024)).toFixed(1)))} ${unitGb}`;
 }
 
-function formatShortDate(value: string) {
+function formatShortDate(value: string, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-SA", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -143,6 +152,8 @@ export default function MvDriveExplorer({
   currentSubProjectId,
   showProjectsBackAction = false,
 }: MvDriveExplorerProps) {
+  const { t, dir, language } = useMvI18n();
+  const dateLocale = language === "ar" ? "ar-SA" : "en-US";
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -232,7 +243,7 @@ export default function MvDriveExplorer({
           setSubProjects([]);
           setFiles([]);
           setActiveFolderDetail(null);
-          setLoadError(mvErrorMessage(e, "تعذر تحميل ملفات المشروع."));
+          setLoadError(mvErrorMessage(e, t("errors.drive.loadFailed")));
         }
       } finally {
         if (!opts?.silent && !signal?.aborted) setLoading(false);
@@ -297,12 +308,12 @@ export default function MvDriveExplorer({
   const breadcrumbs = useMemo(() => {
     const base = [{ label: project?.name ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` }];
     if (!currentSubProjectId) {
-      return [...base, { label: "ملفات المشروع" }];
+      return [...base, { label: t("drive.breadcrumb") }];
     }
 
     return [
       ...base,
-      { label: "ملفات المشروع", href: rootExplorerHref },
+      { label: t("drive.breadcrumb"), href: rootExplorerHref },
       ...folderChain.map((folder, index) => ({
         label: folder.name,
         href:
@@ -311,7 +322,7 @@ export default function MvDriveExplorer({
             : `/machine-valuation/${projectId}/${folder._id}`,
       })),
     ];
-  }, [currentSubProjectId, folderChain, project?.name, projectId, rootExplorerHref]);
+  }, [currentSubProjectId, folderChain, project?.name, projectId, rootExplorerHref, t]);
 
   const parentFolderHref = useMemo(() => {
     if (!currentFolder) return null;
@@ -348,19 +359,19 @@ export default function MvDriveExplorer({
 
         setDialogOpen(false);
         await load({ silent: true });
-        toast({ description: "تم إنشاء المجلد بنجاح." });
+        toast({ description: t("drive.folder.created") });
       } catch {
-        toast({ variant: "destructive", description: "تعذر إنشاء المجلد." });
+        toast({ variant: "destructive", description: t("drive.folder.createFailed") });
       } finally {
         setCreating(false);
       }
     },
-    [currentSubProjectId, load, projectId, toast],
+    [currentSubProjectId, load, projectId, toast, t],
   );
 
   const handleDeleteFolder = useCallback(
     async (folder: MvSubProject) => {
-      if (!window.confirm(`حذف المجلد «${folder.name}» وكل ما بداخله؟`)) return;
+      if (!window.confirm(t("drive.confirmDeleteFolder", { name: folder.name }))) return;
 
       try {
         const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${folder._id}`, {
@@ -375,17 +386,17 @@ export default function MvDriveExplorer({
         }
 
         await load({ silent: true });
-        toast({ description: "تم حذف المجلد." });
+        toast({ description: t("drive.folder.deleted") });
       } catch {
-        toast({ variant: "destructive", description: "تعذر حذف المجلد." });
+        toast({ variant: "destructive", description: t("drive.deleteFolderFailed") });
       }
     },
-    [currentSubProjectId, load, navigate, parentFolderHref, projectId, rootExplorerHref, toast],
+    [currentSubProjectId, load, navigate, parentFolderHref, projectId, rootExplorerHref, toast, t],
   );
 
   const handleDeleteFile = useCallback(
     async (file: MvDriveFile) => {
-      if (!window.confirm(`حذف الملف «${file.name}»؟`)) return;
+      if (!window.confirm(t("drive.confirmDeleteFile", { name: file.name }))) return;
 
       try {
         const response = await fetch(`/api/mv/projects/${projectId}/files/${file._id}`, {
@@ -394,9 +405,9 @@ export default function MvDriveExplorer({
         });
         if (!response.ok) throw new Error();
         await load({ silent: true });
-        toast({ description: "تم حذف الملف." });
+        toast({ description: t("drive.file.deleted") });
       } catch {
-        toast({ variant: "destructive", description: "تعذر حذف الملف." });
+        toast({ variant: "destructive", description: t("drive.deleteFileFailed") });
       }
     },
     [load, projectId, toast],
@@ -435,7 +446,7 @@ export default function MvDriveExplorer({
             variant: "destructive",
             description:
               detail ||
-              `تعذر رفع الملفات (${response.status}). تحقق من الاتصال أو تقليل حجم الملف.`,
+              t("drive.uploadFailed", { status: String(response.status) }),
           });
           return;
         }
@@ -449,15 +460,15 @@ export default function MvDriveExplorer({
         toast({
           description:
             picked.length === 1
-              ? "تم رفع الملف بنجاح."
-              : `تم رفع ${numberFormatter.format(picked.length)} ملفات بنجاح.`,
+              ? t("drive.file.uploaded")
+              : t("drive.filesUploaded", { count: picked.length }),
         });
       } catch (err) {
         const extra =
           err instanceof Error && err.message ? ` (${err.message.slice(0, 120)})` : "";
         toast({
           variant: "destructive",
-          description: `تعذر رفع الملفات. تحقق من الشبكة ثم أعد المحاولة.${extra}`,
+          description: t("drive.uploadFailedNetwork", { extra }),
         });
       } finally {
         setUploading(false);
@@ -466,12 +477,12 @@ export default function MvDriveExplorer({
         }
       }
     },
-    [currentSubProjectId, load, projectId, toast],
+    [currentSubProjectId, load, projectId, toast, t],
   );
 
   if (loading) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir={dir}>
         <DriveExplorerStickyTopBar>
           <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" sticky={false} />
         </DriveExplorerStickyTopBar>
@@ -486,12 +497,12 @@ export default function MvDriveExplorer({
 
   if (!project && loadError) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir={dir}>
         <DriveExplorerStickyTopBar>
-          <MvTopBar breadcrumbs={[{ label: "ملفات المشروع" }]} saveState="error" sticky={false} />
+          <MvTopBar breadcrumbs={[{ label: t("drive.breadcrumb") }]} saveState="error" sticky={false} />
         </DriveExplorerStickyTopBar>
         <MvErrorState
-          title="تعذر تحميل ملفات المشروع"
+          title={t("errors.drive.loadFailed")}
           description={loadError}
           onRetry={() => void load()}
           className="flex-1"
@@ -502,13 +513,13 @@ export default function MvDriveExplorer({
 
   if (currentSubProjectId && !currentFolder) {
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir={dir}>
         <DriveExplorerStickyTopBar>
           <MvTopBar
             breadcrumbs={[
               { label: project?.name ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
-              { label: "ملفات المشروع", href: rootExplorerHref },
-              { label: "غير موجود" },
+              { label: t("drive.breadcrumb"), href: rootExplorerHref },
+              { label: t("drive.notFound") },
             ]}
             saveState="idle"
             sticky={false}
@@ -524,7 +535,7 @@ export default function MvDriveExplorer({
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <MvEmptyState
             icon={<FolderOpen className="h-6 w-6" />}
-            title="المجلد غير موجود"
+            title={t("drive.folderNotFound")}
             action={
               <Button
                 type="button"
@@ -532,7 +543,7 @@ export default function MvDriveExplorer({
                 className="h-9 rounded-lg text-[12px]"
                 onClick={() => navigate(rootExplorerHref)}
               >
-                العودة إلى المجلدات
+                {t("drive.backToFolders")}
               </Button>
             }
           />
@@ -542,7 +553,7 @@ export default function MvDriveExplorer({
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir="rtl">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-primary)]" dir={dir}>
       <DriveExplorerStickyTopBar>
         <MvTopBar
           breadcrumbs={breadcrumbs}
@@ -590,7 +601,7 @@ export default function MvDriveExplorer({
         >
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h1 className="text-[15px] font-semibold text-slate-900">
-              {currentFolder ? currentFolder.name : "مستكشف ملفات المشروع"}
+              {currentFolder ? currentFolder.name : t("drive.title")}
             </h1>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -601,7 +612,7 @@ export default function MvDriveExplorer({
                   className="h-8 rounded-lg border-slate-200 px-3 text-[11px]"
                   onClick={() => navigate(MV_PROJECTS_TABLE_PATH)}
                 >
-                  العودة لجدول المشاريع
+                  {t("drive.backToProjects")}
                 </Button>
               ) : null}
 
@@ -612,7 +623,7 @@ export default function MvDriveExplorer({
                   className="h-8 rounded-lg border-slate-200 px-3 text-[11px]"
                   onClick={() => navigate(parentFolderHref)}
                 >
-                  العودة للأعلى
+                  {t("drive.backUp")}
                 </Button>
               ) : null}
 
@@ -625,7 +636,7 @@ export default function MvDriveExplorer({
                   disabled={uploading}
                 >
                   {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                  رفع ملفات
+                  {t("drive.uploadFiles")}
                 </Button>
               ) : null}
 
@@ -635,14 +646,14 @@ export default function MvDriveExplorer({
                 className="h-8 gap-1 rounded-lg border-slate-200 px-3 text-[11px]"
                 onClick={() => void handleRefreshFromServer()}
                 disabled={uploading || refetching}
-                title="إعادة جلب المجلد وبيانات أصول الصور من الخادم"
+                title={t("drive.refreshFolder")}
               >
                 {refetching ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                تحديث من الخادم
+                {t("drive.refreshFromServer")}
               </Button>
 
               {!currentFolderIsPicAsset ? (
@@ -652,7 +663,7 @@ export default function MvDriveExplorer({
                   onClick={() => setDialogOpen(true)}
                 >
                   <FolderPlus className="h-3.5 w-3.5" />
-                  إنشاء مجلد
+                  {t("drive.createFolder")}
                 </Button>
               ) : null}
             </div>
@@ -682,9 +693,9 @@ export default function MvDriveExplorer({
                       <Folder className="h-5 w-5 fill-current" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[12px] font-bold text-violet-950">ملفات المعاين</p>
+                      <p className="truncate text-[12px] font-bold text-violet-950">{t("drive.inspectorCard.title")}</p>
                       <p className="mt-0.5 line-clamp-2 text-[10px] font-medium leading-snug text-violet-800/90">
-                        صور وملفات المعاين الميداني — من هنا أو من قائمة مجلدات المشروع
+                        {t("drive.inspectorCard.hint")}
                       </p>
                     </div>
                   </div>
@@ -714,7 +725,7 @@ export default function MvDriveExplorer({
                         <button
                           type="button"
                           className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                          aria-label={`إجراءات ${folder.name}`}
+                          aria-label={t("drive.actionsFor", { name: folder.name })}
                         >
                           <MoreVertical className="h-4 w-4" />
                         </button>
@@ -725,14 +736,14 @@ export default function MvDriveExplorer({
                           className="cursor-pointer text-[12px]"
                         >
                           <FolderOpen className="h-4 w-4 text-amber-600" />
-                          فتح المجلد
+                          {t("drive.openFolder")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => void handleDeleteFolder(folder)}
                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
-                          حذف المجلد
+                          {t("drive.deleteFolder")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -757,9 +768,9 @@ export default function MvDriveExplorer({
                             {file.name}
                           </p>
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-                            <span>{formatFileSize(file.sizeBytes)}</span>
+                            <span>{formatFileSize(file.sizeBytes, dateLocale)}</span>
                             <span>•</span>
-                            <span>{formatShortDate(file.uploadedAt)}</span>
+                            <span>{formatShortDate(file.uploadedAt, dateLocale)}</span>
                           </div>
                         </div>
                       </div>
@@ -769,7 +780,7 @@ export default function MvDriveExplorer({
                           <button
                             type="button"
                             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                            aria-label={`إجراءات ${file.name}`}
+                            aria-label={t("drive.actionsFor", { name: file.name })}
                           >
                             <MoreVertical className="h-4 w-4" />
                           </button>
@@ -782,7 +793,7 @@ export default function MvDriveExplorer({
                               rel="noreferrer"
                             >
                               <Download className="h-4 w-4 text-sky-600" />
-                              فتح أو تنزيل
+                              {t("drive.openOrDownload")}
                             </a>
                           </DropdownMenuItem>
                           <DropdownMenuItem
@@ -790,7 +801,7 @@ export default function MvDriveExplorer({
                             className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                           >
                             <Trash2 className="h-4 w-4" />
-                            حذف الملف
+                            {t("drive.deleteFile")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -807,7 +818,7 @@ export default function MvDriveExplorer({
                         className="inline-flex items-center gap-1 text-[10px] font-medium text-[#0C447C] transition hover:text-[#0a3765]"
                       >
                         <Download className="h-3.5 w-3.5" />
-                        فتح
+                        {t("drive.open")}
                       </a>
                     </div>
                   </div>
@@ -815,9 +826,7 @@ export default function MvDriveExplorer({
               })}
               {childFolders.length === 0 && files.length === 0 ? (
                 <div className="col-span-full rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-[11px] text-slate-500">
-                  {currentSubProjectId
-                    ? "لا مجلدات فرعية ولا ملفات هنا بعد — أنشئ مجلدًا أو ارفع ملفات من الأعلى."
-                    : "لا مجلدات ولا ملفات بعد — يمكن إنشاء مجلد، أو الدخول لملفات المعاين من البطاقة أعلاه."}
+                  {currentSubProjectId ? t("drive.empty.subfolder") : t("drive.empty.root")}
                 </div>
               ) : null}
             </div>

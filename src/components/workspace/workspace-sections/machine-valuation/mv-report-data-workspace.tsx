@@ -26,6 +26,7 @@ import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n } from "./mv-i18n";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 
 const reportFont = Tajawal({
@@ -148,12 +149,12 @@ function writeCachedReportState(projectId: string, data: {
 }
 
 export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspaceProps) {
+  const { t, dir } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const initialCached = readCachedReportState(projectId);
   const [project, setProject] = useState<MvProject | null>(initialCached?.project ?? null);
   const [subProjects, setSubProjects] = useState<MvSubProject[]>(initialCached?.subProjects ?? []);
-  /** مع وجود كاش الجلسة لا نُظهر شاشة التحميل أثناء إعادة المزامنة */
   const [loading, setLoading] = useState(() => initialCached?.project == null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -186,7 +187,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز بيانات التقرير…",
+          loadingLabel: t("reportData.preparing"),
         },
       );
       if (signal?.aborted) return;
@@ -197,11 +198,11 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       if (!reportDataDirtyRef.current) setReportData(normalizeReportData(data.project.reportData));
     } catch (error) {
       if (signal?.aborted) return;
-      setLoadError(mvErrorMessage(error, "تعذر تحميل بيانات المشروع."));
+      setLoadError(mvErrorMessage(error, t("reportData.loadFailedTitle")));
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     const cached = readCachedReportState(projectId);
@@ -290,7 +291,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     if (!project) return;
     const name = editableProjectName.trim();
     if (!name) {
-      toast({ variant: "destructive", description: "اسم التقرير مطلوب." });
+      toast({ variant: "destructive", description: t("reportData.nameRequired") });
       return;
     }
 
@@ -327,9 +328,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       reportDataDirtyRef.current = false;
       writeCachedReportState(projectId, { project: updated, subProjects });
       markVisited("report-data");
-      toast({ description: "تم حفظ بيانات التقرير." });
+      toast({ description: t("reportData.saved") });
     } catch {
-      toast({ variant: "destructive", description: "تعذر حفظ بيانات التقرير." });
+      toast({ variant: "destructive", description: t("reportData.saveFailed") });
     } finally {
       setSaving(false);
     }
@@ -358,13 +359,13 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   if (!project) {
     return (
-      <MvWorkflowPageFrame className={reportFont.className} dir="rtl">
+      <MvWorkflowPageFrame className={reportFont.className} dir={dir}>
         {loading ? (
-          <MvPageLoading label="جارٍ تحميل بيانات التقرير…" />
+          <MvPageLoading label={t("reportData.loading")} />
         ) : (
           <MvErrorState
-            title="تعذر تحميل بيانات المشروع"
-            description={loadError ?? "تحقق من الاتصال ثم أعد المحاولة."}
+            title={t("reportData.loadFailedTitle")}
+            description={loadError ?? t("common.error.loadDescription")}
             onRetry={() => void load()}
           />
         )}
@@ -378,7 +379,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         reportFont.className,
         "bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.14),transparent_32%),linear-gradient(180deg,#f8fafc,#eef2f7_52%,#f8fafc)]",
       )}
-      dir="rtl"
+      dir={dir}
     >
       <MvProjectReportHeader
         projectId={projectId}
@@ -392,7 +393,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       />
 
       <MvWorkflowPageScrollBody>
-        <main className="mx-auto max-w-7xl px-3 py-2 sm:px-5">
+        <main className="mx-auto min-w-0 max-w-7xl overflow-x-hidden px-3 py-2 sm:px-5">
           <MvReportDataForm
             project={project}
             editableProjectName={editableProjectName}

@@ -17,10 +17,7 @@ import {
 } from "./mv-project-contact-data";
 import { MvProjectMapPicker } from "./mv-project-map-picker";
 import { useMvLocationCatalog } from "./use-mv-location-catalog";
-
-/** مطابق لـ `COPY.ar.region` / `COPY.ar.city` في settings.tsx */
-const LABEL_REGION_AR = "المنطقة";
-const LABEL_CITY_AR = "المدينة";
+import { useMvI18n } from "./mv-i18n";
 
 const FIELD_LABEL_CLASS =
   "mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500 [.card-field:focus-within_&]:text-sky-800";
@@ -47,6 +44,9 @@ function MvSearchablePick({
   onPick,
   onClear,
   id,
+  clearFieldLabel,
+  searchPlaceholder,
+  searchAriaLabel,
 }: {
   portalContainer: HTMLElement | null;
   id: string;
@@ -57,7 +57,11 @@ function MvSearchablePick({
   options: readonly { id: string; label: string }[];
   onPick: (label: string) => void;
   onClear?: () => void;
+  clearFieldLabel: string;
+  searchPlaceholder: string;
+  searchAriaLabel: string;
 }) {
+  const { t, dir } = useMvI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
@@ -79,7 +83,7 @@ function MvSearchablePick({
     return (
       <div className={cn(INPUT_CLASS, "flex animate-pulse items-center gap-2 text-[12px] text-slate-400")}>
         <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-        تهيئة القائمة…
+        {t("inspector.locations.initList")}
       </div>
     );
   }
@@ -105,7 +109,7 @@ function MvSearchablePick({
               role="button"
               tabIndex={-1}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-red-600"
-              aria-label="مسح الحقل"
+              aria-label={clearFieldLabel}
               onPointerDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -124,7 +128,7 @@ function MvSearchablePick({
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal container={portalContainer}>
         <PopoverPrimitive.Content
-          dir="rtl"
+          dir={dir}
           align="start"
           side="bottom"
           sideOffset={8}
@@ -138,10 +142,10 @@ function MvSearchablePick({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="بحث..."
+              placeholder={searchPlaceholder}
               disabled={disabled}
               className="h-9 rounded-lg border-slate-200 bg-slate-50/90 pe-10 ps-8 text-[12px]"
-              aria-label="بحث في القائمة"
+              aria-label={searchAriaLabel}
               onKeyDown={(e) => e.stopPropagation()}
             />
           </div>
@@ -185,13 +189,13 @@ function MvSearchablePick({
 function ClearFieldButton({
   hidden,
   disabled,
-  label = "مسح الحقل",
+  label,
   onClick,
   className,
 }: {
   hidden: boolean;
   disabled?: boolean;
-  label?: string;
+  label: string;
   onClick: () => void;
   className?: string;
 }) {
@@ -265,6 +269,8 @@ export function MvInspectionLocationsFields({
   onOpenInspectorFiles,
   openingInspectorFilesSiteId,
 }: MvInspectionLocationsFieldsProps) {
+  const { t, dir } = useMvI18n();
+  const clearFieldLabel = t("inspector.locations.clearField");
   const { regions, cities, loading: catalogLoading, error: catalogError } = useMvLocationCatalog();
 
   const sites = value.length > 0 ? value : [createProjectInspectionSiteForm(0)];
@@ -361,7 +367,7 @@ export function MvInspectionLocationsFields({
   };
 
   return (
-    <div className={cn("space-y-3 text-right", className)} dir="rtl">
+    <div className={cn("space-y-3 text-right", className)} dir={dir}>
       <header className="flex justify-end">
         <Button
           type="button"
@@ -371,13 +377,13 @@ export function MvInspectionLocationsFields({
           disabled={disabled || sites.length >= 10}
         >
           <Plus className="h-4 w-4" aria-hidden />
-          إضافة موقع آخر
+          {t("inspector.locations.addSite")}
         </Button>
       </header>
 
       {catalogError ? (
         <p className="rounded-xl border border-amber-200/90 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-          تعذّر تحميل قوائم المناطق والمدن؛ يمكنك الآن تعبئة الحقول يدوياً أدناه.
+          {t("inspector.locations.catalogError")}
         </p>
       ) : null}
 
@@ -417,7 +423,7 @@ export function MvInspectionLocationsFields({
                     ) : (
                       <MapPinned className="h-4 w-4 shrink-0" aria-hidden />
                     )}
-                    الخريطة
+                    {t("inspector.locations.map")}
                   </Button>
                   {onOpenInspectorFiles ? (
                     <Button
@@ -432,7 +438,7 @@ export function MvInspectionLocationsFields({
                       ) : (
                         <Files className="h-4 w-4 shrink-0" aria-hidden />
                       )}
-                      إرفاق ملفات
+                      {t("inspector.locations.attachFiles")}
                     </Button>
                   ) : null}
                   {sites.length > 1 ? (
@@ -443,7 +449,7 @@ export function MvInspectionLocationsFields({
                       className="h-8 w-8 rounded-lg border-red-200/80 bg-white text-red-600 hover:bg-red-50/90"
                       onClick={() => removeSite(site.id)}
                       disabled={disabled}
-                      aria-label="حذف الموقع"
+                      aria-label={t("inspector.locations.deleteSite")}
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </Button>
@@ -468,11 +474,12 @@ export function MvInspectionLocationsFields({
                       <ClearFieldButton
                         hidden={!site.name.trim()}
                         disabled={disabled}
+                        label={clearFieldLabel}
                         onClick={() => updateSite(site.id, { name: "" })}
                       />
                     </div>
                   </InspectionField>
-                  <InspectionField htmlFor={`mv-phone-${site.id}`} label="رقم تواصل" className="lg:col-span-1">
+                  <InspectionField htmlFor={`mv-phone-${site.id}`} label={t("inspector.locations.phone")} className="lg:col-span-1">
                     <div className="relative">
                       <Input
                         id={`mv-phone-${site.id}`}
@@ -487,6 +494,7 @@ export function MvInspectionLocationsFields({
                       <ClearFieldButton
                         hidden={!site.primaryPhone.trim()}
                         disabled={disabled}
+                        label={clearFieldLabel}
                         onClick={() => updateSite(site.id, { primaryPhone: "" })}
                       />
                     </div>
@@ -494,11 +502,11 @@ export function MvInspectionLocationsFields({
                 </div>
 
                 <div className={GRID_ROW_REGION_CITY_MAP}>
-                  <InspectionField htmlFor={regionInputId} label={LABEL_REGION_AR} className="lg:col-span-1">
+                  <InspectionField htmlFor={regionInputId} label={t("inspector.locations.region")} className="lg:col-span-1">
                     {catalogLoading ? (
                       <div className={cn(INPUT_CLASS, "flex items-center gap-2 text-slate-400")}>
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                        جاري التحميل…
+                        {t("inspector.locations.loading")}
                       </div>
                     ) : !useCatalogPickers ? (
                       <div className="relative">
@@ -512,6 +520,7 @@ export function MvInspectionLocationsFields({
                         <ClearFieldButton
                           hidden={!site.region.trim()}
                           disabled={disabled}
+                          label={clearFieldLabel}
                           onClick={() => updateSite(site.id, { region: "", city: "" })}
                         />
                       </div>
@@ -521,20 +530,23 @@ export function MvInspectionLocationsFields({
                         id={regionInputId}
                         disabled={pickDisabled || disabled}
                         value={site.region}
-                        placeholder="اختر المنطقة…"
-                        emptyLabel="لا توجد مناطق مطابقة"
+                        placeholder={t("inspector.locations.selectRegion")}
+                        emptyLabel={t("inspector.locations.noRegions")}
                         options={regionOptions}
                         onPick={(lab) => onPickRegion(site.id, lab)}
                         onClear={() => updateSite(site.id, { region: "", city: "" })}
+                        clearFieldLabel={clearFieldLabel}
+                        searchPlaceholder={t("common.search")}
+                        searchAriaLabel={t("inspector.locations.searchInList")}
                       />
                     )}
                   </InspectionField>
 
-                  <InspectionField htmlFor={cityInputId} label={LABEL_CITY_AR} className="lg:col-span-1">
+                  <InspectionField htmlFor={cityInputId} label={t("inspector.locations.city")} className="lg:col-span-1">
                     {catalogLoading ? (
                       <div className={cn(INPUT_CLASS, "flex items-center gap-2 text-slate-400")}>
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                        جاري التحميل…
+                        {t("inspector.locations.loading")}
                       </div>
                     ) : !useCatalogPickers ? (
                       <div className="relative">
@@ -548,6 +560,7 @@ export function MvInspectionLocationsFields({
                         <ClearFieldButton
                           hidden={!site.city.trim()}
                           disabled={disabled}
+                          label={clearFieldLabel}
                           onClick={() => updateSite(site.id, { city: "" })}
                         />
                       </div>
@@ -559,18 +572,27 @@ export function MvInspectionLocationsFields({
                           pickDisabled || disabled || matchedRegionId == null || cityChoices.length === 0
                         }
                         value={site.city}
-                        placeholder={matchedRegionId == null ? "اختر المنطقة أولاً" : "اختر المدينة…"}
+                        placeholder={
+                          matchedRegionId == null
+                            ? t("inspector.locations.selectRegionFirst")
+                            : t("inspector.locations.selectCity")
+                        }
                         emptyLabel={
-                          matchedRegionId == null ? "اختر المنطقة أولاً" : "لا توجد مدن مطابقة في هذه المنطقة"
+                          matchedRegionId == null
+                            ? t("inspector.locations.selectRegionFirst")
+                            : t("inspector.locations.noCities")
                         }
                         options={cityChoices}
                         onPick={(lab) => updateSite(site.id, { city: lab })}
                         onClear={() => updateSite(site.id, { city: "" })}
+                        clearFieldLabel={clearFieldLabel}
+                        searchPlaceholder={t("common.search")}
+                        searchAriaLabel={t("inspector.locations.searchInList")}
                       />
                     )}
                   </InspectionField>
 
-                  <InspectionField htmlFor={`mv-map-${site.id}`} label="رابط Google Maps" className="lg:col-span-2">
+                  <InspectionField htmlFor={`mv-map-${site.id}`} label={t("inspector.locations.mapUrl")} className="lg:col-span-2">
                     <div className="relative">
                       <Input
                         id={`mv-map-${site.id}`}
@@ -584,20 +606,21 @@ export function MvInspectionLocationsFields({
                       <ClearFieldButton
                         hidden={!site.mapUrl.trim() && !site.latitude.trim() && !site.longitude.trim()}
                         disabled={disabled}
+                        label={clearFieldLabel}
                         onClick={() => updateSite(site.id, { mapUrl: "", latitude: "", longitude: "" })}
                       />
                     </div>
                   </InspectionField>
                 </div>
 
-                <InspectionField htmlFor={`mv-site-notes-${site.id}`} label="ملاحظات">
+                <InspectionField htmlFor={`mv-site-notes-${site.id}`} label={t("inspector.locations.notes")}>
                   <div className="relative">
                     <Textarea
                       id={`mv-site-notes-${site.id}`}
                       value={site.notes ?? ""}
                       onChange={(event) => updateSite(site.id, { notes: event.target.value })}
                       disabled={disabled}
-                      placeholder="تعليمات للمعاين، أوقات زيارة…"
+                      placeholder={t("inspector.locations.notesPlaceholder")}
                       dir="auto"
                       rows={2}
                       className={cn(NOTES_AREA_CLASS, "pl-10")}
@@ -605,6 +628,7 @@ export function MvInspectionLocationsFields({
                     <ClearFieldButton
                       hidden={!(site.notes ?? "").trim()}
                       disabled={disabled}
+                      label={clearFieldLabel}
                       className="top-3 translate-y-0"
                       onClick={() => updateSite(site.id, { notes: "" })}
                     />

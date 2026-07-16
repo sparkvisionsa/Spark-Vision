@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
-  DialogContent,
+  
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useMvI18n } from "./mv-i18n";
 import {
   type ActiveImportSheetRef,
   type AssetImportResult,
@@ -95,6 +97,7 @@ export function MvAssetImageFoldersModal({
   onBack,
   onSaveAndClose,
 }: MvAssetImageFoldersModalProps) {
+  const { t, dir, isArabic } = useMvI18n();
   const { toast } = useToast();
   const excelInputRef = useRef<HTMLInputElement>(null);
   const [importResult, setImportResult] = useState<AssetImportResult | null>(initialImportResult);
@@ -235,24 +238,24 @@ export function MvAssetImageFoldersModal({
         });
         const text = await response.text();
         if (!response.ok) {
-          throw new Error(parseMvAssetApiErrorMessage(text, "تعذر استيراد ملف اكسيل."));
+          throw new Error(parseMvAssetApiErrorMessage(text, t("import.excelImportFailed")));
         }
 
         const imported = normalizeImportResult(JSON.parse(text) as AssetImportResult);
         const merged = mergeImportResults(importResult, imported);
         setNextImportResult(merged);
-        toast({ description: "تم تجهيز ملف اكسيل. اختر الشيت والعمود لتوليد مجلدات الصور." });
+        toast({ description: t("import.excelReady") });
       } catch (error) {
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر استيراد ملف اكسيل.",
+          description: error instanceof Error ? error.message : t("import.excelImportFailed"),
         });
       } finally {
         setUploading(false);
         if (excelInputRef.current) excelInputRef.current.value = "";
       }
     },
-    [importResult, projectId, setNextImportResult, toast],
+    [importResult, projectId, setNextImportResult, t, toast],
   );
 
   const clearGeneratingAction = useCallback(() => {
@@ -264,7 +267,7 @@ export function MvAssetImageFoldersModal({
     if (generatingActionRef.current) return;
 
     if (!projectId || !selectedSheet || !selectedColumnKey.trim()) {
-      toast({ variant: "destructive", description: "أنشئ من ملف اكسيل ثم اختر الشيت والعمود." });
+      toast({ variant: "destructive", description: t("import.selectSheetColumn") });
       return;
     }
 
@@ -286,7 +289,7 @@ export function MvAssetImageFoldersModal({
       );
       const responseText = await response.text();
       if (!response.ok) {
-        throw new Error(parseMvAssetApiErrorMessage(responseText, "تعذر إنشاء مجلدات صور الأصول."));
+        throw new Error(parseMvAssetApiErrorMessage(responseText, t("import.createImageFoldersFailed")));
       }
 
       const payload = JSON.parse(responseText) as {
@@ -295,7 +298,11 @@ export function MvAssetImageFoldersModal({
         totalValues: number;
         parentFolderName: string;
       };
-      const successMessage = `تم ضبط ${new Intl.NumberFormat("ar-SA").format(payload.totalValues)} مجلداً تحت «${payload.parentFolderName}».`;
+      const numberFormatter = new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
+      const successMessage = t("import.foldersCreated", {
+        count: numberFormatter.format(payload.totalValues),
+        name: payload.parentFolderName,
+      });
       clearGeneratingAction();
       toast({
         description: successMessage,
@@ -306,7 +313,7 @@ export function MvAssetImageFoldersModal({
           .catch(() => {
             toast({
               variant: "destructive",
-              description: "تم إنشاء المجلدات لكن تعذر تحديث البيانات في الواجهة.",
+              description: t("import.uiRefreshFailed"),
             });
           });
       }
@@ -317,12 +324,12 @@ export function MvAssetImageFoldersModal({
     } catch (error) {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "تعذر إنشاء مجلدات صور الأصول.",
+        description: error instanceof Error ? error.message : t("import.createImageFoldersFailed"),
       });
     } finally {
       clearGeneratingAction();
     }
-  }, [clearGeneratingAction, onGenerated, onOpenChange, onSaveAndClose, projectId, selectedColumnKey, selectedSheet, toast]);
+  }, [clearGeneratingAction, isArabic, onGenerated, onOpenChange, onSaveAndClose, projectId, selectedColumnKey, selectedSheet, t, toast]);
 
   const renameSelectedSheet = useCallback(async () => {
     if (!projectId || !selectedSheet || !importResult) return;
@@ -348,7 +355,7 @@ export function MvAssetImageFoldersModal({
       });
       const text = await response.text();
       if (!response.ok) {
-        throw new Error(parseMvAssetApiErrorMessage(text, "تعذر حفظ اسم الشيت."));
+        throw new Error(parseMvAssetApiErrorMessage(text, t("import.sheetRenameFailed")));
       }
 
       const next: AssetImportResult = {
@@ -365,20 +372,20 @@ export function MvAssetImageFoldersModal({
       setNextImportResult(next);
       setSelectedSheet({ ...selectedSheet, sheetName: newName });
       setSheetNameDraft(newName);
-      toast({ description: "تم تحديث اسم الشيت." });
+      toast({ description: t("import.sheetRenamed") });
     } catch (error) {
       setSheetNameDraft(oldName);
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "تعذر حفظ اسم الشيت.",
+        description: error instanceof Error ? error.message : t("import.sheetRenameFailed"),
       });
     } finally {
       setRenamingSheet(false);
     }
-  }, [importResult, projectId, selectedSheet, setNextImportResult, sheetNameDraft, toast]);
+  }, [importResult, projectId, selectedSheet, setNextImportResult, sheetNameDraft, t, toast]);
 
   const selectedSheetValue = selectedSheet ? `${selectedSheet.importId}::${selectedSheet.sheetName}` : "";
-  const numberFormatter = new Intl.NumberFormat("ar-SA");
+  const numberFormatter = new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
   const generating = generatingAction !== null;
   const saveDisabled = !projectId || !selectedSheet || !selectedColumnKey || uploading || loadingColumns || generating;
   const hasWorkbook = sheets.length > 0;
@@ -389,14 +396,16 @@ export function MvAssetImageFoldersModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
-        <DialogHeader className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-right">
+      <MvDialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir={dir}>
+        <DialogHeader className="border-b border-slate-100 bg-slate-50 px-4 py-3 pe-14 text-start">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
               <FolderPlus className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <DialogTitle className="text-[15px] font-black text-slate-950">إنشاء مجلدات صور الأصول</DialogTitle>
+              <DialogTitle className="text-[15px] font-black text-slate-950">
+                {t("projects.assetFoldersModal.title")}
+              </DialogTitle>
             </div>
           </div>
         </DialogHeader>
@@ -425,7 +434,9 @@ export function MvAssetImageFoldersModal({
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-black text-slate-950">
-                  {hasWorkbook ? "انشاء مجلدات الاصول من اكسيل" : "رفع ملف اكسيل"}
+                  {hasWorkbook
+                    ? t("projects.assetFoldersModal.fromExcel")
+                    : t("projects.assetFoldersModal.uploadExcel")}
                 </span>
               </span>
             </button>
@@ -433,13 +444,13 @@ export function MvAssetImageFoldersModal({
             <div className="rounded-lg border border-slate-200 bg-white p-2">
               <div className="grid grid-cols-2 gap-2 text-center">
                 <div className="rounded-lg bg-slate-50 p-2">
-                  <p className="text-[10px] font-bold text-slate-500">الشيتات</p>
+                  <p className="text-[10px] font-bold text-slate-500">{t("projects.assetFoldersModal.sheets")}</p>
                   <p className="mt-1 text-lg font-black tabular-nums text-slate-950">
                     {loadingSummary ? "..." : numberFormatter.format(sheets.length)}
                   </p>
                 </div>
                 <div className="rounded-lg bg-slate-50 p-2">
-                  <p className="text-[10px] font-bold text-slate-500">الصفوف</p>
+                  <p className="text-[10px] font-bold text-slate-500">{t("projects.assetFoldersModal.rows")}</p>
                   <p className="mt-1 text-lg font-black tabular-nums text-slate-950">
                     {numberFormatter.format(importResult?.summary.totalRows ?? 0)}
                   </p>
@@ -450,7 +461,7 @@ export function MvAssetImageFoldersModal({
 
           <div className="grid gap-2 md:grid-cols-2">
             <label className="space-y-1">
-              <span className="text-[11px] font-bold text-slate-500">الشيت</span>
+              <span className="text-[11px] font-bold text-slate-500">{t("projects.assetFoldersModal.sheet")}</span>
               <Select
                 value={selectedSheetValue}
                 onValueChange={(value) => {
@@ -464,7 +475,7 @@ export function MvAssetImageFoldersModal({
                 disabled={sheets.length === 0 || uploading || loadingSummary}
               >
                 <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold">
-                  <SelectValue placeholder="اختر الشيت" />
+                  <SelectValue placeholder={t("projects.assetFoldersModal.selectSheet")} />
                 </SelectTrigger>
                 <SelectContent className="text-right" dir="rtl">
                   {sheets.map((sheet) => (
@@ -492,20 +503,26 @@ export function MvAssetImageFoldersModal({
                 }}
                 disabled={!selectedSheet || uploading || loadingSummary || renamingSheet}
                 className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold"
-                placeholder="تعديل اسم الشيت"
+                placeholder={t("projects.assetFoldersModal.renameSheet")}
                 dir="auto"
               />
             </label>
 
             <label className="space-y-1">
-              <span className="text-[11px] font-bold text-slate-500">اختر اسماء المجلدات حسب العمود</span>
+              <span className="text-[11px] font-bold text-slate-500">{t("projects.assetFoldersModal.columnForFolders")}</span>
               <Select
                 value={selectedColumnKey}
                 onValueChange={setSelectedColumnKey}
                 disabled={columns.length === 0 || loadingColumns}
               >
                 <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold">
-                  <SelectValue placeholder={loadingColumns ? "جاري تحميل الأعمدة..." : "اختر العمود"} />
+                  <SelectValue
+                    placeholder={
+                      loadingColumns
+                        ? t("projects.assetFoldersModal.loadingColumns")
+                        : t("projects.assetFoldersModal.selectColumn")
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent className="text-right" dir="rtl">
                   {columns.map((column) => (
@@ -528,7 +545,7 @@ export function MvAssetImageFoldersModal({
               disabled={uploading || generating}
               onClick={onBack}
             >
-              رجوع
+              {t("common.back")}
             </Button>
           ) : null}
           <div className="flex flex-1 flex-wrap justify-end gap-2">
@@ -539,7 +556,7 @@ export function MvAssetImageFoldersModal({
               disabled={uploading || generating}
               onClick={handleClose}
             >
-              إغلاق
+              {t("projects.assetFoldersModal.close")}
             </Button>
             <Button
               type="button"
@@ -549,7 +566,7 @@ export function MvAssetImageFoldersModal({
               onClick={() => void generateFolders("stay")}
             >
               {generatingAction === "stay" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
-              إنشاء المجلدات والاستمرار
+              {t("projects.assetFoldersModal.createContinue")}
             </Button>
             <Button
               type="button"
@@ -558,11 +575,11 @@ export function MvAssetImageFoldersModal({
               onClick={() => void generateFolders("close")}
             >
               {generatingAction === "close" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
-              إنشاء المجلدات والإغلاق
+              {t("projects.assetFoldersModal.createClose")}
             </Button>
           </div>
         </DialogFooter>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }

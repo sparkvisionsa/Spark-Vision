@@ -8,6 +8,7 @@ import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-st
 import type { MvReportPageOrientation } from "./mv-report-page-shell";
 import { MvReportPageShell } from "./mv-report-page-shell";
 import { useReportViewportScale } from "./mv-report-viewport-scale";
+import { useMvI18n } from "./mv-i18n";
 type Approach = { id: string; label: string };
 
 /** نسبة عرض/ارتفاع أعلى من هذا الحد → صفحة عرضية (أفقية) لاستيعاب الجداول العريضة */const LANDSCAPE_ASPECT_THRESHOLD = 1.12;
@@ -17,16 +18,18 @@ function AnnexSectionShell({
   title,
   children,
   headerExtra,
+  dir,
 }: {
   id?: string;
   title: ReactNode;
   children: ReactNode;
   headerExtra?: ReactNode;
+  dir: "ltr" | "rtl";
 }) {
   return (
     <section
       {...(id ? { id, "data-mv-report-insert-anchor": id } : {})}
-      dir="rtl"
+      dir={dir}
       className={cn("scroll-mt-4 text-right")}
     >
       <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
@@ -80,6 +83,7 @@ export function MvValuationAnnexImageSheet({
   insertedBlocksNode?: ReactNode;
   titleNode?: ReactNode;
 }) {
+  const { t, dir } = useMvI18n();
   const [autoOrientation, setAutoOrientation] = useState<MvReportPageOrientation>("landscape");
   const viewScale = useReportViewportScale();
   const rawSrc = resolveValuationAccountingImageSrc(projectId, image);
@@ -117,8 +121,9 @@ export function MvValuationAnnexImageSheet({
     >
       <AnnexSectionShell
         id={vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`}
+        dir={dir}
         title={titleNode ?? (
-          <span className="text-[14px]">مرفق 1: الوصف الجزئي وحسابات القيمة</span>
+          <span className="text-[14px]">{t("report.annex.defaultTitle")}</span>
         )}
         headerExtra={
           <div className="flex items-center gap-1">
@@ -126,19 +131,23 @@ export function MvValuationAnnexImageSheet({
               type="button"
               onClick={toggleOrientation}
               className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
-              title={orientation === "landscape" ? "تحويل الصفحة إلى طول" : "تحويل الصفحة إلى عرض"}
-              aria-label="تدوير الصفحة"
+              title={
+                orientation === "landscape"
+                  ? t("report.annex.rotateToPortrait")
+                  : t("report.annex.rotateToLandscape")
+              }
+              aria-label={t("report.annex.rotatePageAria")}
             >
               <RotateCw className="h-3.5 w-3.5" />
-              {orientation === "landscape" ? "طول" : "عرض"}
+              {orientation === "landscape" ? t("report.annex.portrait") : t("report.annex.landscape")}
             </button>
             {onDelete ? (
               <button
                 type="button"
                 onClick={onDelete}
                 className="inline-flex h-7 items-center justify-center rounded-md border border-red-100 bg-white/95 px-2 text-[10.5px] font-black text-red-600 shadow-sm transition hover:bg-red-50"
-                title="إخفاء صورة الحسابات من التقرير"
-                aria-label="إخفاء صورة الحسابات"
+                title={t("report.annex.hideImageTitle")}
+                aria-label={t("report.annex.hideImageAria")}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

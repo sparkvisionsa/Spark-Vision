@@ -1,6 +1,5 @@
 import type { MvColumnFormatKind } from "@/lib/mv-hyperformula";
 import type { MvValuationAccountingStore } from "./mv-valuation-accounting-store";
-import type { MvValuationReadyExcelWorkspaceState } from "./mv-valuation-ready-excel-persist";
 
 export type MvCellFontFamily =
   | "default"
@@ -69,6 +68,42 @@ export interface MvCompanyReportDefaults {
   assumptions?: MvCompanyReportAssumptionsDefaults;
   customSections?: MvCompanyReportCustomSection[];
   letterhead?: MvCompanyReportLetterheadTemplate;
+}
+
+/** قسم واحد ضمن بنية قالب الذكاء الاصطناعي المستخرجة من PDF مرفوع. */
+export interface MvCompanyAiReportTemplateSection {
+  id?: string;
+  title?: string;
+  order?: number;
+  description?: string;
+  /** مفاتيح تشير إلى عناصر `MvCompanyAiReportTemplate.dynamicVariables`. */
+  dynamicVariables?: string[];
+}
+
+/** متغير ديناميكي واحد ضمن قالب الذكاء الاصطناعي — يربط مفتاحاً بمصدر بيانات المشروع. */
+export interface MvCompanyAiReportTemplateVariable {
+  key?: string;
+  label?: string;
+  source?: string;
+}
+
+/**
+ * قالب تقرير مُستخرج بالذكاء الاصطناعي من ملف PDF مرفوع (لوحة إدارة الشركة).
+ * `sections`/`dynamicVariables` تصف بنية القالب المصدر لاستخدامها في تركيب
+ * صفحات التقرير النهائي ديناميكياً — وليست بيانات وصفية فقط.
+ */
+export interface MvCompanyAiReportTemplate {
+  id: string;
+  name: string;
+  analysisSummary?: string;
+  sourceFileName?: string;
+  coverImageDataUrl?: string | null;
+  pageImageDataUrl?: string | null;
+  landscapePageImageDataUrl?: string | null;
+  theme?: Record<string, unknown>;
+  layout?: Record<string, unknown>;
+  sections?: MvCompanyAiReportTemplateSection[];
+  dynamicVariables?: MvCompanyAiReportTemplateVariable[];
 }
 
 export interface MvCellStyle {
@@ -319,8 +354,6 @@ export interface MvProject {
   inspectorFiles?: MvInspectorFile[];
   /** يُحمَّل من الخادم — حالة دائمة لإجراءات التقييم (مسار النظام). */
   valuationAccountingWorkspace?: MvValuationAccountingStore;
-  /** يُحمَّل من الخادم — مسار إكسيل جاهز. */
-  valuationReadyExcelWorkspace?: MvValuationReadyExcelWorkspaceState;
 }
 
 /** يطابق حقول الأصل في الـ API لمجلدات الأصول تحت «2.صور المعاينة» */
@@ -503,8 +536,7 @@ export type MvView =
   | "inspector-files"
   | "valuation-workflow"
   | "report-workflow"
-  | "report-data-workflow"
-  | "legacy-workspace";
+  | "report-data-workflow";
 
 export interface MvGeneratedFolderResult {
   photosFolderId: string;

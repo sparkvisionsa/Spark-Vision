@@ -33,7 +33,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog,  DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -52,6 +53,7 @@ import {
 } from "./mv-simple-report-navigation";
 import type {
   MvDriveFile,
+  MvCompanyAiReportTemplate,
   MvCompanyReportCustomSection,
   MvCompanyReportLetterheadTemplate,
   MvProject,
@@ -60,7 +62,7 @@ import type {
   MvReportEditableSection,
   MvSubProject,
   PicAssetImage,
-} from "./types";
+} from "./types"
 import {
   emptyValuationAccountingStore,
   mergeValuationAccountingStores,
@@ -89,6 +91,7 @@ import { downloadPptxFromPngSlides, type PptxImageSlide } from "@/lib/pptx-expor
 import { MvWorkflowPageFrame } from "./mv-workflow-page-frame";
 import { MvErrorState } from "./mv-ui";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n, getMvT, type MvT } from "./mv-i18n";
 import { ReportRichSelectionToolbar } from "./mv-report-rich-selection-toolbar";
 import { MvValuationReportDocumentBody } from "./mv-valuation-report-document-body";
 import {
@@ -187,6 +190,12 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
   });
 }
 
+function mvExportToastDescription(error: unknown, fallbackKey: string, t: MvT): string {
+  if (!(error instanceof Error)) return t(fallbackKey);
+  if (error.message.startsWith("report.")) return t(error.message);
+  return error.message;
+}
+
 /** يضمن التقاط الصفحات العريضة والمحتوى الممتد دون قص في html2canvas */
 const CSS_PX_PER_MM = 96 / 25.4;
 
@@ -246,7 +255,7 @@ async function canvasToReportJpegBytes(
     canvas.toBlob(
       (next) => {
         if (next) resolve(next);
-        else reject(new Error("تعذر ضغط صفحة PDF."));
+        else reject(new Error("report.export.pdfCompressFailed"));
       },
       "image/jpeg",
       quality,
@@ -260,7 +269,7 @@ async function canvasToReportPngBytes(canvas: HTMLCanvasElement) {
     canvas.toBlob(
       (next) => {
         if (next) resolve(next);
-        else reject(new Error("تعذر ضغط صفحة PDF."));
+        else reject(new Error("report.export.pdfCompressFailed"));
       },
       "image/png",
     );
@@ -606,6 +615,7 @@ function ReportViewportFit({
   gutterPx: number;
   children: ReactNode;
 }) {
+  const { dir } = useMvI18n();
   const innerRef = useRef<HTMLDivElement>(null);
   const [layout, setLayout] = useState<{ s: number; boxW: number; boxH: number }>({
     s: 1,
@@ -676,7 +686,7 @@ function ReportViewportFit({
         <div
           ref={innerRef}
           data-mv-report-scale-shell
-          dir="rtl"
+          dir={dir}
           className="inline-block align-top will-change-transform"
           style={{
             transform: `translateZ(0) scale(${layout.s})`,
@@ -710,14 +720,14 @@ interface MvValuationReportWorkspaceProps {
 type ReportSectionId = string;
 type ReportPageOrientations = Record<string, MvReportPageOrientationPreference>;
 
-const MV_REPORT_NAV_GROUPS: Array<{
+const MV_REPORT_NAV_GROUPS = (t: MvT): Array<{
   title: string;
   anchor: ReportSectionId;
   icon: ReactNode;
   activeAnchors: string[];
-}> = [
+}> => [
   {
-    title: "أقسام الغلاف",
+    title: t("report.nav.coverSections"),
     anchor: "report-cover",
     icon: <ClipboardList className="h-3 w-3" />,
     activeAnchors: [
@@ -729,37 +739,37 @@ const MV_REPORT_NAV_GROUPS: Array<{
     ],
   },
   {
-    title: "قسم رأي القيمة ومعدو التقرير",
+    title: t("report.nav.opinionSection"),
     anchor: "mv-toc-24",
     icon: <FileText className="h-3 w-3" />,
     activeAnchors: ["mv-toc-24"],
   },
   {
-    title: "قسم حسابات القيمة",
+    title: t("report.nav.accountsSection"),
     anchor: "mv-annex-1",
     icon: <FileText className="h-3 w-3" />,
     activeAnchors: ["mv-annex-1"],
   },
   {
-    title: "قسم صور الأصول",
+    title: t("report.nav.assetImagesSection"),
     anchor: "mv-annex-2",
     icon: <ImageIcon className="h-3 w-3" />,
     activeAnchors: ["mv-annex-2"],
   },
   {
-    title: "قسم ملفات أخرى",
+    title: t("report.nav.otherFilesSection"),
     anchor: "mv-annex-3",
     icon: <FileText className="h-3 w-3" />,
     activeAnchors: ["mv-annex-3"],
   },
   {
-    title: "قسم شهادة التسجيل",
+    title: t("report.nav.registrationSection"),
     anchor: "mv-annex-sce",
     icon: <FileText className="h-3 w-3" />,
     activeAnchors: ["mv-annex-sce"],
   },
   {
-    title: "صفحة الخاتمة",
+    title: t("report.nav.closingPage"),
     anchor: "mv-report-closing",
     icon: <FileText className="h-3 w-3" />,
     activeAnchors: ["mv-report-closing"],
@@ -854,19 +864,13 @@ const DEFAULT_REPORT_TEMPLATE_ID = "default-report-template";
 const COMPANY_LETTERHEAD_TEMPLATE_ID = "company-letterhead";
 const AI_REPORT_TEMPLATE_ID_PREFIX = "ai-template:";
 
-type MvCompanyAiTemplate = {
-  id: string;
-  name: string;
-  analysisSummary?: string;
-  sourceFileName?: string;
-  coverImageDataUrl?: string | null;
-  pageImageDataUrl?: string | null;
-  landscapePageImageDataUrl?: string | null;
-  theme?: Record<string, unknown>;
-  layout?: Record<string, unknown>;
-  sections?: Array<{ id?: string; title?: string; order?: number }>;
-  dynamicVariables?: Array<{ key?: string; label?: string; source?: string }>;
-};
+/**
+ * الاسم المحلي `MvCompanyAiTemplate` مُبقًى عليه (بدل إعادة تسمية كل الاستخدامات
+ * في هذا الملف) لكنه الآن مجرد كنية للنوع المشترك المعرّف في `types.ts`، والذي
+ * يستهلكه أيضاً مُركِّب صفحات التقرير (`MvValuationReportDocumentBody`) عبر
+ * الخاصية `aiTemplate` لبناء الأقسام ديناميكياً بدل الاعتماد فقط على صور الغلاف.
+ */
+type MvCompanyAiTemplate = MvCompanyAiReportTemplate;
 
 type MvReportTemplateOption = {
   id: string;
@@ -893,11 +897,11 @@ type MvReportTemplateOption = {
   aiTemplate?: MvCompanyAiTemplate;
 };
 
-const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
+const REPORT_TEMPLATE_OPTIONS = (t: MvT): MvReportTemplateOption[] => [
   {
     id: DEFAULT_REPORT_TEMPLATE_ID,
-    title: "القالب الافتراضي",
-    description: "صفحات نظيفة بتباين هادئ مناسبة للتقارير اليومية.",
+    title: t("report.templates.default.title"),
+    description: t("report.templates.default.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-slate-700 to-slate-500",
@@ -905,8 +909,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "classic-letterhead",
-    title: "كلاسيكي رسمي",
-    description: "هوية مؤسسية تقليدية بخطوط زرقاء وفواصل واضحة.",
+    title: t("report.templates.classic.title"),
+    description: t("report.templates.classic.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-sky-600 to-cyan-500",
@@ -914,8 +918,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "modern-letterhead",
-    title: "حديث مدمج",
-    description: "تصميم حديث بمساحات بيضاء وتدرج أخضر تقني.",
+    title: t("report.templates.modern.title"),
+    description: t("report.templates.modern.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-emerald-600 to-teal-500",
@@ -923,8 +927,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "executive-navy",
-    title: "تنفيذي داكن",
-    description: "غلاف قوي وشريط جانبي داكن للتقارير الرسمية عالية القيمة.",
+    title: t("report.templates.executive.title"),
+    description: t("report.templates.executive.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-slate-950 via-[#0C447C] to-sky-500",
@@ -932,8 +936,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "industrial-amber",
-    title: "صناعي ذهبي",
-    description: "مناسب للمصانع والمعدات الثقيلة بتفاصيل ذهبية وشبكة فنية.",
+    title: t("report.templates.industrial.title"),
+    description: t("report.templates.industrial.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-stone-900 via-amber-700 to-orange-500",
@@ -941,8 +945,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "minimal-graphite",
-    title: "Minimal Graphite",
-    description: "أسلوب بسيط جدا بالأبيض والأسود وتركيز على النص والبيانات.",
+    title: t("report.templates.minimal.title"),
+    description: t("report.templates.minimal.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-zinc-950 to-zinc-500",
@@ -950,8 +954,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "field-teal",
-    title: "Field Teal",
-    description: "ألوان ميدانية عملية مع مساحات مريحة للصور والملاحظات.",
+    title: t("report.templates.field.title"),
+    description: t("report.templates.field.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-teal-800 via-cyan-700 to-lime-500",
@@ -959,8 +963,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "premium-burgundy",
-    title: "Premium Burgundy",
-    description: "طابع فاخر بأحمر عميق وتفاصيل ذهبية للجهات التنفيذية.",
+    title: t("report.templates.premium.title"),
+    description: t("report.templates.premium.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-rose-950 via-red-800 to-amber-500",
@@ -968,8 +972,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "creative-blocks",
-    title: "Creative Blocks",
-    description: "تركيب لوني جريء يشبه قوالب العروض الحديثة.",
+    title: t("report.templates.creative.title"),
+    description: t("report.templates.creative.description"),
     badge: "PDF",
     outputFormat: "pdf",
     accentClass: "from-fuchsia-700 via-sky-600 to-emerald-500",
@@ -977,8 +981,8 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: "powerpoint-deck",
-    title: "PowerPoint Presentation",
-    description: "مهيأ للتنزيل كعرض شرائح 16:9 مع غلاف عرض تقديمي.",
+    title: t("report.templates.deck.title"),
+    description: t("report.templates.deck.description"),
     badge: "PPTX",
     outputFormat: "pptx",
     accentClass: "from-orange-600 to-amber-500",
@@ -986,9 +990,9 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
   {
     id: COMPANY_LETTERHEAD_TEMPLATE_ID,
-    title: "استخدام أكلاشية",
-    description: "يستخدم صور الأكلاشية المرفوعة من إعدادات الشركة كما هي.",
-    badge: "صور",
+    title: t("report.templates.letterhead.title"),
+    description: t("report.templates.letterhead.description"),
+    badge: t("report.templates.letterhead.badge"),
     outputFormat: "pdf",
     accentClass: "from-amber-600 to-orange-500",
     previewKind: "letterhead",
@@ -996,28 +1000,29 @@ const REPORT_TEMPLATE_OPTIONS: MvReportTemplateOption[] = [
   },
 ];
 
-function findReportTemplateOption(id: string | null | undefined): MvReportTemplateOption {
-  return REPORT_TEMPLATE_OPTIONS.find((item) => item.id === id) ?? REPORT_TEMPLATE_OPTIONS[0];
+function findReportTemplateOption(id: string | null | undefined, t: MvT): MvReportTemplateOption {
+  const options = REPORT_TEMPLATE_OPTIONS(t);
+  return options.find((item) => item.id === id) ?? options[0]!;
 }
 
-function normalizeReportTemplateId(id: string | null | undefined): string {
+function normalizeReportTemplateId(id: string | null | undefined, t: MvT): string {
   if (typeof id === "string" && id.startsWith(AI_REPORT_TEMPLATE_ID_PREFIX)) return id.trim().slice(0, 180);
-  return findReportTemplateOption(typeof id === "string" ? id : null).id;
+  return findReportTemplateOption(typeof id === "string" ? id : null, t).id;
 }
 
 function findReportTemplateOptionFrom(
   options: MvReportTemplateOption[],
   id: string | null | undefined,
 ): MvReportTemplateOption {
-  return options.find((item) => item.id === id) ?? REPORT_TEMPLATE_OPTIONS[0];
+  return options.find((item) => item.id === id) ?? options[0]!;
 }
 
 function normalizeReportTemplateIdFrom(options: MvReportTemplateOption[], id: string | null | undefined): string {
-  if (typeof id !== "string") return REPORT_TEMPLATE_OPTIONS[0].id;
+  if (typeof id !== "string") return options[0]!.id;
   return findReportTemplateOptionFrom(options, id).id;
 }
 
-function normalizeCompanyAiTemplatesForReport(raw: unknown): MvCompanyAiTemplate[] {
+function normalizeCompanyAiTemplatesForReport(raw: unknown, t: MvT): MvCompanyAiTemplate[] {
   if (!Array.isArray(raw)) return [];
   const image = (value: unknown): string | null => {
     if (typeof value !== "string") return null;
@@ -1031,7 +1036,7 @@ function normalizeCompanyAiTemplatesForReport(raw: unknown): MvCompanyAiTemplate
     .map((item, index) => {
       const data = item && typeof item === "object" && !Array.isArray(item) ? (item as Record<string, unknown>) : {};
       const id = typeof data.id === "string" && data.id.trim() ? data.id.trim() : `ai-template-${index + 1}`;
-      const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : `قالب ذكاء اصطناعي ${index + 1}`;
+      const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : t("report.templates.aiName", { n: index + 1 });
       return {
         id,
         name,
@@ -1206,7 +1211,7 @@ function isReportDraftMode(data: MvProjectReportData | undefined | null) {
 function withDraftDefaultReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
   return {
     ...(data ?? {}),
-    reportTemplateId: normalizeReportTemplateId(data?.reportTemplateId),
+    reportTemplateId: normalizeReportTemplateId(data?.reportTemplateId, getMvT()),
     reportPresentationDraft: isReportDraftMode(data),
   };
 }
@@ -1323,6 +1328,7 @@ function ControlSlider({
   suffix?: string;
   onChange: (value: number) => void;
 }) {
+  const { dir } = useMvI18n();
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   return (
     <label className="grid min-w-0 gap-1 rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-right transition hover:border-slate-300">
@@ -1338,7 +1344,7 @@ function ControlSlider({
       </span>
       <div className="flex items-center gap-2">
         <Slider
-          dir="rtl"
+          dir={dir}
           className="min-w-0 flex-1 py-1"
           min={min}
           max={max}
@@ -1548,6 +1554,7 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
 }
 
 export default function MvValuationReportWorkspace({ projectId }: MvValuationReportWorkspaceProps) {
+  const { t, dir } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const { user, profile } = useAuthTracking();
@@ -1676,7 +1683,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [wordTemplateModalOpen, setWordTemplateModalOpen] = useState(false);
   const [settingsImagesTab, setSettingsImagesTab] = useState<"assets" | "valuation">("assets");
   const [pendingReportTemplateId, setPendingReportTemplateId] = useState(() =>
-    normalizeReportTemplateId(initialProject?.reportData?.reportTemplateId),
+    normalizeReportTemplateId(initialProject?.reportData?.reportTemplateId, getMvT()),
   );
   const [reportTemplatePreviewId, setReportTemplatePreviewId] = useState<string | null>(null);
   const [desktopReportChrome, setDesktopReportChrome] = useState(false);
@@ -1747,7 +1754,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز بيانات التقرير…",
+          loadingLabel: t("report.loadingLabel"),
         },
       );
 
@@ -1946,7 +1953,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       });
     } catch (error) {
       if (runId === loadRunRef.current) {
-        setLoadError(mvErrorMessage(error, "تعذر تحميل بيانات إعداد التقرير."));
+        setLoadError(mvErrorMessage(error, t("report.loadFailed")));
       }
     } finally {
       if (runId === loadRunRef.current) {
@@ -1980,14 +1987,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const reportTemplateOptions = useMemo<MvReportTemplateOption[]>(
     () => [
-      ...REPORT_TEMPLATE_OPTIONS,
+      ...REPORT_TEMPLATE_OPTIONS(t),
       ...companyAiTemplates.map((template) => ({
         id: `${AI_REPORT_TEMPLATE_ID_PREFIX}${template.id}`,
         title: template.name,
         description:
           template.analysisSummary ||
           template.sourceFileName ||
-          "قالب ذكاء اصطناعي محفوظ من PDF شركة.",
+          t("report.templates.aiFallback"),
         badge: "AI",
         outputFormat: "pdf" as const,
         accentClass: "from-violet-700 via-sky-600 to-emerald-500",
@@ -1996,7 +2003,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         aiTemplate: template,
       })),
     ],
-    [companyAiTemplates],
+    [companyAiTemplates, t],
   );
 
   useEffect(() => {
@@ -2135,7 +2142,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               }
             : null,
         );
-        setCompanyAiTemplates(normalizeCompanyAiTemplatesForReport(data.reportDefaults?.aiTemplates));
+        setCompanyAiTemplates(normalizeCompanyAiTemplatesForReport(data.reportDefaults?.aiTemplates, t));
         const companyWordTemplateUrl = data.reportDefaults?.wordTemplate?.fileUrl;
         setCompanyWordTemplateReady(
           typeof companyWordTemplateUrl === "string" &&
@@ -2149,7 +2156,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const serverAccountingKey = useMemo(
     () => JSON.stringify(project?.valuationAccountingWorkspace ?? null),
@@ -2238,7 +2245,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     const hostedInIframe = typeof window !== "undefined" && window.parent !== window.self;
     setDownloadingPdf(true);
     setPdfExportProgress(3);
-    setPdfExportLabel("جاري تجهيز التقرير للتنزيل…");
+    setPdfExportLabel(t("report.export.preparing"));
     let restoreCaptureLayout: (() => void) | null = null;
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
@@ -2253,7 +2260,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
 
       setPdfExportProgress(12);
-      setPdfExportLabel("تحميل صور التقرير…");
+      setPdfExportLabel(t("report.export.loadingImages"));
       restoreCaptureLayout = await prepareReportDocumentForCapture(root);
 
       const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
@@ -2267,7 +2274,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       let pdf: import("jspdf").jsPDF | null = null;
 
       for (let i = 0; i < sheets.length; i++) {
-        setPdfExportLabel(`تصدير الصفحة ${i + 1} من ${sheets.length}…`);
+        setPdfExportLabel(t("report.export.exportingPage", { current: i + 1, total: sheets.length }));
         setPdfExportProgress(15 + Math.round(((i + 0.35) / sheets.length) * 80));
         const el = sheets[i]!;
         const landscape = el.dataset.mvReportOrientation === "landscape";
@@ -2279,7 +2286,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
         for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex += 1) {
           if (sliceCount > 1) {
-            setPdfExportLabel(`تصدير الصفحة ${i + 1}.${sliceIndex + 1} من ${sheets.length}…`);
+            setPdfExportLabel(t("report.export.exportingSlice", { page: i + 1, slice: sliceIndex + 1, total: sheets.length }));
           }
           const canvas = await html2canvas(el, {
             scale,
@@ -2317,20 +2324,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
       if (pdf) {
         setPdfExportProgress(98);
-        setPdfExportLabel("حفظ ملف PDF…");
+        setPdfExportLabel(t("report.export.savingPdf"));
         const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
         pdf.save(`${safeName}-valuation-report.pdf`);
         setPdfExportProgress(100);
         exportOk = true;
         if (!hostedInIframe) {
-          toast({ description: "تم تنزيل التقرير النهائي." });
+          toast({ description: t("report.export.downloadedPdf") });
         }
       }
     } catch (error) {
       if (!hostedInIframe) {
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر تصدير التقرير إلى PDF.",
+          description: mvExportToastDescription(error, "report.export.pdfFailed", t),
         });
       }
     } finally {
@@ -2346,13 +2353,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         postReportPdfExportToParent(projectId, exportOk);
       }
     }
-  }, [loading, project?.name, projectId, reportMediaLoading, toast]);
+  }, [loading, project?.name, projectId, reportMediaLoading, t, toast]);
 
   const downloadAsPptx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
     setDownloadingPptx(true);
     setPdfExportProgress(3);
-    setPdfExportLabel("جاري تجهيز ملف PowerPoint…");
+    setPdfExportLabel(t("report.export.preparingPpt"));
     let restoreCaptureLayout: (() => void) | null = null;
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
@@ -2367,7 +2374,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
 
       setPdfExportProgress(12);
-      setPdfExportLabel("تحميل صور التقرير…");
+      setPdfExportLabel(t("report.export.loadingImages"));
       restoreCaptureLayout = await prepareReportDocumentForCapture(root);
 
       const { default: html2canvas } = await import("html2canvas");
@@ -2388,8 +2395,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           slideCounter += 1;
           setPdfExportLabel(
             sliceCount > 1
-              ? `تحويل الصفحة ${i + 1}.${sliceIndex + 1} إلى شريحة…`
-              : `تحويل الصفحة ${i + 1} من ${sheets.length} إلى شريحة…`,
+              ? t("report.export.convertingSlice", { page: i + 1, slice: sliceIndex + 1 })
+              : t("report.export.convertingSlide", { current: i + 1, total: sheets.length }),
           );
           setPdfExportProgress(15 + Math.round(((slideCounter - 0.4) / Math.max(sheets.length, slideCounter)) * 78));
 
@@ -2416,7 +2423,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             dataUrl: canvas.toDataURL("image/png", 1),
             width: canvas.width,
             height: canvas.height,
-            title: sliceCount > 1 ? `صفحة ${i + 1}.${sliceIndex + 1}` : `صفحة ${i + 1}`,
+            title: sliceCount > 1
+              ? t("report.export.pageSliceTitle", { page: i + 1, slice: sliceIndex + 1 })
+              : t("report.export.pageTitle", { n: i + 1 }),
             landscape,
           });
           canvas.width = 1;
@@ -2425,15 +2434,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
 
       setPdfExportProgress(98);
-      setPdfExportLabel("حفظ ملف PowerPoint…");
+      setPdfExportLabel(t("report.export.savingPpt"));
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       downloadPptxFromPngSlides(slides, `${safeName}-valuation-report.pptx`, `${project?.name || "Valuation Report"} PowerPoint`);
       setPdfExportProgress(100);
-      toast({ description: "تم تنزيل التقرير بصيغة PowerPoint." });
+      toast({ description: t("report.export.downloadedPpt") });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "تعذر تصدير التقرير إلى PowerPoint.",
+        description: mvExportToastDescription(error, "report.export.pptFailed", t),
       });
     } finally {
       restoreCaptureLayout?.();
@@ -2445,13 +2454,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [loading, project?.name, reportMediaLoading, toast]);
+  }, [loading, project?.name, reportMediaLoading, t, toast]);
 
   const downloadAsDocx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
     setDownloadingDocx(true);
     setPdfExportProgress(3);
-    setPdfExportLabel("جاري تجهيز ملف Word…");
+    setPdfExportLabel(t("report.export.preparingWord"));
     const scrollEl = reportSectionsScrollRef.current;
     const prevTop = scrollEl?.scrollTop ?? 0;
     const prevLeft = scrollEl?.scrollLeft ?? 0;
@@ -2465,7 +2474,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       }
 
       setPdfExportProgress(12);
-      setPdfExportLabel("تحميل صور التقرير…");
+      setPdfExportLabel(t("report.export.loadingImages"));
       await preloadMissingReportImageCache(collectReportImageSources(root));
       applyCachedReportImageSrcs(root);
       primeReportImagesForCapture(root);
@@ -2479,11 +2488,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       const sources: DocxSheetSource[] = sheets.map((el, i) => ({
         root: el,
         landscape: el.dataset.mvReportOrientation === "landscape",
-        title: `صفحة ${i + 1}`,
+        title: t("report.export.pageTitle", { n: i + 1 }),
       }));
 
       setPdfExportProgress(50);
-      setPdfExportLabel("توليد محتوى Word قابل للتعديل…");
+      setPdfExportLabel(t("report.export.generatingWord"));
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       await downloadDocxFromSheets(
         sources,
@@ -2491,11 +2500,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         { title: `${project?.name || "Valuation Report"} Word` },
       );
       setPdfExportProgress(100);
-      toast({ description: "تم تنزيل التقرير بصيغة Word." });
+      toast({ description: t("report.export.downloadedWord") });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "تعذر تصدير التقرير إلى Word.",
+        description: mvExportToastDescription(error, "report.export.wordFailed", t),
       });
     } finally {
       if (scrollEl) {
@@ -2506,7 +2515,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [loading, project?.name, reportMediaLoading, toast]);
+  }, [loading, project?.name, reportMediaLoading, t, toast]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2689,7 +2698,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (!companyWordTemplateReady || loading || reportMediaLoading) return;
     setDownloadingDocxTemplate(true);
     setPdfExportProgress(8);
-    setPdfExportLabel("تحضير بيانات Word…");
+    setPdfExportLabel(t("report.export.preparingWordData"));
     try {
       const mergeInput = await prepareMvWordMergeInput({
         projectName: project?.name || "report",
@@ -2699,7 +2708,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         valuationImageSources: wordTemplateValuationImageSources,
       });
       setPdfExportProgress(55);
-      setPdfExportLabel("دمج البيانات والصور في القالب…");
+      setPdfExportLabel(t("report.export.mergingWord"));
       const result = await mergeWordReportTemplateSmart({
         projectId,
         templateBuffer: new ArrayBuffer(0),
@@ -2710,11 +2719,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       downloadWordBlob(result.blob, `${safeName}-merged-report.docx`);
       setPdfExportProgress(100);
-      toast({ description: "تم تصدير التقرير من قالب Word." });
+      toast({ description: t("report.export.wordTemplate") });
     } catch (error) {
       toast({
         variant: "destructive",
-        description: error instanceof Error ? error.message : "تعذر تصدير التقرير من قالب Word.",
+        description: mvExportToastDescription(error, "report.export.wordTemplateFailed", t),
       });
     } finally {
       setDownloadingDocxTemplate(false);
@@ -2729,6 +2738,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     projectId,
     reportData,
     reportMediaLoading,
+    t,
     toast,
     wordTemplateAssetImageSources,
     wordTemplateValuationImageSources,
@@ -2791,11 +2801,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (letterheadTemplate?.logoDataUrl) sources.push(letterheadTemplate.logoDataUrl);
     if (letterheadTemplate?.footerImageDataUrl) sources.push(letterheadTemplate.footerImageDataUrl);
     if (letterheadTemplate?.signatureStampDataUrl) sources.push(letterheadTemplate.signatureStampDataUrl);
-    for (const template of companyAiTemplates) {
-      if (template.coverImageDataUrl) sources.push(template.coverImageDataUrl);
-      if (template.pageImageDataUrl) sources.push(template.pageImageDataUrl);
-      if (template.landscapePageImageDataUrl) sources.push(template.landscapePageImageDataUrl);
-    }
+    // لا داعٍ لتحميل صور قوالب AI مسبقاً — لم تعد تُستخدم كخلفية إطلاقاً (انظر `renderedLetterheadTemplate` أعلاه).
     for (const file of orderedImages.slice(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT)) {
       sources.push(reportDriveFileImageSrc(projectId, file));
     }
@@ -2807,7 +2813,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
     }
     return sources.filter(Boolean);
-  }, [companyAiTemplates, companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
+  }, [companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
 
   const reportImageSourcesKey = useMemo(
     () =>
@@ -2827,16 +2833,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (appliedReportTemplateId === DEFAULT_REPORT_TEMPLATE_ID) return null;
     const appliedTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
     if (appliedTemplate.usesAiTemplate && appliedTemplate.aiTemplate) {
-      const image = (src?: string | null) => (src ? getCachedReportImageSrc(src) : null);
-      const aiTemplate = appliedTemplate.aiTemplate;
-      const hasAiBackground = Boolean(aiTemplate.coverImageDataUrl || aiTemplate.pageImageDataUrl || aiTemplate.landscapePageImageDataUrl);
+      /**
+       * لا نستخدم أي لقطة شاشة من ملف PDF المرفوع (غلاف أو صفحة داخلية) كخلفية إطلاقاً.
+       * كل لقطة رُفعت تحوي نصاً حقيقياً ثابتاً بلونه وخطه الأصليين من المستند المصدر
+       * (عنوان، اسم عميل، فهرس...)، وتراكيب مباشرة تحته/فوقه محتوى ديناميكياً بتصميمنا
+       * الخاص (نص أبيض ثابت يفرض تصميماً داكناً) كان يُسبب تعارضاً/تراكب نص لا يمكن
+       * ضمان سلامته لملف مرفوع عشوائي — بل كانت الخلفية نفسها تتسرب أيضاً إلى صفحة
+       * الشكر الختامية (نفس `variant="cover"`). لذلك نتعامل مع قالب AI بالضبط كما
+       * نتعامل مع أي قالب جاهز مبني بالكود (مثل «executive-navy»): بلا صور خلفية إطلاقاً
+       * (`enabled: false`)، معرّف قالب غير معروف لدى `reportTemplateChrome`/
+       * `ReportTemplateCoverDecor` فيسقط تلقائياً وبأمان على تصميم الغلاف الاحترافي
+       * الافتراضي (كحلي/ذهبي) — نفس جودة والاتساق البصري لبقية التقرير تماماً.
+       * محتوى الصفحات الداخلية لقالب AI يُبنى ديناميكياً من `aiTemplate.sections` داخل
+       * `MvValuationReportDocumentBody`، لا من أي صورة.
+       */
       return {
-        enabled: hasAiBackground,
+        enabled: false,
         templateId: appliedTemplate.id,
         outputFormat: "pdf",
-        coverImageDataUrl: image(aiTemplate.coverImageDataUrl),
-        pageImageDataUrl: image(aiTemplate.pageImageDataUrl),
-        landscapePageImageDataUrl: image(aiTemplate.landscapePageImageDataUrl),
       };
     }
     if (appliedReportTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID) {
@@ -2974,13 +2988,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     if (option.usesCompanyLetterhead && !companyLetterheadReady) {
       toast({
         variant: "destructive",
-        description: "ارفع صور الأكلاشية من إعدادات الشركة قبل استخدام هذا الخيار.",
+        description: t("report.templates.uploadLetterheadFirst"),
       });
       return;
     }
     onReportDataPatch({ reportTemplateId: option.id });
-    toast({ description: `تم تطبيق قالب ${option.title}.` });
-  }, [companyLetterheadReady, onReportDataPatch, reportTemplateOptions, toast]);
+    toast({ description: t("report.templates.applied", { title: option.title }) });
+  }, [companyLetterheadReady, onReportDataPatch, reportTemplateOptions, t, toast]);
 
   const applyProjectReportTemplate = useCallback(() => {
     applyReportTemplateById(pendingReportTemplateId);
@@ -3030,11 +3044,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     });
     try {
       await persistProjectReportData(rd);
-      toast({ description: "تم حفظ إعدادات التقرير في قاعدة البيانات." });
+      toast({ description: t("report.settings.saved") });
     } catch {
       toast({
         variant: "destructive",
-        description: "تعذر حفظ إعدادات التقرير. حاول مرة أخرى.",
+        description: t("report.settings.saveFailed"),
       });
     } finally {
       setReportSaving(false);
@@ -3247,6 +3261,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     });
   }, [onReportDataPatch]);
 
+  const appliedAiTemplate = useMemo(() => {
+    const appliedTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
+    return appliedTemplate.usesAiTemplate ? appliedTemplate.aiTemplate ?? null : null;
+  }, [appliedReportTemplateId, reportTemplateOptions]);
+
   const reportDocumentProps = {
     projectId,
     project,
@@ -3254,6 +3273,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     reportData,
     companyBrand,
     letterheadTemplate: renderedLetterheadTemplate,
+    aiTemplate: appliedAiTemplate,
     reportFooterLines,
     draftWatermark: draftMode,
     onReportDataPatch,
@@ -3398,15 +3418,15 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   if (!project && !loading && loadError) {
     return (
-      <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", reportFont.className)} dir="rtl">
+      <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", reportFont.className)} dir={dir}>
         <MvProjectReportHeader
           compact
           projectId={projectId}
           activeStep="report-preview"
-          breadcrumbs={[{ label: projectId }, { label: "إعداد التقرير" }]}
+          breadcrumbs={[{ label: projectId }, { label: t("report.breadcrumb") }]}
         />
         <MvErrorState
-          title="تعذر فتح إعداد التقرير"
+          title={t("report.openFailed")}
           description={loadError}
           onRetry={() => void load()}
           className="flex-1"
@@ -3418,7 +3438,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   return (
     <MvWorkflowPageFrame
       className={cn("bg-[var(--color-background-primary)]", reportFont.className)}
-      dir="rtl"
+      dir={dir}
     >
       <MvProjectReportHeader
         compact
@@ -3427,7 +3447,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         activeStep="report-preview"
         breadcrumbs={[
           { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "إعداد التقرير" },
+          { label: t("report.breadcrumb") },
         ]}
       />
 
@@ -3448,8 +3468,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 "h-8 w-8 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
                 !navCollapsed && "bg-slate-100/80 text-[#0C447C]",
               )}
-              title={navCollapsed ? "إظهار قائمة التنقل" : "إخفاء قائمة التنقل"}
-              aria-label="قائمة الأقسام"
+              title={navCollapsed ? t("report.nav.showNav") : t("report.nav.hideNav")}
+              aria-label={t("report.nav.sectionsList")}
               aria-pressed={!navCollapsed}
               onClick={() => setNavCollapsed((v) => !v)}
             >
@@ -3463,8 +3483,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 "h-8 w-8 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
                 settingsDrawerOpen && settingsDrawerTab !== "images" && "bg-slate-100/80 text-[#0C447C]",
               )}
-              title="قوالب وإعدادات التقرير"
-              aria-label="إعدادات التقرير"
+              title={t("report.toolbar.templatesSettings")}
+              aria-label={t("report.toolbar.reportSettings")}
               aria-pressed={settingsDrawerOpen && settingsDrawerTab !== "images"}
               onClick={() => {
                 setSettingsDrawerTab("templates");
@@ -3481,8 +3501,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 "h-8 shrink-0 gap-1.5 rounded-lg px-2 text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]",
                 settingsDrawerOpen && settingsDrawerTab === "images" && "bg-slate-100/80 text-[#0C447C]",
               )}
-              title="ترتيب وحجم الصور"
-              aria-label="إدارة الصور"
+              title={t("report.toolbar.imageLayout")}
+              aria-label={t("report.toolbar.manageImages")}
               onClick={() => {
                 setSettingsDrawerTab("images");
                 setSettingsImagesTab("assets");
@@ -3490,7 +3510,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               }}
             >
               <ImageIcon className="h-4 w-4" />
-              <span className="hidden text-[10.5px] font-black sm:inline">صور</span>
+              <span className="hidden text-[10.5px] font-black sm:inline">{t("report.toolbar.images")}</span>
               <span className="rounded-md bg-white px-1.5 py-0.5 text-[9px] font-black tabular-nums text-[#0C447C] ring-1 ring-slate-200">
                 {selectedImages.length}
               </span>
@@ -3514,17 +3534,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   )}
                   aria-hidden
                 />
-                {draftMode ? "مسودة" : "نهائي"}
+                {draftMode ? t("report.toolbar.draft") : t("report.toolbar.final")}
               </span>
               {loading ? (
                 <span className="inline-flex h-6 items-center gap-1 rounded-full bg-slate-100 px-2 text-[9.5px] font-bold text-slate-700">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span className="hidden sm:inline">تحديث</span>
+                  <span className="hidden sm:inline">{t("report.toolbar.refreshing")}</span>
                 </span>
               ) : reportMediaLoading ? (
                 <span className="inline-flex h-6 items-center gap-1 rounded-full bg-sky-50 px-2 text-[9.5px] font-bold text-sky-900">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span className="hidden sm:inline">صور</span>
+                  <span className="hidden sm:inline">{t("report.toolbar.loadingImages")}</span>
                 </span>
               ) : null}
             </div>
@@ -3535,13 +3555,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:min-w-[240px] sm:flex-initial">
               <div className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 shadow-sm sm:min-w-[180px] sm:max-w-[260px]">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
-                <span className="hidden shrink-0 text-[10px] font-black text-slate-500 lg:inline">القالب</span>
+                <span className="hidden shrink-0 text-[10px] font-black text-slate-500 lg:inline">{t("report.toolbar.template")}</span>
                 <Select value={pendingReportTemplateId} onValueChange={applyReportTemplateById}>
                   <SelectTrigger
                     className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-right text-[10.5px] font-black text-slate-800 shadow-none outline-none ring-0 focus:ring-0 [&>span]:truncate"
-                    title="اختيار قالب التقرير"
+                    title={t("report.toolbar.selectTemplate")}
                   >
-                    <SelectValue placeholder="اختيار قالب التقرير" />
+                    <SelectValue placeholder={t("report.toolbar.selectTemplate")} />
                   </SelectTrigger>
                   <SelectContent className="z-[760]">
                     {reportTemplateOptions.map((option) => (
@@ -3565,10 +3585,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   className="h-9 shrink-0 gap-1.5 rounded-lg border-sky-200 bg-sky-50/80 px-2.5 text-[10.5px] font-black text-[#0C447C] hover:bg-sky-100"
                   disabled={loading || reportMediaLoading}
                   onClick={() => setWordTemplateModalOpen(true)}
-                  title="تنزيل تقرير Word من بيانات المشروع"
+                  title={t("report.toolbar.downloadWord")}
                 >
                   <FileType className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">تنزيل تقرير Word</span>
+                  <span className="hidden sm:inline">{t("report.toolbar.downloadWord")}</span>
                 </Button>
               ) : null}
 
@@ -3583,8 +3603,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 )}
                 title={
                   draftMode
-                    ? "وضع المسودة مفعل: علامة مائية وإخفاء التوقيعات."
-                    : "وضع المسودة مغلق: تظهر التوقيعات بدون علامة مائية."
+                    ? t("report.toolbar.draftOn")
+                    : t("report.toolbar.draftOff")
                 }
               >
                 <span
@@ -3596,14 +3616,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 >
                   <ClipboardList className="h-3.5 w-3.5" />
                 </span>
-                <span className="hidden sm:inline">{draftMode ? "مسودة" : "نهائي"}</span>
+                <span className="hidden sm:inline">{draftMode ? t("report.toolbar.draft") : t("report.toolbar.final")}</span>
                 <Switch
                   id="mv-report-draft-mode-switch"
                   checked={draftMode}
                   onCheckedChange={() => toggleDraftMode()}
                   disabled={loading}
                   dir="ltr"
-                  aria-label="تبديل وضع المسودة"
+                  aria-label={t("report.toolbar.toggleDraft")}
                   className="border-0 shadow-inner data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-emerald-500"
                 />
               </label>
@@ -3617,10 +3637,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 className="h-8 shrink-0 gap-1.5 rounded-lg border-slate-200 bg-white px-2.5 text-[10.5px] font-bold text-slate-700 hover:bg-slate-50 hover:text-[#0C447C]"
                 disabled={loading || reportMediaLoading}
                 onClick={openReportPreview}
-                title="معاينة التقرير قبل التصدير"
+                title={t("report.toolbar.previewBeforeExport")}
               >
                 <Eye className="h-3.5 w-3.5" />
-                <span>معاينة</span>
+                <span>{t("report.toolbar.preview")}</span>
               </Button>
 
               <MvReportExportMenu
@@ -3636,10 +3656,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 className="h-8 shrink-0 gap-1.5 rounded-lg bg-emerald-700 px-3 text-[10.5px] font-black text-white shadow-sm hover:bg-emerald-800"
                 disabled={reportSaving || loading}
                 onClick={() => void saveReportSettingsNow()}
-                title="حفظ التغييرات على التقرير"
+                title={t("report.toolbar.saveChanges")}
               >
                 {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                <span>حفظ</span>
+                <span>{t("report.toolbar.save")}</span>
               </Button>
             </div>
           </div>
@@ -3662,14 +3682,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       <ListTree className="h-3 w-3" />
                     </span>
                     <span className="min-w-0 truncate text-[10.5px] font-black text-slate-800">
-                      أقسام التقرير
+                      {t("report.nav.reportSections")}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setNavCollapsed(true)}
-                    title="طي القائمة"
-                    aria-label="طي قائمة التنقل"
+                    title={t("report.nav.collapseList")}
+                    aria-label={t("report.nav.collapseNav")}
                     className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 lg:flex"
                   >
                     <ChevronsRight className="h-3 w-3" />
@@ -3680,8 +3700,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   <button
                     type="button"
                     onClick={() => setNavCollapsed(false)}
-                    title="فتح القائمة"
-                    aria-label="فتح قائمة التنقل"
+                    title={t("report.nav.expandList")}
+                    aria-label={t("report.nav.expandNav")}
                     className="flex h-6 w-6 items-center justify-center rounded text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
                   >
                     <ChevronsLeft className="h-3 w-3" />
@@ -3695,7 +3715,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                   navCollapsed ? "space-y-1 px-1 py-1.5" : "space-y-0.5 px-1.5 py-1.5",
                 )}
               >
-                {MV_REPORT_NAV_GROUPS.map((row) => (
+                {MV_REPORT_NAV_GROUPS(t).map((row) => (
                   <ReportTocItem
                     key={row.anchor}
                     active={isReportNavGroupActive(activeSection, row.activeAnchors)}
@@ -3714,7 +3734,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 ))}
                 {editableSections.length > 0 && !navCollapsed ? (
                   <p className="px-1 pt-1.5 pb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
-                    أقسام إضافية
+                    {t("report.nav.additionalSections")}
                   </p>
                 ) : null}
                 {editableSections.map((s) => (
@@ -3722,7 +3742,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     key={s.id}
                     active={activeSection === `custom:${s.id}`}
                     icon={<FileText className="h-3 w-3" />}
-                    title={s.title.trim() || "قسم إضافي"}
+                    title={s.title.trim() || t("report.nav.extraSection")}
                     onClick={() => scrollToSection(`custom:${s.id}`)}
                     collapsed={navCollapsed}
                   />
@@ -3771,13 +3791,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               {/* Backdrop only on mobile so desktop keeps the canvas visible alongside the drawer. */}
               <button
                 type="button"
-                aria-label="إغلاق لوحة الإعدادات"
+                aria-label={t("report.toolbar.closeSettings")}
                 onClick={() => setSettingsDrawerOpen(false)}
                 className="mv-report-chrome fixed inset-0 z-[120] bg-slate-900/20 backdrop-blur-[1px] lg:hidden"
               />
               <div
                 role="dialog"
-                aria-label="إعدادات التقرير"
+                aria-label={t("report.toolbar.reportSettings")}
                 className={cn(
                   "mv-report-chrome absolute inset-y-0 left-0 z-[130] flex w-[min(340px,92vw)] flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white/95 shadow-[0_8px_32px_rgba(15,23,42,0.10)] backdrop-blur",
                   "lg:w-[300px]",
@@ -3789,13 +3809,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     <span className="flex h-5 w-5 items-center justify-center rounded bg-[#0C447C] text-white">
                       <Sliders className="h-3 w-3" />
                     </span>
-                    <span className="text-[11px] font-black text-slate-800">إعدادات التقرير</span>
+                    <span className="text-[11px] font-black text-slate-800">{t("report.toolbar.reportSettings")}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSettingsDrawerOpen(false)}
-                    title="إغلاق"
-                    aria-label="إغلاق"
+                    title={t("report.toolbar.close")}
+                    aria-label={t("report.toolbar.close")}
                     className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -3815,7 +3835,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       )}
                     >
                       <FileText className="h-3 w-3" />
-                      القوالب
+                      {t("report.settings.tabs.templates")}
                     </button>
                     <button
                       type="button"
@@ -3828,7 +3848,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       )}
                     >
                       <PencilRuler className="h-3 w-3" />
-                      مقاسات الصفحة
+                      {t("report.settings.tabs.layout")}
                     </button>
                     <button
                       type="button"
@@ -3841,7 +3861,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       )}
                     >
                       <ImageIcon className="h-3 w-3" />
-                      الصور
+                      {t("report.settings.tabs.images")}
                     </button>
                   </div>
                 </div>
@@ -3851,7 +3871,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     <div className="space-y-2.5">
                       <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
                         <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <span className="text-[10.5px] font-black text-slate-700">اختيار قالب التقرير</span>
+                          <span className="text-[10.5px] font-black text-slate-700">{t("report.toolbar.selectTemplate")}</span>
                           <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] text-slate-700">
                             {appliedReportTemplate.title}
                           </Badge>
@@ -3879,7 +3899,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                           disabled={loading || pendingReportTemplateId === appliedReportTemplateId}
                           onClick={applyProjectReportTemplate}
                         >
-                          تطبيق
+                          {t("report.settings.apply")}
                         </Button>
                       </div>
 
@@ -3920,8 +3940,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                                   size="icon"
                                   variant="ghost"
                                   className="h-7 w-7 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
-                                  title="معاينة"
-                                  aria-label={`معاينة ${option.title}`}
+                                  title={t("report.toolbar.preview")}
+                                  aria-label={t("report.preview.templateAria", { title: option.title })}
                                   onClick={() => setReportTemplatePreviewId(option.id)}
                                 >
                                   <Eye className="h-3.5 w-3.5" />
@@ -3940,7 +3960,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                                   disabled={disabled}
                                   onClick={() => setPendingReportTemplateId(option.id)}
                                 >
-                                  {active ? "مطبق" : pending ? "محدد" : "اختيار"}
+                                  {active ? t("report.toolbar.applied") : pending ? t("report.toolbar.selected") : t("report.toolbar.choose")}
                                 </Button>
                               </div>
                             </div>
@@ -3952,24 +3972,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between gap-1.5">
                         <p className="text-[10px] font-bold text-slate-500">
-                          عدّل المقاسات وفراغات الأقسام والصور.
+                          {t("report.settings.layoutHint")}
                         </p>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="h-6 gap-1 px-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
-                          title="إعادة المقاسات للافتراضي"
+                          title={t("report.toolbar.resetLayout")}
                           onClick={resetLayoutToDefaults}
                         >
                           <RotateCcw className="h-3 w-3" />
-                          افتراضي
+                          {t("report.settings.default")}
                         </Button>
                       </div>
                       <div className="grid grid-cols-1 gap-1.5">
                         <ControlSlider
                           icon={<Ruler className="h-3.5 w-3.5" />}
-                          label="هامش يمين/يسار"
+                          label={t("report.toolbar.marginHorizontal")}
                           value={marginX}
                           min={0}
                           max={120}
@@ -3979,7 +3999,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<Ruler className="h-3.5 w-3.5" />}
-                          label="هامش أعلى/أسفل"
+                          label={t("report.toolbar.marginVertical")}
                           value={marginY}
                           min={0}
                           max={140}
@@ -3989,7 +4009,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<Settings2 className="h-3.5 w-3.5" />}
-                          label="فراغ بين الأقسام"
+                          label={t("report.toolbar.sectionGap")}
                           value={sectionGap}
                           min={0}
                           max={72}
@@ -3999,7 +4019,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="فراغ مجموعات الصور"
+                          label={t("report.toolbar.imageGroupGap")}
                           value={imageGroupGap}
                           min={0}
                           max={120}
@@ -4009,7 +4029,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="فراغ بين صور المجموعة"
+                          label={t("report.toolbar.imageInnerGap")}
                           value={imageInnerGap}
                           min={0}
                           max={40}
@@ -4019,7 +4039,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="عرض صور الأصول"
+                          label={t("report.toolbar.assetImageWidth")}
                           value={assetImageWidth}
                           min={24}
                           max={100}
@@ -4029,7 +4049,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="عرض صور الإجراءات"
+                          label={t("report.toolbar.actionImageWidth")}
                           value={valuationImageWidth}
                           min={40}
                           max={100}
@@ -4039,7 +4059,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="استدارة حواف الصور"
+                          label={t("report.toolbar.imageRadius")}
                           value={imageCornerRadius}
                           min={0}
                           max={24}
@@ -4049,7 +4069,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<ImageIcon className="h-3.5 w-3.5" />}
-                          label="ظل الصور"
+                          label={t("report.toolbar.imageShadow")}
                           value={imageShadow}
                           min={0}
                           max={4}
@@ -4058,7 +4078,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<FileText className="h-3.5 w-3.5" />}
-                          label="ارتفاع السطر في الفقرات"
+                          label={t("report.toolbar.paragraphLineHeight")}
                           value={Math.round(paragraphLineHeight * 100)}
                           min={140}
                           max={220}
@@ -4068,7 +4088,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                         />
                         <ControlSlider
                           icon={<FileText className="h-3.5 w-3.5" />}
-                          label="مقياس عناوين الأقسام"
+                          label={t("report.toolbar.headingScale")}
                           value={Math.round(headingScale * 100)}
                           min={85}
                           max={120}
@@ -4136,10 +4156,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             className="mv-report-chrome pointer-events-none fixed inset-x-0 top-14 z-[650] flex justify-center px-2 sm:top-20"
             role="status"
             aria-live="polite"
-            aria-label="جاري تحميل التقرير"
+            aria-label={t("report.export.loadingReport")}
           >
             <div
-              dir="rtl"
+              dir={dir}
               className="pointer-events-auto inline-flex w-auto max-w-[min(560px,calc(100%-1rem))] items-center gap-2 rounded-full border border-sky-200/80 bg-white/95 px-3 py-1.5 shadow-[0_8px_24px_rgba(12,68,124,0.16)] ring-1 ring-sky-100/70 backdrop-blur-md"
             >
               <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
@@ -4147,11 +4167,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 <Loader2 className="relative h-3.5 w-3.5 animate-spin text-[#0C447C]" />
               </span>
               <p className="min-w-0 flex-1 truncate text-[11.5px] font-black text-slate-900">
-                جاري تحميل بيانات التقرير…
+                {t("report.loading.reportData")}
               </p>
               {reportMediaLoading ? (
                 <span className="hidden shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[9.5px] font-bold text-sky-900 sm:inline">
-                  تحميل الصور
+                  {t("report.loading.images")}
                 </span>
               ) : null}
             </div>
@@ -4164,18 +4184,18 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           className="pointer-events-none fixed inset-x-0 bottom-0 z-[660] border-t border-emerald-200/90 bg-white/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.14)] backdrop-blur-md"
           role="status"
           aria-live="polite"
-          aria-label={pdfExportLabel || "جاري تنزيل التقرير"}
+          aria-label={pdfExportLabel || t("report.export.downloading")}
         >
-          <div className="ms-auto flex w-full max-w-3xl flex-col gap-2 text-right" dir="rtl">
+          <div className="ms-auto flex w-full max-w-3xl flex-col gap-2 text-right" dir={dir}>
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 flex-1 text-[12px] font-black text-slate-900">
-                {pdfExportLabel || "جاري تنزيل التقرير النهائي…"}
+                {pdfExportLabel || t("report.export.downloading")}
               </p>
               <p className="shrink-0 text-[11px] font-bold tabular-nums text-emerald-800" dir="ltr">
                 {pdfExportProgress}%
               </p>
             </div>
-            <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200/90" dir="rtl">
+            <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200/90" dir={dir}>
               <div
                 className="absolute inset-y-0 right-0 rounded-full bg-emerald-700 transition-all duration-300"
                 style={{ width: `${pdfExportProgress}%` }}
@@ -4206,10 +4226,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           if (!open) setReportTemplatePreviewId(null);
         }}
       >
-        <DialogContent className="max-w-3xl rounded-2xl border-slate-200 p-0" dir="rtl">
-          <DialogHeader className="border-b border-slate-100 bg-white px-4 py-3 text-right">
+        <MvDialogContent className="max-w-3xl rounded-2xl border-slate-200 p-0" dir={dir}>
+          <DialogHeader className="border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
             <DialogTitle className="text-base font-black text-slate-900">
-              {reportTemplatePreviewOption?.title ?? "معاينة القالب"}
+              {reportTemplatePreviewOption?.title ?? t("report.toolbar.previewTemplate")}
             </DialogTitle>
           </DialogHeader>
           <div className="bg-slate-100 p-4">
@@ -4240,24 +4260,24 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               </p>
             ) : null}
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
       >
-        <DialogContent
+        <MvDialogContent
           className="!fixed !inset-3 !left-3 !right-3 !top-3 !bottom-3 flex h-[calc(100dvh-1.5rem)] !max-h-none w-auto !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-slate-200/90 bg-gradient-to-b from-[#e8edf4] via-white to-[#f0f4fa] p-0 shadow-2xl ring-1 ring-slate-900/10 sm:!inset-5 sm:h-[calc(100dvh-2.5rem)]"
-          dir="rtl"
+          dir={dir}
         >
           <DialogHeader className="flex shrink-0 flex-col gap-3 border-b border-[#0C447C]/10 bg-gradient-to-l from-white via-sky-50/30 to-[#e8f0fa] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-3.5">
             <div className="min-w-0 flex-1 text-right">
               <DialogTitle className="text-base font-black text-[#0a1f33] sm:text-lg">
-                معاينة التقرير النهائية
+                {t("report.preview.finalTitle")}
               </DialogTitle>
               <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-500">
-                نفس الشكل المُصدَّر — اختر صيغة التصدير من القائمة.
+                {t("report.preview.finalHint")}
               </p>
             </div>
             <MvReportExportMenu
@@ -4279,7 +4299,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               }}
               className="pointer-events-none mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950 [&_.mv-report-chrome]:!hidden"
               style={{ padding: `${marginY}px ${marginX}px` }}
-              aria-label="معاينة التقرير"
+              aria-label={t("report.preview.report")}
             >
               <ReportViewportFit
                 scrollRef={previewScrollRef}
@@ -4289,18 +4309,18 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               </ReportViewportFit>
             </article>
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
       <Dialog
         open={assetImagesPreviewOpen}
         onOpenChange={setAssetImagesPreviewOpen}
       >
-        <DialogContent
+        <MvDialogContent
           className="!fixed !inset-4 flex h-[calc(100dvh-2rem)] !max-h-none w-auto !max-w-none !translate-x-0 !translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-slate-200/90 bg-gradient-to-b from-[#e8edf4] via-white to-[#f0f4fa] p-0 shadow-2xl sm:!inset-6 sm:h-[calc(100dvh-3rem)]"
-          dir="rtl"
+          dir={dir}
         >
           <DialogHeader className="shrink-0 border-b border-[#0C447C]/10 bg-white px-4 py-3 text-right">
-            <DialogTitle className="text-base font-black text-[#0a1f33]">معاينة صفحة صور الأصول</DialogTitle>
+            <DialogTitle className="text-base font-black text-[#0a1f33]">{t("report.preview.assetImagesPage")}</DialogTitle>
           </DialogHeader>
           <div
             ref={assetImagesPreviewScrollRef}
@@ -4312,7 +4332,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               }}
               className="mx-auto min-h-0 w-full bg-transparent pb-8 text-slate-950 [&_.mv-report-chrome]:!hidden"
               style={{ padding: `${marginY}px ${marginX}px` }}
-              aria-label="معاينة صفحة صور الأصول"
+              aria-label={t("report.preview.assetImagesPage")}
             >
               <ReportViewportFit
                 scrollRef={assetImagesPreviewScrollRef}
@@ -4322,7 +4342,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               </ReportViewportFit>
             </article>
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
       <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen && !assetImagesPreviewOpen} />
     </MvWorkflowPageFrame>

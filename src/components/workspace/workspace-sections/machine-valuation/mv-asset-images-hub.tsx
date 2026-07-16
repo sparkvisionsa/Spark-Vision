@@ -32,10 +32,11 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
-  DialogContent,
+  
   DialogDescription,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -52,7 +53,7 @@ import {
 import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
-import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types";
+import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types"
 import {
   MV_WORKFLOW_SESSION,
   readMvWorkflowSessionJson,
@@ -70,6 +71,7 @@ import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-pag
 import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson } from "./mv-api-client";
+import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
 
 interface MvAssetImagesHubProps {
   projectId: string;
@@ -288,7 +290,7 @@ function assetFileRecentAtMs(file: MvDriveFile): number {
   return parseAssetDateMs(file.uploadedAt, file.updatedAt);
 }
 
-function formatAssetSearchDate(ms: number): string {
+function formatAssetSearchDate(ms: number, dateTimeFormatter: Intl.DateTimeFormat): string {
   if (!ms) return "";
   try {
     return dateTimeFormatter.format(new Date(ms));
@@ -424,8 +426,8 @@ function createFolderNode(name: string, path: string): ImageFolderNode {
   };
 }
 
-function buildImageTree(files: MvDriveFile[]) {
-  const root = createFolderNode("صور الأصول", "");
+function buildImageTree(files: MvDriveFile[], rootLabel: string) {
+  const root = createFolderNode(rootLabel, "");
   const foldersByPath = new Map<string, ImageFolderNode>([["", root]]);
 
   for (const file of files) {
@@ -665,7 +667,7 @@ async function postAssetImagesFormData(projectId: string, batch: PickedImageFile
     body: formData,
   });
   if (!response.ok) {
-    let message = "تعذر رفع الصور.";
+    let message = getMvT(readMvLanguage())("assetImages.upload.genericFailed");
     try {
       const data = (await response.json()) as { message?: unknown };
       if (typeof data.message === "string" && data.message.trim()) {
@@ -703,7 +705,7 @@ async function postAssetImagesFormDataToPicFolder(
     body: formData,
   });
   if (!response.ok) {
-    let message = "تعذر رفع الصور.";
+    let message = getMvT(readMvLanguage())("assetImages.upload.genericFailed");
     try {
       const data = (await response.json()) as { message?: unknown };
       if (typeof data.message === "string" && data.message.trim()) {
@@ -939,8 +941,8 @@ function isManageablePreviewFolderNode(node: ImageFolderNode): boolean {
   return node.path !== "__pv_root__" && !node.isSynthetic;
 }
 
-function previewFolderKindLabel(node: ImageFolderNode): "أصل" | "مجلد" {
-  return isAssetFolderNode(node) ? "أصل" : "مجلد";
+function previewFolderKindLabel(node: ImageFolderNode, t: MvT): string {
+  return isAssetFolderNode(node) ? t("assetImages.kind.asset") : t("assetImages.kind.folder");
 }
 
 function firstFolderImage(node: ImageFolderNode): AssetImageViewFile | null {
@@ -971,13 +973,18 @@ function countDescendantRegularFolders(node: ImageFolderNode): number {
   );
 }
 
-function previewFolderStatsLabel(node: ImageFolderNode): string {
+function previewFolderStatsLabel(
+  node: ImageFolderNode,
+  t: MvT,
+  numberFormatter: Intl.NumberFormat,
+): string {
   if (isAssetFolderNode(node)) {
-    return `${numberFormatter.format(node.imageCount)} صورة`;
+    return t("assetImages.meta.imageCount", { count: numberFormatter.format(node.imageCount) });
   }
-  return `${numberFormatter.format(countDescendantAssetFolders(node))} أصل · ${numberFormatter.format(
-    countDescendantRegularFolders(node),
-  )} مجلد`;
+  return t("assetImages.meta.assetFolderCount", {
+    assets: numberFormatter.format(countDescendantAssetFolders(node)),
+    folders: numberFormatter.format(countDescendantRegularFolders(node)),
+  });
 }
 
 function folderContainsPath(node: ImageFolderNode, path: string): boolean {
@@ -1006,6 +1013,27 @@ function isReportImageIncluded(file: MvDriveFile): boolean {
 }
 
 export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImagesHubProps) {
+  const { t, dir, isArabic } = useMvI18n();
+  const numberFormatter = useMemo(
+    () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
+    [isArabic],
+  );
+  const dateTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    [isArabic],
+  );
+  const previewKindLabel = useCallback(
+    (node: ImageFolderNode) => previewFolderKindLabel(node, t),
+    [t],
+  );
+  const previewStatsLabel = useCallback(
+    (node: ImageFolderNode) => previewFolderStatsLabel(node, t, numberFormatter),
+    [t, numberFormatter],
+  );
   const { toast } = useToast();
   const filePickInputRef = useRef<HTMLInputElement>(null);
   const folderPickInputRef = useRef<HTMLInputElement>(null);
@@ -1105,7 +1133,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           id,
           kind: params.kind,
           label: params.label,
-          phase: params.phase ?? "جاري التحضير…",
+          phase: params.phase ?? t("assetImages.upload.phase.preparing"),
           progress: 2,
           current: 0,
           total: params.total,
@@ -1115,7 +1143,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       ]);
       return id;
     },
-    [],
+    [t],
   );
 
   const activeAssetUploadJob = useMemo(() => {
@@ -1287,7 +1315,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز إعدادات المشروع…",
+          loadingLabel: t("workflow.loading.projectData"),
         },
       );
       const nextReportData = data.project?.reportData ?? {};
@@ -1649,7 +1677,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             "relative inline-flex shrink-0 items-center justify-center overflow-hidden border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm",
             shellSize,
           )}
-          title="أصل"
+          title={t("assetImages.kind.asset")}
         >
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1680,8 +1708,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const driveFilesForUploadTree = useMemo(() => files.filter((f) => !f.picAssetId), [files]);
   const { root, foldersByPath } = useMemo(
-    () => buildImageTree(driveFilesForUploadTree),
-    [driveFilesForUploadTree],
+    () => buildImageTree(driveFilesForUploadTree, t("assetImages.rootLabel")),
+    [driveFilesForUploadTree, t],
   );
   const selectedFolder = foldersByPath.get(selectedPath) ?? root;
   const filesByPicAssetId = useMemo(() => {
@@ -1698,7 +1726,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const { previewRoot, previewFoldersById } = useMemo(() => {
     const fb = new Map<string, ImageFolderNode>();
-    const rootNode = createFolderNode("صور الأصول", "__pv_root__");
+    const rootNode = createFolderNode(t("assetImages.rootLabel"), "__pv_root__");
     rootNode.isSynthetic = true;
     fb.set(rootNode.path, rootNode);
 
@@ -1866,7 +1894,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
     sortAndCount(rootNode);
     return { previewRoot: rootNode, previewFoldersById: fb };
-  }, [filesByPicAssetId, previewPhotoFolders, projectId]);
+  }, [filesByPicAssetId, previewPhotoFolders, projectId, t]);
 
   const previewRowsById = useMemo(
     () => new Map(previewPhotoFolders.map((row) => [row.sub._id, row])),
@@ -1965,12 +1993,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         const title = fileNameFromPath(file.relativePath || file.name);
         const pathLabel = file.relativePath || file.name;
         const recentAtMs = assetFileRecentAtMs(file);
-        const recentLabel = formatAssetSearchDate(recentAtMs);
+        const recentLabel = formatAssetSearchDate(recentAtMs, dateTimeFormatter);
         const chips = compactChips([
-          "صورة",
-          isDisplayOnlyPicAssetImage(file) ? "من بيانات الأصل" : "ملف محفوظ",
-          file.includeInReport === true ? "ضمن التقرير" : "خارج التقرير",
-          recentLabel ? `أضيفت ${recentLabel}` : null,
+          t("assetImages.meta.image"),
+          isDisplayOnlyPicAssetImage(file) ? t("assetImages.meta.fromAssetData") : t("assetImages.meta.savedFile"),
+          file.includeInReport === true ? t("assetImages.report.include") : t("assetImages.report.exclude"),
+          recentLabel ? t("assetImages.meta.addedRecently", { when: recentLabel }) : null,
         ]);
         const searchText = [
           title,
@@ -2013,17 +2041,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (includeNode) {
         const assetFolderCount = countDescendantAssetFolders(node);
         const regularFolderCount = countDescendantRegularFolders(node);
-        const recentLabel = formatAssetSearchDate(latestMs);
+        const recentLabel = formatAssetSearchDate(latestMs, dateTimeFormatter);
         const chips = compactChips([
-          previewFolderKindLabel(node),
-          ...(isAssetFolderNode(node)
-            ? [`${numberFormatter.format(node.imageCount)} صورة`]
-            : [
-                `${numberFormatter.format(assetFolderCount)} أصل`,
-                `${numberFormatter.format(regularFolderCount)} مجلد`,
-              ]),
-          node.sheetName ? `شيت ${node.sheetName}` : null,
-          recentLabel ? `آخر إضافة ${recentLabel}` : null,
+          previewKindLabel(node),
+          isAssetFolderNode(node)
+            ? t("assetImages.meta.imageCount", { count: numberFormatter.format(node.imageCount) })
+            : t("assetImages.meta.assetFolderCount", {
+                assets: numberFormatter.format(assetFolderCount),
+                folders: numberFormatter.format(regularFolderCount),
+              }),
+          node.sheetName ? t("assetImages.meta.sheet", { name: node.sheetName }) : null,
+          recentLabel ? t("assetImages.meta.lastAdded", { when: recentLabel }) : null,
         ]);
         const parentLocation = parentNames.length > 0 ? parentNames.join(" / ") : previewRoot.name;
         const searchText = [
@@ -2102,20 +2130,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const query = appliedAssetSearch.query.trim();
     const kindLabel =
       appliedAssetSearch.kind === "folder"
-        ? "المجلدات فقط"
+        ? t("assetImages.search.mode.foldersOnly")
         : appliedAssetSearch.kind === "image"
-          ? "الصور فقط"
+          ? t("assetImages.search.mode.imagesOnly")
           : "";
     const suffix = kindLabel ? ` - ${kindLabel}` : "";
-    if (appliedAssetSearch.mode === "recent" && query) return `المضاف مؤخراً المطابق لـ «${query}»${suffix}`;
-    if (appliedAssetSearch.mode === "recent") return `المضاف مؤخراً${suffix}`;
-    if (query) return `نتائج البحث عن «${query}»${suffix}`;
-    return `نتائج البحث${suffix}`;
-  }, [appliedAssetSearch]);
+    if (appliedAssetSearch.mode === "recent" && query) {
+      return `${t("assetImages.search.mode.recentWithQuery", { query })}${suffix}`;
+    }
+    if (appliedAssetSearch.mode === "recent") return `${t("assetImages.search.mode.recent")}${suffix}`;
+    if (query) return `${t("assetImages.search.mode.query", { query })}${suffix}`;
+    return `${t("assetImages.search.mode.generic")}${suffix}`;
+  }, [appliedAssetSearch, t]);
   const applyAssetSearch = useCallback(() => {
     const query = assetSearchQuery.trim();
     if (assetSearchMode === "all" && assetSearchKind === "all" && !query) {
-      toast({ variant: "destructive", description: "اكتب عبارة بحث أو اختر المضاف مؤخراً أو حدد نوع النتائج قبل التطبيق." });
+      toast({ variant: "destructive", description: t("assetImages.search.invalid") });
       return;
     }
     setAppliedAssetSearch({ query, mode: assetSearchMode, kind: assetSearchKind });
@@ -2137,7 +2167,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     async (picked: PickedImageFile[]) => {
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
-        toast({ variant: "destructive", description: "لم يتم العثور على صور صالحة للرفع." });
+        toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
         return;
       }
 
@@ -2186,7 +2216,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
         revokeOptimisticUrls(sessionLocalIds);
         toast({
-          description: `تم حفظ ${numberFormatter.format(uploadedRows.length)} صورة في الخادم.`,
+          description: t("assetImages.upload.savedCount", { count: numberFormatter.format(uploadedRows.length) }),
         });
         void loadImages("revalidate");
       } catch (error) {
@@ -2194,7 +2224,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         revokeOptimisticUrls(sessionLocalIds);
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر رفع الصور.",
+          description: error instanceof Error ? error.message : t("assetImages.upload.genericFailed"),
         });
       } finally {
         if (filePickInputRef.current) filePickInputRef.current.value = "";
@@ -2269,7 +2299,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     ) => {
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
-        toast({ variant: "destructive", description: "لم يتم العثور على صور صالحة للرفع." });
+        toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
         return;
       }
 
@@ -2278,9 +2308,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!options?.onProgress) {
         jobId = startAssetUploadJob({
           kind: "images",
-          label: `${numberFormatter.format(groupTotal)} صورة`,
+          label: t("assetImages.upload.imageCountLabel", { count: numberFormatter.format(groupTotal) }),
           total: groupTotal,
-          phase: "رفع الصور…",
+          phase: t("assetImages.upload.phase.uploading"),
           folderName: folderDisplayName,
         });
       }
@@ -2301,7 +2331,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           total: patch.groupTotal,
           progress,
           folderName: folderDisplayName,
-          label: `«${folderDisplayName}» — ${numberFormatter.format(patch.completedInGroup)} / ${numberFormatter.format(patch.groupTotal)} صورة`,
+          label: t("assetImages.upload.uploadProgressLabel", { name: folderDisplayName, current: numberFormatter.format(patch.completedInGroup), total: numberFormatter.format(patch.groupTotal) }),
         });
       };
 
@@ -2337,7 +2367,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           setFiles((prev) => mergeUploadedIntoDriveFileList(prev, batch));
           const completedInGroup = Math.min(groupTotal, i + slice.length);
           report({
-            phase: `معاينة صور «${folderDisplayName}» (${numberFormatter.format(completedInGroup)}/${numberFormatter.format(groupTotal)})`,
+            phase: t("assetImages.upload.previewImages", { name: folderDisplayName, current: numberFormatter.format(completedInGroup), total: numberFormatter.format(groupTotal) }),
             completedInGroup,
             groupTotal,
           });
@@ -2356,7 +2386,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         imageFiles,
         (uploaded, total) => {
           report({
-            phase: `رفع «${folderDisplayName}» إلى الخادم (${numberFormatter.format(uploaded)}/${numberFormatter.format(total)})`,
+            phase: t("assetImages.upload.uploadToServer", { name: folderDisplayName, current: numberFormatter.format(uploaded), total: numberFormatter.format(total) }),
             completedInGroup: uploaded,
             groupTotal: total,
           });
@@ -2369,7 +2399,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           updateAssetUploadJob(jobId, {
             progress: 100,
             state: "done",
-            phase: "اكتمل الرفع",
+            phase: t("assetImages.upload.phase.complete"),
             current: groupTotal,
             total: groupTotal,
           });
@@ -2378,14 +2408,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         revokeOptimisticUrls(sessionLocalIds);
         if (!options?.onProgress) {
           toast({
-            description: `تم حفظ ${numberFormatter.format(uploadedRows.length)} صورة في المجلد.`,
+            description: t("assetImages.upload.savedInFolder", { count: numberFormatter.format(uploadedRows.length) }),
           });
           await loadPreviewPhotoFolders("revalidate");
           removeAssetUploadJobLater(jobId!);
         }
       } catch (error) {
         if (jobId) {
-          updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: "تعذر الرفع" });
+          updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: t("assetImages.upload.phase.failed") });
           removeAssetUploadJobLater(jobId, 6000);
         }
         setFiles((prev) => prev.filter((f) => !sessionLocalIds.includes(f._id)));
@@ -2393,7 +2423,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         if (!options?.onProgress) {
           toast({
             variant: "destructive",
-            description: error instanceof Error ? error.message : "تعذر رفع الصور.",
+            description: error instanceof Error ? error.message : t("assetImages.upload.genericFailed"),
           });
         }
         throw error;
@@ -2439,10 +2469,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           known.get(`${parentSelectionId}\u0000${name}`);
         if (existing) {
           if (targetKind === "folder" && existing.kind === "asset") {
-            throw new Error("لا يمكن إنشاء مجلدات داخل أصل موجود. اختر مجلداً عادياً أو الجذر.");
+            throw new Error(t("assetImages.upload.cannotCreateInsideAsset"));
           }
           if (targetKind === "asset" && existing.kind === "folder") {
-            throw new Error("يوجد مجلد عادي بنفس اسم الأصل المطلوب. اختر اسم أصل مختلفاً.");
+            throw new Error(t("assetImages.upload.duplicateAssetName"));
           }
           parentUploadId = existing.uploadFolderId;
           parentSelectionId = existing.selectionFolderId;
@@ -2468,7 +2498,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       return {
         uploadFolderId: parentUploadId,
         selectionFolderId: selectionFolderId || parentSelectionId,
-        folderName: folderName || "صور الأصول",
+        folderName: folderName || t("assetImages.rootLabel"),
       };
     },
     [createPreviewFolderOnServer, previewPhotoFolders, rememberPreviewFolder],
@@ -2478,7 +2508,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     async (picked: PickedImageFile[], targetNode = selectedPreviewFolderNode) => {
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
-        toast({ variant: "destructive", description: "لم يتم العثور على صور صالحة للرفع." });
+        toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
         return;
       }
 
@@ -2490,7 +2520,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!baseParentId) {
         toast({
           variant: "destructive",
-          description: "اختر مجلدًا فعليًا داخل صور الأصول قبل الرفع.",
+          description: t("assetImages.upload.selectFolderFirst"),
         });
         return;
       }
@@ -2500,20 +2530,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (targetNode && isAssetFolderNode(targetNode) && isFolderBatchUpload) {
         toast({
           variant: "destructive",
-          description: "داخل الأصل يسمح برفع الصور مباشرة فقط، ولا يمكن إنشاء مجلدات داخله.",
+          description: t("assetImages.upload.noDirectInAsset"),
         });
         return;
       }
       const firstFolderParts = imageFiles.map(folderPartsFromPickedImage).find((parts) => parts.length > 0);
-      const rootFolderLabel = firstFolderParts?.[0] ?? targetNode?.name ?? "صور الأصول";
+      const rootFolderLabel = firstFolderParts?.[0] ?? targetNode?.name ?? t("assetImages.rootLabel");
 
       const jobId = startAssetUploadJob({
         kind: isFolderBatchUpload ? "folder" : "images",
         label: isFolderBatchUpload
-          ? `مجلد «${rootFolderLabel}»`
-          : `${numberFormatter.format(totalImages)} صورة`,
+          ? t("assetImages.upload.folderLabel", { name: rootFolderLabel })
+          : t("assetImages.upload.imageCountLabel", { count: numberFormatter.format(totalImages) }),
         total: totalImages,
-        phase: isFolderBatchUpload ? "تجهيز المجلد والصور…" : "رفع الصور…",
+        phase: isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.phase.uploading"),
         folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
       });
 
@@ -2530,13 +2560,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           label: isFolderBatchUpload
             ? folderName && folderName !== rootFolderLabel
               ? `«${rootFolderLabel}» / «${folderName}»`
-              : `مجلد «${rootFolderLabel}»`
-            : `${numberFormatter.format(uploaded)} / ${numberFormatter.format(totalImages)} صورة`,
+              : t("assetImages.upload.folderLabel", { name: rootFolderLabel })
+            : t("assetImages.upload.imageCountLabel", {
+                count: `${numberFormatter.format(uploaded)} / ${numberFormatter.format(totalImages)}`,
+              }),
         });
       };
 
       pushGlobalProgress(
-        isFolderBatchUpload ? "تجهيز المجلد والصور…" : "تحضير رفع الصور…",
+        isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.prepareUpload"),
         isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
         0,
       );
@@ -2572,7 +2604,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             target = cached;
           } else {
             const creatingLabel = folderParts[folderParts.length - 1] ?? rootFolderLabel;
-            pushGlobalProgress(`إنشاء المجلد «${creatingLabel}»…`, creatingLabel, serverUploadedCount);
+            pushGlobalProgress(t("assetImages.upload.creatingFolder", { name: creatingLabel }), creatingLabel, serverUploadedCount);
             target = await ensurePreviewFolderPath(
               baseParentId,
               folderParts,
@@ -2608,25 +2640,25 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (skippedRootFiles > 0) {
         toast({
           variant: "destructive",
-          description: "لا يمكن رفع صور مباشرة في مجلد رئيسي. أنشئ أصلًا أولا أو ارفع مجلدًا كاملًا.",
+          description: t("assetImages.upload.noDirectInRoot"),
         });
       }
 
       const uploadGroups = Array.from(groups.values());
       if (uploadGroups.length === 0) {
-        updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: "لا توجد صور للرفع" });
+        updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: t("assetImages.upload.noImagesToUpload") });
         removeAssetUploadJobLater(jobId, 4000);
         return;
       }
 
       try {
-        pushGlobalProgress("بدء رفع الصور…", rootFolderLabel, serverUploadedCount);
+        pushGlobalProgress(t("assetImages.upload.startUpload"), rootFolderLabel, serverUploadedCount);
 
         for (const group of uploadGroups) {
           const groupOffset = serverUploadedCount;
           await uploadImagesToPicFolder(group.uploadFolderId, group.folderName, group.files, {
             onProgress: (patch) => {
-              const onServer = patch.phase.includes("الخادم");
+              const onServer = /server|الخادم/i.test(patch.phase);
               pushGlobalProgress(
                 patch.phase,
                 group.folderName,
@@ -2638,7 +2670,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           });
           serverUploadedCount = Math.min(totalImages, groupOffset + group.files.length);
           pushGlobalProgress(
-            `اكتمل مجلد «${group.folderName}»`,
+            t("assetImages.upload.folderComplete", { name: group.folderName }),
             group.folderName,
             serverUploadedCount,
           );
@@ -2647,15 +2679,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         updateAssetUploadJob(jobId, {
           progress: 100,
           state: "done",
-          phase: isFolderBatchUpload ? "اكتمل رفع المجلد" : "اكتمل رفع الصور",
+          phase: isFolderBatchUpload ? t("assetImages.upload.folderUploadComplete") : t("assetImages.upload.imagesUploadComplete"),
           current: totalImages,
           total: totalImages,
           folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
         });
         toast({
           description: isFolderBatchUpload
-            ? `تم حفظ ${numberFormatter.format(totalImages)} صورة في مجلد «${rootFolderLabel}».`
-            : `تم حفظ ${numberFormatter.format(totalImages)} صورة.`,
+            ? t("assetImages.upload.savedInNamedFolder", { count: numberFormatter.format(totalImages), name: rootFolderLabel })
+            : t("assetImages.upload.savedCount", { count: numberFormatter.format(totalImages) }),
         });
         if (uploadGroups.length === 1) {
           setSelectedPreviewFolderId(uploadGroups[0]!.selectionFolderId);
@@ -2666,11 +2698,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         updateAssetUploadJob(jobId, {
           progress: 100,
           state: "error",
-          phase: "تعذر رفع المجلد",
+          phase: t("assetImages.upload.folderFailed"),
         });
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر رفع المجلد والصور.",
+          description: error instanceof Error ? error.message : t("assetImages.upload.folderFailed"),
         });
         removeAssetUploadJobLater(jobId, 6000);
       } finally {
@@ -2728,12 +2760,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (!targetParentId) {
       toast({
         variant: "destructive",
-        description: "لم يُعثر على مجلد «صور المعاينة» في المشروع.",
+        description: t("assetImages.upload.photosRootNotFound"),
       });
       return;
     }
-    const defaultName = kind === "folder" ? "مجلد رئيسي جديد" : "أصل جديد";
-    const promptLabel = kind === "folder" ? "اسم المجلد الرئيسي الجديد" : "اسم الأصل الجديد";
+    const defaultName = kind === "folder" ? t("assetImages.create.defaultFolder") : t("assetImages.create.defaultAsset");
+    const promptLabel = kind === "folder" ? t("assetImages.create.promptFolder") : t("assetImages.create.promptAsset");
     const name = window.prompt(promptLabel, defaultName)?.trim();
     if (!name) return;
     try {
@@ -2749,9 +2781,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         next.add(createdFolder._id);
         return next;
       });
-      toast({ description: kind === "folder" ? "تم إنشاء المجلد الرئيسي." : "تم إنشاء الأصل." });
+      toast({ description: kind === "folder" ? t("assetImages.create.folderSuccess") : t("assetImages.create.assetSuccess") });
     } catch {
-      toast({ variant: "destructive", description: kind === "folder" ? "تعذر إنشاء المجلد." : "تعذر إنشاء الأصل." });
+      toast({ variant: "destructive", description: kind === "folder" ? t("assetImages.create.folderFailed") : t("assetImages.create.assetFailed") });
     } finally {
       setCreatingPreviewFolder(false);
     }
@@ -2777,7 +2809,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (!activeCreateParentId) {
       toast({
         variant: "destructive",
-        description: "اختر مجلدًا فعليًا داخل صور الأصول أو افتح الجذر لإنشاء مجلد جديد.",
+        description: t("assetImages.upload.selectFolderOrRootForFolder"),
       });
       return;
     }
@@ -2788,7 +2820,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (!activeCreateParentId) {
       toast({
         variant: "destructive",
-        description: "اختر مجلدًا فعليًا داخل صور الأصول أو افتح الجذر لإنشاء أصل جديد.",
+        description: t("assetImages.upload.selectFolderOrRootForAsset"),
       });
       return;
     }
@@ -2807,7 +2839,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         },
       );
       if (!response.ok) {
-        let message = "تعذر حفظ التغيير.";
+        let message = t("errors.generic.saveFailed");
         try {
           const data = (await response.json()) as { message?: unknown };
           if (typeof data.message === "string" && data.message.trim()) {
@@ -2827,8 +2859,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const renamePreviewFolder = useCallback(
     async (folder: ImageFolderNode) => {
       if (!isManageablePreviewFolderNode(folder)) return;
-      const label = previewFolderKindLabel(folder);
-      const nextName = window.prompt(`اسم ${label} الجديد`, folder.name)?.trim();
+      const label = previewKindLabel(folder);
+      const nextName = window.prompt(t("assetImages.rename.promptNewName", { kind: label }), folder.name)?.trim();
       if (!nextName || nextName === folder.name) return;
       try {
         setFolderMetaSaving(true);
@@ -2841,11 +2873,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           ),
         );
         await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-        toast({ description: label === "أصل" ? "تم تعديل اسم الأصل." : "تم تعديل اسم المجلد." });
+        toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.rename.assetSuccess") : t("assetImages.rename.folderSuccess") });
       } catch (error) {
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر تعديل الاسم.",
+          description: error instanceof Error ? error.message : t("errors.generic.renameFailed"),
         });
       } finally {
         setFolderMetaSaving(false);
@@ -2862,8 +2894,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const renamePreviewFolderInstant = useCallback(
     (folder: ImageFolderNode) => {
       if (!isManageablePreviewFolderNode(folder)) return;
-      const label = previewFolderKindLabel(folder);
-      const nextName = window.prompt(`اسم ${label} الجديد`, folder.name)?.trim();
+      const label = previewKindLabel(folder);
+      const nextName = window.prompt(t("assetImages.rename.promptNewName", { kind: label }), folder.name)?.trim();
       if (!nextName || nextName === folder.name) return;
 
       const now = new Date().toISOString();
@@ -2893,7 +2925,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           };
         }),
       );
-      toast({ description: label === "أصل" ? "تم تعديل اسم الأصل." : "تم تعديل اسم المجلد." });
+      toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.rename.assetSuccess") : t("assetImages.rename.folderSuccess") });
 
       void patchPreviewFolderMeta(folder.path, { name: nextName })
         .then((updated) => {
@@ -2909,7 +2941,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         .catch((error) => {
           toast({
             variant: "destructive",
-            description: error instanceof Error ? error.message : "تعذر تعديل الاسم.",
+            description: error instanceof Error ? error.message : t("errors.generic.renameFailed"),
           });
           void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         });
@@ -2947,7 +2979,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       {
         key: "__pv_root__",
         parentId: photosRootId,
-        label: "صور الأصول",
+        label: t("assetImages.rootLabel"),
         depth: 0,
         disabled: sourceParent === photosRootId,
       },
@@ -2985,7 +3017,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     async (targetParentId: string) => {
       const folder = moveDialogFolder;
       if (!folder || !isManageablePreviewFolderNode(folder)) return;
-      const label = previewFolderKindLabel(folder);
+      const label = previewKindLabel(folder);
       try {
         setFolderMetaSaving(true);
         await patchPreviewFolderMeta(folder.path, { targetParentId });
@@ -3000,11 +3032,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         });
         setMoveDialogFolder(null);
         await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-        toast({ description: label === "أصل" ? "تم نقل الأصل." : "تم نقل المجلد." });
+        toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.move.assetSuccess") : t("assetImages.move.folderSuccess") });
       } catch (error) {
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر نقل العنصر.",
+          description: error instanceof Error ? error.message : t("errors.generic.moveFailed"),
         });
       } finally {
         setFolderMetaSaving(false);
@@ -3024,7 +3056,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     (targetParentId: string) => {
       const folder = moveDialogFolder;
       if (!folder || !isManageablePreviewFolderNode(folder)) return;
-      const label = previewFolderKindLabel(folder);
+      const label = previewKindLabel(folder);
       const now = new Date().toISOString();
       const parentSelectionId = selectionFolderIdForParent(targetParentId);
 
@@ -3050,7 +3082,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             : row,
         ),
       );
-      toast({ description: label === "أصل" ? "تم نقل الأصل." : "تم نقل المجلد." });
+      toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.move.assetSuccess") : t("assetImages.move.folderSuccess") });
 
       void patchPreviewFolderMeta(folder.path, { targetParentId })
         .then((updated) => {
@@ -3066,7 +3098,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         .catch((error) => {
           toast({
             variant: "destructive",
-            description: error instanceof Error ? error.message : "تعذر نقل العنصر.",
+            description: error instanceof Error ? error.message : t("errors.generic.moveFailed"),
           });
           void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         });
@@ -3131,7 +3163,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           },
         );
         if (!response.ok) {
-          let message = "تعذر حفظ اختيار الصور للتقرير.";
+          let message = t("assetImages.toast.reportSelectionSaveFailed");
           try {
             const data = (await response.json()) as { message?: unknown };
             if (typeof data.message === "string" && data.message.trim()) {
@@ -3153,7 +3185,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         setFiles(previousFiles);
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر حفظ اختيار الصور للتقرير.",
+          description: error instanceof Error ? error.message : t("assetImages.toast.reportSelectionSaveFailed"),
         });
       } finally {
         setReportSelectionSaving(false);
@@ -3198,7 +3230,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       } catch (e) {
         toast({
           variant: "destructive",
-          description: e instanceof Error ? e.message : "تعذر تحديث اختيار الصورة للتقرير.",
+          description: e instanceof Error ? e.message : t("assetImages.toast.imageReportToggleFailed"),
         });
       }
     },
@@ -3218,7 +3250,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       const current = (asset.images ?? []).slice();
       const target = current[idx];
       if (!target) return;
-      if (!window.confirm("حذف هذه الصورة من الأصل؟")) return;
+      if (!window.confirm(t("assetImages.delete.imageConfirm"))) return;
 
       const nextImages = current.filter((_, i) => i !== idx);
       try {
@@ -3231,7 +3263,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       } catch (e) {
         toast({
           variant: "destructive",
-          description: e instanceof Error ? e.message : "تعذر حذف الصورة.",
+          description: e instanceof Error ? e.message : t("assetImages.delete.imageFailed"),
         });
       }
     },
@@ -3287,7 +3319,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             },
           );
           if (!selResponse.ok) {
-            let message = "تعذر تحديث تضمين كل الصور في التقرير.";
+            let message = t("assetImages.toast.bulkReportToggleFailed");
             try {
               const data = (await selResponse.json()) as { message?: unknown };
               if (typeof data.message === "string" && data.message.trim()) {
@@ -3342,7 +3374,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           description:
             error instanceof Error && error.message !== "save_failed"
               ? error.message
-              : "تعذر حفظ إعداد عرض الصور في التقرير.",
+              : t("assetImages.toast.reportDisplaySaveFailed"),
         });
       } finally {
         setReportSelectionSaving(false);
@@ -3355,10 +3387,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     async (fileIds: Iterable<string>, successMessage: string) => {
       const ids = Array.from(new Set(fileIds));
       if (ids.length === 0) {
-        toast({ variant: "destructive", description: "لا توجد صور محددة للحذف." });
+        toast({ variant: "destructive", description: t("assetImages.delete.noSelection") });
         return;
       }
-      if (!window.confirm(`حذف ${numberFormatter.format(ids.length)} صورة؟`)) return;
+      if (!window.confirm(t("assetImages.delete.imagesConfirm", { count: numberFormatter.format(ids.length) }))) return;
 
       const localIds = ids.filter(isLocalPreviewDriveId);
       const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id));
@@ -3385,7 +3417,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
         toast({ description: successMessage });
       } catch {
-        toast({ variant: "destructive", description: "تعذر حذف الصور المحددة." });
+        toast({ variant: "destructive", description: t("assetImages.delete.selectedFailed") });
       } finally {
         setDeleting(false);
       }
@@ -3397,10 +3429,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     (fileIds: Iterable<string>, successMessage: string) => {
       const ids = Array.from(new Set(fileIds));
       if (ids.length === 0) {
-        toast({ variant: "destructive", description: "لا توجد صور محددة للحذف." });
+        toast({ variant: "destructive", description: t("assetImages.delete.noSelection") });
         return;
       }
-      if (!window.confirm(`حذف ${numberFormatter.format(ids.length)} صورة؟`)) return;
+      if (!window.confirm(t("assetImages.delete.imagesConfirm", { count: numberFormatter.format(ids.length) }))) return;
 
       const localIds = ids.filter(isLocalPreviewDriveId);
       const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id));
@@ -3421,7 +3453,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             if (!response.ok) throw new Error("delete_failed");
           }
         } catch {
-          toast({ variant: "destructive", description: "تعذر حذف بعض الصور، تمت إعادة المزامنة." });
+          toast({ variant: "destructive", description: t("errors.generic.partialDeleteResync") });
           void loadImages("revalidate");
         }
       })();
@@ -3432,7 +3464,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const deleteSingleImage = useCallback(
     (file: MvDriveFile) => {
       if (isDisplayOnlyPicAssetImage(file)) return;
-      deleteFileIdsFast([file._id], "تم حذف الصورة.");
+      deleteFileIdsFast([file._id], t("assetImages.toast.imageDeleted"));
     },
     [deleteFileIdsFast],
   );
@@ -3443,12 +3475,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         .filter((file) => !isDisplayOnlyPicAssetImage(file))
         .map((file) => file._id);
       if (fileIds.length === 0) {
-        toast({ variant: "destructive", description: "لا توجد صور قابلة للحذف في هذا المجلد." });
+        toast({ variant: "destructive", description: t("assetImages.delete.noDeletableInFolder") });
         return;
       }
       deleteFileIdsFast(
         fileIds,
-        "تم حذف صور المجلد.",
+        t("assetImages.toast.folderImagesDeleted"),
       );
     },
     [deleteFileIdsFast, toast],
@@ -3459,7 +3491,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (folder.path === "__pv_root__") {
         toast({
           variant: "destructive",
-          description: "لا يمكن حذف هذا المجلد الافتراضي.",
+          description: t("assetImages.delete.cannotDeleteDefault"),
         });
         return;
       }
@@ -3469,12 +3501,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         if (deletableChildren.length === 0) {
           toast({
             variant: "destructive",
-            description: "لا توجد أصول فعلية قابلة للحذف داخل هذا التجميع.",
+            description: t("assetImages.delete.noDeletableInGroup"),
           });
           return;
         }
         const imageCount = collectFolderImages(folder).length;
-        const warning = `سيتم حذف تجميع «${folder.name}» وكل الأصول المعروضة داخله (${numberFormatter.format(deletableChildren.length)} عنصر، ${numberFormatter.format(imageCount)} صورة). هل تريد المتابعة؟`;
+        const warning = t("assetImages.delete.groupConfirm", {
+          name: folder.name,
+          items: numberFormatter.format(deletableChildren.length),
+          images: numberFormatter.format(imageCount),
+        });
         if (!window.confirm(warning)) return;
         try {
           setDeleting(true);
@@ -3489,9 +3525,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             setSelectedPreviewFolderId("__pv_root__");
           }
           await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-          toast({ description: "تم حذف التجميع وكل أصوله." });
+          toast({ description: t("assetImages.toast.groupDeleted") });
         } catch {
-          toast({ variant: "destructive", description: "تعذر حذف التجميع." });
+          toast({ variant: "destructive", description: t("assetImages.toast.groupDeleteFailed") });
         } finally {
           setDeleting(false);
         }
@@ -3500,11 +3536,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       const imageCount = collectFolderImages(folder).length;
       const folderCount = countDescendantFolders(folder);
-      const label = previewFolderKindLabel(folder);
+      const label = previewKindLabel(folder);
       const warning =
         imageCount > 0 || folderCount > 0
-          ? `${label} «${folder.name}» يحتوي على ${numberFormatter.format(imageCount)} صورة و${numberFormatter.format(folderCount)} مجلد فرعي. هل تريد حذف ${label === "أصل" ? "الأصل" : "المجلد"} وكل محتواه؟`
-          : `هل تريد حذف ${label === "أصل" ? "الأصل" : "المجلد"} «${folder.name}»؟`;
+          ? t("assetImages.delete.folderWithChildrenConfirm", {
+              kind: label,
+              name: folder.name,
+              images: numberFormatter.format(imageCount),
+              folders: numberFormatter.format(folderCount),
+            })
+          : t("assetImages.delete.folderSimpleConfirm", { kind: label, name: folder.name });
       if (!window.confirm(warning)) return;
 
       const parentId = previewPhotoFolders.find((row) => row.sub._id === folder.path)?.sub.parent ?? null;
@@ -3522,9 +3563,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           setSelectedPreviewFolderId(nextSelection);
         }
         await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-        toast({ description: label === "أصل" ? "تم حذف الأصل." : "تم حذف المجلد." });
+        toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleted") : t("assetImages.toast.folderDeleted") });
       } catch {
-        toast({ variant: "destructive", description: label === "أصل" ? "تعذر حذف الأصل." : "تعذر حذف المجلد." });
+        toast({ variant: "destructive", description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleteFailed") : t("assetImages.toast.folderDeleteFailed") });
       } finally {
         setDeleting(false);
       }
@@ -3543,7 +3584,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const deletePreviewFolderFast = useCallback(
     (folder: ImageFolderNode) => {
       if (folder.path === "__pv_root__") {
-        toast({ variant: "destructive", description: "لا يمكن حذف مجلد صور الأصول الرئيسي." });
+        toast({ variant: "destructive", description: t("assetImages.delete.cannotDeleteRoot") });
         return;
       }
 
@@ -3555,18 +3596,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         ? folder.folders.filter((child) => isManageablePreviewFolderNode(child))
         : [folder];
       if (roots.length === 0) {
-        toast({ variant: "destructive", description: "لا توجد عناصر فعلية قابلة للحذف." });
+        toast({ variant: "destructive", description: t("assetImages.delete.noDeletableItems") });
         return;
       }
 
       const nodes = roots.flatMap((node) => collectNodes(node));
       const imageCount = collectFolderImages(folder).length;
       const folderCount = folder.isSynthetic ? roots.length : countDescendantFolders(folder);
-      const label = folder.isSynthetic ? "التجميع" : previewFolderKindLabel(folder);
+      const label = folder.isSynthetic ? t("assetImages.kind.group") : previewKindLabel(folder);
       const warning =
         imageCount > 0 || folderCount > 0
-          ? `حذف ${label} «${folder.name}» وكل محتواه (${numberFormatter.format(imageCount)} صورة)؟`
-          : `حذف ${label} «${folder.name}»؟`;
+          ? t("assetImages.delete.previewWithContentConfirm", {
+              kind: label,
+              name: folder.name,
+              images: numberFormatter.format(imageCount),
+            })
+          : t("assetImages.delete.previewSimpleConfirm", { kind: label, name: folder.name });
       if (!window.confirm(warning)) return;
 
       const nodeIds = new Set(nodes.map((node) => node.path));
@@ -3592,7 +3637,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (selectedPreviewFolderId && folderContainsPath(folder, selectedPreviewFolderId)) {
         setSelectedPreviewFolderId(nextSelection);
       }
-      toast({ description: label === "أصل" ? "تم حذف الأصل." : "تم حذف المجلد." });
+      toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleted") : t("assetImages.toast.folderDeleted") });
 
       void (async () => {
         try {
@@ -3604,7 +3649,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             if (!response.ok) throw new Error("delete_failed");
           }
         } catch {
-          toast({ variant: "destructive", description: "تعذر حذف بعض العناصر، تمت إعادة المزامنة." });
+          toast({ variant: "destructive", description: t("errors.generic.partialDeleteResync") });
           void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         }
       })();
@@ -3622,7 +3667,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const deleteSelectedItems = useCallback(() => {
-    deleteFileIdsFast(reportSelectedFileIds, "تم حذف الصور المحددة للتقرير.");
+    deleteFileIdsFast(reportSelectedFileIds, t("assetImages.toast.selectedForReportDeleted"));
   }, [deleteFileIdsFast, reportSelectedFileIds]);
 
   const deleteCurrentPathImages = useCallback(() => {
@@ -3631,7 +3676,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       .map((file) => file._id);
     deleteFileIdsFast(
       fileIds,
-      "تم حذف صور المسار الحالي.",
+      t("assetImages.toast.currentPathDeleted"),
     );
   }, [deleteFileIdsFast, selectedFolder]);
 
@@ -3647,7 +3692,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (list.some((f) => isLocalPreviewDriveId(f._id))) {
         toast({
           variant: "destructive",
-          description: "انتظر انتهاء الرفع أو ألغِ المعاينات قبل تغيير الترتيب.",
+          description: t("assetImages.reorder.waitUpload"),
         });
         return;
       }
@@ -3677,7 +3722,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }),
         });
         if (!response.ok) {
-          let message = "تعذر حفظ الترتيب.";
+          let message = t("assetImages.toast.reorderSaveFailed");
           try {
             const data = (await response.json()) as { message?: unknown };
             if (typeof data.message === "string" && data.message.trim()) {
@@ -3698,7 +3743,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       } catch (e) {
         toast({
           variant: "destructive",
-          description: e instanceof Error ? e.message : "تعذر حفظ الترتيب.",
+          description: e instanceof Error ? e.message : t("assetImages.toast.reorderSaveFailed"),
         });
         void loadImages("revalidate");
       } finally {
@@ -3732,7 +3777,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (list.some((f) => isLocalPreviewDriveId(f._id))) {
         toast({
           variant: "destructive",
-          description: "انتظر انتهاء الرفع أو ألغِ المعاينات قبل تغيير الترتيب.",
+          description: t("assetImages.reorder.waitUpload"),
         });
         return;
       }
@@ -3745,7 +3790,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (orderedFileIds.length !== next.length) {
         toast({
           variant: "destructive",
-          description: "بعض صور التطبيق لا تملك ملفًا فعليًا لإعادة ترتيبها. ارفعها للنظام أولًا.",
+          description: t("assetImages.reorder.displayOnly"),
         });
         return;
       }
@@ -3772,7 +3817,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }),
         });
         if (!response.ok) {
-          let message = "تعذر حفظ الترتيب.";
+          let message = t("assetImages.toast.reorderSaveFailed");
           try {
             const data = (await response.json()) as { message?: unknown };
             if (typeof data.message === "string" && data.message.trim()) {
@@ -3793,7 +3838,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       } catch (e) {
         toast({
           variant: "destructive",
-          description: e instanceof Error ? e.message : "تعذر حفظ الترتيب.",
+          description: e instanceof Error ? e.message : t("assetImages.toast.reorderSaveFailed"),
         });
         void loadImages("revalidate");
       } finally {
@@ -3848,7 +3893,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (isLocalPreviewDriveId(fileId)) {
         toast({
           variant: "destructive",
-          description: "انتظر انتهاء الرفع قبل نقل أو إعادة ترتيب الصور.",
+          description: t("assetImages.reorder.waitUploadMove"),
         });
         return;
       }
@@ -3874,7 +3919,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         });
 
         if (!response.ok) {
-          let message = "تعذر حفظ الموقع.";
+          let message = t("assetImages.toast.locationSaveFailed");
           try {
             const data = (await response.json()) as { message?: unknown };
             if (typeof data.message === "string" && data.message.trim()) {
@@ -3897,7 +3942,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       } catch (e) {
         toast({
           variant: "destructive",
-          description: e instanceof Error ? e.message : "تعذر حفظ التغيير.",
+          description: e instanceof Error ? e.message : t("errors.generic.saveFailed"),
         });
         void loadImages("revalidate");
       } finally {
@@ -4063,7 +4108,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             } catch (e) {
               toast({
                 variant: "destructive",
-                description: e instanceof Error ? e.message : "تعذر تحديث اختيار المجلد للتقرير.",
+                description: e instanceof Error ? e.message : t("assetImages.toast.folderReportToggleFailed"),
               });
             }
           }
@@ -4075,17 +4120,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const deleteCurrentPreviewPathImages = useCallback(() => {
     if (!selectedPreviewFolderNode || selectedPreviewFolderNode.path === "__pv_root__") {
-      toast({ variant: "destructive", description: "اختر مجلدًا داخل صور الأصول لحذف صوره." });
+      toast({ variant: "destructive", description: t("assetImages.toast.selectFolderToDelete") });
       return;
     }
     const nodeFiles = selectedPreviewFolderNode.images.filter((file) => !isDisplayOnlyPicAssetImage(file));
     if (nodeFiles.length === 0) {
-      toast({ variant: "destructive", description: "لا توجد صور مباشرة قابلة للحذف في هذا المجلد." });
+      toast({ variant: "destructive", description: t("assetImages.toast.noDirectDeletableImages") });
       return;
     }
     deleteFileIdsFast(
       nodeFiles.map((f) => f._id),
-      "تم حذف صور مجلد المعاينة الحالي.",
+      t("assetImages.toast.previewFolderDeleted"),
     );
   }, [deleteFileIdsFast, selectedPreviewFolderNode, toast]);
 
@@ -4124,7 +4169,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         {canDragPlace ? (
           <span
             className="flex h-5 w-4 shrink-0 items-center justify-center text-slate-300"
-            title="اسحب لنقل الصورة أو تغيير ترتيبها"
+            title={t("assetImages.actions.dragHint")}
             aria-hidden
           >
             <GripVertical className="h-3 w-3" />
@@ -4137,7 +4182,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           draggable={false}
           onClick={() => toggleImageSelection(file._id)}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-white/80 hover:text-sky-700"
-          aria-label={selected ? "إخفاء الصورة من التقرير" : "إظهار الصورة في التقرير"}
+          aria-label={selected ? t("assetImages.report.hideImage") : t("assetImages.report.showImage")}
         >
           {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </button>
@@ -4158,7 +4203,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             <button
               type="button"
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-white hover:text-slate-700 lg:opacity-0 lg:group-hover:opacity-100"
-              aria-label="إجراءات الصورة"
+              aria-label={t("assetImages.actions.imageMenu")}
             >
               <MoreVertical className="h-3.5 w-3.5" />
             </button>
@@ -4166,20 +4211,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           <DropdownMenuContent align="end" className="w-40 text-right">
             <DropdownMenuItem onSelect={() => openImage(file)} className="cursor-pointer text-[12px]">
               <ImageIcon className="h-4 w-4 text-sky-600" />
-              فتح الصورة
+              {t("assetImages.actions.openImage")}
             </DropdownMenuItem>
             {canMutate ? (
               <>
                 <DropdownMenuItem onSelect={() => toggleImageSelection(file._id)} className="cursor-pointer text-[12px]">
                   {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                  {selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                  {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => deleteSingleImage(file)}
                   className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                 >
                   <Trash2 className="h-4 w-4" />
-                  حذف الصورة
+                  {t("assetImages.actions.deleteImage")}
                 </DropdownMenuItem>
               </>
             ) : null}
@@ -4217,7 +4262,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400",
               hasChildren && "text-emerald-600 hover:bg-emerald-50",
             )}
-            aria-label={expanded ? "طي المجلد" : "فتح المجلد"}
+            aria-label={expanded ? t("assetImages.tree.collapseFolder") : t("assetImages.tree.expandFolder")}
           >
             {hasChildren ? (
               expanded ? <MinusSquare className="h-3.5 w-3.5" /> : <PlusSquare className="h-3.5 w-3.5" />
@@ -4233,7 +4278,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100",
               (selected || partiallySelected) && "text-sky-700",
             )}
-            aria-label={selected ? "إخفاء صور المجلد من التقرير" : "إظهار صور المجلد في التقرير"}
+            aria-label={selected ? t("assetImages.report.hideFolder") : t("assetImages.report.showFolder")}
           >
             {selected ? (
               <CheckSquare className="h-3.5 w-3.5" />
@@ -4264,7 +4309,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               <button
                 type="button"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                aria-label="إجراءات المجلد"
+                aria-label={t("assetImages.actions.folderMenu")}
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
@@ -4272,18 +4317,18 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             <DropdownMenuContent align="end" className="w-52 text-right">
               <DropdownMenuItem onSelect={() => selectFolder(node.path)} className="cursor-pointer text-[12px]">
                 <FolderOpen className="h-4 w-4 text-amber-600" />
-                فتح المجلد
+                {t("assetImages.actions.openFolder")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => toggleFolderSelection(node.path)} className="cursor-pointer text-[12px]">
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                {selected ? "إخفاء صور المجلد من التقرير" : "إظهار صور المجلد في التقرير"}
+                {selected ? t("assetImages.report.hideFolder") : t("assetImages.report.showFolder")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => deleteFolderImages(node)}
                 className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
               >
                 <Trash2 className="h-4 w-4" />
-                حذف صور المجلد
+                {t("assetImages.actions.deleteFolderImages")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -4353,7 +4398,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         {canDragPlace ? (
           <span
             className="flex h-5 w-4 shrink-0 items-center justify-center text-slate-300"
-            title="اسحب لنقل الصورة أو تغيير ترتيبها"
+            title={t("assetImages.actions.dragHint")}
             aria-hidden
           >
             <GripVertical className="h-3 w-3" />
@@ -4370,7 +4415,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             "flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400",
             canMutate ? "hover:bg-white/80 hover:text-emerald-700" : "opacity-35",
           )}
-          aria-label={selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+          aria-label={selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
         >
           {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </button>
@@ -4391,7 +4436,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             <button
               type="button"
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-100 transition hover:bg-white hover:text-slate-700 lg:opacity-0 lg:group-hover:opacity-100"
-              aria-label={isVideoRow ? "إجراءات الفيديو" : "إجراءات الصورة"}
+              aria-label={t("assetImages.actions.imageMenu")}
             >
               <MoreVertical className="h-3.5 w-3.5" />
             </button>
@@ -4399,7 +4444,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           <DropdownMenuContent align="end" className="w-40 text-right">
             <DropdownMenuItem onSelect={() => openPreviewImage(file)} className="cursor-pointer text-[12px]">
               <MediaIcon className="h-4 w-4 text-emerald-600" />
-              {isVideoRow ? "فتح الفيديو" : "فتح الصورة"}
+              {isVideoRow ? t("assetImages.actions.openVideo") : t("assetImages.actions.openImage")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => (displayOnly ? void togglePicAssetImageSelection(file) : canMutate && toggleImageSelection(effectiveId!))}
@@ -4407,15 +4452,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               className="cursor-pointer text-[12px]"
             >
               {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-              {selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+              {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
             </DropdownMenuItem>
             <DropdownMenuItem
-                                      onSelect={() => (displayOnly ? void deletePicAssetImage(file) : (canMutate && deleteFileIdsFast([effectiveId!], "تم حذف الصورة.")))}
+                                      onSelect={() => (displayOnly ? void deletePicAssetImage(file) : (canMutate && deleteFileIdsFast([effectiveId!], t("assetImages.toast.imageDeleted"))))}
               disabled={displayOnly ? false : !canMutate}
               className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
             >
               <Trash2 className="h-4 w-4" />
-              {isVideoRow ? "حذف الفيديو" : "حذف الصورة"}
+              {isVideoRow ? t("assetImages.actions.deleteVideo") : t("assetImages.actions.deleteImage")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -4433,8 +4478,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const selected = totalSelectable > 0 && includedSelectable === totalSelectable;
     const partiallySelected = includedSelectable > 0 && includedSelectable < totalSelectable;
     const countLabel =
-      treeMedia === "videos" ? numberFormatter.format(node.videoCount) : previewFolderStatsLabel(node);
-    const kindLabel = previewFolderKindLabel(node);
+      treeMedia === "videos" ? numberFormatter.format(node.videoCount) : previewStatsLabel(node);
+    const kindLabel = previewKindLabel(node);
     const createChildrenParentId =
       !isAssetFolderNode(node) && !node.isSynthetic && node.path !== "__pv_root__" ? node.path : null;
 
@@ -4473,7 +4518,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400",
               hasChildren && "text-emerald-600 hover:bg-emerald-50",
             )}
-            aria-label={expanded ? "طي المجلد" : "فتح المجلد"}
+            aria-label={expanded ? t("assetImages.tree.collapseFolder") : t("assetImages.tree.expandFolder")}
           >
             {hasChildren ? (
               expanded ? <MinusSquare className="h-3.5 w-3.5" /> : <PlusSquare className="h-3.5 w-3.5" />
@@ -4489,7 +4534,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100",
               (selected || partiallySelected) && "text-emerald-700",
             )}
-            aria-label={selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+            aria-label={selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
           >
             {selected ? (
               <CheckSquare className="h-3.5 w-3.5" />
@@ -4522,7 +4567,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               <button
                 type="button"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                aria-label="إجراءات المجلد"
+                aria-label={t("assetImages.actions.folderMenu")}
               >
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
@@ -4530,7 +4575,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             <DropdownMenuContent align="end" className="w-52 text-right">
               <DropdownMenuItem onSelect={() => selectPreviewFolder(node.path, treeMedia)} className="cursor-pointer text-[12px]">
                 {isAssetFolderNode(node) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
-                فتح {kindLabel}
+                {t("assetImages.actions.openKind", { kind: kindLabel })}
               </DropdownMenuItem>
               {treeMedia === "images" && isManageablePreviewFolderNode(node) ? (
                 <>
@@ -4539,7 +4584,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     className="cursor-pointer text-[12px]"
                   >
                     <Pencil className="h-4 w-4 text-slate-600" />
-                    إعادة تسمية {kindLabel}
+                    {t("assetImages.actions.renameKind", { kind: kindLabel })}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => openMovePreviewFolder(node)}
@@ -4547,7 +4592,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     className="cursor-pointer text-[12px]"
                   >
                     <MoveRight className="h-4 w-4 text-emerald-700" />
-                    نقل {kindLabel}
+                    {t("assetImages.actions.moveKind", { kind: kindLabel })}
                   </DropdownMenuItem>
                 </>
               ) : null}
@@ -4559,7 +4604,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     className="cursor-pointer text-[12px]"
                   >
                     <FolderPlus className="h-4 w-4 text-amber-600" />
-                    إنشاء مجلد داخل هذا المكان
+                    {t("assetImages.actions.createSubfolder")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => void createPreviewFolder(createChildrenParentId, "asset")}
@@ -4567,7 +4612,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     className="cursor-pointer text-[12px]"
                   >
                     <PackagePlus className="h-4 w-4 text-emerald-600" />
-                    إنشاء أصل داخل هذا المكان
+                    {t("assetImages.actions.createSubAsset")}
                   </DropdownMenuItem>
                 </>
               ) : null}
@@ -4576,7 +4621,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 className="cursor-pointer text-[12px]"
               >
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                {selected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
               </DropdownMenuItem>
               {treeMedia === "images" ? (
                 <DropdownMenuItem
@@ -4584,7 +4629,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                 >
                   <Trash2 className="h-4 w-4" />
-                  حذف صور المجلد
+                  {t("assetImages.actions.deleteFolderImages")}
                 </DropdownMenuItem>
               ) : null}
               {treeMedia === "images" && node.path !== "__pv_root__" ? (
@@ -4594,7 +4639,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                 >
                   <Trash2 className="h-4 w-4" />
-                  حذف {kindLabel}
+                  {t("assetImages.delete.deleteKind", { kind: kindLabel })}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -4625,7 +4670,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               type="button"
               onClick={() => togglePreviewExpanded("__pv_root__")}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-emerald-600 hover:bg-emerald-50"
-              aria-label={appExpanded ? "طي صور الأصول" : "فتح صور الأصول"}
+              aria-label={appExpanded ? t("assetImages.tree.collapseRoot") : t("assetImages.tree.expandRoot")}
             >
               {appExpanded ? <MinusSquare className="h-3.5 w-3.5" /> : <PlusSquare className="h-3.5 w-3.5" />}
             </button>
@@ -4641,9 +4686,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               )}
             >
               <FolderOpen className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-              <span className="min-w-0 flex-1 truncate">صور الأصول</span>
+              <span className="min-w-0 flex-1 truncate">{t("assetImages.rootLabel")}</span>
               <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
-                {previewFolderStatsLabel(previewRoot)}
+                {previewStatsLabel(previewRoot)}
               </span>
             </button>
             <Button
@@ -4653,8 +4698,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               className="h-8 w-8 shrink-0 p-0"
               disabled={loadingPreviewFolders}
               onClick={() => void refreshAppPicFoldersFromServer()}
-              aria-label="تحديث من الخادم"
-              title="إعادة جلب مجلدات الأصول من الخادم"
+              aria-label={t("assetImages.actions.refreshFromServer")}
+              title={t("assetImages.actions.refreshFromServerTitle")}
             >
               <RefreshCw className={cn("h-3.5 w-3.5", loadingPreviewFolders && "animate-spin")} />
             </Button>
@@ -4671,7 +4716,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 </>
               ) : (
                 <p className="px-2 py-3 text-center text-[11px] font-bold text-slate-400">
-                  لا توجد مجلدات صور بعد
+                  {t("assetImages.tree.empty")}
                 </p>
               )}
             </div>
@@ -4687,7 +4732,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         <button
           type="button"
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-          aria-label="إجراءات الصور"
+          aria-label={t("assetImages.actions.bulkMenu")}
         >
           <MoreVertical className="h-4 w-4" />
         </button>
@@ -4703,14 +4748,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           className="cursor-pointer text-[12px]"
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          تحديث
+          {t("assetImages.actions.refresh")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => assetDownloadButtonRef.current?.click()}
           className="cursor-pointer text-[12px]"
         >
           <Download className="h-4 w-4 text-emerald-700" />
-          تنزيل صور الأصول
+          {t("assetImages.actions.download")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={deleteSelectedItems}
@@ -4718,7 +4763,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
           <Trash2 className="h-4 w-4" />
-          حذف الصور المحددة للتقرير
+          {t("assetImages.actions.deleteSelectedForReport")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={deleteCurrentPreviewPathImages}
@@ -4728,7 +4773,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
           <Trash2 className="h-4 w-4" />
-          حذف صور المسار الحالي
+          {t("assetImages.actions.deleteCurrentPath")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => selectedPreviewFolderNode && deletePreviewFolderFast(selectedPreviewFolderNode)}
@@ -4737,8 +4782,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         >
           <Trash2 className="h-4 w-4" />
           {selectedPreviewFolderNode?.isSynthetic
-            ? "حذف التجميع الحالي"
-            : `حذف ${selectedPreviewFolderNode ? previewFolderKindLabel(selectedPreviewFolderNode) : "المجلد"} الحالي`}
+            ? t("assetImages.actions.deleteCurrentGroup")
+            : t("assetImages.actions.deleteCurrentItem", {
+                kind: selectedPreviewFolderNode ? previewKindLabel(selectedPreviewFolderNode) : t("assetImages.kind.folder"),
+              })}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -4756,8 +4803,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           onClick={() => {
             if (activeParentBreadcrumbNode) selectPreviewFolder(activeParentBreadcrumbNode.path, "images");
           }}
-          title="رجوع خطوة للأعلى"
-          aria-label="رجوع خطوة للأعلى"
+          title={t("assetImages.actions.backUp")}
+          aria-label={t("assetImages.actions.backUp")}
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -4777,7 +4824,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   dir="auto"
                   title={node.name}
                 >
-                  {idx === 0 ? "صور الأصول" : node.name}
+                  {idx === 0 ? t("assetImages.rootLabel") : node.name}
                 </button>
               </div>
             );
@@ -4785,22 +4832,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         </div>
       </div>
       <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold tabular-nums text-slate-500">
-        {activeContentNode.path === "__pv_root__" ? "جذر" : previewFolderKindLabel(activeContentNode)}
+        {activeContentNode.path === "__pv_root__" ? t("assetImages.root") : previewKindLabel(activeContentNode)}
         {" · "}
-        {previewFolderStatsLabel(activeContentNode)}
+        {previewStatsLabel(activeContentNode)}
       </span>
     </div>
   ) : null;
 
   return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
+    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
       <MvProjectReportHeader
         compact
         projectId={projectId}
         activeStep="asset-images"
         breadcrumbs={[
           { label: projectName ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "تحديد صور الأصول" },
+          { label: t("assetImages.breadcrumb") },
         ]}
       />
       <MvAssetImagesDownloadButton
@@ -4808,7 +4855,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         buttonRef={assetDownloadButtonRef}
         className="hidden"
       >
-        <span>تنزيل صور الأصول</span>
+        <span>{t("assetImages.actions.download")}</span>
       </MvAssetImagesDownloadButton>
 
       <MvWorkflowPageScrollBody>
@@ -4829,9 +4876,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   {assetImageListProgress.active ? <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-700" /> : <RefreshCw className="h-3.5 w-3.5 text-sky-700" />}
                   {assetImageListProgress.active
                     ? assetImageListProgress.total > 0
-                      ? "تم عرض الدفعة الأولى، ويجري استكمال بقية الصور في الخلفية"
-                      : "جارٍ تحميل الدفعة الأولى من صور الأصول"
-                    : "تم الاحتفاظ بالصور المحمّلة ويمكن استكمال بقية البيانات"}
+                      ? t("assetImages.progress.firstBatchShown")
+                      : t("assetImages.progress.firstBatchLoading")
+                    : t("assetImages.progress.partialKept")}
                 </span>
                 <span className="flex items-center gap-2">
                   {assetImageListProgress.total > 0 ? (
@@ -4847,7 +4894,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                       className="h-7 px-2 text-[10px] font-bold text-[#0C447C]"
                       onClick={() => void loadImages("revalidate")}
                     >
-                      استكمال الآن
+                      {t("assetImages.progress.resumeNow")}
                     </Button>
                   ) : null}
                 </span>
@@ -4895,9 +4942,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     "border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4",
                     draggingPreview && "border-emerald-200 bg-emerald-50/30",
                   )}
-                  dir="rtl"
+                  dir={dir}
                 >
-                  <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto" dir="rtl">
+                  <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto" dir={dir}>
                     <div className="flex shrink-0 items-center gap-2">
                       <Button
                         type="button"
@@ -4907,7 +4954,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         onClick={() => setAssetImageFoldersModalOpen(true)}
                       >
                         <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                        إنشاء مجلدات الصور
+                        {t("assetImages.actions.createFolders")}
                       </Button>
 
                       {activeCreateParentId ? (
@@ -4925,7 +4972,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               ) : (
                                 <FolderPlus className="h-4 w-4 text-emerald-600" />
                               )}
-                              إنشاء
+                              {t("assetImages.actions.create")}
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-52 text-right">
@@ -4940,7 +4987,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
                                 <FolderPlus className="h-4 w-4" />
                               </span>
-                              مجلد عادي
+                              {t("assetImages.actions.regularFolder")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={creatingPreviewFolder}
@@ -4953,7 +5000,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
                                 <PackagePlus className="h-4 w-4" />
                               </span>
-                              مجلد أصل
+                              {t("assetImages.actions.assetFolder")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -4966,7 +5013,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             className="h-9 shrink-0 rounded-lg bg-[#0C447C] px-3 text-[12px] font-extrabold text-white hover:bg-[#0a3a66] sm:px-4"
                           >
                             <Upload className="me-2 h-3.5 w-3.5 shrink-0" />
-                            {activeLocationIsAssetFolder ? "رفع صور" : "رفع صور/مجلدات"}
+                            {activeLocationIsAssetFolder ? t("assetImages.actions.uploadImages") : t("assetImages.actions.uploadImagesOrFolders")}
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 text-right">
@@ -4977,7 +5024,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-sky-50 text-sky-700">
                               <Upload className="h-4 w-4" />
                             </span>
-                            رفع صور
+                            {t("assetImages.actions.uploadImages")}
                           </DropdownMenuItem>
                           {!activeLocationIsAssetFolder ? (
                             <DropdownMenuItem
@@ -4987,7 +5034,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-amber-50 text-amber-700">
                                 <FolderUp className="h-4 w-4" />
                               </span>
-                              رفع مجلد
+                              {t("assetImages.actions.uploadFolder")}
                             </DropdownMenuItem>
                           ) : null}
                         </DropdownMenuContent>
@@ -5006,7 +5053,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         }}
                       >
                         <Search className="h-4 w-4 shrink-0 text-emerald-600" />
-                        بحث
+                        {t("assetImages.actions.search")}
                       </Button>
                     </div>
 
@@ -5017,14 +5064,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                           disabled={reportSelectionSaving}
                           onCheckedChange={(value) => void updateAssetImagesReportEnabled(value === true)}
                           className="border-emerald-400"
-                          aria-label="عرض الصور في التقرير"
+                          aria-label={t("assetImages.report.toggleAll")}
                         />
-                        <span>عرض الصور في التقرير</span>
+                        <span>{t("assetImages.report.toggleAll")}</span>
                       </label>
 
                       {selectedCount > 0 ? (
                         <span className="flex h-9 shrink-0 items-center rounded-full bg-emerald-100 px-2.5 text-[11px] font-bold text-emerald-950">
-                          {numberFormatter.format(selectedCount)} للتقرير
+                          {t("assetImages.report.selectedCount", { count: numberFormatter.format(selectedCount) })}
                         </span>
                       ) : null}
 
@@ -5040,7 +5087,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   </div>
                 </aside>
 
-                <main className="min-w-0 p-3 sm:p-4" dir="rtl">
+                <main className="min-w-0 p-3 sm:p-4" dir={dir}>
                   {!appliedAssetSearch ? activePathBar : null}
                   {appliedAssetSearch ? (
                     <div className="space-y-3">
@@ -5050,7 +5097,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             {appliedAssetSearchTitle}
                           </p>
                           <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                            {numberFormatter.format(assetSearchResults.length)} نتيجة مطبقة على مساحة العمل
+                            {t("assetImages.search.resultsApplied", { count: numberFormatter.format(assetSearchResults.length) })}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -5067,7 +5114,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             }}
                           >
                             <Search className="h-3.5 w-3.5" />
-                            تعديل البحث
+                            {t("assetImages.search.edit")}
                           </Button>
                           <Button
                             type="button"
@@ -5076,7 +5123,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             className="h-8 rounded-lg border-slate-200 bg-white px-3 text-[11px] font-bold text-slate-600"
                             onClick={clearAppliedAssetSearch}
                           >
-                            مسح
+                            {t("common.clear")}
                           </Button>
                         </div>
                       </div>
@@ -5134,7 +5181,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                     {result.title}
                                   </span>
                                   <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
-                                    {result.kind === "folder" ? (result.folderKind === "asset" ? "أصل" : "مجلد") : "صورة"}
+                                    {result.kind === "folder" ? (result.folderKind === "asset" ? t("assetImages.kind.asset") : t("assetImages.kind.folder")) : t("assetImages.meta.image")}
                                   </span>
                                 </span>
                                 <span className="mt-1 block truncate text-[10px] font-semibold text-slate-500" dir="auto">
@@ -5148,9 +5195,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white">
                           <div className="text-center">
                             <Search className="mx-auto h-10 w-10 text-slate-300" />
-                            <p className="mt-2 text-[13px] font-black text-slate-700">لا توجد نتائج لهذا البحث</p>
+                            <p className="mt-2 text-[13px] font-black text-slate-700">{t("assetImages.empty.noSearchResults")}</p>
                             <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                              عدّل عبارة البحث أو اختر المضاف مؤخراً من زر البحث.
+                              {t("assetImages.empty.noSearchResultsHint")}
                             </p>
                           </div>
                         </div>
@@ -5160,7 +5207,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white">
                       <div className="text-center">
                         <Folder className="mx-auto h-10 w-10 text-slate-300" />
-                        <p className="mt-2 text-[13px] font-bold text-slate-500">اختر مجلد أصل من الشجرة</p>
+                        <p className="mt-2 text-[13px] font-bold text-slate-500">{t("assetImages.empty.selectFolderFromTree")}</p>
                       </div>
                     </div>
                   ) : activeContentFolders.length === 0 && activeContentFiles.length === 0 ? (
@@ -5168,10 +5215,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                       <div className="text-center">
                         <ImageIcon className="mx-auto h-10 w-10 text-emerald-200" />
                         <p className="mt-2 text-[13px] font-extrabold text-slate-600" dir="auto">
-                          لا توجد صور أو مجلدات في «{activeContentNode.name}»
+                          {t("assetImages.empty.noContentInFolder", { name: activeContentNode.name })}
                         </p>
                         <p className="mt-1 text-[11px] font-medium text-slate-500">
-                          اسحب الصور إلى المجلد أو استخدم أزرار الرفع بالأعلى.
+                          {t("assetImages.empty.noContentHint")}
                         </p>
                       </div>
                     </div>
@@ -5183,7 +5230,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             const folderFiles = collectFolderImages(folder);
                             const folderSelected = folderFiles.length > 0 && folderFiles.every(isReportImageIncluded);
                             const folderPartiallySelected = !folderSelected && folderFiles.some(isReportImageIncluded);
-                            const folderKindLabel = previewFolderKindLabel(folder);
+                            const folderKindLabel = previewKindLabel(folder);
                             const folderCreateParentId =
                               !isAssetFolderNode(folder) && !folder.isSynthetic && folder.path !== "__pv_root__" ? folder.path : null;
 
@@ -5228,7 +5275,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                     "rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums",
                                     isAssetFolderNode(folder) ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800",
                                   )}>
-                                    {previewFolderStatsLabel(folder)}
+                                    {previewStatsLabel(folder)}
                                   </span>
                                 </button>
 
@@ -5240,7 +5287,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       "flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-500 shadow-sm transition hover:bg-white",
                                       (folderSelected || folderPartiallySelected) && "text-emerald-700",
                                     )}
-                                    aria-label={folderSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                    aria-label={folderSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
                                   >
                                     {folderSelected ? (
                                       <CheckSquare className="h-4 w-4" />
@@ -5255,7 +5302,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       <button
                                         type="button"
                                         className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
-                                        aria-label="إجراءات المجلد"
+                                        aria-label={t("assetImages.actions.folderMenu")}
                                       >
                                         <MoreVertical className="h-4 w-4" />
                                       </button>
@@ -5266,7 +5313,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                         className="cursor-pointer text-[12px]"
                                       >
                                         {isAssetFolderNode(folder) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
-                                        فتح {folderKindLabel}
+                                        {t("assetImages.actions.openKind", { kind: folderKindLabel })}
                                       </DropdownMenuItem>
                                       {isManageablePreviewFolderNode(folder) ? (
                                         <>
@@ -5275,7 +5322,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <Pencil className="h-4 w-4 text-slate-600" />
-                                            إعادة تسمية {folderKindLabel}
+                                            {t("assetImages.actions.renameKind", { kind: folderKindLabel })}
                                           </DropdownMenuItem>
                                           <DropdownMenuItem
                                             onSelect={() => openMovePreviewFolder(folder)}
@@ -5283,7 +5330,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <MoveRight className="h-4 w-4 text-emerald-700" />
-                                            نقل {folderKindLabel}
+                                            {t("assetImages.actions.moveKind", { kind: folderKindLabel })}
                                           </DropdownMenuItem>
                                         </>
                                       ) : null}
@@ -5295,7 +5342,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <FolderPlus className="h-4 w-4 text-amber-600" />
-                                            إنشاء مجلد داخل هذا المكان
+                                            {t("assetImages.actions.createSubfolder")}
                                           </DropdownMenuItem>
                                           <DropdownMenuItem
                                             onSelect={() => void createPreviewFolder(folderCreateParentId, "asset")}
@@ -5303,7 +5350,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                             className="cursor-pointer text-[12px]"
                                           >
                                             <PackagePlus className="h-4 w-4 text-emerald-600" />
-                                            إنشاء أصل داخل هذا المكان
+                                            {t("assetImages.actions.createSubAsset")}
                                           </DropdownMenuItem>
                                         </>
                                       ) : null}
@@ -5312,14 +5359,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                         className="cursor-pointer text-[12px]"
                                       >
                                         {folderSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                        {folderSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                        {folderSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
                                       </DropdownMenuItem>
                                       <DropdownMenuItem
                                         onSelect={() => deleteFolderImages(folder)}
                                         className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                       >
                                         <Trash2 className="h-4 w-4" />
-                                        حذف صور المجلد
+                                        {t("assetImages.actions.deleteFolderImages")}
                                       </DropdownMenuItem>
                                       {folder.path !== "__pv_root__" ? (
                                         <DropdownMenuItem
@@ -5328,7 +5375,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                         >
                                           <Trash2 className="h-4 w-4" />
-                                          حذف {folderKindLabel}
+                                          {t("assetImages.delete.deleteKind", { kind: folderKindLabel })}
                                         </DropdownMenuItem>
                                       ) : null}
                                     </DropdownMenuContent>
@@ -5422,7 +5469,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               {canDragReorder ? (
                                 <div
                                   className="pointer-events-none absolute bottom-1 left-1 z-20 flex h-6 w-6 items-center justify-center rounded bg-black/35 text-white backdrop-blur-[2px]"
-                                  title="اسحب لتغيير ترتيب العرض"
+                                  title={t("assetImages.drag.reorderDisplay")}
                                   aria-hidden
                                 >
                                   <GripVertical className="h-3.5 w-3.5 opacity-90" />
@@ -5438,14 +5485,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       : canMutate && toggleImageSelection(effectiveId!)
                                   }
                                   className="border-white bg-white/90 shadow-sm"
-                                  aria-label={imageSelected ? "إخفاء الصورة من التقرير" : "إظهار الصورة في التقرير"}
+                                  aria-label={imageSelected ? t("assetImages.report.hideImage") : t("assetImages.report.showImage")}
                                 />
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
                                       type="button"
                                       className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
-                                      aria-label={isVideoCell ? "إجراءات الفيديو" : "إجراءات الصورة"}
+                                      aria-label={t("assetImages.actions.imageMenu")}
                                     >
                                       <MoreVertical className="h-4 w-4" />
                                     </button>
@@ -5460,7 +5507,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       ) : (
                                         <ImageIcon className="h-4 w-4 text-emerald-600" />
                                       )}
-                                      {isVideoCell ? "فتح الفيديو" : "فتح الصورة"}
+                                      {isVideoCell ? t("assetImages.actions.openVideo") : t("assetImages.actions.openImage")}
                                     </DropdownMenuItem>
                                     {!displayOnly ? (
                                       <>
@@ -5469,14 +5516,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px]"
                                         >
                                           {imageSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                          {imageSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                          {imageSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                           onSelect={() => deleteSingleImage(file)}
                                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                         >
                                           <Trash2 className="h-4 w-4" />
-                                          حذف الصورة
+                                          {t("assetImages.actions.deleteImage")}
                                         </DropdownMenuItem>
                                       </>
                                     ) : (
@@ -5487,7 +5534,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px]"
                                         >
                                           {imageSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                          {imageSelected ? "إخفاء من التقرير" : "إظهار في التقرير"}
+                                          {imageSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                           onSelect={() => void deletePicAssetImage(file)}
@@ -5495,7 +5542,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                         >
                                           <Trash2 className="h-4 w-4" />
-                                          حذف الصورة
+                                          {t("assetImages.actions.deleteImage")}
                                         </DropdownMenuItem>
                                       </>
                                     )}
@@ -5553,8 +5600,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           detail={
             activeAssetUploadJob.total > 0
               ? activeAssetUploadJob.kind === "folder" && activeAssetUploadJob.folderName
-                ? `المجلد: ${activeAssetUploadJob.folderName} · ${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)}`
-                : `${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)} صورة`
+                ? t("assetImages.upload.jobFolderProgress", { name: activeAssetUploadJob.folderName, current: numberFormatter.format(activeAssetUploadJob.current), total: numberFormatter.format(activeAssetUploadJob.total) })
+                : t("assetImages.upload.imageCountLabel", { count: `${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)}` })
               : null
           }
         />
@@ -5577,19 +5624,21 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           if (!open) setMoveDialogFolder(null);
         }}
       >
-        <DialogContent
-          dir="rtl"
-          className="max-h-[82vh] max-w-md overflow-hidden rounded-2xl border-slate-200 bg-white p-0 text-right shadow-2xl"
+        <MvDialogContent
+          dir={dir}
+          className="max-h-[82vh] max-w-md overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
         >
-          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 pe-14">
             <DialogTitle className="flex items-center gap-2 text-[16px] font-black text-slate-950">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
                 <MoveRight className="h-4 w-4" />
               </span>
-              نقل {moveDialogFolder ? previewFolderKindLabel(moveDialogFolder) : "العنصر"}
+              {t("assetImages.move.title", {
+                kind: moveDialogFolder ? previewKindLabel(moveDialogFolder) : t("assetImages.move.itemFallback"),
+              })}
             </DialogTitle>
             <DialogDescription className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
-              اختر الجذر أو مجلداً عادياً كوجهة. لا يمكن نقل العناصر داخل أصل.
+              {t("assetImages.move.description")}
             </DialogDescription>
           </div>
 
@@ -5621,27 +5670,27 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               ))
             ) : (
               <p className="px-2 py-6 text-center text-[12px] font-semibold text-slate-500">
-                لا توجد وجهات متاحة للنقل.
+                {t("assetImages.move.noDestinations")}
               </p>
             )}
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog open={assetSearchOpen} onOpenChange={setAssetSearchOpen}>
-        <DialogContent
-          dir="rtl"
-          className="max-h-[88vh] max-w-3xl overflow-hidden rounded-2xl border-slate-200 bg-white p-0 text-right shadow-2xl"
+        <MvDialogContent
+          dir={dir}
+          className="max-h-[88vh] max-w-3xl overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl"
         >
-          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+          <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 pe-14">
             <DialogTitle className="flex items-center gap-2 text-[16px] font-black text-slate-950">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
                 <Search className="h-4 w-4" />
               </span>
-              بحث صور الأصول
+              {t("assetImages.search.title")}
             </DialogTitle>
             <DialogDescription className="mt-1 text-[12px] font-medium leading-6 text-slate-500">
-              اكتب عبارة البحث أو اختر المضاف مؤخراً، ثم اضغط تطبيق لعرض النتائج في مساحة الصفحة.
+              {t("assetImages.search.description")}
             </DialogDescription>
           </div>
 
@@ -5652,7 +5701,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 ref={assetSearchInputRef}
                 value={assetSearchQuery}
                 onChange={(event) => setAssetSearchQuery(event.target.value)}
-                placeholder="ابحث باسم الأصل، المجلد، الصورة، الشيت، المسار، أو أي معلومة..."
+                placeholder={t("assetImages.search.placeholder")}
                 className="h-11 rounded-xl border-slate-200 bg-white pr-10 text-[13px] font-semibold shadow-sm focus-visible:ring-emerald-200"
                 dir="auto"
               />
@@ -5671,7 +5720,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   )}
                 >
                   <Search className="h-3.5 w-3.5" />
-                  كل شيء
+                  {t("assetImages.search.modeAll")}
                 </button>
                 <button
                   type="button"
@@ -5684,16 +5733,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   )}
                 >
                   <Clock className="h-3.5 w-3.5" />
-                  المضاف مؤخراً
+                  {t("assetImages.search.modeRecent")}
                 </button>
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-slate-500">
                 <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                  {numberFormatter.format(assetSearchStats.folders)} مجلد
+                  {t("assetImages.search.statsFolder", { count: numberFormatter.format(assetSearchStats.folders) })}
                 </span>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1">
-                  {numberFormatter.format(assetSearchStats.images)} صورة
+                  {t("assetImages.search.statsImage", { count: numberFormatter.format(assetSearchStats.images) })}
                 </span>
               </div>
             </div>
@@ -5710,7 +5759,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 )}
               >
                 <Search className="h-3.5 w-3.5" />
-                الكل
+                {t("assetImages.search.kindAll")}
               </button>
               <button
                 type="button"
@@ -5723,7 +5772,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 )}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
-                مجلدات فقط
+                {t("assetImages.search.kindFolders")}
               </button>
               <button
                 type="button"
@@ -5736,7 +5785,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 )}
               >
                 <ImageIcon className="h-3.5 w-3.5" />
-                صور فقط
+                {t("assetImages.search.kindImages")}
               </button>
             </div>
           </div>
@@ -5748,7 +5797,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               className="h-10 rounded-xl border-slate-200 bg-white px-5 text-[12px] font-bold"
               onClick={() => setAssetSearchOpen(false)}
             >
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -5757,16 +5806,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               disabled={assetSearchMode === "all" && assetSearchKind === "all" && !assetSearchQuery.trim()}
             >
               <Search className="h-4 w-4" />
-              تطبيق البحث
+              {t("assetImages.search.apply")}
             </Button>
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog open={lightboxFile != null} onOpenChange={(open) => !open && setLightboxFile(null)}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-hidden border-0 bg-slate-950 p-0 text-white">
+        <MvDialogContent closeOnDark className="max-h-[92vh] max-w-6xl overflow-hidden border-0 bg-slate-950 p-0 text-white">
           <DialogTitle className="sr-only">
-            {lightboxFile && isViewFileVideo(lightboxFile) ? "معاينة الفيديو" : "معاينة الصورة"}
+            {lightboxFile && isViewFileVideo(lightboxFile) ? t("assetImages.lightbox.previewVideo") : t("assetImages.lightbox.previewImage")}
           </DialogTitle>
           {lightboxFile ? (
             <div className="grid max-h-[92vh] grid-rows-[minmax(0,1fr)_auto]">
@@ -5798,7 +5847,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               </div>
             </div>
           ) : null}
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
     </MvWorkflowPageFrame>
   );

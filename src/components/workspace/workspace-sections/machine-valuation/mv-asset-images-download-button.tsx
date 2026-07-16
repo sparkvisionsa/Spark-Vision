@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AlertCircle, CheckCircle2, Folder, ImageIcon, Loader2, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 type DownloadPhase =
   | "preparing"
@@ -26,15 +27,6 @@ type AssetImagesDownloadProgress = {
   percent: number;
   currentFileName: string | null;
   error: string | null;
-};
-
-const phaseLabels: Record<DownloadPhase, string> = {
-  preparing: "جارٍ تجهيز قائمة الملفات…",
-  folders: "جارٍ إنشاء المجلدات…",
-  images: "جارٍ إضافة الصور إلى الأرشيف…",
-  finalizing: "جارٍ إنهاء ملف ZIP…",
-  completed: "اكتمل تجهيز وتنزيل الأرشيف",
-  failed: "تعذر إكمال تنزيل الأرشيف",
 };
 
 function initialProgress(id: string): AssetImagesDownloadProgress {
@@ -75,6 +67,17 @@ export function MvAssetImagesDownloadButton({
   disabled?: boolean;
   buttonRef?: Ref<HTMLButtonElement>;
 }) {
+  const { t, dir } = useMvI18n();
+  const phaseLabels: Record<DownloadPhase, string> = {
+    preparing: t("assetImages.download.phases.preparing"),
+    folders: t("assetImages.download.phases.folders"),
+    images: t("assetImages.download.phases.images"),
+    finalizing: t("assetImages.download.phases.finalizing"),
+    completed: t("assetImages.download.phases.completed"),
+    failed: t("assetImages.download.phases.failed"),
+  };
+  const resolvedTitle = title ?? t("assetImages.download.title");
+
   const [progressVisible, setProgressVisible] = useState(false);
   const [progress, setProgress] = useState<AssetImagesDownloadProgress | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,7 +109,9 @@ export function MvAssetImagesDownloadButton({
           pollingRef.current = setTimeout(() => pollProgress(downloadId, notFoundAttempts + 1), 1000);
           return;
         }
-        if (!response.ok) throw new Error(`تعذر قراءة حالة التنزيل (${response.status})`);
+        if (!response.ok) {
+          throw new Error(t("assetImages.download.readStatusFailed", { status: response.status }));
+        }
         const next = await response.json() as AssetImagesDownloadProgress;
         setProgress(next);
         if (next.phase === "completed" || next.phase === "failed") {
@@ -119,13 +124,13 @@ export function MvAssetImagesDownloadButton({
         setProgress((current) => ({
           ...(current ?? initialProgress(downloadId)),
           phase: "failed",
-          error: error instanceof Error ? error.message : "تعذر متابعة حالة التنزيل.",
+          error: error instanceof Error ? error.message : t("assetImages.download.pollFailed"),
         }));
         activeIdRef.current = null;
       }
     };
     void run();
-  }, [projectId, stopPolling]);
+  }, [projectId, stopPolling, t]);
 
   const startDownload = useCallback(() => {
     if (disabled || activeIdRef.current) {
@@ -158,8 +163,8 @@ export function MvAssetImagesDownloadButton({
         type="button"
         onClick={startDownload}
         disabled={disabled}
-        title={title}
-        aria-label={title}
+        title={resolvedTitle}
+        aria-label={resolvedTitle}
         className={className}
       >
         {children}
@@ -167,7 +172,7 @@ export function MvAssetImagesDownloadButton({
 
       {progressVisible && progress && typeof document !== "undefined" ? createPortal(
         <div
-          dir="rtl"
+          dir={dir}
           role="status"
           aria-live="polite"
           className="fixed bottom-4 right-4 z-[100] w-[min(22rem,calc(100vw-2rem))] animate-in fade-in slide-in-from-bottom-2 rounded-xl border border-slate-200 bg-white p-3.5 text-right shadow-2xl"
@@ -180,7 +185,7 @@ export function MvAssetImagesDownloadButton({
               {isDone ? <CheckCircle2 className="h-4 w-4" /> : isFailed ? <AlertCircle className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-black text-slate-900">تنزيل صور الأصول</p>
+              <p className="text-sm font-black text-slate-900">{t("assetImages.download.title")}</p>
               <p className={cn("mt-0.5 truncate text-[11px] font-medium", isFailed ? "text-red-600" : "text-slate-500")}>
                 {isFailed ? (progress.error || phaseLabels.failed) : phaseLabels[phase]}
               </p>
@@ -190,7 +195,7 @@ export function MvAssetImagesDownloadButton({
               type="button"
               onClick={() => setProgressVisible(false)}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-              aria-label="إخفاء حالة التنزيل"
+              aria-label={t("assetImages.download.hideProgress")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -201,7 +206,7 @@ export function MvAssetImagesDownloadButton({
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-2 text-xs">
               <span className="flex items-center gap-1.5 font-bold text-slate-500">
-                <Folder className="h-3.5 w-3.5 text-sky-600" /> المجلدات
+                <Folder className="h-3.5 w-3.5 text-sky-600" /> {t("assetImages.download.folders")}
               </span>
               <span className="font-black tabular-nums text-slate-900">
                 {progress.foldersCompleted} / {progress.folderTotal}
@@ -209,7 +214,7 @@ export function MvAssetImagesDownloadButton({
             </div>
             <div className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-2 text-xs">
               <span className="flex items-center gap-1.5 font-bold text-slate-500">
-                <ImageIcon className="h-3.5 w-3.5 text-emerald-600" /> الصور
+                <ImageIcon className="h-3.5 w-3.5 text-emerald-600" /> {t("assetImages.download.images")}
               </span>
               <span className="font-black tabular-nums text-slate-900">
                 {progress.imagesCompleted} / {progress.imageTotal}

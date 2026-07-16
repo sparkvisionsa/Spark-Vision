@@ -2,6 +2,7 @@
 
 import { CheckCircle2, FolderUp, ImageIcon, Loader2, TriangleAlert, UploadCloud } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 export type MvUploadProgressToastState = "uploading" | "done" | "error";
 
@@ -39,6 +40,7 @@ export function MvUploadProgressToast({
   detail,
   variant = "toast",
 }: MvUploadProgressToastProps) {
+  const { t } = useMvI18n();
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   const busy = state === "uploading";
   const embedded = variant === "embedded";
@@ -83,7 +85,10 @@ export function MvUploadProgressToast({
     } as const;
   })();
 
-  const isFolder = /مجلد|folder/i.test(phase) || /مجلد/.test(detail ?? "");
+  const isFolder =
+    /folder|مجلد/i.test(phase) ||
+    /folder|مجلد/i.test(detail ?? "") ||
+    /folder|مجلد/i.test(label);
   const ContextIcon = isFolder ? FolderUp : ImageIcon;
 
   return (
@@ -192,7 +197,11 @@ export function MvUploadProgressToast({
                     : palette.chipBg,
                 )}
               >
-                {state === "error" ? "خطأ" : state === "done" ? "اكتمل" : `${pct}%`}
+                {state === "error"
+                  ? t("common.uploadStatus.error")
+                  : state === "done"
+                    ? t("common.uploadStatus.done")
+                    : `${pct}%`}
               </span>
             </div>
             {/* Thin accent underline keeps the colour vocabulary consistent

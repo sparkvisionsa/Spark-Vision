@@ -3,11 +3,12 @@
 import { FileType } from "lucide-react";
 import {
   Dialog,
-  DialogContent,
+  
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { MvWordTemplatePanel, type MvWordTemplatePanelProps } from "./mv-word-template-panel";
 
 export interface MvWordTemplateModalProps extends MvWordTemplatePanelProps {
@@ -22,8 +23,8 @@ export function MvWordTemplateModal({
 }: MvWordTemplateModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(92vh,820px)] max-w-lg gap-0 overflow-hidden p-0 sm:max-w-xl">
-        <DialogHeader className="border-b border-slate-100 bg-gradient-to-b from-sky-50/90 to-white px-4 py-3 text-right">
+      <MvDialogContent className="max-h-[min(92vh,820px)] max-w-lg gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="border-b border-slate-100 bg-gradient-to-b from-sky-50/90 to-white px-4 py-3 pe-14 text-start">
           <div className="flex items-start gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0C447C]/10 text-[#0C447C]">
               <FileType className="h-4.5 w-4.5" />
@@ -42,7 +43,7 @@ export function MvWordTemplateModal({
         <div className="max-h-[calc(min(92vh,820px)-5.5rem)] overflow-y-auto px-3 py-3">
           <MvWordTemplatePanel {...panelProps} layout="modal" />
         </div>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }

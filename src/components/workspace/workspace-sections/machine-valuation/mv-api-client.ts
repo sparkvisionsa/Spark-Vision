@@ -1,4 +1,9 @@
+import { getMvT, readMvLanguage } from "./mv-i18n";
 import { beginMvLoading } from "./mv-loading-state";
+
+function mvT() {
+  return getMvT(readMvLanguage());
+}
 
 export type MvApiErrorKind =
   | "offline"
@@ -47,12 +52,13 @@ function apiErrorKind(status: number): MvApiErrorKind {
 }
 
 async function responseErrorMessage(response: Response) {
+  const t = mvT();
   const fallback =
-    response.status === 401 ? "انتهت الجلسة. سجّل الدخول ثم أعد المحاولة."
-      : response.status === 403 ? "ليس لديك صلاحية لتنفيذ هذا الإجراء."
-        : response.status === 404 ? "لم يتم العثور على البيانات المطلوبة."
-          : response.status >= 500 ? "الخادم غير متاح مؤقتًا. أعد المحاولة بعد قليل."
-            : `تعذر إكمال الطلب (${response.status}).`;
+    response.status === 401 ? t("errors.api.unauthorized")
+      : response.status === 403 ? t("errors.api.forbidden")
+        : response.status === 404 ? t("errors.api.notFound")
+          : response.status >= 500 ? t("errors.api.server")
+            : t("errors.api.httpStatus", { status: response.status });
   try {
     const body = await response.clone().json() as { message?: unknown; error?: unknown };
     const candidate = typeof body.message === "string"
@@ -139,8 +145,9 @@ export async function mvFetch(
   init: RequestInit = {},
   options: MvFetchOptions = {},
 ): Promise<Response> {
+  const t = mvT();
   if (typeof navigator !== "undefined" && !navigator.onLine) {
-    throw new MvApiError("لا يوجد اتصال بالإنترنت.", { kind: "offline" });
+    throw new MvApiError(t("errors.api.offline"), { kind: "offline" });
   }
 
   const method = (init.method ?? "GET").toUpperCase();
@@ -149,7 +156,7 @@ export async function mvFetch(
   const retryBaseMs = Math.max(100, options.retryBaseMs ?? 450);
   // شاشة الشعار مخصّصة للبيانات الأولية فقط. طلبات الخلفية opt-in حتى لا تحجب الواجهة.
   const finishLoading = options.trackLoading === true && (method === "GET" || method === "HEAD")
-    ? beginMvLoading(options.loadingLabel)
+    ? beginMvLoading(options.loadingLabel ?? t("common.loading.default"))
     : null;
 
   try {
@@ -187,7 +194,7 @@ export async function mvFetch(
             await delayWithSignal(retryBaseMs * (attempt + 1), init.signal);
             continue;
           }
-          throw new MvApiError("استغرق الخادم وقتًا أطول من المتوقع. أعد المحاولة.", { kind: "timeout" });
+          throw new MvApiError(t("errors.api.timeout"), { kind: "timeout" });
         }
         if (error instanceof MvApiError) throw error;
         if (isMvAbortError(error)) throw error;
@@ -195,7 +202,7 @@ export async function mvFetch(
           await delayWithSignal(retryBaseMs * (attempt + 1), init.signal);
           continue;
         }
-        throw new MvApiError("تعذر الاتصال بالخادم. تحقق من الشبكة ثم أعد المحاولة.", {
+        throw new MvApiError(t("errors.api.network"), {
           kind: "network",
         });
       } finally {
@@ -207,7 +214,7 @@ export async function mvFetch(
     finishLoading?.();
   }
 
-  throw new MvApiError("تعذر إكمال الطلب.");
+  throw new MvApiError(t("errors.api.unknown"));
 }
 
 export async function mvFetchJson<T>(
@@ -235,7 +242,7 @@ export async function mvFetchJson<T>(
     try {
       return await response.json() as T;
     } catch {
-      throw new MvApiError("أعاد الخادم بيانات غير مكتملة. أعد المحاولة.", {
+      throw new MvApiError(mvT()("errors.api.serverInvalidResponse"), {
         status: response.status,
         kind: "server",
       });
@@ -273,7 +280,8 @@ export function invalidateMvApiCache(prefix?: string) {
   }
 }
 
-export function mvErrorMessage(error: unknown, fallback = "تعذر إكمال العملية.") {
-  if (isMvAbortError(error)) return fallback;
-  return error instanceof Error && error.message.trim() ? error.message : fallback;
+export function mvErrorMessage(error: unknown, fallback?: string) {
+  const resolvedFallback = fallback ?? mvT()("errors.api.unknown");
+  if (isMvAbortError(error)) return resolvedFallback;
+  return error instanceof Error && error.message.trim() ? error.message : resolvedFallback;
 }

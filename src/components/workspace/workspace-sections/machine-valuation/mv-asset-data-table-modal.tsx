@@ -16,7 +16,8 @@ import {
   Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -36,17 +37,9 @@ import {
   readMvWorkflowSessionJson,
 } from "./mv-workflow-session-cache";
 import { buildAssetParentFolderPath } from "./mv-subproject-helpers";
-import type { MvSubProject, PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types";
+import type { MvSubProject, PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types"
 import { patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
-
-const numberFormatter = new Intl.NumberFormat("ar-SA");
-const dateFormatter = new Intl.DateTimeFormat("ar-SA", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+import { getAssetTypeMeta, useMvI18n, type MvT } from "./mv-i18n";
 
 const TABLE_PAGE_SIZE = 10;
 
@@ -54,24 +47,57 @@ type AssetTab = "vehicles" | "other";
 
 interface PreviewEntry extends PicAssetFolderEntry {}
 
-const ASSET_TYPE_OPTIONS: {
-  value: string;
-  label: string;
-  aliases: Set<string>;
-}[] = [
-  { value: "vehicles", label: "مركبات", aliases: new Set(["vehicles", "vehicle", "car", "cars"]) },
-  { value: "machinery", label: "آلات ومعدات", aliases: new Set(["machinery", "machine"]) },
-  { value: "electronics", label: "إلكترونيات", aliases: new Set(["electronics", "electronic"]) },
-  { value: "furniture", label: "أثاث", aliases: new Set(["furniture"]) },
-  { value: "other", label: "أخرى", aliases: new Set(["other"]) },
-];
+const ASSET_TYPE_ALIASES: Record<string, "vehicles" | "machinery" | "electronics" | "furniture" | "other"> = {
+  vehicle: "vehicles",
+  car: "vehicles",
+  cars: "vehicles",
+  machinery: "machinery",
+  machine: "machinery",
+  electronics: "electronics",
+  electronic: "electronics",
+  furniture: "furniture",
+  other: "other",
+};
 
-/** نوع الأصل بصيغة عربية موحّدة لعرض الجدول. */
-function assetTypeLabel(t: unknown): string {
-  if (typeof t !== "string") return "—";
-  const opt = ASSET_TYPE_OPTIONS.find((o) => o.value === t.toLowerCase() || o.aliases.has(t.toLowerCase()));
-  if (opt) return opt.label;
-  return t || "—";
+type TableFormatContext = {
+  t: MvT;
+  numberFormatter: Intl.NumberFormat;
+  dateFormatter: Intl.DateTimeFormat;
+  notAvailable: string;
+};
+
+function createTableFormatContext(isArabic: boolean, t: MvT): TableFormatContext {
+  return {
+    t,
+    notAvailable: t("common.notAvailable"),
+    numberFormatter: createNumberFormatter(isArabic),
+    dateFormatter: createDateFormatter(isArabic),
+  };
+}
+
+function createNumberFormatter(isArabic: boolean) {
+  return new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
+}
+
+function createDateFormatter(isArabic: boolean) {
+  return new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** نوع الأصل بصيغة موحّدة لعرض الجدول. */
+function assetTypeLabel(value: unknown, tr: MvT): string {
+  if (typeof value !== "string") return "—";
+  const meta = getAssetTypeMeta(tr);
+  const key = value.toLowerCase();
+  if (key in meta) return meta[key as keyof typeof meta].label;
+  const mapped = ASSET_TYPE_ALIASES[key];
+  if (mapped) return meta[mapped].label;
+  return value || "—";
 }
 
 /** قراءة ‎subAssetType‎ كما يُرسل من الـ API (نص حر من كولكشن ‎assets‎). */
@@ -93,17 +119,17 @@ function readQuantity(pic: PicAsset | null | undefined): string {
   return "";
 }
 
-function quantityLabel(pic: PicAsset | null | undefined): string {
-  const t = readQuantity(pic);
-  if (!t) return "—";
-  const n = Number(t);
-  return Number.isFinite(n) ? numberFormatter.format(n) : t;
+function quantityLabel(pic: PicAsset | null | undefined, ctx: TableFormatContext): string {
+  const raw = readQuantity(pic);
+  if (!raw) return ctx.notAvailable;
+  const n = Number(raw);
+  return Number.isFinite(n) ? ctx.numberFormatter.format(n) : raw;
 }
 
 /** تسمية النوع الفرعي (‎subAssetType‎) للعرض في الجدول. */
-function subAssetTypeLabel(pic: PicAsset | null | undefined): string {
-  const t = readSubAssetType(pic);
-  return t ? t : "—";
+function subAssetTypeLabel(pic: PicAsset | null | undefined, notAvailable: string): string {
+  const raw = readSubAssetType(pic);
+  return raw ? raw : notAvailable;
 }
 
 type EditableAssetField =
@@ -215,7 +241,7 @@ function isVehicleAsset(t: unknown): boolean {
 }
 
 /** نص بحث شامل — كل حقول الأصل المعروضة والمخفية. */
-function buildAssetSearchText(row: AssetTableRow): string {
+function buildAssetSearchText(row: AssetTableRow, ctx: TableFormatContext): string {
   const pic = row.picAsset;
   const imageCount =
     pic && Array.isArray(pic.images) && pic.images.length > 0
@@ -242,24 +268,24 @@ function buildAssetSearchText(row: AssetTableRow): string {
     pic?.condition,
     pic?.notes,
     pic?.assetType,
-    assetTypeLabel(pic?.assetType),
-    formatNumberish(pic?.quantity),
-    formatNumberish(pic?.manufactureYear),
-    formatNumberish(pic?.kilometersDriven),
-    formatBool(pic?.isPresent),
-    formatBool(pic?.isDone),
-    formatDate(pic?.createdAt ?? row.sub.createdAt),
-    formatDate(pic?.updatedAt ?? row.sub.updatedAt),
+    assetTypeLabel(pic?.assetType, ctx.t),
+    formatNumberish(pic?.quantity, ctx),
+    formatNumberish(pic?.manufactureYear, ctx),
+    formatNumberish(pic?.kilometersDriven, ctx),
+    formatBool(pic?.isPresent, ctx),
+    formatBool(pic?.isDone, ctx),
+    formatDate(pic?.createdAt ?? row.sub.createdAt, ctx),
+    formatDate(pic?.updatedAt ?? row.sub.updatedAt, ctx),
     imageCount > 0 ? String(imageCount) : "",
     voiceCount > 0 ? String(voiceCount) : "",
   ];
   return parts
-    .filter((p) => typeof p === "string" && p.trim() && p !== "—")
+    .filter((p) => typeof p === "string" && p.trim() && p !== ctx.notAvailable)
     .join(" ")
     .toLowerCase();
 }
 
-function imageCountText(r: AssetTableRow): string {
+function imageCountText(r: AssetTableRow, ctx: TableFormatContext): string {
   const arr = normalizePicAssetImages(r.picAsset);
   const c =
     arr.length > 0
@@ -267,10 +293,10 @@ function imageCountText(r: AssetTableRow): string {
       : typeof r.picAsset?.imageCount === "number" && Number.isFinite(r.picAsset.imageCount)
         ? Math.max(0, r.picAsset.imageCount)
         : 0;
-  return c === 0 ? "—" : numberFormatter.format(c);
+  return c === 0 ? ctx.notAvailable : ctx.numberFormatter.format(c);
 }
 
-function voiceNotesSummaryText(r: AssetTableRow): string {
+function voiceNotesSummaryText(r: AssetTableRow, ctx: TableFormatContext): string {
   const arr = r.picAsset?.voiceNotes;
   const c =
     Array.isArray(arr) && arr.length > 0
@@ -278,97 +304,98 @@ function voiceNotesSummaryText(r: AssetTableRow): string {
       : typeof r.picAsset?.voiceNoteCount === "number" && Number.isFinite(r.picAsset.voiceNoteCount)
         ? Math.max(0, r.picAsset.voiceNoteCount)
         : 0;
-  return c === 0 ? "0" : `${numberFormatter.format(c)} مقطع`;
+  return c === 0 ? "0" : ctx.t("projects.assetTable.voiceClip", { count: ctx.numberFormatter.format(c) });
 }
 
-const SHARED_TAIL_COLUMNS: ColumnDef[] = [
-  {
-    key: "condition",
-    label: "الحالة",
-    text: (r) => formatText(r.picAsset?.condition),
-    minWidth: 140,
-  },
-  { key: "isPresent", label: "متواجد", text: (r) => formatBool(r.picAsset?.isPresent), minWidth: 72 },
-  { key: "isDone", label: "مُستكمل", text: (r) => formatBool(r.picAsset?.isDone), minWidth: 72 },
-  { key: "imageCount", label: "عدد الصور", text: imageCountText, minWidth: 88 },
-  {
-    key: "voiceNotes",
-    label: "الملاحظات الصوتية",
-    text: voiceNotesSummaryText,
-    render: ({ row, projectId }) => <VoiceNotesCell asset={row.picAsset} projectId={projectId} />,
-    minWidth: 220,
-  },
-  {
-    key: "notes",
-    label: "الملاحظات",
-    text: (r) => formatText(r.picAsset?.notes),
-    minWidth: 220,
-  },
-  {
-    key: "createdAt",
-    label: "تاريخ الإنشاء",
-    text: (r) => formatDate(r.picAsset?.createdAt ?? r.sub.createdAt),
-    minWidth: 150,
-  },
-  {
-    key: "updatedAt",
-    label: "آخر تحديث",
-    text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt),
-    minWidth: 150,
-  },
-];
+function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
+  const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
+  return [
+    {
+      key: "condition",
+      label: c("condition"),
+      text: (r) => formatText(r.picAsset?.condition, ctx.notAvailable),
+      minWidth: 140,
+    },
+    { key: "isPresent", label: c("isPresent"), text: (r) => formatBool(r.picAsset?.isPresent, ctx), minWidth: 72 },
+    { key: "isDone", label: c("isDone"), text: (r) => formatBool(r.picAsset?.isDone, ctx), minWidth: 72 },
+    { key: "imageCount", label: c("imageCount"), text: (r) => imageCountText(r, ctx), minWidth: 88 },
+    {
+      key: "voiceNotes",
+      label: c("voiceNotes"),
+      text: (r) => voiceNotesSummaryText(r, ctx),
+      render: ({ row, projectId }) => (
+        <VoiceNotesCell asset={row.picAsset} projectId={projectId} ctx={ctx} />
+      ),
+      minWidth: 220,
+    },
+    {
+      key: "notes",
+      label: c("notes"),
+      text: (r) => formatText(r.picAsset?.notes, ctx.notAvailable),
+      minWidth: 220,
+    },
+    {
+      key: "createdAt",
+      label: c("createdAt"),
+      text: (r) => formatDate(r.picAsset?.createdAt ?? r.sub.createdAt, ctx),
+      minWidth: 150,
+    },
+    {
+      key: "updatedAt",
+      label: c("updatedAt"),
+      text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt, ctx),
+      minWidth: 150,
+    },
+  ];
+}
 
-const VEHICLE_COLUMNS: ColumnDef[] = [
-  { key: "_", label: "#", text: (r) => numberFormatter.format(r.index + 1), minWidth: 56 },
-  {
-    key: "preview",
-    label: "صور",
-    text: imageCountText,
-    minWidth: 72,
-  },
-  { key: "parentPath", label: "مسار المجلد", text: (r) => r.parentPath, minWidth: 200 },
-  { key: "name", label: "اسم الأصل", text: (r) => formatText(r.picAsset?.name ?? r.sub.name), minWidth: 180 },
-  { key: "brand", label: "العلامة", text: (r) => formatText(r.picAsset?.brand), minWidth: 110 },
-  { key: "model", label: "الموديل", text: (r) => formatText(r.picAsset?.model), minWidth: 110 },
-  {
-    key: "manufactureYear",
-    label: "سنة الصنع",
-    text: (r) => formatNumberish(r.picAsset?.manufactureYear),
-    minWidth: 96,
-  },
-  {
-    key: "kilometersDriven",
-    label: "الكم المقطوع",
-    text: (r) => formatNumberish(r.picAsset?.kilometersDriven),
-    minWidth: 110,
-  },
-  ...SHARED_TAIL_COLUMNS,
-];
+function buildVehicleColumns(ctx: TableFormatContext): ColumnDef[] {
+  const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
+  return [
+    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
+    { key: "preview", label: c("preview"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
+    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
+    { key: "name", label: c("name"), text: (r) => formatText(r.picAsset?.name ?? r.sub.name, ctx.notAvailable), minWidth: 180 },
+    { key: "brand", label: c("brand"), text: (r) => formatText(r.picAsset?.brand, ctx.notAvailable), minWidth: 110 },
+    { key: "model", label: c("model"), text: (r) => formatText(r.picAsset?.model, ctx.notAvailable), minWidth: 110 },
+    {
+      key: "manufactureYear",
+      label: c("manufactureYear"),
+      text: (r) => formatNumberish(r.picAsset?.manufactureYear, ctx),
+      minWidth: 96,
+    },
+    {
+      key: "kilometersDriven",
+      label: c("kilometersDriven"),
+      text: (r) => formatNumberish(r.picAsset?.kilometersDriven, ctx),
+      minWidth: 110,
+    },
+    ...buildSharedTailColumns(ctx),
+  ];
+}
 
-const OTHER_COLUMNS: ColumnDef[] = [
-  { key: "_", label: "#", text: (r) => numberFormatter.format(r.index + 1), minWidth: 56 },
-  {
-    key: "preview",
-    label: "صور",
-    text: imageCountText,
-    minWidth: 72,
-  },
-  { key: "parentPath", label: "مسار المجلد", text: (r) => r.parentPath, minWidth: 200 },
-  { key: "name", label: "اسم الأصل", text: (r) => formatText(r.picAsset?.name ?? r.sub.name), minWidth: 180 },
-  {
-    key: "subAssetType",
-    label: "نوع الأصل",
-    text: (r) => subAssetTypeLabel(r.picAsset),
-    minWidth: 120,
-  },
-  {
-    key: "quantity",
-    label: "الكمية",
-    text: (r) => quantityLabel(r.picAsset),
-    minWidth: 80,
-  },
-  ...SHARED_TAIL_COLUMNS,
-];
+function buildOtherColumns(ctx: TableFormatContext): ColumnDef[] {
+  const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
+  return [
+    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
+    { key: "preview", label: c("preview"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
+    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
+    { key: "name", label: c("name"), text: (r) => formatText(r.picAsset?.name ?? r.sub.name, ctx.notAvailable), minWidth: 180 },
+    {
+      key: "subAssetType",
+      label: c("subAssetType"),
+      text: (r) => subAssetTypeLabel(r.picAsset, ctx.notAvailable),
+      minWidth: 120,
+    },
+    {
+      key: "quantity",
+      label: c("quantity"),
+      text: (r) => quantityLabel(r.picAsset, ctx),
+      minWidth: 80,
+    },
+    ...buildSharedTailColumns(ctx),
+  ];
+}
 
 const EDITABLE_COLUMN_KEYS = new Set([
   "name",
@@ -380,30 +407,30 @@ const EDITABLE_COLUMN_KEYS = new Set([
   "notes",
 ]);
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
+function formatDate(value: string | null | undefined, ctx: TableFormatContext): string {
+  if (!value) return ctx.notAvailable;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return dateFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return ctx.notAvailable;
+  return ctx.dateFormatter.format(date);
 }
 
-function formatBool(v: boolean | null | undefined): string {
-  if (v === true) return "نعم";
-  if (v === false) return "لا";
-  return "—";
+function formatBool(v: boolean | null | undefined, ctx: TableFormatContext): string {
+  if (v === true) return ctx.t("common.yes");
+  if (v === false) return ctx.t("common.no");
+  return ctx.notAvailable;
 }
 
-function formatNumberish(v: number | string | null | undefined): string {
-  if (v == null) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return numberFormatter.format(v);
+function formatNumberish(v: number | string | null | undefined, ctx: TableFormatContext): string {
+  if (v == null) return ctx.notAvailable;
+  if (typeof v === "number" && Number.isFinite(v)) return ctx.numberFormatter.format(v);
   const s = String(v).trim();
-  return s ? s : "—";
+  return s ? s : ctx.notAvailable;
 }
 
-function formatText(v: string | null | undefined, fallback = "—"): string {
+function formatText(v: string | null | undefined, fallback: string): string {
   if (typeof v !== "string") return fallback;
-  const t = v.trim();
-  return t ? t : fallback;
+  const trimmed = v.trim();
+  return trimmed ? trimmed : fallback;
 }
 
 function isExternalVoice(
@@ -506,25 +533,32 @@ function AssetImagesGalleryModal({
   asset,
   assetName,
   projectId,
+  ctx,
+  dir,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   asset: PicAsset | null;
   assetName: string;
   projectId: string;
+  ctx: TableFormatContext;
+  dir: "rtl" | "ltr";
 }) {
   const images = useMemo(() => normalizePicAssetImages(asset), [asset]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white" dir="rtl">
+      <MvDialogContent closeOnDark className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white" dir={dir}>
         <DialogTitle className="sr-only">
-          صور الأصل — {assetName} — {images.length} صورة
+          {ctx.t("projects.assetTable.galleryTitle", {
+            name: assetName,
+            count: ctx.numberFormatter.format(images.length),
+          })}
         </DialogTitle>
         {images.length === 0 ? (
           <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 px-6 py-10 text-center text-white/70">
             <ImageIcon className="h-10 w-10 opacity-40" />
-            <p className="text-sm">لا توجد صور لهذا الأصل.</p>
+            <p className="text-sm">{ctx.t("projects.assetTable.noImages")}</p>
           </div>
         ) : (
           <div
@@ -537,7 +571,7 @@ function AssetImagesGalleryModal({
                 className="flex min-h-[min(72vh,640px)] snap-start snap-always flex-col items-center justify-center border-b border-white/10 px-3 py-6 last:border-b-0 sm:px-5"
               >
                 <p className="mb-2 text-xs text-white/50">
-                  {numberFormatter.format(idx + 1)} / {numberFormatter.format(images.length)}
+                  {ctx.numberFormatter.format(idx + 1)} / {ctx.numberFormatter.format(images.length)}
                 </p>
                 {isExternalPicVideo(im) ? (
                   <video
@@ -559,7 +593,7 @@ function AssetImagesGalleryModal({
             ))}
           </div>
         )}
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }
@@ -571,6 +605,7 @@ function AssetThumbnailCell({
   projectId,
   loadingDetails,
   onOpenGallery,
+  ctx,
 }: {
   asset: PicAsset | null;
   assetName: string;
@@ -578,6 +613,7 @@ function AssetThumbnailCell({
   projectId: string;
   loadingDetails: boolean;
   onOpenGallery: (asset: PicAsset, name: string, subProjectId: string) => void;
+  ctx: TableFormatContext;
 }) {
   const images = useMemo(() => normalizePicAssetImages(asset), [asset]);
   const thumb = useMemo(() => firstStillImage(images), [images]);
@@ -590,14 +626,14 @@ function AssetThumbnailCell({
   const pendingImages = picAssetNeedsMediaFetch(asset);
 
   if (!asset || imageCount === 0) {
-    return <span className="text-[12px] font-bold tabular-nums text-slate-300">—</span>;
+    return <span className="text-[12px] font-bold tabular-nums text-slate-300">{ctx.notAvailable}</span>;
   }
 
   if (pendingImages && loadingDetails) {
     return (
       <span
         className="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-400"
-        title="جاري تحميل الصور…"
+        title={ctx.t("projects.assetTable.loadingImages")}
       >
         <Loader2 className="h-4 w-4 animate-spin" />
       </span>
@@ -605,6 +641,10 @@ function AssetThumbnailCell({
   }
 
   const handleOpen = () => onOpenGallery(asset, assetName, subProjectId);
+  const viewImagesLabel = ctx.t("projects.assetTable.viewImages", {
+    count: ctx.numberFormatter.format(imageCount),
+  });
+  const viewImagesAria = ctx.t("projects.assetTable.viewImagesAria", { name: assetName });
 
   if (!thumb) {
     return (
@@ -612,8 +652,8 @@ function AssetThumbnailCell({
         type="button"
         onClick={handleOpen}
         className="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 transition hover:bg-sky-100"
-        title={`عرض ${numberFormatter.format(imageCount)} صورة`}
-        aria-label={`عرض صور ${assetName}`}
+        title={viewImagesLabel}
+        aria-label={viewImagesAria}
       >
         <ImageIcon className="h-4 w-4" />
       </button>
@@ -625,8 +665,8 @@ function AssetThumbnailCell({
       type="button"
       onClick={handleOpen}
       className="group/thumb relative mx-auto block h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm transition hover:border-sky-300 hover:ring-2 hover:ring-sky-200"
-      title={`عرض ${numberFormatter.format(imageCount)} صورة`}
-      aria-label={`عرض صور ${assetName}`}
+      title={viewImagesLabel}
+      aria-label={viewImagesAria}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -636,7 +676,7 @@ function AssetThumbnailCell({
       />
       {imageCount > 1 ? (
         <span className="absolute bottom-0 left-0 rounded-tr-md bg-black/65 px-1 py-0.5 text-[9px] font-bold tabular-nums text-white">
-          {numberFormatter.format(imageCount)}
+          {ctx.numberFormatter.format(imageCount)}
         </span>
       ) : null}
     </button>
@@ -646,9 +686,11 @@ function AssetThumbnailCell({
 function VoiceNotesCell({
   asset,
   projectId,
+  ctx,
 }: {
   asset: PicAsset | null;
   projectId: string;
+  ctx: TableFormatContext;
 }) {
   const notes = useMemo<PicAssetVoiceNote[]>(() => {
     if (!asset || !Array.isArray(asset.voiceNotes)) return [];
@@ -668,7 +710,7 @@ function VoiceNotesCell({
       return (
         <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">
           <FileAudio className="h-3 w-3" />
-          {numberFormatter.format(summaryCount)} مقطع
+          {ctx.t("projects.assetTable.voiceClip", { count: ctx.numberFormatter.format(summaryCount) })}
         </span>
       );
     }
@@ -707,12 +749,91 @@ export interface MvAssetDataTableModalProps {
   projectName: string | null;
 }
 
+/**
+ * تصدير أصول المشروع إلى إكسيل مباشرة — دون فتح نافذة بيانات الأصول. تُستخدم من قائمة
+ * إجراءات جدول المشاريع، وتعتمد على نفس منطق الأعمدة المستخدم داخل زر "تصدير إكسيل"
+ * في النافذة أعلاه، حتى يتطابق تنسيق الملف الناتج تمامًا في كل مكان.
+ */
+export async function exportProjectAssetsExcel({
+  projectId,
+  projectName,
+  t,
+  isArabic,
+}: {
+  projectId: string;
+  projectName?: string | null;
+  t: MvT;
+  isArabic: boolean;
+}): Promise<{ count: number }> {
+  const res = await fetch(`/api/mv/projects/${projectId}?picAssetMode=summary`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new Error(t("projects.assetTable.loadFailed"));
+  }
+  const data = (await res.json()) as { subProjects?: MvSubProject[] };
+  const { previewRoot, byId, entries: summaryEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []);
+
+  const tableCtx = createTableFormatContext(isArabic, t);
+  const rows: AssetTableRow[] = summaryEntries
+    .filter((entry) => entry.picAsset != null)
+    .map((entry, index) => ({
+      index,
+      ...entry,
+      parentPath: previewRoot
+        ? buildAssetParentFolderPath(entry.sub, byId, previewRoot._id)
+        : tableCtx.notAvailable,
+    }));
+
+  if (rows.length === 0) {
+    throw new Error(t("projects.assetTable.exportNoData"));
+  }
+
+  const vehicleColumns = buildVehicleColumns(tableCtx);
+  const otherColumns = buildOtherColumns(tableCtx);
+  const vehicleRows = rows
+    .filter((r) => isVehicleAsset(r.picAsset?.assetType))
+    .map((row, index) => ({ ...row, index }));
+  const otherRows = rows
+    .filter((r) => !isVehicleAsset(r.picAsset?.assetType))
+    .map((row, index) => ({ ...row, index }));
+
+  const XLSX = await import("xlsx");
+  const wb = XLSX.utils.book_new();
+  const appendSheet = (sheetName: string, cols: ColumnDef[], sheetRows: AssetTableRow[]) => {
+    if (sheetRows.length === 0) return;
+    const header = cols.map((c) => c.label);
+    const body = sheetRows.map((r) => cols.map((c) => c.text(r)));
+    const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
+    ws["!cols"] = cols.map((c) => ({
+      wch: Math.max(10, Math.min(60, Math.ceil((c.minWidth ?? 140) / 8))),
+    }));
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  };
+  appendSheet(t("projects.assetTable.sheetVehicles"), vehicleColumns, vehicleRows);
+  appendSheet(t("projects.assetTable.sheetOther"), otherColumns, otherRows);
+
+  if (wb.SheetNames.length === 0) {
+    throw new Error(t("projects.assetTable.exportNoRows"));
+  }
+
+  const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
+  const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  XLSX.writeFile(wb, `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
+
+  return { count: vehicleRows.length + otherRows.length };
+}
+
 export function MvAssetDataTableModal({
   open,
   onOpenChange,
   projectId,
   projectName,
 }: MvAssetDataTableModalProps) {
+  const { t, dir, isArabic } = useMvI18n();
+  const tableCtx = useMemo(() => createTableFormatContext(isArabic, t), [isArabic, t]);
+  const vehicleColumns = useMemo(() => buildVehicleColumns(tableCtx), [tableCtx]);
+  const otherColumns = useMemo(() => buildOtherColumns(tableCtx), [tableCtx]);
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<AssetTab>("vehicles");
@@ -822,7 +943,7 @@ export function MvAssetDataTableModal({
         if (field === "name") {
           const trimmed = nextValue.trim();
           if (!trimmed) {
-            toast({ variant: "destructive", description: "اسم الأصل مطلوب." });
+            toast({ variant: "destructive", description: t("projects.assetTable.nameRequired") });
             return;
           }
           const updated = await patchMvSubprojectPicAsset(projectId, subId, { name: trimmed });
@@ -856,19 +977,19 @@ export function MvAssetDataTableModal({
             picAsset: mergePicAssetPreferFull(e.picAsset, updated),
           }));
         }
-        toast({ description: "تم حفظ التعديل في قاعدة البيانات." });
+        toast({ description: t("projects.assetTable.saveSuccess") });
       } catch (e) {
         toast({
           variant: "destructive",
-          title: "تعذّر الحفظ",
-          description: e instanceof Error ? e.message : "حدث خطأ أثناء حفظ التعديل.",
+          title: t("projects.assetTable.saveFailedTitle"),
+          description: e instanceof Error ? e.message : t("projects.assetTable.saveFailed"),
         });
         throw e;
       } finally {
         setSavingCell(null);
       }
     },
-    [applyEntryUpdate, projectId, toast],
+    [applyEntryUpdate, projectId, t, toast],
   );
 
   const renderEditableCell = useCallback(
@@ -888,12 +1009,12 @@ export function MvAssetDataTableModal({
           saving={saving}
           required={field === "name"}
           multiline={!singleLine}
-          placeholder={field === "name" ? "اسم الأصل" : "—"}
+          placeholder={field === "name" ? t("projects.assetTable.namePlaceholder") : tableCtx.notAvailable}
           onSave={async (v) => saveAssetField(row, field, v)}
         />
       );
     },
-    [saveAssetField, savingCell],
+    [saveAssetField, savingCell, t, tableCtx.notAvailable],
   );
 
   const openAssetGallery = useCallback(
@@ -936,7 +1057,7 @@ export function MvAssetDataTableModal({
         credentials: "include",
       });
       if (!res.ok) {
-        if (loadIdRef.current === myLoadId) setError("تعذّر تحميل بيانات الأصول من الخادم.");
+        if (loadIdRef.current === myLoadId) setError(t("projects.assetTable.loadFailed"));
         return;
       }
       const data = (await res.json()) as { subProjects?: MvSubProject[] };
@@ -977,14 +1098,14 @@ export function MvAssetDataTableModal({
       }
     } catch (e) {
       if (loadIdRef.current === myLoadId) {
-        setError(e instanceof Error ? e.message : "خطأ غير متوقع أثناء تحميل البيانات.");
+        setError(e instanceof Error ? e.message : t("projects.assetTable.loadUnexpected"));
       }
     } finally {
       if (loadIdRef.current === myLoadId && !hasCachedRows) {
         setLoading(false);
       }
     }
-  }, [persistEntriesCache, projectId, startBackgroundHydrate]);
+  }, [persistEntriesCache, projectId, startBackgroundHydrate, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -1011,15 +1132,15 @@ export function MvAssetDataTableModal({
       parentPath:
         folderLookup != null
           ? buildAssetParentFolderPath(entry.sub, folderLookup.byId, folderLookup.photosRootId)
-          : "—",
+          : tableCtx.notAvailable,
     }));
-  }, [entries, folderLookup]);
+  }, [entries, folderLookup, tableCtx.notAvailable]);
 
   const searchedRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return allRows;
-    return allRows.filter((r) => buildAssetSearchText(r).includes(q));
-  }, [allRows, query]);
+    return allRows.filter((r) => buildAssetSearchText(r, tableCtx).includes(q));
+  }, [allRows, query, tableCtx]);
 
   const vehicleRowsAll = useMemo(
     () =>
@@ -1053,7 +1174,7 @@ export function MvAssetDataTableModal({
     [searchedRows],
   );
 
-  const visibleColumns = activeTab === "vehicles" ? VEHICLE_COLUMNS : OTHER_COLUMNS;
+  const visibleColumns = activeTab === "vehicles" ? vehicleColumns : otherColumns;
   const tabRowsAll = activeTab === "vehicles" ? vehicleRowsAll : otherRowsAll;
   const visibleRows = activeTab === "vehicles" ? vehicleRows : otherRows;
   const rows = allRows;
@@ -1098,7 +1219,7 @@ export function MvAssetDataTableModal({
 
   const handleExportExcel = async () => {
     if (rows.length === 0) {
-      toast({ variant: "destructive", description: "لا توجد بيانات أصول للتصدير." });
+      toast({ variant: "destructive", description: t("projects.assetTable.exportNoData") });
       return;
     }
     setExporting(true);
@@ -1115,23 +1236,25 @@ export function MvAssetDataTableModal({
         }));
         XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
       };
-      appendSheet("المركبات", VEHICLE_COLUMNS, vehicleRows);
-      appendSheet("أصول أخرى", OTHER_COLUMNS, otherRows);
+      appendSheet(t("projects.assetTable.sheetVehicles"), vehicleColumns, vehicleRows);
+      appendSheet(t("projects.assetTable.sheetOther"), otherColumns, otherRows);
       if (wb.SheetNames.length === 0) {
-        toast({ variant: "destructive", description: "لا توجد بيانات للتصدير." });
+        toast({ variant: "destructive", description: t("projects.assetTable.exportNoRows") });
         return;
       }
       const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
       const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      XLSX.writeFile(wb, `بيانات-الأصول-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
+      XLSX.writeFile(wb, `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
       toast({
-        description: `تم تصدير ${numberFormatter.format(vehicleRows.length + otherRows.length)} صفاً إلى Excel.`,
+        description: t("projects.assetTable.exportSuccess", {
+          count: tableCtx.numberFormatter.format(vehicleRows.length + otherRows.length),
+        }),
       });
     } catch (e) {
       toast({
         variant: "destructive",
-        title: "تعذّر التصدير",
-        description: e instanceof Error ? e.message : "حدث خطأ غير متوقع",
+        title: t("projects.assetTable.exportFailedTitle"),
+        description: e instanceof Error ? e.message : t("projects.assetTable.exportUnexpected"),
       });
     } finally {
       setExporting(false);
@@ -1141,38 +1264,41 @@ export function MvAssetDataTableModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+      <MvDialogContent
+        closeOnDark
         className="flex h-[92vh] w-[96vw] max-w-[1400px] flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0"
-        dir="rtl"
+        dir={dir}
       >
         <DialogTitle className="sr-only">
-          بيانات الأصول — {projectName ?? "المشروع"}
+          {t("projects.assetTable.title")} — {projectName ?? t("projects.assetTable.projectFallback")}
         </DialogTitle>
 
-        <div className="relative shrink-0 overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 py-4 text-white">
+        <div className="relative shrink-0 overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 py-4 pe-14 text-white">
           <div className="pointer-events-none absolute -left-16 -top-12 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
           <div className="relative flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
-                {projectName ?? "المشروع"}
+                {projectName ?? t("projects.assetTable.projectFallback")}
               </p>
               <h2 className="mt-0.5 flex items-center gap-2 text-base font-bold sm:text-lg">
                 <Database className="h-4 w-4 opacity-90" />
-                بيانات الأصول
+                {t("projects.assetTable.title")}
               </h2>
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-sky-100/90">
                 <span>
-                  إجمالي الأصول: {numberFormatter.format(rows.length)} — المركبات:{" "}
-                  {numberFormatter.format(vehicleRows.length)} — أخرى:{" "}
-                  {numberFormatter.format(otherRows.length)}
+                  {t("projects.assetTable.totalSummary", {
+                    total: tableCtx.numberFormatter.format(rows.length),
+                    vehicles: tableCtx.numberFormatter.format(vehicleRows.length),
+                    other: tableCtx.numberFormatter.format(otherRows.length),
+                  })}
                 </span>
                 <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/85">
-                  بحث شامل في كل الحقول — التعديل يُحفظ عند الخروج من الحقل
+                  {t("projects.assetTable.searchHint")}
                 </span>
                 {loading || loadingDetails ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/80">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    {loadingDetails ? "جاري تحميل الصور والملاحظات…" : "تحديث…"}
+                    {loadingDetails ? t("projects.assetTable.loadingMedia") : t("projects.assetTable.refreshing")}
                   </span>
                 ) : null}
               </p>
@@ -1183,14 +1309,14 @@ export function MvAssetDataTableModal({
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="بحث شامل في بيانات الأصول…"
+                  placeholder={t("projects.assetTable.searchPlaceholder")}
                   className="h-9 w-[min(92vw,280px)] border-white/20 bg-white/10 pe-2 ps-7 text-[12px] text-white placeholder:text-white/50 focus-visible:ring-white/40"
                   dir="auto"
                 />
                 {query ? (
                   <button
                     type="button"
-                    aria-label="مسح البحث"
+                    aria-label={t("projects.assetTable.clearSearch")}
                     onClick={() => setQuery("")}
                     className="absolute left-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-white/70 hover:bg-white/10 hover:text-white"
                   >
@@ -1210,7 +1336,7 @@ export function MvAssetDataTableModal({
                 ) : (
                   <Download className="h-3.5 w-3.5" />
                 )}
-                تصدير Excel
+                {t("projects.assetTable.exportExcel")}
               </Button>
             </div>
           </div>
@@ -1228,9 +1354,9 @@ export function MvAssetDataTableModal({
             )}
           >
             <Car className="h-3.5 w-3.5" />
-            المركبات
+            {t("projects.assetTable.vehicles")}
             <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-600 shadow-sm">
-              {numberFormatter.format(vehicleRows.length)}
+              {tableCtx.numberFormatter.format(vehicleRows.length)}
             </span>
           </button>
           <button
@@ -1244,9 +1370,9 @@ export function MvAssetDataTableModal({
             )}
           >
             <Package className="h-3.5 w-3.5" />
-            أصول أخرى
+            {t("projects.assetTable.otherAssets")}
             <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-600 shadow-sm">
-              {numberFormatter.format(otherRows.length)}
+              {tableCtx.numberFormatter.format(otherRows.length)}
             </span>
           </button>
         </div>
@@ -1262,35 +1388,33 @@ export function MvAssetDataTableModal({
                 onClick={() => void loadAssetFolders()}
                 className="h-8 text-[11px]"
               >
-                إعادة المحاولة
+                {t("common.retry")}
               </Button>
             </div>
           ) : loading && rows.length === 0 ? (
             <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 px-6 text-center text-slate-500">
               <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-              <p className="text-[12px]">جاري تحميل بيانات الأصول…</p>
+              <p className="text-[12px]">{t("projects.assetTable.loadingAssets")}</p>
             </div>
           ) : rows.length === 0 ? (
             <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-6 text-center text-slate-500">
               <FileSpreadsheet className="h-8 w-8 text-slate-300" />
-              <p className="text-[12px] font-medium">لا توجد بيانات أصول لعرضها بعد.</p>
-              <p className="text-[11px] text-slate-400">
-                أنشئ مجلدات أصول أو استورد بياناتها لتظهر هنا.
-              </p>
+              <p className="text-[12px] font-medium">{t("projects.assetTable.empty")}</p>
+              <p className="text-[11px] text-slate-400">{t("projects.assetTable.emptyHint")}</p>
             </div>
           ) : visibleRows.length === 0 ? (
             <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-6 text-center text-slate-500">
               <Search className="h-7 w-7 text-slate-300" />
               <p className="text-[12px] font-medium">
                 {query.trim()
-                  ? "لا توجد نتائج مطابقة لبحثك في هذا التبويب."
+                  ? t("projects.assetTable.noSearchResults")
                   : activeTab === "vehicles"
-                    ? "لا توجد مركبات مسجّلة بعد."
-                    : "لا توجد أصول أخرى مسجّلة بعد."}
+                    ? t("projects.assetTable.noVehicles")
+                    : t("projects.assetTable.noOtherAssets")}
               </p>
             </div>
           ) : (
-            <table className="w-full border-separate border-spacing-0 text-[12px]" dir="rtl">
+            <table className="w-full border-separate border-spacing-0 text-[12px]" dir={dir}>
               <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-sm">
                 <tr>
                   {visibleColumns.map((col, idx) => (
@@ -1330,7 +1454,7 @@ export function MvAssetDataTableModal({
                             isName && "font-semibold text-slate-900",
                             isParentPath && "text-right text-[11px] leading-relaxed",
                             (isSubAssetType || isQuantity) && "font-medium tabular-nums text-slate-900",
-                            textValue === "—" && !isFirst && col.key !== "preview" && "text-slate-400",
+                            textValue === tableCtx.notAvailable && !isFirst && col.key !== "preview" && "text-slate-400",
                           )}
                           style={{ minWidth: col.minWidth ?? 120 }}
                         >
@@ -1341,6 +1465,7 @@ export function MvAssetDataTableModal({
                               subProjectId={row.sub._id}
                               projectId={projectId}
                               loadingDetails={loadingDetails}
+                              ctx={tableCtx}
                               onOpenGallery={(asset, name, subId) => void openAssetGallery(asset, name, subId)}
                             />
                           ) : EDITABLE_COLUMN_KEYS.has(col.key) ? (
@@ -1374,9 +1499,17 @@ export function MvAssetDataTableModal({
           <div className="flex flex-wrap items-center gap-3">
             <span>
               {query.trim()
-                ? `معروض ${numberFormatter.format(visibleRows.length)} من ${numberFormatter.format(tabRowsAll.length)} — ${activeTab === "vehicles" ? "المركبات" : "أصول أخرى"}`
-                : `${activeTab === "vehicles" ? "المركبات" : "أصول أخرى"}: ${numberFormatter.format(visibleRows.length)}`}
-              {" — "}إجمالي المشروع: {numberFormatter.format(rows.length)}
+                ? t("projects.assetTable.displayedCount", {
+                    shown: tableCtx.numberFormatter.format(visibleRows.length),
+                    total: tableCtx.numberFormatter.format(tabRowsAll.length),
+                    tab: activeTab === "vehicles" ? t("projects.assetTable.vehicles") : t("projects.assetTable.otherAssets"),
+                  })
+                : t("projects.assetTable.tabCount", {
+                    tab: activeTab === "vehicles" ? t("projects.assetTable.vehicles") : t("projects.assetTable.otherAssets"),
+                    count: tableCtx.numberFormatter.format(visibleRows.length),
+                  })}
+              {" — "}
+              {t("projects.assetTable.projectTotal", { count: tableCtx.numberFormatter.format(rows.length) })}
             </span>
             {visibleRows.length > TABLE_PAGE_SIZE ? (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 tabular-nums">
@@ -1387,12 +1520,15 @@ export function MvAssetDataTableModal({
                   className="h-6 w-6 p-0"
                   disabled={safePage <= 0}
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  aria-label="الصفحة السابقة"
+                  aria-label={t("projects.pagination.prev")}
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
                 <span>
-                  صفحة {numberFormatter.format(safePage + 1)} / {numberFormatter.format(totalPages)}
+                  {t("projects.assetTable.pageOf", {
+                    current: tableCtx.numberFormatter.format(safePage + 1),
+                    total: tableCtx.numberFormatter.format(totalPages),
+                  })}
                 </span>
                 <Button
                   type="button"
@@ -1401,7 +1537,7 @@ export function MvAssetDataTableModal({
                   className="h-6 w-6 p-0"
                   disabled={safePage >= totalPages - 1}
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  aria-label="الصفحة التالية"
+                  aria-label={t("projects.pagination.next")}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
@@ -1410,7 +1546,7 @@ export function MvAssetDataTableModal({
             {loadingDetails ? (
               <span className="inline-flex items-center gap-1 text-sky-600">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                جاري تحميل الصور والملاحظات في الخلفية…
+                {t("projects.assetTable.loadingMediaBg")}
               </span>
             ) : null}
           </div>
@@ -1421,10 +1557,10 @@ export function MvAssetDataTableModal({
             onClick={() => onOpenChange(false)}
             className="h-8 rounded-md border-slate-200 bg-white px-3 text-[11px] hover:bg-slate-50"
           >
-            إغلاق
+            {t("common.close")}
           </Button>
         </div>
-      </DialogContent>
+      </MvDialogContent>
       </Dialog>
 
       <AssetImagesGalleryModal
@@ -1433,6 +1569,8 @@ export function MvAssetDataTableModal({
         asset={galleryAsset?.asset ?? null}
         assetName={galleryAsset?.name ?? ""}
         projectId={projectId}
+        ctx={tableCtx}
+        dir={dir}
       />
     </>
   );

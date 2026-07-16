@@ -5,13 +5,15 @@ import { Loader2, MapPin, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogContent,
+  
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 const TILE_SIZE = 256;
 const DEFAULT_CENTER = { latitude: 24.7136, longitude: 46.6753 };
@@ -64,6 +66,7 @@ export function MvProjectMapPicker({
   onConfirm,
   confirming,
 }: MvProjectMapPickerProps) {
+  const { t, dir } = useMvI18n();
   const mapRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -148,11 +151,11 @@ export function MvProjectMapPicker({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir="rtl">
-        <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 text-right">
-          <DialogTitle className="text-[15px] font-bold text-slate-900">تحديد الموقع من الخريطة</DialogTitle>
+      <MvDialogContent className="max-h-[92vh] overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-3xl" dir={dir}>
+        <DialogHeader className="border-b border-slate-100 bg-white px-5 py-4 pe-14 text-start">
+          <DialogTitle className="text-[15px] font-bold text-slate-900">{t("projects.mapPicker.title")}</DialogTitle>
           <DialogDescription className="text-[12px] text-slate-500">
-            اضغط على المكان المطلوب داخل الخريطة ثم احفظ الموقع.
+            {t("projects.mapPicker.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -216,7 +219,7 @@ export function MvProjectMapPicker({
                 type="button"
                 className="flex h-9 w-9 items-center justify-center text-slate-700 hover:bg-slate-50"
                 onClick={() => setZoom((value) => Math.min(18, value + 1))}
-                aria-label="تكبير"
+                aria-label={t("projects.mapPicker.zoomIn")}
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -224,7 +227,7 @@ export function MvProjectMapPicker({
                 type="button"
                 className="flex h-9 w-9 items-center justify-center border-t border-slate-100 text-slate-700 hover:bg-slate-50"
                 onClick={() => setZoom((value) => Math.max(3, value - 1))}
-                aria-label="تصغير"
+                aria-label={t("projects.mapPicker.zoomOut")}
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -234,7 +237,7 @@ export function MvProjectMapPicker({
               <p className="text-[11px] font-medium text-white">
                 {selected
                   ? `${selected.latitude}, ${selected.longitude}`
-                  : "اسحب الخريطة ثم اضغط على المكان المطلوب"}
+                  : t("projects.mapPicker.hint")}
               </p>
             </div>
           </div>
@@ -248,7 +251,7 @@ export function MvProjectMapPicker({
             onClick={() => onOpenChange(false)}
             disabled={confirming}
           >
-            إلغاء
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -256,10 +259,10 @@ export function MvProjectMapPicker({
             disabled={!selected || confirming}
             onClick={() => selected && onConfirm(selected)}
           >
-            {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ الموقع"}
+            {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : t("projects.mapPicker.save")}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }

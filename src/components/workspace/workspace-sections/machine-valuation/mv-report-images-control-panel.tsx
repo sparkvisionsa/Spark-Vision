@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { MvDriveFile } from "./types";
 import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store";
 import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
+import { useMvI18n } from "./mv-i18n";
 
 function reorderIds(order: string[], fromId: string, toId: string) {
   if (fromId === toId) return order;
@@ -26,6 +27,7 @@ function DraggableRow({
   onWidthChange,
   onReorder,
   showWidthSlider = true,
+  sliderDir,
 }: {
   id: string;
   label: string;
@@ -35,6 +37,7 @@ function DraggableRow({
   onWidthChange: (value: number) => void;
   onReorder: (fromId: string, toId: string) => void;
   showWidthSlider?: boolean;
+  sliderDir?: "ltr" | "rtl";
 }) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -81,7 +84,7 @@ function DraggableRow({
                 {widthLabel}: {Math.round(widthPercent)}%
               </span>
               <Slider
-                dir="rtl"
+                dir={sliderDir ?? "rtl"}
                 min={24}
                 max={100}
                 step={2}
@@ -105,6 +108,7 @@ function ImageSettingSlider({
   step,
   suffix,
   onChange,
+  sliderDir,
 }: {
   label: string;
   value: number;
@@ -113,6 +117,7 @@ function ImageSettingSlider({
   step: number;
   suffix?: string;
   onChange: (value: number) => void;
+  sliderDir?: "ltr" | "rtl";
 }) {
   return (
     <label className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
@@ -124,7 +129,7 @@ function ImageSettingSlider({
         </span>
       </span>
       <Slider
-        dir="rtl"
+        dir={sliderDir ?? "rtl"}
         min={min}
         max={max}
         step={step}
@@ -197,6 +202,7 @@ export function MvReportImagesControlPanel({
   onValuationReorder: (next: string[]) => void;
   onValuationWidthChange: (imageId: string, width: number) => void;
 }) {
+  const { t, dir } = useMvI18n();
   const [localTab, setLocalTab] = useState<"assets" | "valuation">("assets");
   const tab = activeTab ?? localTab;
   const setTab = (next: "assets" | "valuation") => {
@@ -226,9 +232,9 @@ export function MvReportImagesControlPanel({
       <div className="mb-2 rounded-lg border border-sky-100 bg-white px-2.5 py-2 text-right shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[11px] font-black text-[#0C447C]">صور الأصول في التقرير</p>
+            <p className="text-[11px] font-black text-[#0C447C]">{t("report.imagesPanel.title")}</p>
             <p className="mt-0.5 text-[9.5px] font-semibold leading-4 text-slate-500">
-              الصور المختارة فقط تظهر في مرفق 2، ويمكن ضبط العدد، العرض، والترتيب من هنا.
+              {t("report.imagesPanel.description")}
             </p>
           </div>
           <span className="shrink-0 rounded-md bg-sky-50 px-2 py-1 text-[11px] font-black tabular-nums text-[#0C447C]">
@@ -242,7 +248,7 @@ export function MvReportImagesControlPanel({
             className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-slate-200 bg-slate-50 text-[10px] font-black text-slate-700 transition hover:bg-sky-50 hover:text-[#0C447C]"
           >
             <ImageIcon className="h-3 w-3" />
-            فتح تحديد صور الأصول
+            {t("report.imagesPanel.openAssetImages")}
           </button>
         ) : null}
       </div>
@@ -255,7 +261,7 @@ export function MvReportImagesControlPanel({
             tab === "assets" ? "bg-sky-800 text-white" : "text-slate-600 hover:bg-slate-50",
           )}
         >
-          صور الأصول ({assetOrder.length})
+          {t("report.imagesPanel.tabAssets", { count: String(assetOrder.length) })}
         </button>
         <button
           type="button"
@@ -265,11 +271,11 @@ export function MvReportImagesControlPanel({
             tab === "valuation" ? "bg-sky-800 text-white" : "text-slate-600 hover:bg-slate-50",
           )}
         >
-          صور الحسابات ({valuationOrder.length})
+          {t("report.imagesPanel.tabValuation", { count: String(valuationOrder.length) })}
         </button>
       </div>
       <p className="mb-1.5 px-0.5 text-[9.5px] font-semibold leading-snug text-slate-500">
-        اسحب الصورة لإعادة الترتيب. حرّك شريط العرض لتغيير مساحتها في التقرير.
+        {t("report.imagesPanel.dragHint")}
       </p>
       {tab === "assets" ? (
         <div className="mb-2 grid gap-1.5">
@@ -279,11 +285,11 @@ export function MvReportImagesControlPanel({
             className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-sky-100 bg-white text-[10px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
           >
             <Eye className="h-3 w-3" />
-            معاينة صفحة صور الأصول
+            {t("report.preview.assetImagesPage")}
           </button>
           <label className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
             <span className="text-[9px] font-semibold text-slate-600">
-              عدد الصور في الصفحة
+              {t("report.imagesPanel.imagesPerPage")}
             </span>
             <input
               type="number"
@@ -300,7 +306,7 @@ export function MvReportImagesControlPanel({
           </label>
           <label className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
             <span className="text-[9px] font-semibold text-slate-600">
-              عدد الصور في الصف الواحد
+              {t("report.imagesPanel.imagesPerRow")}
             </span>
             <input
               type="number"
@@ -316,7 +322,7 @@ export function MvReportImagesControlPanel({
             />
           </label>
           <label className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700">
-            <span>توحيد مساحة الصور</span>
+            <span>{t("report.imagesPanel.uniformSize")}</span>
             <input
               type="checkbox"
               checked={assetImagesUniformSize}
@@ -325,12 +331,13 @@ export function MvReportImagesControlPanel({
             />
           </label>
           <ImageSettingSlider
-            label="عرض كل صور الأصول"
+            label={t("report.imagesPanel.allAssetWidth")}
             value={assetWidthPercent}
             min={5}
             max={100}
             step={1}
             suffix="%"
+            sliderDir={dir}
             onChange={(width) => {
               onAssetWidthChange(width);
               onAssetImagesPerRowChange(Math.min(20, Math.max(1, Math.round(100 / Math.max(width, 1)))));
@@ -339,18 +346,18 @@ export function MvReportImagesControlPanel({
         </div>
       ) : null}
       <div className="mb-2 grid gap-1.5">
-        <ImageSettingSlider label="فراغ مجموعات الصور" value={imageGroupGap} min={0} max={120} step={2} suffix="px" onChange={onImageGroupGapChange} />
-        <ImageSettingSlider label="فراغ بين الصور" value={imageInnerGap} min={0} max={40} step={2} suffix="px" onChange={onImageInnerGapChange} />
-        <ImageSettingSlider label="استدارة حواف الصور" value={imageCornerRadius} min={0} max={24} step={1} suffix="px" onChange={onImageCornerRadiusChange} />
-        <ImageSettingSlider label="ظل الصور" value={imageShadow} min={0} max={4} step={1} onChange={onImageShadowChange} />
+        <ImageSettingSlider label={t("report.toolbar.imageGroupGap")} value={imageGroupGap} min={0} max={120} step={2} suffix="px" sliderDir={dir} onChange={onImageGroupGapChange} />
+        <ImageSettingSlider label={t("report.toolbar.imageInnerGap")} value={imageInnerGap} min={0} max={40} step={2} suffix="px" sliderDir={dir} onChange={onImageInnerGapChange} />
+        <ImageSettingSlider label={t("report.toolbar.imageRadius")} value={imageCornerRadius} min={0} max={24} step={1} suffix="px" sliderDir={dir} onChange={onImageCornerRadiusChange} />
+        <ImageSettingSlider label={t("report.toolbar.imageShadow")} value={imageShadow} min={0} max={4} step={1} sliderDir={dir} onChange={onImageShadowChange} />
       </div>
       <div className="max-h-[min(42vh,360px)] space-y-1.5 overflow-y-auto overscroll-contain">
         {tab === "assets" ? (
           assetOrder.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center">
-              <p className="text-[10.5px] font-black text-slate-600">لا توجد صور أصول محددة للتقرير.</p>
+              <p className="text-[10.5px] font-black text-slate-600">{t("report.imagesPanel.noAssetImages")}</p>
               <p className="mt-1 text-[9.5px] font-semibold leading-5 text-slate-500">
-                اختر الصور من خطوة صور الأصول ثم ارجع لهذه اللوحة لضبط مرفق 2.
+                {t("report.imagesPanel.noAssetImagesHint")}
               </p>
               {onManageAssetImages ? (
                 <button
@@ -359,7 +366,7 @@ export function MvReportImagesControlPanel({
                   className="mt-2 inline-flex h-7 items-center justify-center gap-1 rounded-md bg-[#0C447C] px-3 text-[10px] font-black text-white transition hover:bg-[#09345f]"
                 >
                   <ImageIcon className="h-3 w-3" />
-                  تحديد الصور
+                  {t("report.imagesPanel.selectImages")}
                 </button>
               ) : null}
             </div>
@@ -367,7 +374,7 @@ export function MvReportImagesControlPanel({
             assetOrder.map((id) => {
               const file = assetById.get(id);
               if (!file) return null;
-              const name = file.name?.trim() || "صورة";
+              const name = file.name?.trim() || t("report.imagesPanel.imageFallback");
               return (
                 <DraggableRow
                   key={id}
@@ -375,16 +382,19 @@ export function MvReportImagesControlPanel({
                   label={name}
                   thumbSrc={getAssetImageSrc(file)}
                   widthPercent={assetWidthPercent}
-                  widthLabel="عرض"
+                  widthLabel={t("report.imagesPanel.widthLabel")}
                   onWidthChange={onAssetWidthChange}
                   onReorder={handleAssetReorder}
                   showWidthSlider={false}
+                  sliderDir={dir}
                 />
               );
             })
           )
         ) : valuationOrder.length === 0 ? (
-          <p className="py-3 text-center text-[10px] font-bold text-slate-500">لا توجد صور حسابات.</p>
+          <p className="py-3 text-center text-[10px] font-bold text-slate-500">
+            {t("report.imagesPanel.noValuationImages")}
+          </p>
         ) : (
           valuationOrder.map((id) => {
             const image = valuationById.get(id);
@@ -397,9 +407,10 @@ export function MvReportImagesControlPanel({
                 label={image.name}
                 thumbSrc={src}
                 widthPercent={image.displayWidthPercent ?? 88}
-                widthLabel="عرض الصورة"
+                widthLabel={t("report.imagesPanel.imageWidthLabel")}
                 onWidthChange={(w) => onValuationWidthChange(id, w)}
                 onReorder={handleValuationReorder}
+                sliderDir={dir}
               />
             );
           })

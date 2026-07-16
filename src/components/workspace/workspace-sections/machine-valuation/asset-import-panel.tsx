@@ -5,6 +5,7 @@ import { Loader2, RefreshCcw, Trash2, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 type AssetTypeCount = {
   vehicles: number;
@@ -59,7 +60,12 @@ interface AssetImportPanelProps {
 const ACCEPTED_ASSET_FILES =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv,application/zip,application/octet-stream";
 
-function messageFromFailedImportBody(text: string, status: number, fallback: string) {
+function messageFromFailedImportBody(
+  text: string,
+  status: number,
+  fallback: string,
+  t: (key: string) => string,
+) {
   if (text) {
     try {
       const data = JSON.parse(text) as { message?: string | string[] };
@@ -70,9 +76,9 @@ function messageFromFailedImportBody(text: string, status: number, fallback: str
       if (text.length < 400) return text;
     }
   }
-  if (status === 401) return "تسجيل الدخول مطلوب لاستيراد الأصول.";
-  if (status === 413) return "حجم الملف كبير جداً بالنسبة للخادم. قلّل الحجم أو قسّم الملف.";
-  if (status >= 500) return "خطأ في الخادم أثناء الاستيراد. حاول لاحقاً.";
+  if (status === 401) return t("import.authRequired");
+  if (status === 413) return t("import.fileTooLarge");
+  if (status >= 500) return t("import.serverError");
   return fallback;
 }
 
@@ -244,11 +250,13 @@ export default function AssetImportPanel({
   onSheetsDirty,
   stepTitle,
 }: AssetImportPanelProps) {
+  const { t, dir, isArabic } = useMvI18n();
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
   const [deletingSheet, setDeletingSheet] = useState<string | null>(null);
+  const numberLocale = isArabic ? "ar-SA" : "en-US";
 
   const handleFile = async (file: File) => {
     setError("");
@@ -271,7 +279,8 @@ export default function AssetImportPanel({
         const detail = messageFromFailedImportBody(
           responseText,
           response.status,
-          "تعذّر استيراد ملف الأصول. تحقق من الصيغة وحجم الملف وتسجيل الدخول.",
+          t("import.panel.importFailed"),
+          t,
         );
         throw new Error(detail);
       }
@@ -280,7 +289,7 @@ export default function AssetImportPanel({
       onImported(result);
     } catch (uploadError) {
       setError(
-        uploadError instanceof Error ? uploadError.message : "تعذّر استيراد ملف الأصول.",
+        uploadError instanceof Error ? uploadError.message : t("import.panel.importFailedShort"),
       );
     } finally {
       setIsUploading(false);
@@ -295,7 +304,7 @@ export default function AssetImportPanel({
     const norm = withSheetImportIds(importResult);
     const sid = sheet.importId ?? norm.importId;
     const ok = window.confirm(
-      `حذف ورقة «${sheet.sheetName}» من هذا الاستيراد؟ سيُزال كل الصفوف المرتبطة بها من النظام ولا يمكن التراجع.`,
+      t("import.panel.deleteSheetConfirm", { name: sheet.sheetName }),
     );
     if (!ok) return;
 
@@ -313,7 +322,7 @@ export default function AssetImportPanel({
       });
       const text = await res.text();
       if (!res.ok) {
-        let msg = "تعذّر حذف الورقة.";
+        let msg = t("import.panel.deleteSheetFailed");
         try {
           const j = JSON.parse(text) as { message?: string | string[] };
           if (j.message) msg = Array.isArray(j.message) ? j.message.join(" ") : j.message;
@@ -332,7 +341,7 @@ export default function AssetImportPanel({
       if (deletedCount === 0) {
         toast({
           variant: "destructive",
-          description: "لم يُحذف أي صف — قد لا تتطابق الورقة مع الخادم. أعد الاستيراد إن لزم.",
+          description: t("import.panel.noRowsDeleted"),
         });
         return;
       }
@@ -351,11 +360,14 @@ export default function AssetImportPanel({
       toast({
         description:
           deletedCount > 0
-            ? `تم حذف ورقة «${sheet.sheetName}» (${deletedCount.toLocaleString("ar-SA")} صف).`
-            : `تم حذف ورقة «${sheet.sheetName}».`,
+            ? t("import.panel.sheetDeleted", {
+                name: sheet.sheetName,
+                count: deletedCount.toLocaleString(numberLocale),
+              })
+            : t("import.panel.sheetDeletedSimple", { name: sheet.sheetName }),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذّر حذف الورقة.");
+      setError(e instanceof Error ? e.message : t("import.panel.deleteSheetFailed"));
     } finally {
       setDeletingSheet(null);
     }
@@ -386,12 +398,12 @@ export default function AssetImportPanel({
         ) : (
           <UploadCloud className="h-4 w-4" />
         )}
-        {isUploading ? "جارٍ الاستيراد…" : "استيراد ملفات الأصول"}
+        {isUploading ? t("import.panel.importing") : t("import.panel.importFiles")}
       </Button>
       {importResult ? (
         <Button type="button" variant="outline" size="sm" onClick={onClearImport} className="gap-2">
           <RefreshCcw className="h-4 w-4" />
-        اعادة تعيين الأصول
+          {t("import.panel.resetAssets")}
         </Button>
       ) : null}
     </div>
@@ -405,7 +417,7 @@ export default function AssetImportPanel({
   const warningsBlock =
     importResult && importResult.summary.warnings.length > 0 ? (
       <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-2 py-2">
-        <p className="text-[11px] font-semibold text-amber-900">تنبيهات</p>
+        <p className="text-[11px] font-semibold text-amber-900">{t("import.panel.warningsTitle")}</p>
         <ul className="mt-1 space-y-0.5 text-[11px] text-amber-950">
           {importResult.summary.warnings.slice(0, 8).map((warning) => (
             <li key={warning}>• {warning}</li>
@@ -438,7 +450,10 @@ export default function AssetImportPanel({
                     {s.sheetName}
                   </p>
                   <p className="mt-1 text-[11px] text-slate-500 tabular-nums">
-                    {s.rowCount} صف · {s.columnCount} عمود
+                    {t("import.panel.rowsColumns", {
+                      rows: s.rowCount,
+                      columns: s.columnCount,
+                    })}
                   </p>
                 </div>
                 {showSheetActions ? (
@@ -452,7 +467,7 @@ export default function AssetImportPanel({
                         disabled={busy || isActive}
                         onClick={() => onActiveSheetChange({ importId: sid, sheetName: s.sheetName })}
                       >
-                        {isActive ? "مفعّلة" : "تعيين للمعالجة"}
+                        {isActive ? t("import.panel.activeSheet") : t("import.panel.assignForProcessing")}
                       </Button>
                     ) : null}
                     <Button
@@ -464,7 +479,7 @@ export default function AssetImportPanel({
                       onClick={() => void handleDeleteSheet(s)}
                     >
                       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                      حذف
+                      {t("import.panel.delete")}
                     </Button>
                   </div>
                 ) : null}
@@ -479,18 +494,18 @@ export default function AssetImportPanel({
               className="text-[11px] font-medium text-[#0C447C] underline-offset-2 hover:underline"
               onClick={() => onActiveSheetChange(null)}
             >
-              عرض كل الأوراق
+              {t("import.panel.showAllSheets")}
             </button>
           </div>
         ) : null}
       </div>
     ) : importResult ? (
-      <p className="text-[11px] text-slate-400">لا توجد أوراق ببيانات في هذا الاستيراد.</p>
+      <p className="text-[11px] text-slate-400">{t("import.panel.noSheetsWithData")}</p>
     ) : null;
 
   if (stepTitle) {
     return (
-      <div className="space-y-2" dir="rtl">
+      <div className="space-y-2" dir={dir}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
           <h2 className="text-sm font-semibold text-[#0C447C]">{stepTitle}</h2>
           {buttons}
@@ -503,7 +518,7 @@ export default function AssetImportPanel({
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200/80 bg-slate-50/60 p-3" dir="rtl">
+    <div className="space-y-2 rounded-lg border border-slate-200/80 bg-slate-50/60 p-3" dir={dir}>
       {buttons}
       {errorBlock}
       {sheetCards}

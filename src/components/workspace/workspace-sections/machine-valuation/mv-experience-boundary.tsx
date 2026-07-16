@@ -20,6 +20,7 @@ import {
   getMvLoadingState,
   subscribeMvLoading,
 } from "./mv-loading-state";
+import { useMvI18n } from "./mv-i18n";
 
 type BoundaryProps = {
   children: ReactNode;
@@ -29,6 +30,33 @@ type BoundaryProps = {
 type BoundaryState = {
   error: Error | null;
 };
+
+function MvRenderErrorFallback({ onRetry }: { onRetry: () => void }) {
+  const { t, dir } = useMvI18n();
+
+  return (
+    <main className="flex min-h-[min(70vh,680px)] w-full items-center justify-center px-4 py-12" dir={dir}>
+      <section className="w-full max-w-xl rounded-3xl border border-red-200/80 bg-white p-6 text-center shadow-xl shadow-slate-900/5 sm:p-8">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
+          <AlertTriangle className="h-7 w-7" />
+        </div>
+        <h1 className="mt-5 text-lg font-black text-slate-950">{t("shell.error.unexpectedTitle")}</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
+          {t("shell.error.unexpectedBody")}
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          <Button type="button" onClick={onRetry} className="rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800">
+            <RefreshCw className="h-4 w-4" />
+            {t("common.retry")}
+          </Button>
+          <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white px-5">
+            <Link href="/machine-valuation/projects">{t("shell.error.backToProjects")}</Link>
+          </Button>
+        </div>
+      </section>
+    </main>
+  );
+}
 
 class MvRenderErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   state: BoundaryState = { error: null };
@@ -51,33 +79,12 @@ class MvRenderErrorBoundary extends Component<BoundaryProps, BoundaryState> {
 
   render() {
     if (!this.state.error) return this.props.children;
-
-    return (
-      <main className="flex min-h-[min(70vh,680px)] w-full items-center justify-center px-4 py-12" dir="rtl">
-        <section className="w-full max-w-xl rounded-3xl border border-red-200/80 bg-white p-6 text-center shadow-xl shadow-slate-900/5 sm:p-8">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
-            <AlertTriangle className="h-7 w-7" />
-          </div>
-          <h1 className="mt-5 text-lg font-black text-slate-950">حدث خطأ غير متوقع في هذه الصفحة</h1>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-            بياناتك المحفوظة لم تتأثر. أعد المحاولة، وإذا تكرر الخطأ ارجع إلى المشاريع ثم افتح المرحلة مرة أخرى.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            <Button type="button" onClick={this.retry} className="rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800">
-              <RefreshCw className="h-4 w-4" />
-              إعادة المحاولة
-            </Button>
-            <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white px-5">
-              <Link href="/machine-valuation/projects">العودة إلى المشاريع</Link>
-            </Button>
-          </div>
-        </section>
-      </main>
-    );
+    return <MvRenderErrorFallback onRetry={this.retry} />;
   }
 }
 
 function MvConnectivityNotice() {
+  const { t, dir } = useMvI18n();
   const [online, setOnline] = useState(true);
   const [showRestored, setShowRestored] = useState(false);
   const wasOffline = useRef(false);
@@ -124,27 +131,30 @@ function MvConnectivityNotice() {
       )}
       role="status"
       aria-live="polite"
-      dir="rtl"
+      dir={dir}
     >
       {online ? <CheckCircle2 className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
-      {online ? "عاد الاتصال بالإنترنت" : "أنت غير متصل — سنحافظ على الصفحة حتى يعود الاتصال"}
+      {online ? t("shell.connectivity.restored") : t("shell.connectivity.offline")}
     </div>
   );
 }
 
 function MvNavigationFeedback() {
+  const { t } = useMvI18n();
   const { currentPath, isNavigating } = useMvInPageNavigation();
   useSyncExternalStore(subscribeMvLoading, getMvLoadingSnapshot, getMvLoadingSnapshot);
   const dataLoading = getMvLoadingState();
   const active = isNavigating || dataLoading.active;
   const visible = useStableLoadingVisibility(active);
-  const label = isNavigating ? "جارٍ فتح صفحة المشروع…" : dataLoading.label;
+  const label = isNavigating
+    ? t("shell.nav.openingPage")
+    : dataLoading.label || t("common.loading.default");
 
   return (
     <>
       {visible ? <MvMachineLoadingOverlay label={label} /> : null}
       <span className="sr-only" role="status" aria-live="polite">
-        {active ? label : `تم فتح ${currentPath}`}
+        {active ? label : t("shell.nav.opened", { path: currentPath })}
       </span>
     </>
   );
@@ -174,13 +184,15 @@ function useStableLoadingVisibility(active: boolean) {
 }
 
 function MvMachineLoadingOverlay({ label }: { label: string }) {
+  const { dir } = useMvI18n();
+
   return (
     <div
       className="mv-machine-loader fixed inset-0 z-[130] flex items-center justify-center overflow-hidden bg-[#061a33]/90 backdrop-blur-md"
       role="status"
       aria-live="polite"
       aria-busy="true"
-      dir="rtl"
+      dir={dir}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_43%,rgba(14,165,233,0.14),transparent_31%),radial-gradient(circle_at_52%_47%,rgba(201,150,58,0.1),transparent_47%),linear-gradient(145deg,rgba(2,12,27,0.12),rgba(6,26,51,0.4))]" />
       <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.15)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.15)_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(circle_at_center,black,transparent_72%)]" />

@@ -5,11 +5,12 @@ import { cn } from "@/lib/utils";
 import { MvReportPageShell } from "./mv-report-page-shell";
 import type { MvReportEditableSection } from "./types";
 import type { MvReportTocRow } from "./mv-valuation-report-toc";
-import { MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
+import { MV_REPORT_TOC_ROWS as DEFAULT_MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 import {
   buildReportTocEntries,
   chunkReportTocEntries,
 } from "./mv-report-toc-pagination";
+import { useMvI18n } from "./mv-i18n";
 
 type TocPagesProps = {
   companyName: string;
@@ -18,6 +19,8 @@ type TocPagesProps = {
   footerLines: string[];
   draftWatermark: boolean;
   editableSections: MvReportEditableSection[];
+  /** صفوف الفهرس — تُترك افتراضياً (كل الأقسام الافتراضية) أو تُستبدَل بقائمة ديناميكية عند تفعيل قالب AI. */
+  rows?: MvReportTocRow[];
   tocApproxPages: Record<string, string>;
   onTocAnchorClick?: (anchor: string) => void;
   editableText: (key: string, fallback: string) => string;
@@ -135,6 +138,7 @@ export function MvReportTocPages(props: TocPagesProps) {
     footerLines,
     draftWatermark,
     editableSections,
+    rows = DEFAULT_MV_REPORT_TOC_ROWS,
     tocApproxPages,
     onTocAnchorClick,
     editableText,
@@ -145,10 +149,11 @@ export function MvReportTocPages(props: TocPagesProps) {
     EditableBlock,
   } = props;
 
+  const { t } = useMvI18n();
   const clickable = !!onTocAnchorClick;
   const chunks = useMemo(
-    () => chunkReportTocEntries(buildReportTocEntries(editableSections)),
-    [editableSections],
+    () => chunkReportTocEntries(buildReportTocEntries(editableSections, rows)),
+    [editableSections, rows],
   );
 
   const shellProps = {
@@ -189,7 +194,7 @@ export function MvReportTocPages(props: TocPagesProps) {
                   }
                   className="text-center text-[24px] font-black tracking-tight text-[#0C447C]"
                   multiline={false}
-                  placeholder="عنوان الفهرس"
+                  placeholder={t("report.toc.placeholders.heading")}
                 />
                 <div
                   aria-hidden
@@ -204,7 +209,7 @@ export function MvReportTocPages(props: TocPagesProps) {
                   )}
                   onChange={(value) => setTextOverride("paragraph.report-toc-note", value)}
                   className="mx-auto mt-1 max-w-2xl text-center text-[10px] font-semibold text-slate-500"
-                  placeholder="وصف الفهرس"
+                  placeholder={t("report.toc.placeholders.note")}
                 />
               ) : null}
               <div className="mt-4 overflow-x-hidden rounded-xl border border-[#0C447C]/12 bg-white/60">
@@ -248,7 +253,7 @@ export function MvReportTocPages(props: TocPagesProps) {
                         >
                           <td className="px-2 py-1.5 align-top font-black tabular-nums text-[#0C447C]">
                             <EditableBlock
-                              value={section.sectionNumber || `${MV_REPORT_TOC_ROWS.length + index + 1}.0`}
+                              value={section.sectionNumber || `${rows.length + index + 1}.0`}
                               onChange={(value) => updateEditableSection(section.id, { sectionNumber: value })}
                               className="min-h-[1.25rem] text-right"
                               dir="ltr"

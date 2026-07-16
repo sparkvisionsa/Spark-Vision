@@ -14,6 +14,7 @@ import { FolderOpen, ImageIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { useMvI18n } from "./mv-i18n";
 
 interface MvAssetImagesLocalWorkspaceProps {
   projectId: string;
@@ -38,7 +39,7 @@ function isLikelyImageFile(f: File): boolean {
 }
 
 /** تجميع ملفات اختيار ‎webkitdirectory‎ أو إسقاط مجلد حسب الجزء الأول من ‎webkitRelativePath‎ */
-function clusterIncomingFiles(fileList: File[]): LocalImageGroup[] {
+function clusterIncomingFiles(fileList: File[], bundleTitle: string): LocalImageGroup[] {
   const files = Array.from(fileList).filter(isLikelyImageFile);
   if (files.length === 0) return [];
 
@@ -66,7 +67,7 @@ function clusterIncomingFiles(fileList: File[]): LocalImageGroup[] {
     out.push({
       id: newGroupId(),
       kind: "bundle",
-      title: "صور مُختارة (بدون مجلد)",
+      title: bundleTitle,
       files: loose,
     });
   }
@@ -74,16 +75,20 @@ function clusterIncomingFiles(fileList: File[]): LocalImageGroup[] {
 }
 
 export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: MvAssetImagesLocalWorkspaceProps) {
+  const { t, dir } = useMvI18n();
   const [groups, setGroups] = useState<LocalImageGroup[]>([]);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const baseId = useId();
 
-  const appendFiles = useCallback((fileList: FileList | File[]) => {
-    const next = clusterIncomingFiles(Array.from(fileList));
-    if (next.length === 0) return;
-    setGroups((g) => [...g, ...next]);
-  }, []);
+  const appendFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      const next = clusterIncomingFiles(Array.from(fileList), t("assetImages.local.bundleTitle"));
+      if (next.length === 0) return;
+      setGroups((g) => [...g, ...next]);
+    },
+    [t],
+  );
 
   const onPickDirectory = useCallback(() => {
     dirInputRef.current?.click();
@@ -126,16 +131,19 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
     };
   }, [objectUrls]);
 
+  const imageCountLabel = (count: number) =>
+    `${count} ${count === 1 ? t("assetImages.local.imageSingular") : t("assetImages.local.imagePlural")}`;
+
   return (
-    <MvWorkflowPageFrame className="bg-white" dir="rtl">
+    <MvWorkflowPageFrame className="bg-white" dir={dir}>
       <MvProjectReportHeader
         compact
         projectId={projectId}
         activeStep="asset-images"
         breadcrumbs={[
           { label: projectName ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "تحديد صور الأصول", href: `/machine-valuation/${projectId}/workflow/asset-images` },
-          { label: "استيراد من الجهاز" },
+          { label: t("assetImages.breadcrumb"), href: `/machine-valuation/${projectId}/workflow/asset-images` },
+          { label: t("workflow.localImages.breadcrumb") },
         ]}
       />
 
@@ -153,7 +161,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
               onClick={onPickDirectory}
             >
               <FolderOpen className="h-3.5 w-3.5" />
-              اختيار مجلد
+              {t("assetImages.local.pickFolder")}
             </Button>
             <Button
               type="button"
@@ -161,10 +169,10 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
               onClick={onPickFiles}
             >
               <Upload className="h-3.5 w-3.5" />
-              اختيار صور
+              {t("assetImages.local.pickImages")}
             </Button>
             <Button type="button" variant="ghost" asChild className="h-9 text-[12px]">
-              <Link href={`/machine-valuation/${projectId}/workflow/asset-images`}>رجوع</Link>
+              <Link href={`/machine-valuation/${projectId}/workflow/asset-images`}>{t("assetImages.local.back")}</Link>
             </Button>
           </div>
         </div>
@@ -196,10 +204,9 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
         {groups.length === 0 ? (
           <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
             <ImageIcon className="h-12 w-12 text-slate-300" />
-            <p className="text-[14px] font-medium text-slate-600">سطح العمل فارغ</p>
+            <p className="text-[14px] font-medium text-slate-600">{t("assetImages.local.emptyTitle")}</p>
             <p className="max-w-md text-[12px] text-slate-500">
-              اختر مجلداً تُعرض صوره كمجلد، أو اختر عدة صور دفعة واحدة لتظهر كمجموعة، أو أضف أكثر من مجلداً
-              بالتعاقب.
+              {t("assetImages.local.emptyBody")}
             </p>
           </div>
         ) : (
@@ -220,7 +227,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
                       {g.title}
                     </h2>
                     <span className="text-[11px] text-slate-400">
-                      ({g.files.length} {g.files.length === 1 ? "صورة" : "صور"})
+                      ({imageCountLabel(g.files.length)})
                     </span>
                   </div>
                   <Button
@@ -229,7 +236,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
                     size="icon"
                     className="h-8 w-8 text-slate-500 hover:text-red-600"
                     onClick={() => removeGroup(g.id)}
-                    aria-label="إزالة المجموعة"
+                    aria-label={t("assetImages.local.removeGroup")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

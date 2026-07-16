@@ -1221,6 +1221,14 @@ body.vt-products-hub-active {
   background-color: transparent;
 }
 
+.mv-system-scope .mv-dialog-header {
+  padding-inline-end: 3.5rem;
+}
+
+[data-mv-dialog] .mv-dialog-close {
+  opacity: 1;
+}
+
 .mv-system-scope .mv-scroll-region {
   scrollbar-gutter: stable;
   scroll-behavior: smooth;

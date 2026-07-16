@@ -1,54 +1,19 @@
 "use client";
 
-import { useContext, useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import {
   Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { MvDialogContent, MvDialogHeaderBar } from "./mv-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LanguageContext } from "@/components/layout-provider";
 import { FileText, Layers3, Loader2 } from "lucide-react";
 import type { MvProjectReportType } from "./types";
-
-const copy = {
-  en: {
-    createProject: "Create New Project",
-    createSub: "Create New Sub-Project",
-    projectPlaceholder: "Project name…",
-    subPlaceholder: "Sub-project name…",
-    projectDesc: "Enter a name for the new project.",
-    subDesc: "Enter a name for the new sub-project.",
-    simpleReport: "Simple report",
-    simpleReportHint: "The project will open the streamlined path: locations, asset folders, report data, photos, valuation, and final preview.",
-    simpleReportBadge: "Default path",
-    advancedReport: "Advanced report",
-    advancedReportHint: "Reserved for the advanced workflow and cannot be selected now.",
-    advancedReportBadge: "Soon",
-    ok: "Create",
-    cancel: "Cancel",
-  },
-  ar: {
-    createProject: "إنشاء مشروع جديد",
-    createSub: "إنشاء مشروع فرعي",
-    projectPlaceholder: "اسم المشروع…",
-    subPlaceholder: "اسم المشروع الفرعي…",
-    projectDesc: "أدخل اسمًا للمشروع الجديد.",
-    subDesc: "أدخل اسمًا للمشروع الفرعي الجديد.",
-    simpleReport: "تقرير مبسط",
-    simpleReportHint: "سيبدأ المشروع بالمسار المختصر: المواقع، مجلدات الأصول، بيانات التقرير، الصور، التقييم، ثم المعاينة النهائية.",
-    simpleReportBadge: "المسار الافتراضي",
-    advancedReport: "تقرير متقدم",
-    advancedReportHint: "محجوز للمسار المتقدم وغير قابل للاختيار حالياً.",
-    advancedReportBadge: "قريباً",
-    ok: "إنشاء",
-    cancel: "إلغاء",
-  },
-} as const;
+import { useMvI18n } from "./mv-i18n";
 
 interface CreateDialogProps {
   open: boolean;
@@ -76,9 +41,7 @@ export default function CreateDialog({
   submitBlocked,
   onSubmit,
 }: CreateDialogProps) {
-  const langCtx = useContext(LanguageContext);
-  const isArabic = langCtx?.language === "ar";
-  const t = isArabic ? copy.ar : copy.en;
+  const { t } = useMvI18n();
 
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -100,20 +63,25 @@ export default function CreateDialog({
     onSubmit(trimmed, undefined);
   };
 
-  const title = variant === "project" ? t.createProject : t.createSub;
-  const desc = variant === "project" ? t.projectDesc : t.subDesc;
+  const title =
+    variant === "project" ? t("projects.createNew") : t("projects.create.subNew");
+  const desc =
+    variant === "project" ? t("projects.create.subtitle") : t("projects.create.subSubtitle");
   const placeholder =
-    variant === "project" ? t.projectPlaceholder : t.subPlaceholder;
+    variant === "project"
+      ? t("projects.create.namePlaceholder")
+      : t("projects.create.subNamePlaceholder");
+  const nameLabel = placeholder.replace("…", "");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl sm:max-w-2xl">
-        <div className="border-b border-slate-200/80 bg-slate-50 px-6 py-5 text-right">
-          <DialogHeader>
+      <MvDialogContent className="max-h-[90vh] overflow-hidden rounded-2xl border-slate-200 bg-white p-0 shadow-2xl sm:max-w-2xl">
+        <MvDialogHeaderBar>
+          <DialogHeader className="space-y-1 text-start">
             <DialogTitle className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">{title}</DialogTitle>
             <DialogDescription className="text-[12px] leading-6 text-slate-500">{desc}</DialogDescription>
           </DialogHeader>
-        </div>
+        </MvDialogHeaderBar>
 
         <form
           onSubmit={(e) => {
@@ -124,9 +92,7 @@ export default function CreateDialog({
         >
           {extra ? <div className="space-y-2">{extra}</div> : null}
           <div className="space-y-2 text-right">
-            <label className="text-[12px] font-bold text-slate-800">
-              {variant === "project" ? t.projectPlaceholder.replace("…", "") : t.subPlaceholder.replace("…", "")}
-            </label>
+            <label className="text-[12px] font-bold text-slate-800">{nameLabel}</label>
             <Input
               ref={inputRef}
               value={name}
@@ -147,12 +113,12 @@ export default function CreateDialog({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[13px] font-black text-slate-950">{t.simpleReport}</p>
+                      <p className="text-[13px] font-black text-slate-950">{t("projects.reportType.simple")}</p>
                       <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-800 ring-1 ring-emerald-100">
-                        {t.simpleReportBadge}
+                        {t("projects.create.simpleBadge")}
                       </span>
                     </div>
-                    <p className="mt-1 text-[12px] leading-6 text-slate-600">{t.simpleReportHint}</p>
+                    <p className="mt-1 text-[12px] leading-6 text-slate-600">{t("projects.create.simpleHint")}</p>
                   </div>
                 </div>
               </div>
@@ -166,12 +132,12 @@ export default function CreateDialog({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[13px] font-black text-slate-700">{t.advancedReport}</p>
+                      <p className="text-[13px] font-black text-slate-700">{t("projects.reportType.advanced")}</p>
                       <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
-                        {t.advancedReportBadge}
+                        {t("projects.create.advancedBadge")}
                       </span>
                     </div>
-                    <p className="mt-1 text-[12px] leading-6 text-slate-500">{t.advancedReportHint}</p>
+                    <p className="mt-1 text-[12px] leading-6 text-slate-500">{t("projects.create.advancedHint")}</p>
                   </div>
                 </div>
               </div>
@@ -186,7 +152,7 @@ export default function CreateDialog({
               onClick={() => onOpenChange(false)}
               disabled={loading}
             >
-              {t.cancel}
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -196,12 +162,12 @@ export default function CreateDialog({
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                t.ok
+                t("projects.empty.create")
               )}
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }

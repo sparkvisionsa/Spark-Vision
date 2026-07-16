@@ -45,11 +45,12 @@ import {
 } from "@/components/ui/select";
 import {
   Dialog,
-  DialogContent,
+  
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -62,7 +63,7 @@ import type {
   MvProjectLocation,
   MvProjectReportType,
   MvProjectWorkflowStatus,
-} from "./types";
+} from "./types"
 import CreateDialog from "./create-dialog";
 import {
   createProjectInspectionSiteForm,
@@ -73,6 +74,7 @@ import {
 import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
 import { prefetchMvLocationCatalog } from "./use-mv-location-catalog";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
+import { exportProjectAssetsExcel } from "./mv-asset-data-table-modal";
 import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import {
@@ -82,15 +84,15 @@ import {
   mvLocationSelectionSummary,
 } from "./mv-location-multi-select";
 import { MvEmptyState, MvErrorState, MvTopBar } from "./mv-ui";
-import { MvApiError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { MvApiError, invalidateMvApiCache, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import {
-  MV_PROJECT_WORKFLOW_STATUS_FALLBACK,
   MvProjectWorkflowStatusSelect,
   type MvProjectWorkflowStatusOption,
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { mvAutoPdfDownloadStorageKey, MV_REPORT_PDF_PARENT_MESSAGE } from "./mv-home-routes";
+import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
@@ -102,27 +104,37 @@ const tajawal = Tajawal({
   display: "swap",
 });
 
-const MV_REPORT_TYPE_LABEL_AR: Record<MvProjectReportType, string> = {
-  simple: "تقرير مبسّط",
-  advanced: "تقرير متقدّم",
-};
-
-const numberFormatter = new Intl.NumberFormat("ar-SA");
+function createNumberFormatter(isArabic: boolean) {
+  return new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
+}
 
 function normalizeWorkflowStatus(raw: string | undefined | null): MvProjectWorkflowStatus {
   if (raw === "review" || raw === "approved" || raw === "new") return raw;
   return "new";
 }
 
-function formatDateLabel(value: string | undefined) {
-  if (!value) return "—";
+function formatDateLabel(value: string | undefined, isArabic: boolean, notAvailable: string) {
+  if (!value) return notAvailable;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-SA", {
+  if (Number.isNaN(date.getTime())) return notAvailable;
+  return new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
   }).format(date);
+}
+
+function reportTypeLabel(reportType: MvProjectReportType | undefined, t: MvT, notAvailable: string) {
+  if (reportType === "simple") return t("projects.reportType.simple");
+  if (reportType === "advanced") return t("projects.reportType.advanced");
+  return notAvailable;
+}
+
+function workflowStatusLabel(
+  status: MvProjectWorkflowStatusOption,
+  isArabic: boolean,
+) {
+  return isArabic ? status.labelAr : status.labelEn;
 }
 
 function projectWorkspaceHref(projectId: string) {
@@ -204,7 +216,38 @@ function ProjectActionsMenu({
   onDownloadFinalReport: (project: MvProject) => void;
   onDelete: (projectId: string) => void;
 }) {
+  const { t, isArabic } = useMvI18n();
+  const { toast } = useToast();
   const assetDownloadButtonRef = useRef<HTMLButtonElement>(null);
+  const projectName = project.name || t("projects.table.project");
+  const [exportingAssetsExcel, setExportingAssetsExcel] = useState(false);
+
+  const handleExportAssetsExcel = async () => {
+    if (exportingAssetsExcel) return;
+    setExportingAssetsExcel(true);
+    try {
+      const { count } = await exportProjectAssetsExcel({
+        projectId: project._id,
+        projectName,
+        t,
+        isArabic,
+      });
+      toast({
+        description: t("projects.assetTable.exportSuccess", {
+          count: createNumberFormatter(isArabic).format(count),
+        }),
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: t("projects.assetTable.exportFailedTitle"),
+        description: error instanceof Error ? error.message : t("projects.assetTable.exportUnexpected"),
+      });
+    } finally {
+      setExportingAssetsExcel(false);
+    }
+  };
+
   return (
     <>
     <DropdownMenu>
@@ -212,7 +255,7 @@ function ProjectActionsMenu({
         <button
           type="button"
           className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
-          aria-label={`إجراءات ${project.name || "المشروع"}`}
+          aria-label={t("projects.actions.menu", { name: projectName })}
         >
           <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
         </button>
@@ -220,11 +263,11 @@ function ProjectActionsMenu({
       <DropdownMenuContent align="end" className="w-56 text-right">
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenLocations(project)}>
           <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
-          تحديد المواقع والمعاينين
+          {t("projects.actions.locationsInspectors")}
         </DropdownMenuItem>
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
-          انشاء مجلدات الاصول
+          {t("projects.actions.createAssetFolders")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -232,21 +275,33 @@ function ProjectActionsMenu({
           onSelect={() => assetDownloadButtonRef.current?.click()}
         >
           <FileDown className="h-4 w-4 shrink-0 text-emerald-700" />
-          تنزيل صور الأصول
+          {t("projects.actions.downloadAssetImages")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={exportingAssetsExcel}
+          onSelect={() => void handleExportAssetsExcel()}
+        >
+          {exportingAssetsExcel ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-teal-700" />
+          ) : (
+            <FileSpreadsheet className="h-4 w-4 shrink-0 text-teal-700" />
+          )}
+          {t("projects.actions.exportAssetsExcel")}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
           onSelect={() => onDownloadFinalReport(project)}
         >
           <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
-          تنزيل التقرير النهائي
+          {t("projects.actions.downloadFinalReport")}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] text-red-600 focus:text-red-600"
           onSelect={() => onDelete(project._id)}
         >
           <Trash2 className="h-4 w-4 shrink-0" />
-          حذف المشروع
+          {t("projects.actions.deleteProject")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -255,7 +310,7 @@ function ProjectActionsMenu({
       buttonRef={assetDownloadButtonRef}
       className="hidden"
     >
-      <span>تنزيل صور الأصول</span>
+      <span>{t("projects.actions.downloadAssetImages")}</span>
     </MvAssetImagesDownloadButton>
     </>
   );
@@ -276,6 +331,9 @@ function ProjectsPagination({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
 }) {
+  const { t, isArabic } = useMvI18n();
+  const numberFormatter = useMemo(() => createNumberFormatter(isArabic), [isArabic]);
+
   if (totalItems === 0) return null;
 
   const start = (currentPage - 1) * pageSize + 1;
@@ -296,7 +354,7 @@ function ProjectsPagination({
             <SelectContent>
               {[5, 8, 10, 20].map((size) => (
                 <SelectItem key={size} value={String(size)}>
-                  {numberFormatter.format(size)} / صفحة
+                  {t("projects.pagination.perPage", { size: numberFormatter.format(size) })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -310,7 +368,7 @@ function ProjectsPagination({
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label="الصفحة السابقة"
+          aria-label={t("projects.pagination.prev")}
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </button>
@@ -345,7 +403,7 @@ function ProjectsPagination({
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label="الصفحة التالية"
+          aria-label={t("projects.pagination.next")}
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
@@ -391,8 +449,8 @@ type ProjectInspectorOption = {
   isPhoneVerified?: boolean;
 };
 
-function inspectorOptionLabel(inspector: ProjectInspectorOption): string {
-  return inspector.displayName || inspector.phone || inspector.username || inspector.email || "معاين";
+function inspectorOptionLabel(inspector: ProjectInspectorOption, fallback: string): string {
+  return inspector.displayName || inspector.phone || inspector.username || inspector.email || fallback;
 }
 
 function normalizeInspectorSelection(value: readonly string[], inspectors: readonly ProjectInspectorOption[]): string[] {
@@ -400,14 +458,19 @@ function normalizeInspectorSelection(value: readonly string[], inspectors: reado
   return Array.from(new Set(value.filter((id) => allowed.has(id))));
 }
 
-function inspectorSelectionSummary(value: readonly string[], inspectors: readonly ProjectInspectorOption[]): string {
+function inspectorSelectionSummary(
+  value: readonly string[],
+  inspectors: readonly ProjectInspectorOption[],
+  t: MvT,
+): string {
   const normalized = normalizeInspectorSelection(value, inspectors);
-  if (normalized.length === 0) return "اختر المعاينين";
+  const fallbackName = t("projects.inspector.fallbackName");
+  if (normalized.length === 0) return t("projects.inspector.select");
   if (normalized.length === 1) {
     const inspector = inspectors.find((item) => item.id === normalized[0]);
-    return inspector ? inspectorOptionLabel(inspector) : "معاين واحد";
+    return inspector ? inspectorOptionLabel(inspector, fallbackName) : t("projects.inspector.oneSelected");
   }
-  return `${normalized.length} معاينين محددين`;
+  return t("projects.inspector.countSelected", { count: String(normalized.length) });
 }
 
 function MultiSelectOptionCheck({ checked }: { checked: boolean }) {
@@ -446,16 +509,20 @@ function systemInspectorCoverageCities(inspector: ProjectInspectorOption): strin
   return Array.from(new Set(fromServiceCities.length > 0 ? fromServiceCities : fallback));
 }
 
-function systemInspectorLocationLabel(inspector: ProjectInspectorOption): string {
+function systemInspectorLocationLabel(inspector: ProjectInspectorOption, isArabic: boolean, t: MvT): string {
   const cities = systemInspectorCoverageCities(inspector);
-  return cities.length > 0 ? cities.join("، ") : "بدون مدن محددة";
+  return cities.length > 0 ? cities.join(isArabic ? "، " : ", ") : t("projects.inspector.freelance.noCities");
 }
 
-function systemInspectorLastLoginLabel(value: string | null | undefined): string {
-  if (!value) return "لم يسجل دخول";
+function systemInspectorLastLoginLabel(
+  value: string | null | undefined,
+  isArabic: boolean,
+  t: MvT,
+): string {
+  if (!value) return t("projects.inspector.freelance.neverLoggedIn");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "غير متاح";
-  return new Intl.DateTimeFormat("ar-SA", {
+  if (Number.isNaN(date.getTime())) return t("projects.inspector.freelance.unavailable");
+  return new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -498,8 +565,10 @@ function ProjectInspectorMultiSelect({
   disabled?: boolean;
   loading?: boolean;
 }) {
+  const { t } = useMvI18n();
   const normalized = normalizeInspectorSelection(value, inspectors);
   const allSelected = inspectors.length > 0 && normalized.length === inspectors.length;
+  const fallbackName = t("projects.inspector.fallbackName");
 
   const toggleInspector = (id: string, checked: boolean) => {
     if (checked) {
@@ -525,14 +594,14 @@ function ProjectInspectorMultiSelect({
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
             <span className="truncate">
-              {loading ? "جاري تحميل المعاينين..." : inspectorSelectionSummary(normalized, inspectors)}
+              {loading ? t("projects.inspector.loading") : inspectorSelectionSummary(normalized, inspectors, t)}
             </span>
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="z-[980] w-72 text-right">
-        <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">المعاينون</DropdownMenuLabel>
+        <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">{t("projects.inspector.label")}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {inspectors.length > 0 ? (
           <DropdownMenuItem
@@ -543,11 +612,11 @@ function ProjectInspectorMultiSelect({
             className="cursor-pointer gap-2 text-[12px] font-bold"
           >
             <MultiSelectOptionCheck checked={allSelected} />
-            <span className="truncate">كل المعاينين</span>
+            <span className="truncate">{t("projects.inspector.all")}</span>
           </DropdownMenuItem>
         ) : (
           <div className="px-2 py-2 text-[12px] font-semibold text-slate-400">
-            لا يوجد مستخدمون بدور معاين.
+            {t("projects.inspector.noneWithRole")}
           </div>
         )}
         {inspectors.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -563,7 +632,7 @@ function ProjectInspectorMultiSelect({
               className="cursor-pointer gap-2 text-[12px]"
             >
               <MultiSelectOptionCheck checked={checked} />
-              <span className="truncate" dir="auto">{inspectorOptionLabel(inspector)}</span>
+              <span className="truncate" dir="auto">{inspectorOptionLabel(inspector, fallbackName)}</span>
             </DropdownMenuItem>
           );
         })}
@@ -585,6 +654,9 @@ function SystemInspectorSearchDialog({
   onSelect: (inspector: ProjectInspectorOption) => void;
   isSelected: (inspector: ProjectInspectorOption) => boolean;
 }) {
+  const { t, isArabic, dir } = useMvI18n();
+  const numberFormatter = useMemo(() => createNumberFormatter(isArabic), [isArabic]);
+  const fallbackName = t("projects.inspector.fallbackName");
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
@@ -609,7 +681,7 @@ function SystemInspectorSearchDialog({
       } catch {
         if (!cancelled) {
           setInspectors([]);
-          setError("تعذر تحميل معايني النظام.");
+          setError(t("errors.inspectors.systemLoadFailed"));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -618,7 +690,7 @@ function SystemInspectorSearchDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, projectId]);
+  }, [open, projectId, t]);
 
   useEffect(() => {
     if (!open) {
@@ -632,8 +704,8 @@ function SystemInspectorSearchDialog({
     const names = inspectors
       .flatMap((inspector) => systemInspectorCoverageCities(inspector))
       .filter(Boolean);
-    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "ar"));
-  }, [inspectors]);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, isArabic ? "ar" : "en"));
+  }, [inspectors, isArabic]);
 
   const filteredInspectors = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -647,17 +719,17 @@ function SystemInspectorSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+      <MvDialogContent
         className="flex max-h-[86vh] max-w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-5xl"
-        dir="rtl"
+        dir={dir}
       >
-        <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
+        <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
               <UserPlus className="h-4 w-4" />
             </span>
             <DialogTitle className="truncate text-[15px] font-bold text-slate-900">
-              اختيار معاين حر  
+              {t("projects.inspector.freelance.title")}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -668,7 +740,7 @@ function SystemInspectorSearchDialog({
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="بحث بالاسم أو المدينة أو رقم الجوال"
+              placeholder={t("projects.inspector.freelance.searchPlaceholder")}
               className="h-10 rounded-lg border-slate-200 bg-white pr-9 text-right text-[12px] font-semibold"
             />
           </div>
@@ -678,10 +750,10 @@ function SystemInspectorSearchDialog({
             disabled={cityOptions.length === 0}
           >
             <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-bold">
-              <SelectValue placeholder="كل المدن" />
+              <SelectValue placeholder={t("projects.inspector.freelance.allCities")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">كل المدن</SelectItem>
+              <SelectItem value="all">{t("projects.inspector.freelance.allCities")}</SelectItem>
               {cityOptions.map((city) => (
                 <SelectItem key={city} value={city}>
                   {city}
@@ -700,20 +772,20 @@ function SystemInspectorSearchDialog({
             <div className="px-4 py-8 text-center text-[13px] font-semibold text-red-600">{error}</div>
           ) : filteredInspectors.length === 0 ? (
             <div className="px-4 py-8 text-center text-[13px] font-semibold text-slate-400">
-              لا توجد نتائج مطابقة.
+              {t("projects.inspector.freelance.noResults")}
             </div>
           ) : (
             <table className="min-w-[900px] w-full text-right text-[12px]">
               <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] font-black text-slate-500">
                 <tr className="border-b border-slate-200">
-                  <th className="px-3 py-2 text-right">اسم المعاين</th>
-                  <th className="px-3 py-2 text-right">الجوال</th>
-                  <th className="px-3 py-2 text-right">المدن التي يغطيها</th>
-                  <th className="px-3 py-2 text-center">المهام</th>
-                  <th className="px-3 py-2 text-center">قيد التنفيذ</th>
-                  <th className="px-3 py-2 text-center">التقييم</th>
-                  <th className="px-3 py-2 text-right">الحالة</th>
-                  <th className="px-3 py-2 text-center">اختيار</th>
+                  <th className="px-3 py-2 text-right">{t("projects.inspector.freelance.colName")}</th>
+                  <th className="px-3 py-2 text-right">{t("projects.inspector.freelance.colPhone")}</th>
+                  <th className="px-3 py-2 text-right">{t("projects.inspector.freelance.colCities")}</th>
+                  <th className="px-3 py-2 text-center">{t("projects.inspector.freelance.colTasks")}</th>
+                  <th className="px-3 py-2 text-center">{t("projects.inspector.freelance.colInProgress")}</th>
+                  <th className="px-3 py-2 text-center">{t("projects.inspector.freelance.colRating")}</th>
+                  <th className="px-3 py-2 text-right">{t("projects.inspector.freelance.colStatus")}</th>
+                  <th className="px-3 py-2 text-center">{t("projects.inspector.freelance.colSelect")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -724,7 +796,7 @@ function SystemInspectorSearchDialog({
                     <tr key={inspector.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-3 py-2">
                         <p className="max-w-[220px] truncate text-[12px] font-black text-slate-900" dir="auto">
-                          {inspectorOptionLabel(inspector)}
+                          {inspectorOptionLabel(inspector, fallbackName)}
                         </p>
                         <p className="mt-0.5 max-w-[220px] truncate text-[11px] font-semibold text-slate-500" dir="auto">
                           {inspector.username}
@@ -735,7 +807,7 @@ function SystemInspectorSearchDialog({
                       </td>
                       <td className="px-3 py-2">
                         <p className="max-w-[240px] whitespace-normal break-words text-[11px] font-bold leading-5 text-slate-600" dir="auto">
-                          {systemInspectorLocationLabel(inspector)}
+                          {systemInspectorLocationLabel(inspector, isArabic, t)}
                         </p>
                       </td>
                       <td className="px-3 py-2 text-center font-bold text-slate-400">-</td>
@@ -755,10 +827,10 @@ function SystemInspectorSearchDialog({
                                 active ? "bg-emerald-500" : "bg-slate-400",
                               )}
                             />
-                            {active ? "نشط" : "غير نشط"}
+                            {active ? t("projects.inspector.freelance.active") : t("projects.inspector.freelance.inactive")}
                           </span>
                           <span className="text-[10px] font-semibold text-slate-400">
-                            {systemInspectorLastLoginLabel(inspector.lastLoginAt)}
+                            {systemInspectorLastLoginLabel(inspector.lastLoginAt, isArabic, t)}
                           </span>
                         </div>
                       </td>
@@ -770,7 +842,7 @@ function SystemInspectorSearchDialog({
                           disabled={selected}
                           onClick={() => onSelect(inspector)}
                         >
-                          {selected ? "مضاف" : "اختيار"}
+                          {selected ? t("projects.inspector.freelance.added") : t("projects.inspector.freelance.colSelect")}
                         </Button>
                       </td>
                     </tr>
@@ -782,9 +854,9 @@ function SystemInspectorSearchDialog({
         </div>
 
         <div className="shrink-0 border-t border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
-          المعاينون: {numberFormatter.format(filteredInspectors.length)}
+          {t("projects.inspector.freelance.count", { count: numberFormatter.format(filteredInspectors.length) })}
         </div>
-      </DialogContent>
+      </MvDialogContent>
     </Dialog>
   );
 }
@@ -798,7 +870,9 @@ function MvInspectorAssignmentsPanel({
   project: MvProject | null;
   onSaved: (project: MvProject) => void;
 }) {
+  const { t } = useMvI18n();
   const { toast } = useToast();
+  const fallbackName = t("projects.inspector.fallbackName");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inspectors, setInspectors] = useState<ProjectInspectorOption[]>([]);
@@ -845,7 +919,7 @@ function MvInspectorAssignmentsPanel({
       } catch {
         if (!cancelled) {
           setInspectors([]);
-          toast({ variant: "destructive", description: "تعذر تحميل قائمة المعاينين." });
+          toast({ variant: "destructive", description: t("errors.inspectors.loadFailed") });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -854,7 +928,7 @@ function MvInspectorAssignmentsPanel({
     return () => {
       cancelled = true;
     };
-  }, [active, projectId, onSaved, toast]);
+  }, [active, projectId, onSaved, toast, t]);
 
   const locations = projectSnapshot?.locations ?? [];
   const selectedInspectors = inspectors.filter((item) => selectedInspectorIds.includes(item.id));
@@ -887,7 +961,7 @@ function MvInspectorAssignmentsPanel({
       ...nextInspectors.map((inspector, index) => ({
         id: `${inspector.id}-${locationIds.join("-") || "all"}-${Date.now()}-${index}`,
         inspectorUserId: inspector.id,
-        inspectorName: inspectorOptionLabel(inspector),
+        inspectorName: inspectorOptionLabel(inspector, fallbackName),
         ...(locationIds.length > 0 ? { locationIds } : {}),
         createdAt: now,
         updatedAt: now,
@@ -921,9 +995,9 @@ function MvInspectorAssignmentsPanel({
         setProjectSnapshot(data.project);
         setDraftAssignments(data.project.inspectionAssignments ?? []);
       }
-      toast({ description: "تم حفظ اختيار المعاينين." });
+      toast({ description: t("projects.inspector.save") });
     } catch {
-      toast({ variant: "destructive", description: "تعذر حفظ اختيار المعاينين." });
+      toast({ variant: "destructive", description: t("errors.inspectors.saveFailed") });
     } finally {
       setSaving(false);
     }
@@ -948,7 +1022,7 @@ function MvInspectorAssignmentsPanel({
               onChange={setSelectedLocationIds}
               disabled={loading}
               className="h-10"
-              label="نطاق عمل المعاين"
+              label={t("projects.inspector.scopeLabel")}
             />
           </div>
           <Button
@@ -959,7 +1033,7 @@ function MvInspectorAssignmentsPanel({
             disabled={loading || !projectSnapshot?._id}
           >
             <Search className="h-3.5 w-3.5" />
-            بحث عن معاينين
+            {t("projects.inspector.search")}
           </Button>
           <Button
             type="button"
@@ -967,14 +1041,14 @@ function MvInspectorAssignmentsPanel({
             onClick={addAssignment}
             disabled={selectedInspectors.length === 0 || loading}
           >
-            إضافة
+            {t("projects.inspector.add")}
           </Button>
         </div>
 
         <div className="mt-3 space-y-2">
           {draftAssignments.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-5 text-center text-[13px] font-semibold text-slate-400">
-              لا توجد تعيينات معاينين بعد.
+              {t("projects.inspector.noAssignments")}
             </div>
           ) : (
             draftAssignments.map((assignment) => (
@@ -988,6 +1062,7 @@ function MvInspectorAssignmentsPanel({
                     {mvLocationSelectionSummary(
                       assignment.locationIds?.length ? assignment.locationIds : [MV_ALL_LOCATIONS_VALUE],
                       locations,
+                      t,
                     )}
                   </p>
                 </div>
@@ -998,7 +1073,7 @@ function MvInspectorAssignmentsPanel({
                   className="h-8 self-start rounded-lg px-2 text-[11px] font-bold text-red-600 hover:bg-red-50 hover:text-red-700 sm:self-auto"
                   onClick={() => setDraftAssignments((prev) => prev.filter((item) => item.id !== assignment.id))}
                 >
-                  حذف
+                  {t("projects.inspector.delete")}
                 </Button>
               </div>
             ))
@@ -1013,7 +1088,7 @@ function MvInspectorAssignmentsPanel({
           onClick={() => void saveAssignments()}
           disabled={saving}
         >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ اختيار المعاينين"}
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : t("projects.inspector.save")}
         </Button>
       </div>
     </div>
@@ -1030,13 +1105,55 @@ function MvInspectorAssignmentsPanel({
   );
 }
 
+const MV_PROJECTS_SESSION_CACHE_KEY = "mv:projects:list:v2";
+const MV_PROJECTS_SESSION_CACHE_TTL_MS = 5 * 60_000;
+
+function readMvProjectsSessionCache(): MvProject[] | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(MV_PROJECTS_SESSION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at?: number; rows?: MvProject[] };
+    if (!parsed?.at || Date.now() - parsed.at > MV_PROJECTS_SESSION_CACHE_TTL_MS) return null;
+    return Array.isArray(parsed.rows) ? parsed.rows : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMvProjectsSessionCache(rows: MvProject[]) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      MV_PROJECTS_SESSION_CACHE_KEY,
+      JSON.stringify({ at: Date.now(), rows }),
+    );
+  } catch {
+    /* quota */
+  }
+}
+
+function clearMvProjectsSessionCache() {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.removeItem(MV_PROJECTS_SESSION_CACHE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function MvProjectsDashboard() {
+  const { t, isArabic, dir } = useMvI18n();
+  const numberFormatter = useMemo(() => createNumberFormatter(isArabic), [isArabic]);
+  const notAvailable = t("common.notAvailable");
+  const percentSuffix = isArabic ? "٪" : "%";
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const { user, csrfToken, loading: authLoading } = useAuthTracking();
-  const [projects, setProjects] = useState<MvProject[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState<MvProject[]>(() => readMvProjectsSessionCache() ?? []);
+  const [loading, setLoading] = useState(() => readMvProjectsSessionCache() == null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshingList, setRefreshingList] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<CompanyOptionRow[]>([]);
@@ -1069,7 +1186,7 @@ export default function MvProjectsDashboard() {
     null,
   );
   const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
-    MV_PROJECT_WORKFLOW_STATUS_FALLBACK,
+    getWorkflowStatusOptions(),
   );
   const [workflowStatusSavingId, setWorkflowStatusSavingId] = useState<string | null>(null);
   const inspectorFilesLocationOptions = useMemo(() => {
@@ -1103,42 +1220,57 @@ export default function MvProjectsDashboard() {
     return user.role !== "super_admin" && !user.companyId?.trim();
   })();
 
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (options?: { forceRefresh?: boolean }) => {
+    const forceRefresh = options?.forceRefresh === true;
+    const cachedRows = readMvProjectsSessionCache();
+    const hasStaleList = projects.length > 0 || (cachedRows?.length ?? 0) > 0;
+
     try {
-      setLoading(true);
+      if (!hasStaleList) {
+        setLoading(true);
+      } else {
+        setRefreshingList(true);
+      }
       setLoadError(null);
       const rows = await mvFetchJson<MvProject[]>(
         "/api/mv/projects",
         {},
         {
           cacheKey: "projects:list",
-          cacheTtlMs: 750,
-          trackLoading: true,
-          loadingLabel: "جارٍ تحميل المشاريع…",
+          cacheTtlMs: 60_000,
+          forceRefresh,
+          trackLoading: false,
+          timeoutMs: 45_000,
+          retries: 2,
         },
       );
-      setProjects(Array.isArray(rows) ? rows : []);
+      const list = Array.isArray(rows) ? rows : [];
+      setProjects(list);
+      writeMvProjectsSessionCache(list);
     } catch (error) {
       if (error instanceof MvApiError && error.status === 401) {
         setProjects([]);
+        clearMvProjectsSessionCache();
         toast({
           variant: "destructive",
-          description: "سجّل الدخول أولاً لعرض مشاريع تقييم الآلات.",
+          description: t("errors.projects.authRequired"),
         });
         return;
       }
       if (error instanceof MvApiError && error.status === 403) {
-        setProjects([]);
+        if (!hasStaleList) setProjects([]);
         return;
       }
-      setProjects([]);
-      const message = mvErrorMessage(error, "تعذّر تحميل قائمة المشاريع.");
-      setLoadError(message);
-      toast({ variant: "destructive", description: message });
+      const message = mvErrorMessage(error, t("errors.projects.loadList"));
+      if (!hasStaleList) {
+        setProjects([]);
+        setLoadError(message);
+      }
     } finally {
       setLoading(false);
+      setRefreshingList(false);
     }
-  }, [toast]);
+  }, [projects.length, toast, t]);
 
   /** بعد انتهاء تحميل الجلسة (أو تغيّر المستخدم/الشركة) نعيد الجلب حتى تُطبَّق فلترة الخادم بالكوكيز الصحيحة. */
   useEffect(() => {
@@ -1213,27 +1345,27 @@ export default function MvProjectsDashboard() {
 
     return [
       {
-        hint: "الإجمالي",
+        hint: t("projects.metrics.total"),
         value: numberFormatter.format(visibleProjects.length),
         icon: <LayoutGrid />,
       },
       {
-        hint: "بها أصول",
+        hint: t("projects.metrics.withAssets"),
         value: numberFormatter.format(withAssets),
         icon: <FileSpreadsheet />,
       },
       {
-        hint: "فرعية",
+        hint: t("projects.metrics.subprojects"),
         value: numberFormatter.format(withSubfolders),
         icon: <FolderSymlink />,
       },
       {
-        hint: "معتمدة",
+        hint: t("projects.metrics.approved"),
         value: numberFormatter.format(approved),
         icon: <Workflow />,
       },
     ];
-  }, [visibleProjects]);
+  }, [visibleProjects, t, numberFormatter]);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = projectQuery.trim().toLocaleLowerCase();
@@ -1293,7 +1425,7 @@ export default function MvProjectsDashboard() {
       if (user?.role === "super_admin") {
         const cid = selectedCompanyId.trim();
         if (!cid) {
-          toast({ variant: "destructive", description: "اختر الشركة التي يخصّها المشروع." });
+          toast({ variant: "destructive", description: t("errors.projects.selectCompany") });
           return;
         }
         payload.companyId = cid;
@@ -1308,22 +1440,33 @@ export default function MvProjectsDashboard() {
         throw new Error();
       }
       const created = (await response.json()) as MvProject;
-      toast({ description: "تم إنشاء المشروع بنجاح." });
-      setProjects((prev) => [created, ...prev.filter((project) => project._id !== created._id)]);
+      toast({ description: t("projects.toast.created") });
+      invalidateMvApiCache("projects:");
+      setProjects((prev) => {
+        const next = [created, ...prev.filter((project) => project._id !== created._id)];
+        writeMvProjectsSessionCache(next);
+        return next;
+      });
       setCreateOpen(false);
       setCreatedFlowProject(created);
       setContactDataProject(created);
       setContactDataForm([createProjectInspectionSiteForm(0)]);
       setContactDataOpen(true);
     } catch {
-      toast({ variant: "destructive", description: "تعذر إنشاء المشروع." });
+      toast({ variant: "destructive", description: t("errors.projects.createFailed") });
     } finally {
       setCreating(false);
     }
   };
 
   const mergeProjectIntoList = useCallback((updated: MvProject) => {
-    setProjects((prev) => prev.map((project) => (project._id === updated._id ? { ...project, ...updated } : project)));
+    setProjects((prev) => {
+      const next = prev.map((project) =>
+        project._id === updated._id ? { ...project, ...updated } : project,
+      );
+      writeMvProjectsSessionCache(next);
+      return next;
+    });
   }, []);
 
   const handleInspectorAssignmentsSaved = useCallback(
@@ -1420,10 +1563,10 @@ export default function MvProjectsDashboard() {
         setCreatedFlowProject(updatedProject);
         setAssetFoldersOpen(true);
       }
-      if (showToast) toast({ description: "تم تحديث مواقع المعاينة والتواصل." });
+      if (showToast) toast({ description: t("projects.toast.locationsUpdated") });
       return updatedProject;
     } catch {
-      if (showToast) toast({ variant: "destructive", description: "تعذر تحديث مواقع المعاينة والتواصل." });
+      if (showToast) toast({ variant: "destructive", description: t("errors.locations.updateFailed") });
       return null;
     } finally {
       setSavingContactData(false);
@@ -1440,7 +1583,7 @@ export default function MvProjectsDashboard() {
         showToast: false,
       });
       if (!updatedProject) {
-        toast({ variant: "destructive", description: "احفظ موقع المعاينة أولاً قبل إضافة ملفات المعاين." });
+        toast({ variant: "destructive", description: t("errors.locations.saveFirst") });
         return;
       }
 
@@ -1450,7 +1593,7 @@ export default function MvProjectsDashboard() {
       if (!hasSavedLocation) {
         toast({
           variant: "destructive",
-          description: "أضف بيانات للموقع ثم احفظه قبل رفع ملفات المعاين عليه.",
+          description: t("errors.locations.addDataFirst"),
         });
         return;
       }
@@ -1509,11 +1652,12 @@ export default function MvProjectsDashboard() {
       sessionStorage.setItem(mvAutoPdfDownloadStorageKey(project._id), "1");
       setBackgroundPdfExport({ projectId: project._id, nonce: Date.now() });
       toast({
-        description:
-          `${(project.name || "المشروع").trim()} — جاري تجهيز ملف PDF في الخلفية؛ سيبدأ التحميل تلقائياً على جهازك.`,
+        description: t("projects.pdfExport.preparing", {
+          name: (project.name || t("projects.table.project")).trim(),
+        }),
       });
     },
-    [toast],
+    [toast, t],
   );
 
   useEffect(() => {
@@ -1525,18 +1669,17 @@ export default function MvProjectsDashboard() {
         curr && payload.projectId === curr.projectId ? null : curr,
       );
       if (payload.ok === true) {
-        toast({ description: "تم تنزيل التقرير النهائي." });
+        toast({ description: t("report.export.downloadedPdf") });
       } else {
         toast({
           variant: "destructive",
-          description:
-            "لم يكتمل التنزيل من صفحة المشاريع. افتح صفحة «إعداد التقرير» لمشروعك وحاول التنزيل من هناك.",
+          description: t("errors.projects.pdfDownloadFailed"),
         });
       }
     }
     window.addEventListener("message", onReportPdfExportMessage);
     return () => window.removeEventListener("message", onReportPdfExportMessage);
-  }, [toast]);
+  }, [toast, t]);
 
   useEffect(() => {
     if (!backgroundPdfExport) return;
@@ -1573,31 +1716,36 @@ export default function MvProjectsDashboard() {
               : project,
           ),
         );
-        toast({ description: "تم تحديث حالة المشروع." });
+        toast({ description: t("status.workflow.updated") });
         return true;
       } catch {
-        toast({ variant: "destructive", description: "تعذّر تحديث حالة المشروع." });
+        toast({ variant: "destructive", description: t("status.workflow.updateFailed") });
         return false;
       } finally {
         setWorkflowStatusSavingId(null);
       }
     },
-    [toast, workflowStatusSavingId],
+    [toast, workflowStatusSavingId, t],
   );
 
   const handleDeleteProject = async (projectId: string) => {
     const target = visibleProjects.find((p) => p._id === projectId);
-    if (!window.confirm(`حذف المشروع «${target?.name || projectId}»؟ سيتم حذف جميع البيانات المرتبطة به ولا يمكن التراجع.`)) return;
+    if (!window.confirm(t("projects.deleteConfirm", { name: target?.name || projectId }))) return;
     try {
       const response = await fetch(`/api/mv/projects/${projectId}`, {
         method: "DELETE",
         credentials: "include",
       });
       if (!response.ok) throw new Error();
-      setProjects((prev) => prev.filter((p) => p._id !== projectId));
-      toast({ description: "تم حذف المشروع." });
+      invalidateMvApiCache("projects:");
+      setProjects((prev) => {
+        const next = prev.filter((p) => p._id !== projectId);
+        writeMvProjectsSessionCache(next);
+        return next;
+      });
+      toast({ description: t("projects.toast.deleted") });
     } catch {
-      toast({ variant: "destructive", description: "تعذّر حذف المشروع." });
+      toast({ variant: "destructive", description: t("errors.projects.deleteFailed") });
     }
   };
 
@@ -1611,9 +1759,9 @@ export default function MvProjectsDashboard() {
     projectQuery.trim().length > 0 || statusFilter !== "all" || !sortRecentlyWorked;
 
   return (
-    <div className={cn(tajawal.className, "min-h-full text-slate-950")} dir="rtl">
+    <div className={cn(tajawal.className, "min-h-full text-slate-950")} dir={dir}>
       <MvTopBar
-        breadcrumbs={[{ label: "المشاريع" }]}
+        breadcrumbs={[{ label: t("navigation.projects") }]}
         sticky
         className="top-0 z-30 border-slate-200/70 bg-white/80 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/70"
       />
@@ -1632,14 +1780,14 @@ export default function MvProjectsDashboard() {
               disabled={!canCreateMvProject}
               title={
                 needsCompanyMembership
-                  ? "يجب أن يكون حسابك مرتبطاً بشركة لإنشاء مشروع"
-                  : "إنشاء مشروع جديد"
+                  ? t("projects.createBlockedTitle")
+                  : t("projects.createNew")
               }
-              aria-label="إنشاء مشروع جديد"
+              aria-label={t("projects.createNew")}
               className="h-11 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-[13px] font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-cyan-50 disabled:opacity-45 sm:self-center"
             >
               <Plus className="h-4 w-4" aria-hidden />
-              <span>إنشاء مشروع جديد</span>
+              <span>{t("projects.createNew")}</span>
             </Button>
           </div>
         </section>
@@ -1652,7 +1800,7 @@ export default function MvProjectsDashboard() {
                 <Input
                   value={projectQuery}
                   onChange={(event) => setProjectQuery(event.target.value)}
-                  placeholder="بحث في المشاريع"
+                  placeholder={t("projects.searchPlaceholder")}
                   className="h-11 rounded-lg border-slate-200 bg-white pr-9 text-[13px] font-semibold shadow-none focus-visible:border-cyan-300 focus-visible:ring-cyan-200"
                 />
               </div>
@@ -1662,17 +1810,17 @@ export default function MvProjectsDashboard() {
                 onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}
               >
                 <SelectTrigger
-                  aria-label="بحث متقدم حسب الحالة"
+                  aria-label={t("projects.status.filterAria")}
                   className="h-11 justify-start gap-2 rounded-lg border-slate-200 bg-white text-[12px] font-bold text-slate-700 shadow-none focus:ring-cyan-200 [&>svg:last-child]:mr-auto"
                 >
-                  <span className="shrink-0 text-[11px] font-black text-slate-400">الحالة</span>
-                  <SelectValue placeholder="كل الحالات" />
+                  <span className="shrink-0 text-[11px] font-black text-slate-400">{t("projects.status.label")}</span>
+                  <SelectValue placeholder={t("projects.status.all")} />
                 </SelectTrigger>
                 <SelectContent align="end">
-                  <SelectItem value="all">كل الحالات</SelectItem>
+                  <SelectItem value="all">{t("projects.status.all")}</SelectItem>
                   {workflowStatusOptions.map((status) => (
                     <SelectItem key={status.value} value={status.value}>
-                      {status.labelAr}
+                      {workflowStatusLabel(status, isArabic)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1691,15 +1839,21 @@ export default function MvProjectsDashboard() {
                     ? "border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 hover:text-cyan-900"
                     : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
                 )}
-                title="ترتيب حسب آخر مشروع تم العمل عليه"
+                title={t("projects.sort.recentlyWorkedTitle")}
                 aria-pressed={sortRecentlyWorked}
               >
                 <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
-                <span>الأحدث عملاً</span>
+                <span>{t("projects.sort.recentlyWorked")}</span>
               </Button>
               <span className="whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] font-bold tabular-nums text-slate-600">
                 {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
               </span>
+              {refreshingList ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  {t("projects.refreshingList")}
+                </span>
+              ) : null}
               {hasActiveFilters ? (
                 <Button
                   type="button"
@@ -1707,8 +1861,8 @@ export default function MvProjectsDashboard() {
                   size="icon"
                   className="h-10 w-10 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                   onClick={resetFilters}
-                  title="مسح التصفية"
-                  aria-label="مسح التصفية"
+                  title={t("projects.filters.clear")}
+                  aria-label={t("projects.filters.clear")}
                 >
                   <FilterX className="h-4 w-4" />
                 </Button>
@@ -1716,7 +1870,7 @@ export default function MvProjectsDashboard() {
             </div>
           </div>
 
-          {loading || authLoading ? (
+          {loading || (authLoading && projects.length === 0) ? (
             <div className="divide-y divide-slate-100 bg-white">
               {Array.from({ length: 7 }).map((_, index) => (
                 <div key={index} className="flex animate-pulse items-center gap-3 px-4 py-4">
@@ -1731,18 +1885,18 @@ export default function MvProjectsDashboard() {
           ) : loadError ? (
             <MvErrorState
               compact
-              title="تعذر تحميل المشاريع"
+              title={t("errors.projects.loadTitle")}
               description={loadError}
-              onRetry={() => void fetchProjects()}
+              onRetry={() => void fetchProjects({ forceRefresh: true })}
             />
           ) : needsCompanyMembership ? (
             <div className="py-6">
-              <MvEmptyState title="الحساب غير مرتبط بشركة." />
+              <MvEmptyState title={t("projects.empty.noCompany")} />
             </div>
           ) : visibleProjects.length === 0 ? (
             <div className="py-6">
               <MvEmptyState
-                title="لا توجد مشاريع"
+                title={t("projects.empty.noProjects")}
                 action={
                   <Button
                     type="button"
@@ -1752,7 +1906,7 @@ export default function MvProjectsDashboard() {
                     disabled={!canCreateMvProject}
                     className="rounded-lg border-slate-300 text-[12px]"
                   >
-                    إنشاء
+                    {t("projects.empty.create")}
                   </Button>
                 }
               />
@@ -1760,7 +1914,7 @@ export default function MvProjectsDashboard() {
           ) : filteredProjects.length === 0 ? (
             <div className="py-6">
               <MvEmptyState
-                title="لا نتائج"
+                title={t("projects.empty.noResults")}
                 action={
                   <Button
                     type="button"
@@ -1769,7 +1923,7 @@ export default function MvProjectsDashboard() {
                     onClick={resetFilters}
                     className="rounded-lg text-[12px]"
                   >
-                    مسح التصفية
+                    {t("projects.filters.clear")}
                   </Button>
                 }
               />
@@ -1780,14 +1934,14 @@ export default function MvProjectsDashboard() {
                 <table className="w-full min-w-[960px] table-fixed border-collapse text-right">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-black text-slate-500">
-                      <th className="w-[56px] px-2 py-3 text-center" title="الرقم التسلسلي للتقرير داخل الشركة">#</th>
-                      <th className="w-[28%] px-3 py-3">المشروع</th>
-                      <th className="w-[100px] px-2 py-3">الحالة</th>
-                      <th className="w-[120px] px-2 py-3">النوع</th>
-                      <th className="w-[76px] px-2 py-3 text-center">أصول</th>
-                      <th className="w-[76px] px-2 py-3 text-center">فرعية</th>
-                      <th className="w-[140px] px-2 py-3">التقدم</th>
-                      <th className="w-[116px] px-2 py-3">آخر تحديث</th>
+                      <th className="w-[56px] px-2 py-3 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
+                      <th className="w-[28%] px-3 py-3">{t("projects.table.project")}</th>
+                      <th className="w-[100px] px-2 py-3">{t("projects.table.status")}</th>
+                      <th className="w-[120px] px-2 py-3">{t("projects.table.type")}</th>
+                      <th className="w-[76px] px-2 py-3 text-center">{t("projects.table.assets")}</th>
+                      <th className="w-[76px] px-2 py-3 text-center">{t("projects.table.subs")}</th>
+                      <th className="w-[140px] px-2 py-3">{t("projects.table.progress")}</th>
+                      <th className="w-[116px] px-2 py-3">{t("projects.table.lastUpdated")}</th>
                       <th className="w-[116px] px-2 py-3 text-center" />
                     </tr>
                   </thead>
@@ -1796,10 +1950,7 @@ export default function MvProjectsDashboard() {
                       const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
                       const progress = projectProgressPctFromProject(project);
                       const reportType = project.reportType;
-                      const reportLabel =
-                        reportType === "simple" || reportType === "advanced"
-                          ? MV_REPORT_TYPE_LABEL_AR[reportType]
-                          : "—";
+                      const reportLabel = reportTypeLabel(reportType, t, notAvailable);
                       const assetFolders = projectAssetFolderCount(project);
                       const subs = project.subProjectCount ?? 0;
 
@@ -1812,13 +1963,13 @@ export default function MvProjectsDashboard() {
                         <tr key={project._id} className="bg-white text-right transition-colors hover:bg-cyan-50/40">
                           <td className="px-2 py-4 text-center align-middle">
                             <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[12px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
-                              {displayNumber == null ? "—" : numberFormatter.format(displayNumber)}
+                              {displayNumber == null ? notAvailable : numberFormatter.format(displayNumber)}
                             </span>
                           </td>
                           <td className="px-3 py-4 align-middle">
                             <ProjectWorkspaceLink
                               projectId={project._id}
-                              title={project.name || "—"}
+                              title={project.name || notAvailable}
                               compact
                               nameClassName="text-[13px] font-black"
                             />
@@ -1829,6 +1980,7 @@ export default function MvProjectsDashboard() {
                               projectId={project._id}
                               value={workflowStatus}
                               options={workflowStatusOptions}
+                              isArabic={isArabic}
                               disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
                               onChange={handleWorkflowStatusChange}
                             />
@@ -1859,13 +2011,13 @@ export default function MvProjectsDashboard() {
                                 />
                               </div>
                               <span className="w-9 shrink-0 text-[10px] font-bold tabular-nums text-slate-500">
-                                {numberFormatter.format(progress)}٪
+                                {numberFormatter.format(progress)}{percentSuffix}
                               </span>
                             </div>
                           </td>
 
                           <td className="px-2 py-4 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
-                            <span className="block truncate">{formatDateLabel(project.updatedAt)}</span>
+                            <span className="block truncate">{formatDateLabel(project.updatedAt, isArabic, notAvailable)}</span>
                           </td>
 
                           <td className="px-2 py-4 align-middle">
@@ -1877,7 +2029,7 @@ export default function MvProjectsDashboard() {
                                 className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
                               >
                                 <Link href={projectWorkspaceHref(project._id)}>
-                                  فتح
+                                  {t("projects.table.open")}
                                   <ChevronLeft className="h-3.5 w-3.5" />
                                 </Link>
                               </Button>
@@ -1904,7 +2056,7 @@ export default function MvProjectsDashboard() {
                   const reportType = project.reportType;
                   const reportLabel =
                     reportType === "simple" || reportType === "advanced"
-                      ? MV_REPORT_TYPE_LABEL_AR[reportType]
+                      ? reportTypeLabel(reportType, t, notAvailable)
                       : null;
                   const mobileDisplayNumber =
                     typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
@@ -1917,12 +2069,12 @@ export default function MvProjectsDashboard() {
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex items-center gap-1.5">
                             <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center rounded-lg bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
-                              #{mobileDisplayNumber == null ? "—" : numberFormatter.format(mobileDisplayNumber)}
+                              #{mobileDisplayNumber == null ? notAvailable : numberFormatter.format(mobileDisplayNumber)}
                             </span>
                           </div>
                           <ProjectWorkspaceLink
                             projectId={project._id}
-                            title={project.name || "—"}
+                            title={project.name || notAvailable}
                             compact
                             nameClassName="text-[13px] font-black"
                           />
@@ -1931,6 +2083,7 @@ export default function MvProjectsDashboard() {
                               projectId={project._id}
                               value={workflowStatus}
                               options={workflowStatusOptions}
+                              isArabic={isArabic}
                               disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
                               onChange={handleWorkflowStatusChange}
                             />
@@ -1950,19 +2103,19 @@ export default function MvProjectsDashboard() {
 
                       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-bold tabular-nums text-slate-600">
                         <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
-                          {numberFormatter.format(projectAssetFolderCount(project))} أصول
+                          {numberFormatter.format(projectAssetFolderCount(project))} {t("projects.table.assets")}
                         </span>
                         <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
-                          {numberFormatter.format(project.subProjectCount ?? 0)} فرعية
+                          {numberFormatter.format(project.subProjectCount ?? 0)} {t("projects.table.subs")}
                         </span>
                         <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
-                          {numberFormatter.format(progress)}٪
+                          {numberFormatter.format(progress)}{percentSuffix}
                         </span>
                       </div>
 
                       <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
                         <span className="text-[10px] font-bold tabular-nums text-slate-400">
-                          {formatDateLabel(project.updatedAt)}
+                          {formatDateLabel(project.updatedAt, isArabic, notAvailable)}
                         </span>
                         <Button
                           asChild
@@ -1971,7 +2124,7 @@ export default function MvProjectsDashboard() {
                           className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
                         >
                           <Link href={projectWorkspaceHref(project._id)}>
-                            فتح
+                            {t("projects.table.open")}
                             <ChevronLeft className="h-3.5 w-3.5" />
                           </Link>
                         </Button>
@@ -2006,17 +2159,17 @@ export default function MvProjectsDashboard() {
           setContactDialogTab("locations");
         }}
       >
-        <DialogContent
+        <MvDialogContent
           className="flex max-h-[90vh] flex-col overflow-visible border-slate-200 p-0 shadow-2xl sm:max-w-4xl"
-          dir="rtl"
+          dir={dir}
         >
-          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
+          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
                 <MapPinned className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">تحديد المواقع والمعاينين</DialogTitle>
+                <DialogTitle className="truncate text-[15px] font-bold text-slate-900">{t("projects.dialog.locationsInspectors.title")}</DialogTitle>
               </div>
             </div>
           </DialogHeader>
@@ -2034,22 +2187,22 @@ export default function MvProjectsDashboard() {
             >
             <div className="border-b border-slate-200 bg-white px-4">
               <TabsList
-                dir="rtl"
+                dir={dir}
                 className="grid h-12 w-full grid-cols-2 items-end rounded-none bg-transparent p-0 text-slate-500"
               >
                 <TabsTrigger
                   value="locations"
-                  dir="rtl"
+                  dir={dir}
                   className="relative h-12 w-full rounded-none border-b-2 border-transparent bg-transparent px-2 pb-3 pt-2 text-center text-[12px] font-black text-slate-500 shadow-none transition hover:text-slate-800 data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
                 >
-                  تحديد المواقع
+                  {t("projects.dialog.locationsTab")}
                 </TabsTrigger>
                 <TabsTrigger
                   value="inspectors"
-                  dir="rtl"
+                  dir={dir}
                   className="relative h-12 w-full rounded-none border-b-2 border-transparent bg-transparent px-2 pb-3 pt-2 text-center text-[12px] font-black text-slate-500 shadow-none transition hover:text-slate-800 data-[state=active]:border-slate-950 data-[state=active]:bg-transparent data-[state=active]:text-slate-950 data-[state=active]:shadow-none"
                 >
-                  اختيار المعاينين
+                  {t("projects.dialog.inspectorsTab")}
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -2072,7 +2225,7 @@ export default function MvProjectsDashboard() {
                 />
               ) : (
                 <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
-                  اختر مشروعاً أولاً.
+                  {t("projects.dialog.selectProjectFirst")}
                 </div>
               )}
             </TabsContent>
@@ -2087,7 +2240,7 @@ export default function MvProjectsDashboard() {
                 onClick={handleContactBackToCreate}
                 disabled={savingContactData}
               >
-                رجوع
+                {t("projects.dialog.back")}
               </Button>
             ) : null}
             <div className="flex flex-1 flex-wrap justify-end gap-2">
@@ -2098,7 +2251,7 @@ export default function MvProjectsDashboard() {
                 onClick={() => void handleSaveContactAndClose()}
                 disabled={savingContactData}
               >
-                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ وإغلاق"}
+                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : t("projects.dialog.saveClose")}
               </Button>
               <Button
                 type="button"
@@ -2109,14 +2262,14 @@ export default function MvProjectsDashboard() {
                 {savingContactData ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : createdFlowProject ? (
-                  "حفظ والانتقال لمجلدات الأصول"
+                  t("projects.dialog.saveContinueAssetFolders")
                 ) : (
-                  "حفظ وفتح بيانات التقرير"
+                  t("projects.dialog.saveOpenReportData")
                 )}
               </Button>
             </div>
           </DialogFooter>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog
@@ -2129,12 +2282,12 @@ export default function MvProjectsDashboard() {
           }
         }}
       >
-        <DialogContent
+        <MvDialogContent
           className="flex max-h-[90vh] flex-col overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-5xl"
-          dir="rtl"
+          dir={dir}
         >
-          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 text-right">
-            <DialogTitle className="text-[15px] font-black text-slate-950">إرفاق ملفات</DialogTitle>
+          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
+            <DialogTitle className="text-[15px] font-black text-slate-950">{t("projects.dialog.attachFiles")}</DialogTitle>
           </DialogHeader>
           {inspectorFilesProject?._id ? (
             <MvInspectorFilesPanel
@@ -2154,10 +2307,10 @@ export default function MvProjectsDashboard() {
             />
           ) : (
             <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
-              اختر مشروعاً أولاً.
+              {t("projects.dialog.selectProjectFirst")}
             </div>
           )}
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <CreateDialog
@@ -2173,7 +2326,7 @@ export default function MvProjectsDashboard() {
         extra={
           user?.role === "super_admin" ? (
             <div className="space-y-2 text-right">
-              <p className="text-sm font-medium text-slate-800">الشركة</p>
+              <p className="text-sm font-medium text-slate-800">{t("projects.company.label")}</p>
               <Select
                 value={selectedCompanyId || undefined}
                 onValueChange={setSelectedCompanyId}
@@ -2182,7 +2335,7 @@ export default function MvProjectsDashboard() {
                 <SelectTrigger className="h-11 rounded-xl">
                   <SelectValue
                     placeholder={
-                      companyOptions.length === 0 ? "لا توجد شركات أو جاري التحميل…" : "اختر الشركة"
+                      companyOptions.length === 0 ? t("projects.company.loading") : t("projects.company.select")
                     }
                   />
                 </SelectTrigger>
@@ -2235,7 +2388,7 @@ export default function MvProjectsDashboard() {
       {backgroundPdfExport ? (
         <iframe
           key={backgroundPdfExport.nonce}
-          title="تصدير التقرير"
+          title={t("projects.pdfExport.iframeTitle")}
           src={`/machine-valuation/${encodeURIComponent(backgroundPdfExport.projectId)}/workflow/report`}
           className="pointer-events-none fixed left-0 top-0 z-[-5] h-[1600px] w-[2400px] -translate-x-[3000px] border-0 opacity-0"
           aria-hidden

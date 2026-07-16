@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { MvProjectLocation } from "./types";
+import { getMvT, readMvLanguage, useMvI18n, type MvT } from "./mv-i18n";
 
 export const MV_ALL_LOCATIONS_VALUE = "__all__";
 
@@ -19,11 +20,12 @@ export function mvLocationId(location: MvProjectLocation, index: number): string
   return (location.id || `site-${index + 1}`).trim();
 }
 
-export function mvLocationLabel(location: MvProjectLocation, index: number): string {
+export function mvLocationLabel(location: MvProjectLocation, index: number, t?: MvT): string {
+  const tr = t ?? getMvT(readMvLanguage());
   const name = location.name?.trim();
   if (name) return name;
   const bits = [location.region, location.city].map((v) => v?.trim()).filter(Boolean);
-  return bits.join(" - ") || `موقع المعاينة ${index + 1}`;
+  return bits.join(" - ") || tr("projects.location.defaultName", { n: index + 1 });
 }
 
 export function normalizeMvLocationSelection(
@@ -36,18 +38,23 @@ export function normalizeMvLocationSelection(
   return next.length > 0 ? next : [MV_ALL_LOCATIONS_VALUE];
 }
 
-export function mvLocationSelectionSummary(value: readonly string[], locations: readonly MvProjectLocation[]): string {
+export function mvLocationSelectionSummary(
+  value: readonly string[],
+  locations: readonly MvProjectLocation[],
+  t?: MvT,
+): string {
+  const tr = t ?? getMvT(readMvLanguage());
   const normalized = normalizeMvLocationSelection(value, locations);
-  if (normalized.includes(MV_ALL_LOCATIONS_VALUE)) return "كل مواقع المعاينة";
+  if (normalized.includes(MV_ALL_LOCATIONS_VALUE)) return tr("projects.location.allSites");
   const labels = normalized
     .map((id) => {
       const index = locations.findIndex((location, locationIndex) => mvLocationId(location, locationIndex) === id);
-      return index >= 0 ? mvLocationLabel(locations[index]!, index) : "";
+      return index >= 0 ? mvLocationLabel(locations[index]!, index, tr) : "";
     })
     .filter(Boolean);
-  if (labels.length === 0) return "كل مواقع المعاينة";
+  if (labels.length === 0) return tr("projects.location.allSites");
   if (labels.length === 1) return labels[0]!;
-  return `${labels.length} مواقع محددة`;
+  return tr("projects.location.countSites", { count: labels.length });
 }
 
 function LocationOptionCheck({ checked }: { checked: boolean }) {
@@ -70,7 +77,7 @@ export function MvLocationMultiSelect({
   onChange,
   disabled,
   className,
-  label = "مواقع المعاينة",
+  label,
 }: {
   locations: MvProjectLocation[];
   value: string[];
@@ -79,6 +86,8 @@ export function MvLocationMultiSelect({
   className?: string;
   label?: string;
 }) {
+  const { t } = useMvI18n();
+  const resolvedLabel = label ?? t("projects.location.label");
   const normalized = normalizeMvLocationSelection(value, locations);
   const allSelected = normalized.includes(MV_ALL_LOCATIONS_VALUE);
 
@@ -106,13 +115,13 @@ export function MvLocationMultiSelect({
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <MapPinned className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-            <span className="truncate">{mvLocationSelectionSummary(normalized, locations)}</span>
+            <span className="truncate">{mvLocationSelectionSummary(normalized, locations, t)}</span>
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="z-[980] w-72 text-right">
-        <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">{label}</DropdownMenuLabel>
+        <DropdownMenuLabel className="px-2 py-1.5 text-[12px] text-slate-500">{resolvedLabel}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={(event) => {
@@ -122,7 +131,7 @@ export function MvLocationMultiSelect({
           className="cursor-pointer gap-2 text-[12px] font-bold"
         >
           <LocationOptionCheck checked={allSelected} />
-          <span className="truncate">كل مواقع المعاينة</span>
+          <span className="truncate">{t("projects.location.allSites")}</span>
         </DropdownMenuItem>
         {locations.length > 0 ? <DropdownMenuSeparator /> : null}
         {locations.map((location, index) => {
@@ -138,7 +147,7 @@ export function MvLocationMultiSelect({
               className="cursor-pointer gap-2 text-[12px]"
             >
               <LocationOptionCheck checked={checked} />
-              <span className="truncate">{mvLocationLabel(location, index)}</span>
+              <span className="truncate">{mvLocationLabel(location, index, t)}</span>
             </DropdownMenuItem>
           );
         })}

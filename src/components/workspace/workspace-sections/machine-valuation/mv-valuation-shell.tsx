@@ -1,11 +1,21 @@
 "use client";
 
-import MvValuationAccountingWorkspace from "./mv-valuation-accounting-workspace";
-import type { MvValuationPhaseSlug } from "./mv-valuation-workflow-model";
+import dynamic from "next/dynamic";
+import { MvPageLoading } from "./mv-ui";
+import { useMvI18n } from "./mv-i18n";
+
+function MvValuationLoading() {
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("valuation.breadcrumb")} />;
+}
+
+const MvValuationAccountingWorkspace = dynamic(
+  () => import("./mv-valuation-accounting-workspace"),
+  { loading: () => <MvValuationLoading /> },
+);
 
 interface MvValuationShellProps {
   projectId: string;
-  phaseSlug: MvValuationPhaseSlug;
 }
 
 export default function MvValuationShell({ projectId }: MvValuationShellProps) {

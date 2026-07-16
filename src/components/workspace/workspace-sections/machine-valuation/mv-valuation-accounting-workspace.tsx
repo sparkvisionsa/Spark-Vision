@@ -40,11 +40,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
-  DialogContent,
+  
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dialog"
+import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -88,8 +89,9 @@ import {
 } from "./mv-valuation-accounting-store";
 import { uploadProjectFileAndReturnId } from "./mv-project-gridfs-upload";
 import { writeReportSlice, type MvValuationReportSlice } from "./mv-valuation-report-slice";
-import type { MvProject, MvProjectReportData } from "./types";
+import type { MvProject, MvProjectReportData } from "./types"
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n } from "./mv-i18n";
 
 const EXCEL_ACCEPT =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv";
@@ -2145,6 +2147,7 @@ function ValuationExcelCropGrid({
   onColumnSizeChange: (column: string, size: { widthPx?: number; minHeightPx?: number }) => void;
   onSheetSynced: () => void | Promise<void>;
 }) {
+  const { t, dir } = useMvI18n();
   const { toast } = useToast();
   const [columnFilters, setColumnFilters] = useState<Record<number, MvCropColumnFilter>>({});
   const [mutationBusy, setMutationBusy] = useState(false);
@@ -2211,7 +2214,7 @@ function ValuationExcelCropGrid({
       } catch (error) {
         toast({
           variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر تنفيذ العملية.",
+          description: error instanceof Error ? error.message : t("valuation.mutation.operationFailed"),
         });
       } finally {
         setMutationBusy(false);
@@ -2266,7 +2269,7 @@ function ValuationExcelCropGrid({
       return;
     }
     if (sheet.headers.some((h, i) => i !== colIdx && h === newKey)) {
-      toast({ variant: "destructive", description: "يوجد عمود بنفس الاسم بالفعل." });
+      toast({ variant: "destructive", description: t("valuation.column.duplicate") });
       return;
     }
     const nextHeaders = [...sheet.headers];
@@ -2275,7 +2278,7 @@ function ValuationExcelCropGrid({
       const { [oldKey]: val, ...rest } = r;
       return { ...rest, [newKey]: val } as Record<string, ValuationExcelCellValue>;
     });
-    void runMutation("تم تعديل اسم العمود.", () =>
+    void runMutation(t("valuation.column.renamed"), () =>
       updateValuationExcelSheet(sheetId, { headers: nextHeaders, rows: nextRows }),
     );
     setRenameOpen(false);
@@ -2285,7 +2288,7 @@ function ValuationExcelCropGrid({
   const deleteColumn = useCallback(
     (columnNumber: number) => {
       if (sheet.headers.length <= 1) {
-        toast({ variant: "destructive", description: "لا يمكن حذف آخر عمود في الشيت." });
+        toast({ variant: "destructive", description: t("valuation.column.cannotDeleteLast") });
         return;
       }
       const colIdx = columnNumber - 1;
@@ -2297,7 +2300,7 @@ function ValuationExcelCropGrid({
         delete copy[key];
         return copy;
       });
-      void runMutation("تم حذف العمود.", () =>
+      void runMutation(t("valuation.column.deleted"), () =>
         updateValuationExcelSheet(sheetId, { headers: nextHeaders, rows: nextRows }),
       );
     },
@@ -2308,7 +2311,7 @@ function ValuationExcelCropGrid({
     const label = uniqueMvHeaderLabel(`عمود ${sheet.headers.length + 1}`, sheet.headers);
     const nextHeaders = [...sheet.headers, label];
     const nextRows = sheet.rows.map((r) => ({ ...r, [label]: null }));
-    void runMutation("تمت إضافة عمود.", () =>
+    void runMutation(t("valuation.column.added"), () =>
       updateValuationExcelSheet(sheetId, { headers: nextHeaders, rows: nextRows }),
     );
   }, [runMutation, sheet.headers, sheet.rows, sheetId]);
@@ -2319,7 +2322,7 @@ function ValuationExcelCropGrid({
       empty[h] = null;
     });
     const nextRows = [...sheet.rows, empty];
-    void runMutation("تمت إضافة صف.", () =>
+    void runMutation(t("valuation.column.addedRow"), () =>
       updateValuationExcelSheet(sheetId, { headers: sheet.headers, rows: nextRows }),
     );
   }, [runMutation, sheet.headers, sheet.rows, sheetId]);
@@ -2378,7 +2381,7 @@ function ValuationExcelCropGrid({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-2 py-2">
-        <span className="text-[10px] font-black text-slate-700">الأعمدة الظاهرة في الصورة</span>
+        <span className="text-[10px] font-black text-slate-700">{t("valuation.grid.visibleColumns")}</span>
         {columns.map((header) => (
           <label
             key={`visible-${header}`}
@@ -2406,7 +2409,7 @@ function ValuationExcelCropGrid({
         >
           <table
             data-account-crop-table="1"
-            dir="rtl"
+            dir={dir}
             className="border-separate border-spacing-0 text-right antialiased"
             style={{
               minWidth: Math.max(
@@ -2456,7 +2459,7 @@ function ValuationExcelCropGrid({
                           className="flex shrink-0 flex-col gap-0.5 border-r border-white/25 pe-1.5"
                         >
                           <label
-                            title="إظهار في الصورة"
+                            title={t("valuation.grid.showInImage")}
                             className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-white/35 bg-white/10 text-amber-100 hover:bg-white/20"
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -2472,7 +2475,7 @@ function ValuationExcelCropGrid({
                             <PopoverTrigger asChild>
                               <button
                                 type="button"
-                                title="فلترة"
+                                title={t("valuation.grid.filter")}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => e.stopPropagation()}
@@ -2492,7 +2495,7 @@ function ValuationExcelCropGrid({
                             >
                               <div className="space-y-1">
                                 <p className="text-sm font-semibold text-slate-800">{cleanAccountingText(header)}</p>
-                                <p className="text-xs text-slate-500">فلترة مؤقتة على المعاينة — أرقام الصفوف ثابتة.</p>
+                                <p className="text-xs text-slate-500">{t("valuation.grid.filterHint")}</p>
                               </div>
                               <div className="space-y-2">
                                 <Select
@@ -2545,7 +2548,7 @@ function ValuationExcelCropGrid({
                                   مسح الفلتر
                                 </Button>
                                 <span className="text-xs text-slate-400">
-                                  {filtered ? "الفلتر مفعّل" : "بدون فلتر"}
+                                  {filtered ? t("valuation.grid.filterActive") : t("valuation.grid.noFilter")}
                                 </span>
                               </div>
                             </PopoverContent>
@@ -2555,7 +2558,7 @@ function ValuationExcelCropGrid({
                             <DropdownMenuTrigger asChild>
                               <button
                                 type="button"
-                                title="المزيد"
+                                title={t("valuation.grid.more")}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => e.stopPropagation()}
@@ -2667,13 +2670,13 @@ function ValuationExcelCropGrid({
       </div>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="z-[940] sm:max-w-md" dir="rtl">
+        <MvDialogContent className="z-[940] sm:max-w-md" dir={dir}>
           <DialogHeader>
-            <DialogTitle>تعديل اسم عمود</DialogTitle>
-            <DialogDescription>سيتم تحديث الشيت على الخادم فور التأكيد.</DialogDescription>
+            <DialogTitle>{t("valuation.grid.renameTitle")}</DialogTitle>
+            <DialogDescription>{t("valuation.grid.renameDesc")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-2 py-2">
-            <Label className="text-xs font-bold text-slate-600">اسم الرأس الجديد</Label>
+            <Label className="text-xs font-bold text-slate-600">{t("valuation.grid.newHeaderName")}</Label>
             <Input value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} dir="auto" />
           </div>
           <div className="flex justify-end gap-2">
@@ -2685,14 +2688,14 @@ function ValuationExcelCropGrid({
               حفظ
             </Button>
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog open={sizeOpen} onOpenChange={setSizeOpen}>
-        <DialogContent className="z-[940] sm:max-w-md" dir="rtl">
+        <MvDialogContent className="z-[940] sm:max-w-md" dir={dir}>
           <DialogHeader>
-            <DialogTitle>مقاس العمود</DialogTitle>
-            <DialogDescription>يتأثر العرض في المعاينة والصور التي يتم توليدها من Excel.</DialogDescription>
+            <DialogTitle>{t("valuation.grid.sizeTitle")}</DialogTitle>
+            <DialogDescription>{t("valuation.grid.sizeDesc")}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2 sm:grid-cols-2">
             <Label className="grid gap-1 text-xs font-bold text-slate-600">
@@ -2722,7 +2725,7 @@ function ValuationExcelCropGrid({
               حفظ
             </Button>
           </div>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
     </div>
   );
@@ -2731,6 +2734,7 @@ function ValuationExcelCropGrid({
 export default function MvValuationAccountingWorkspace({
   projectId,
 }: MvValuationAccountingWorkspaceProps) {
+  const { t, dir } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const [project, setProject] = useState<MvProject | null>(null);
@@ -2898,7 +2902,7 @@ export default function MvValuationAccountingWorkspace({
       } else {
         toast({
           variant: "destructive",
-          description: "تعذر مزامنة إجراءات التقييم مع الخادم. سيتم الإبقاء على النسخة المحلية.",
+          description: t("valuation.sync.failed"),
         });
       }
     } catch {
@@ -2918,7 +2922,7 @@ export default function MvValuationAccountingWorkspace({
           toast({
             variant: "destructive",
             description:
-              "تعذر حفظ كل بيانات الصور محلياً. قلل حجم الملف أو احذف بعض الصور الكبيرة.",
+              t("valuation.sync.localStorageFailed"),
           });
         }
         pendingAccountingSaveRef.current = next;
@@ -2943,12 +2947,12 @@ export default function MvValuationAccountingWorkspace({
     setEditorSaving(true);
     try {
       await flushAccountingWorkspaceToServer();
-      toast({ description: "تم حفظ التغييرات في قاعدة البيانات." });
+      toast({ description: t("valuation.save.success") });
       setEditorSourceId(null);
     } catch {
       toast({
         variant: "destructive",
-        description: "تعذر حفظ التغييرات. حاول مرة أخرى.",
+        description: t("valuation.save.failed"),
       });
     } finally {
       setEditorSaving(false);
@@ -2965,12 +2969,12 @@ export default function MvValuationAccountingWorkspace({
     setPreviewSaving(true);
     try {
       await flushAccountingWorkspaceToServer();
-      toast({ description: "تم حفظ الصور في قاعدة البيانات وستظهر في إعداد التقرير." });
+      toast({ description: t("valuation.images.saved") });
       setPreviewImage(null);
     } catch {
       toast({
         variant: "destructive",
-        description: "تعذر حفظ الصور. حاول مرة أخرى.",
+        description: t("valuation.images.saveFailed"),
       });
     } finally {
       setPreviewSaving(false);
@@ -2986,13 +2990,13 @@ export default function MvValuationAccountingWorkspace({
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز مساحة التقييم…",
+          loadingLabel: t("valuation.loading"),
         },
       );
       setProject(data.project ?? null);
     } catch (error) {
       setProject(null);
-      setProjectLoadError(mvErrorMessage(error, "تعذر مزامنة بيانات المشروع."));
+      setProjectLoadError(mvErrorMessage(error, t("valuation.syncProjectFailed")));
     }
   }, [projectId]);
 
@@ -4445,7 +4449,7 @@ export default function MvValuationAccountingWorkspace({
   }, [mediaIntrinsicSize.w, mediaIntrinsicSize.h, mediaLayoutFit, mediaPreviewZoom]);
 
   return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
+    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
       <MvProjectReportHeader
         compact
         projectId={projectId}
@@ -4453,20 +4457,20 @@ export default function MvValuationAccountingWorkspace({
         activeStep="valuation-actions"
         breadcrumbs={[
           { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "إجراءات التقييم" },
+          { label: t("valuation.breadcrumb") },
         ]}
       />
 
       {projectLoadError ? (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[11px] font-bold text-amber-900">
-          <span>تعذر الاتصال بالمشروع؛ يمكنك متابعة العمل محليًا. {projectLoadError}</span>
+          <span>{t("valuation.offlineBanner")} {projectLoadError}</span>
           <button
             type="button"
             onClick={() => void loadProject()}
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-2.5 text-amber-900 hover:bg-amber-100"
           >
             <RefreshCw className="h-3 w-3" />
-            إعادة الاتصال
+            {t("valuation.reconnect")}
           </button>
         </div>
       ) : null}
@@ -4510,9 +4514,9 @@ export default function MvValuationAccountingWorkspace({
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <h1 className="text-[18px] font-black text-slate-950">ملفات حسابات القيمة</h1>
+              <h1 className="text-[18px] font-black text-slate-950">{t("valuation.title")}</h1>
               <p className="mt-1 text-[12px] font-medium text-slate-500">
-                الملفات الجديدة تُربط بالتبويب النشط حالياً: {approachLabel(activeApproach)}.
+                {t("valuation.subtitle", { approach: approachLabel(activeApproach) })}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -4522,7 +4526,7 @@ export default function MvValuationAccountingWorkspace({
                   onCheckedChange={(checked) => void handleIncludeInReport(checked)}
                   dir="ltr"
                 />
-                عرض الصور في التقرير
+                {t("valuation.showImagesInReport")}
               </label>
 
               <Button asChild variant="outline" size="sm" className="gap-1.5">
@@ -4538,7 +4542,7 @@ export default function MvValuationAccountingWorkspace({
                     }}
                   />
                   {uploadingKind === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-                  رفع Excel
+                  {t("valuation.uploadExcel")}
                 </label>
               </Button>
               <Button asChild variant="outline" size="sm" className="gap-1.5">
@@ -4554,7 +4558,7 @@ export default function MvValuationAccountingWorkspace({
                     }}
                   />
                   {uploadingKind === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                  رفع PDF
+                  {t("valuation.uploadPdf")}
                 </label>
               </Button>
               <Button asChild size="sm" className="gap-1.5 bg-[#0C447C] hover:bg-[#0a3a66]">
@@ -4570,7 +4574,7 @@ export default function MvValuationAccountingWorkspace({
                     }}
                   />
                   {uploadingKind === "image" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  رفع صورة
+                  {t("valuation.uploadImage")}
                 </label>
               </Button>
             </div>
@@ -4794,7 +4798,7 @@ export default function MvValuationAccountingWorkspace({
           if (!open) setEditorSourceId(null);
         }}
       >
-        <DialogContent
+        <MvDialogContent
           className={cn(
             // مودال القص: أصغر قليلاً من Fullscreen + Responsive.
             "fixed left-1/2 top-1/2 z-[920] flex h-[96dvh] w-[min(96vw,1680px)] max-w-[99vw] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-0 shadow-2xl",
@@ -4802,7 +4806,7 @@ export default function MvValuationAccountingWorkspace({
             "overscroll-contain [scrollbar-gutter:stable]",
             "[&>button]:hidden",
           )}
-          dir="rtl"
+          dir={dir}
         >
           {editorSource ? (
             <>
@@ -5399,7 +5403,7 @@ export default function MvValuationAccountingWorkspace({
               </footer>
             </>
           ) : null}
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog
@@ -5408,14 +5412,14 @@ export default function MvValuationAccountingWorkspace({
           if (!open) setPreviewImage(null);
         }}
       >
-        <DialogContent
+        <MvDialogContent
           className={cn(
             // معاينة منفصلة: أكبر قليلاً + Scroll داخلي.
             "fixed left-1/2 top-1/2 z-[930] flex h-[86dvh] w-[min(92vw,1400px)] max-w-[96vw] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950 p-0 text-white shadow-2xl",
             "sm:rounded-2xl",
             "[&>button]:hidden",
           )}
-          dir="rtl"
+          dir={dir}
         >
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/95 px-3 py-2.5 sm:px-4">
             <DialogTitle className="flex min-w-0 flex-1 items-center gap-2 text-[14px] font-black sm:text-base">
@@ -5475,7 +5479,7 @@ export default function MvValuationAccountingWorkspace({
               </Button>
             </div>
           </footer>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       <Dialog
@@ -5484,13 +5488,14 @@ export default function MvValuationAccountingWorkspace({
           if (!open) closePendingUploadPreview();
         }}
       >
-        <DialogContent
+        <MvDialogContent
+          closeOnDark
           className={cn(
             "fixed left-1/2 top-1/2 z-[940] flex h-[88dvh] w-[min(94vw,1320px)] max-w-[96vw] -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-slate-800/70 bg-slate-950 p-0 text-white shadow-2xl",
             "sm:rounded-2xl",
             "[&>button]:hidden",
           )}
-          dir="rtl"
+          dir={dir}
         >
           {pendingUploadPreview ? (
             <>
@@ -5765,7 +5770,7 @@ export default function MvValuationAccountingWorkspace({
               </div>
             </>
           ) : null}
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       {fileProcessOverlay && !pendingUploadPreview ? (

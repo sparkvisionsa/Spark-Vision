@@ -33,6 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { MvInspectorFile, MvInspectorLogicalFileType, MvProject } from "./types";
+import { MvDialogContent } from "./mv-dialog";
 import { MvErrorState, MvTopBar } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import {
@@ -43,6 +44,7 @@ import {
   normalizeMvLocationSelection,
 } from "./mv-location-multi-select";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { useMvI18n } from "./mv-i18n";
 
 const font = Tajawal({
   subsets: ["arabic"],
@@ -186,6 +188,7 @@ export function MvInspectorFilesPanel({
   className?: string;
   onProjectLoaded?: (project: MvProject) => void;
 }) {
+  const { t, dir } = useMvI18n();
   const { toast } = useToast();
   const [project, setProject] = useState<MvProject | null>(initialProject);
   const [files, setFiles] = useState<MvInspectorFile[]>(initialProject?.inspectorFiles ?? []);
@@ -244,7 +247,7 @@ export function MvInspectorFilesPanel({
         {
           cacheKey: `project-summary:${projectId}`,
           cacheTtlMs: 12_000,
-          loadingLabel: "جارٍ تجهيز ملفات المعاين…",
+          loadingLabel: t("inspector.files.loadingLabel"),
         },
       );
       setProject(data.project ?? null);
@@ -254,12 +257,12 @@ export function MvInspectorFilesPanel({
       if (showLoading) {
         setProject(null);
         setFiles([]);
-        setLoadError(mvErrorMessage(error, "تعذر تحميل ملفات المعاين."));
+        setLoadError(mvErrorMessage(error, t("inspector.files.loadFailed")));
       }
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, t]);
 
   useEffect(() => {
     void load({ showLoading: !initialProject?._id });
@@ -320,13 +323,12 @@ export function MvInspectorFilesPanel({
             raw = null;
           }
           if (xhr.status < 200 || xhr.status >= 300) {
-            let msg = "تعذر الرفع.";
+            let msg = t("inspector.files.uploadFailed");
             if (raw && typeof raw === "object") {
               const o = raw as { message?: unknown; error?: unknown };
               if (typeof o.message === "string" && o.message.trim()) msg = o.message.trim();
               else if (o.error === "upstream_unreachable")
-                msg =
-                  "الخلفية غير متاحة من الخادم. على السحابة عيّن MV_INTERNAL_API_ORIGIN أو BACKEND_URL لعنوان Nest.";
+                msg = t("inspector.files.upstreamUnreachable");
             }
             toast({ variant: "destructive", title: file.name, description: msg });
             patchUploadJob(clientId, { state: "error", progress: 0 });
@@ -341,7 +343,7 @@ export function MvInspectorFilesPanel({
           resolve();
         };
         xhr.onerror = () => {
-          toast({ variant: "destructive", title: file.name, description: "خطأ شبكة أثناء الرفع." });
+          toast({ variant: "destructive", title: file.name, description: t("inspector.files.uploadNetworkError") });
           patchUploadJob(clientId, { state: "error", progress: 0 });
           scheduleRemoveUploadJob(clientId, 5000);
           resolve();
@@ -349,7 +351,7 @@ export function MvInspectorFilesPanel({
         xhr.send(fd);
       });
     },
-    [projectId, normalizedSelectedLocationIds, toast, patchUploadJob, scheduleRemoveUploadJob],
+    [projectId, normalizedSelectedLocationIds, toast, patchUploadJob, scheduleRemoveUploadJob, t],
   );
 
   /** طابور رفع متسلسل على الخادم؛ تقدم كل ملف عبر XHR كما في Google Drive. */
@@ -405,7 +407,7 @@ export function MvInspectorFilesPanel({
         streamRef.current = null;
         streamLive?.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-        const name = `تسجيل-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`;
+        const name = `${t("inspector.files.recordingPrefix")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.webm`;
         const file = new File([blob], name, { type: blob.type || "audio/webm" });
         chunksRef.current = [];
         setRecording(false);
@@ -414,7 +416,7 @@ export function MvInspectorFilesPanel({
       rec.start(200);
       setRecording(true);
     } catch {
-      toast({ variant: "destructive", title: "الميكروفون", description: "تحقق من أذونات المتصفح." });
+      toast({ variant: "destructive", title: t("inspector.files.micTitle"), description: t("inspector.files.micPermission") });
     }
   };
 
@@ -437,7 +439,7 @@ export function MvInspectorFilesPanel({
       });
       const raw = await res.json().catch(() => null);
       if (!res.ok) {
-        toast({ variant: "destructive", title: "حذف" });
+        toast({ variant: "destructive", title: t("inspector.files.deleteTitle") });
         return;
       }
       const body = raw as { inspectorFiles?: MvInspectorFile[] };
@@ -469,8 +471,8 @@ export function MvInspectorFilesPanel({
       if (failed > 0) {
         toast({
           variant: "destructive",
-          title: "حذف جماعي",
-          description: `تعذر حذف ${failed} من ${ids.length} ملفًا.`,
+          title: t("inspector.files.bulkDeleteTitle"),
+          description: t("inspector.files.bulkDeleteFailed", { failed, total: ids.length }),
         });
       }
       setSelectedIds(new Set());
@@ -507,7 +509,7 @@ export function MvInspectorFilesPanel({
   if (loading) {
     if (embedded) {
       return (
-        <div className={cn(font.className, "space-y-4 p-4")} dir="rtl">
+        <div className={cn(font.className, "space-y-4 p-4")} dir={dir}>
           <div className="h-12 animate-pulse rounded-xl bg-slate-200/70" />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -518,7 +520,7 @@ export function MvInspectorFilesPanel({
       );
     }
     return (
-      <div className={cn(font.className, "min-h-screen bg-slate-950/[0.03]")} dir="rtl">
+      <div className={cn(font.className, "min-h-screen bg-slate-950/[0.03]")} dir={dir}>
         <MvTopBar breadcrumbs={[{ label: "…" }]} saveState="idle" />
         <div className="mx-auto max-w-6xl px-4 py-10">
           <div className="h-16 animate-pulse rounded-2xl bg-slate-200/60" />
@@ -537,23 +539,23 @@ export function MvInspectorFilesPanel({
       return (
         <MvErrorState
           compact
-          title="تعذر تحميل المشروع"
-          description={loadError ?? "تعذر تحميل ملفات المعاين."}
+          title={t("inspector.files.loadProjectFailed")}
+          description={loadError ?? t("inspector.files.loadFailed")}
           onRetry={() => void load()}
           className={font.className}
         />
       );
     }
     return (
-      <div className={cn(font.className, "min-h-screen")} dir="rtl">
-        <MvTopBar breadcrumbs={[{ label: "ملفات المعاين" }]} saveState="error" />
+      <div className={cn(font.className, "min-h-screen")} dir={dir}>
+        <MvTopBar breadcrumbs={[{ label: t("inspector.files.breadcrumb") }]} saveState="error" />
         <MvErrorState
-          title="تعذر تحميل المشروع"
-          description={loadError ?? "تعذر تحميل ملفات المعاين."}
+          title={t("inspector.files.loadProjectFailed")}
+          description={loadError ?? t("inspector.files.loadFailed")}
           onRetry={() => void load()}
           action={
             <Button variant="outline" asChild className="rounded-xl">
-              <a href={MV_PROJECTS_TABLE_PATH}>المشاريع</a>
+              <a href={MV_PROJECTS_TABLE_PATH}>{t("navigation.projects")}</a>
             </Button>
           }
         />
@@ -569,26 +571,30 @@ export function MvInspectorFilesPanel({
         embedded ? "h-[min(78vh,760px)] min-h-0" : "min-h-screen",
         className,
       )}
-      dir="rtl"
+      dir={dir}
     >
-      {!embedded ? (
-        <MvTopBar
-          breadcrumbs={[
-            { label: "المشاريع", href: MV_PROJECTS_TABLE_PATH },
-            { label: project.name, href: `/machine-valuation/${projectId}/workflow/report-data` },
-            { label: "ملفات المعاين" },
-          ]}
-          saveState="idle"
-        />
-      ) : null}
+      {/*
+       * `MvTopBar` هو `sticky top-14` بشكل افتراضي ليطابق شريط التطبيق، لكن حاوية التمرير
+       * الفعلية لهذه الصفحة تبدأ عند هذا العنصر مباشرة — فتضارب الإزاحات بين شريط المسار
+       * وشريط الإجراءات أسفله (كل منهما "sticky" بقيمة مختلفة) كان يجعل شريط الإجراءات
+       * يُرسم خلف شريط المسار ويختفي. الحل: تعطيل التموضع اللاصق الداخلي لـ`MvTopBar` وتجميع
+       * الشريطين داخل غلاف لاصق واحد بنفس الطريقة المستخدمة في `DriveExplorerStickyTopBar`.
+       */}
+      <div className={cn("shrink-0", !embedded && "sticky top-0 z-30")}>
+        {!embedded ? (
+          <MvTopBar
+            breadcrumbs={[
+              { label: t("navigation.projects"), href: MV_PROJECTS_TABLE_PATH },
+              { label: project.name, href: `/machine-valuation/${projectId}/workflow/report-data` },
+              { label: t("inspector.files.breadcrumb") },
+            ]}
+            saveState="idle"
+            sticky={false}
+          />
+        ) : null}
 
-      <div
-        className={cn(
-          "z-20 border-b border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-shadow duration-200 sm:px-4",
-          embedded ? "shrink-0" : "sticky top-0",
-        )}
-      >
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
+        <div className="border-b border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-shadow duration-200 sm:px-4">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
           <input ref={inputRef} type="file" className="hidden" accept={ACCEPT} multiple onChange={onInputChange} />
           <MvLocationMultiSelect
             locations={selectableLocations}
@@ -596,7 +602,7 @@ export function MvInspectorFilesPanel({
             onChange={setSelectedLocationIds}
             disabled={locationSelectionLocked}
             className="min-w-[210px]"
-            label={locationSelectionLocked ? "موقع الرفع" : "إرسال الملفات إلى"}
+            label={locationSelectionLocked ? t("inspector.files.uploadLocation") : t("inspector.files.uploadTo")}
           />
           <Button
             type="button"
@@ -606,7 +612,7 @@ export function MvInspectorFilesPanel({
             onClick={() => inputRef.current?.click()}
           >
             <Upload className="ms-1 h-3.5 w-3.5" />
-            رفع
+            {t("inspector.files.upload")}
           </Button>
           <div
             role="presentation"
@@ -627,7 +633,7 @@ export function MvInspectorFilesPanel({
                 : "border-slate-200 bg-slate-50/80",
             )}
           >
-            إفلات هنا
+            {t("inspector.files.dropHere")}
           </div>
           <Button
             type="button"
@@ -637,7 +643,7 @@ export function MvInspectorFilesPanel({
             onClick={() => (recording ? stopRecording() : void startRecording())}
           >
             {recording ? <MicOff className="ms-1 h-3.5 w-3.5" /> : <Mic className="ms-1 h-3.5 w-3.5" />}
-            {recording ? "إيقاف" : "تسجيل"}
+            {recording ? t("inspector.files.stop") : t("inspector.files.record")}
           </Button>
 
             {visibleFiles.length > 0 ? (
@@ -649,9 +655,9 @@ export function MvInspectorFilesPanel({
                     const on = v === true;
                     setSelectedIds(on ? new Set(visibleFiles.map((f) => f.id)) : new Set());
                   }}
-                  aria-label="تحديد الكل"
+                  aria-label={t("inspector.files.selectAll")}
                 />
-                تحديد الكل
+                {t("inspector.files.selectAll")}
               </label>
               {someSelected ? (
                 <>
@@ -663,7 +669,7 @@ export function MvInspectorFilesPanel({
                     disabled={bulkDeleting}
                     onClick={() => setSelectedIds(new Set())}
                   >
-                    إلغاء التحديد
+                    {t("inspector.files.deselectAll")}
                   </Button>
                   <Button
                     type="button"
@@ -673,7 +679,7 @@ export function MvInspectorFilesPanel({
                     disabled={bulkDeleting}
                     onClick={() => void removeMany([...selectedIds])}
                   >
-                    {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : `حذف المحدد (${selectedIds.size})`}
+                    {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t("inspector.files.deleteSelected", { count: selectedIds.size })}
                   </Button>
                 </>
               ) : null}
@@ -685,7 +691,7 @@ export function MvInspectorFilesPanel({
                 disabled={bulkDeleting}
                 onClick={() => setDeleteAllOpen(true)}
               >
-                حذف المعروض
+                {t("inspector.files.deleteVisible")}
               </Button>
             </div>
           ) : null}
@@ -701,6 +707,7 @@ export function MvInspectorFilesPanel({
               {visibleFiles.length === files.length ? files.length : `${visibleFiles.length}/${files.length}`}
             </span>
           </span>
+          </div>
         </div>
       </div>
 
@@ -713,7 +720,7 @@ export function MvInspectorFilesPanel({
         {visibleFiles.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/70 py-24 text-slate-400">
             <Upload className="h-10 w-10 opacity-40" />
-            <p className="mt-3 text-sm font-semibold">لا ملفات</p>
+            <p className="mt-3 text-sm font-semibold">{t("inspector.files.noFiles")}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
@@ -727,7 +734,7 @@ export function MvInspectorFilesPanel({
                     checked={selectedIds.has(f.id)}
                     onCheckedChange={(v) => toggleSelect(f.id, v === true)}
                     onClick={(e) => e.stopPropagation()}
-                    aria-label={`تحديد ${f.name}`}
+                    aria-label={t("inspector.files.selectItem", { name: f.name })}
                   />
                   <div className="flex shrink-0 items-center gap-0.5">
                     <Button
@@ -735,7 +742,7 @@ export function MvInspectorFilesPanel({
                       size="icon"
                       variant="secondary"
                       className="h-7 w-7 rounded-md"
-                      title="تنزيل"
+                      title={t("inspector.files.download")}
                       asChild
                     >
                       <a
@@ -751,7 +758,7 @@ export function MvInspectorFilesPanel({
                       size="icon"
                       variant="destructive"
                       className="h-7 w-7 rounded-md"
-                      title="حذف"
+                      title={t("inspector.files.deleteTitle")}
                       disabled={deletingId === f.id || bulkDeleting}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -809,7 +816,7 @@ export function MvInspectorFilesPanel({
                   <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
                     {(() => {
                       const ids = inspectorFileLocationIds(f);
-                      if (ids.length === 0) return "كل مواقع المعاينة";
+                      if (ids.length === 0) return t("inspector.files.allInspectionSites");
                       return ids
                         .map((id) => {
                           const index = (project.locations ?? []).findIndex(
@@ -836,7 +843,7 @@ export function MvInspectorFilesPanel({
               ? "absolute bottom-3 start-3 max-w-[calc(100%-1.5rem)] pb-0"
               : "fixed bottom-0 start-0 max-w-[100vw] pb-[max(0.75rem,env(safe-area-inset-bottom))]",
           )}
-          dir="rtl"
+          dir={dir}
         >
           {uploadJobs.map((job) => (
             <div
@@ -854,12 +861,12 @@ export function MvInspectorFilesPanel({
                 </p>
                 <p className="text-[10px] font-medium text-slate-500">
                   {job.state === "queued"
-                    ? "في الانتظار…"
+                    ? t("inspector.files.uploadState.queued")
                     : job.state === "uploading"
-                      ? `${job.progress}%`
+                      ? t("inspector.files.uploadState.uploading", { progress: job.progress })
                       : job.state === "done"
-                        ? "تم الرفع"
-                        : "فشل الرفع"}
+                        ? t("inspector.files.uploadState.done")
+                        : t("inspector.files.uploadState.failed")}
                 </p>
               </div>
             </div>
@@ -868,15 +875,15 @@ export function MvInspectorFilesPanel({
       ) : null}
 
       <AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
-        <AlertDialogContent dir="rtl" className="text-right">
+        <AlertDialogContent dir={dir} className="text-right">
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف كل ملفات المعاين؟</AlertDialogTitle>
+            <AlertDialogTitle>{t("inspector.files.deleteAllTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              سيتم حذف {visibleFiles.length} ملفًا معروضًا من المشروع والتخزين. لا يمكن التراجع عن هذا الإجراء.
+              {t("inspector.files.deleteAllDescription", { count: visibleFiles.length })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel type="button">إلغاء</AlertDialogCancel>
+            <AlertDialogCancel type="button">{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               type="button"
               className="bg-rose-600 hover:bg-rose-700"
@@ -885,7 +892,7 @@ export function MvInspectorFilesPanel({
                 void removeMany(visibleFiles.map((x) => x.id));
               }}
             >
-              حذف المعروض
+              {t("inspector.files.deleteAllAction")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -10,8 +10,11 @@ export type ReportTocEntry =
   | { kind: "row"; row: MvReportTocRow }
   | { kind: "custom"; section: MvReportEditableSection; index: number };
 
-export function buildReportTocEntries(editableSections: MvReportEditableSection[]): ReportTocEntry[] {
-  const entries: ReportTocEntry[] = MV_REPORT_TOC_ROWS.map((row) => ({ kind: "row", row }));
+export function buildReportTocEntries(
+  editableSections: MvReportEditableSection[],
+  rows: MvReportTocRow[] = MV_REPORT_TOC_ROWS,
+): ReportTocEntry[] {
+  const entries: ReportTocEntry[] = rows.map((row) => ({ kind: "row", row }));
   editableSections.forEach((section, index) => {
     entries.push({ kind: "custom", section, index });
   });

@@ -55,6 +55,49 @@ export function middleware(request: NextRequest) {
   }
 
   if (
+    mvSegments.length >= 4 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "workflow" &&
+    mvSegments[3] === "process"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/import`, request.url),
+    );
+  }
+
+  if (
+    mvSegments.length >= 4 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "workflow" &&
+    mvSegments[3] === "images"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/asset-images`, request.url),
+    );
+  }
+
+  if (
+    mvSegments.length >= 5 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "workflow" &&
+    mvSegments[3] === "valuation"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/valuation`, request.url),
+    );
+  }
+
+  if (
+    mvSegments.length === 3 &&
+    mvSegments[0] === "machine-valuation" &&
+    mvSegments[2] === "legacy"
+  ) {
+    return NextResponse.redirect(
+      new URL(`/machine-valuation/${mvSegments[1]}/workflow/report-data`, request.url),
+    );
+  }
+
+  if (
     mvSegments.length === 3 &&
     mvSegments[0] === "machine-valuation" &&
     mvSegments[2] === "workflow"

@@ -1,3 +1,5 @@
+import { getMvT, readMvLanguage } from "./mv-i18n";
+
 export type UploadProjectFileOptions = {
   /**
    * عند true يوجّه الخلفية لرفع الملف إلى DigitalOcean Spaces (مثل ملفات المعاينة)
@@ -5,6 +7,8 @@ export type UploadProjectFileOptions = {
    */
   valuationAccounting?: boolean;
 };
+
+const uploadT = () => getMvT(readMvLanguage());
 
 const VALUATION_ACCOUNTING_UPLOAD_SOFT_MAX_BYTES = 3.5 * 1024 * 1024;
 const VALUATION_ACCOUNTING_UPLOAD_RETRY_MAX_BYTES = 1.8 * 1024 * 1024;
@@ -30,7 +34,7 @@ function loadUploadImage(file: File): Promise<HTMLImageElement> {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("تعذر قراءة الصورة قبل الرفع."));
+      reject(new Error(uploadT()("files.upload.readImageFailed")));
     };
     image.src = url;
   });
@@ -45,7 +49,7 @@ function canvasToBlob(
     canvas.toBlob(
       (blob) => {
         if (blob) resolve(blob);
-        else reject(new Error("تعذر ضغط الصورة قبل الرفع."));
+        else reject(new Error(uploadT()("files.upload.compressFailed")));
       },
       type,
       quality,
@@ -124,7 +128,7 @@ export async function uploadProjectFileAndReturnId(
   options?: UploadProjectFileOptions,
 ): Promise<string> {
   if (!file || file.size <= 0) {
-    throw new Error("تعذر رفع الصورة لأن الملف الناتج فارغ.");
+    throw new Error(uploadT()("files.upload.emptyFile"));
   }
   const startedAt = Date.now();
   const qs =
@@ -169,9 +173,9 @@ export async function uploadProjectFileAndReturnId(
 
   const { res, text, sentFile } = result;
   if (!res.ok) {
-    let msg = "تعذر رفع الملف إلى التخزين.";
+    let msg = uploadT()("files.upload.storageFailed");
     if (isPayloadTooLargeResponse(res.status, text)) {
-      msg = "حجم الملف يتجاوز حد الاستضافة للرفع المباشر. تم إيقاف رفع هذا الملف لتجنب خطأ 413.";
+      msg = uploadT()("files.upload.payloadTooLarge");
     }
     try {
       const parsed = JSON.parse(text) as { message?: unknown };
@@ -196,7 +200,7 @@ export async function uploadProjectFileAndReturnId(
   const listRes = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/files`, {
     credentials: "include",
   });
-  if (!listRes.ok) throw new Error("تم الرفع لكن تعذر تحديث قائمة الملفات.");
+  if (!listRes.ok) throw new Error(uploadT()("files.upload.listRefreshFailed"));
   const rows = (await listRes.json().catch(() => [])) as unknown;
   const files = Array.isArray(rows)
     ? (rows as { _id: string; name: string; sizeBytes: number; uploadedAt: string }[])
@@ -212,5 +216,5 @@ export async function uploadProjectFileAndReturnId(
     .filter((f) => Number.isFinite(f.ts))
     .sort((a, b) => b.ts - a.ts)[0];
   if (newest?._id) return newest._id;
-  throw new Error("تم الرفع لكن لم يمكن تحديد معرّف الملف.");
+  throw new Error(uploadT()("files.upload.idNotFound"));
 }

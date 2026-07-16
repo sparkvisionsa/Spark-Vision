@@ -11,6 +11,7 @@ import {
   resolveProjectLocationFromCoordinates,
 } from "./mv-project-contact-data";
 import { MvProjectMapPicker } from "./mv-project-map-picker";
+import { useMvI18n } from "./mv-i18n";
 
 interface ProjectContactFieldsProps {
   value: MvProjectContactForm;
@@ -25,6 +26,7 @@ export function MvProjectContactFields({
   disabled,
   className,
 }: ProjectContactFieldsProps) {
+  const { t, dir } = useMvI18n();
   const [locating, setLocating] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [resolvingLocation, setResolvingLocation] = useState(false);
@@ -59,7 +61,7 @@ export function MvProjectContactFields({
       mapUrl: resolved.mapUrl,
     });
     if (!resolved.region || !resolved.city) {
-      setLocationError("تم ملء الإحداثيات والرابط، ولم تتوفر المنطقة أو المدينة من خدمة الخرائط.");
+      setLocationError(t("projects.contact.errors.partialResolve"));
     }
     setResolvingLocation(false);
   };
@@ -67,7 +69,7 @@ export function MvProjectContactFields({
   const handleUseCurrentLocation = () => {
     setLocationError("");
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocationError("المتصفح لا يدعم تحديد الموقع.");
+      setLocationError(t("projects.contact.errors.geoUnsupported"));
       return;
     }
 
@@ -79,7 +81,7 @@ export function MvProjectContactFields({
         void applyCoordinates(latitude, longitude).finally(() => setLocating(false));
       },
       () => {
-        setLocationError("تعذر قراءة الموقع الحالي. يمكن إدخال رابط الخريطة أو الإحداثيات يدوياً.");
+        setLocationError(t("projects.contact.errors.geoFailed"));
         setLocating(false);
       },
       { enableHighAccuracy: true, maximumAge: 30_000, timeout: 15_000 },
@@ -90,10 +92,10 @@ export function MvProjectContactFields({
   const busyResolving = locating || resolvingLocation;
 
   return (
-    <div className={cn("space-y-4 text-right", className)} dir="rtl">
+    <div className={cn("space-y-4 text-right", className)} dir={dir}>
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[12px] font-bold text-slate-800">بيانات الموقع</p>
+          <p className="text-[12px] font-bold text-slate-800">{t("projects.contact.locationSection")}</p>
           <div className="flex shrink-0 items-center gap-1.5">
             <Button
               type="button"
@@ -104,7 +106,7 @@ export function MvProjectContactFields({
               className="h-8 gap-1.5 rounded-lg border-sky-200 bg-white px-2.5 text-[11px] text-sky-700 hover:bg-sky-50"
             >
               <MapPinned className="h-3.5 w-3.5" />
-              الخريطة
+              {t("projects.contact.map")}
             </Button>
             <Button
               type="button"
@@ -115,41 +117,41 @@ export function MvProjectContactFields({
               className="h-8 gap-1.5 rounded-lg border-emerald-200 bg-white px-2.5 text-[11px] text-emerald-700 hover:bg-emerald-50"
             >
               {locating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5" />}
-              موقعي
+              {t("projects.contact.myLocation")}
             </Button>
           </div>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">المنطقة</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.region")}</label>
             <Input
               value={value.region}
               onChange={(event) => update({ region: event.target.value })}
               disabled={disabled}
-              placeholder="مثال: الرياض"
+              placeholder={t("projects.contact.regionPlaceholder")}
               className="h-10 rounded-xl border-slate-200 bg-white text-[13px]"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">المدينة</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.city")}</label>
             <Input
               value={value.city}
               onChange={(event) => update({ city: event.target.value })}
               disabled={disabled}
-              placeholder="مثال: الرياض"
+              placeholder={t("projects.contact.regionPlaceholder")}
               className="h-10 rounded-xl border-slate-200 bg-white text-[13px]"
             />
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold text-slate-500">رابط Google Maps أو الإحداثيات</label>
+          <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.mapUrlOrCoords")}</label>
           <Input
             value={value.mapUrl}
             onChange={(event) => handleMapTextChange(event.target.value)}
             disabled={disabled}
-            placeholder="الصق رابط الخريطة أو اكتب 24.7136, 46.6753"
+            placeholder={t("projects.contact.mapUrlPlaceholder")}
             className="h-10 rounded-xl border-slate-200 bg-white text-[12px]"
             dir="ltr"
           />
@@ -157,7 +159,7 @@ export function MvProjectContactFields({
 
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">خط العرض</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.latitude")}</label>
             <Input
               value={value.latitude}
               onChange={(event) => update({ latitude: event.target.value })}
@@ -169,7 +171,7 @@ export function MvProjectContactFields({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">خط الطول</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.longitude")}</label>
             <Input
               value={value.longitude}
               onChange={(event) => update({ longitude: event.target.value })}
@@ -186,28 +188,28 @@ export function MvProjectContactFields({
       </div>
 
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-3">
-        <p className="text-[12px] font-bold text-slate-800">بيانات التواصل</p>
+        <p className="text-[12px] font-bold text-slate-800">{t("projects.contact.contactSection")}</p>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">رقم تواصل أساسي</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.primaryPhone")}</label>
             <Input
               value={value.primaryPhone}
               onChange={(event) => update({ primaryPhone: event.target.value })}
               disabled={disabled}
               inputMode="tel"
-              placeholder="05xxxxxxxx"
+              placeholder={t("projects.contact.phonePlaceholder")}
               className="h-10 rounded-xl border-slate-200 bg-slate-50/60 text-[13px]"
               dir="ltr"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold text-slate-500">رقم احتياطي</label>
+            <label className="text-[11px] font-semibold text-slate-500">{t("projects.contact.secondaryPhone")}</label>
             <Input
               value={value.secondaryPhone}
               onChange={(event) => update({ secondaryPhone: event.target.value })}
               disabled={disabled}
               inputMode="tel"
-              placeholder="05xxxxxxxx"
+              placeholder={t("projects.contact.phonePlaceholder")}
               className="h-10 rounded-xl border-slate-200 bg-slate-50/60 text-[13px]"
               dir="ltr"
             />

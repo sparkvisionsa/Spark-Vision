@@ -1,4 +1,5 @@
 import type { MvProjectContact, MvProjectLocation } from "./types";
+import { getMvT, readMvLanguage, type MvT } from "./mv-i18n";
 
 export interface MvProjectContactForm {
   region: string;
@@ -35,27 +36,36 @@ export const EMPTY_PROJECT_CONTACT_FORM: MvProjectContactForm = {
   secondaryPhone: "",
 };
 
-const INSPECTION_SITE_ORDINALS = [
-  "الأول",
-  "الثاني",
-  "الثالث",
-  "الرابع",
-  "الخامس",
-  "السادس",
-  "السابع",
-  "الثامن",
-  "التاسع",
-  "العاشر",
-];
+const ORDINAL_KEYS = [
+  "first",
+  "second",
+  "third",
+  "fourth",
+  "fifth",
+  "sixth",
+  "seventh",
+  "eighth",
+  "ninth",
+  "tenth",
+] as const;
 
-/** لترقيم المواقع العربي الأول / الثاني / … في وسوم النماذج. */
-export function inspectionSiteOrdinalWord(index: number): string {
-  return INSPECTION_SITE_ORDINALS[index] ?? `رقم ${index + 1}`;
+function resolveMvT(t?: MvT): MvT {
+  return t ?? getMvT(readMvLanguage());
+}
+
+/** لترقيم المواقع الأول / الثاني / … في وسوم النماذج. */
+export function inspectionSiteOrdinalWord(index: number, t?: MvT): string {
+  const tr = resolveMvT(t);
+  const key = ORDINAL_KEYS[index];
+  return key
+    ? tr(`projects.location.ordinals.${key}`)
+    : tr("projects.location.ordinalFallback", { n: index + 1 });
 }
 
 /** تسمية حقل الاسم الذي يعبِّر عن المواقع ديناميكياً. */
-export function siteDescriptionFieldLabel(index: number): string {
-  return `وصف الموقع ${inspectionSiteOrdinalWord(index)}`;
+export function siteDescriptionFieldLabel(index: number, t?: MvT): string {
+  const tr = resolveMvT(t);
+  return tr("projects.location.descriptionField", { ordinal: inspectionSiteOrdinalWord(index, tr) });
 }
 
 const INSPECTION_SITE_NOTES_MAX = 2000;
@@ -253,14 +263,16 @@ export function normalizeProjectContact(raw: unknown, fallbackType: "primary" | 
     : null;
 }
 
-export function defaultInspectionSiteName(index: number): string {
-  return `الموقع ${INSPECTION_SITE_ORDINALS[index] ?? `رقم ${index + 1}`}`;
+export function defaultInspectionSiteName(index: number, t?: MvT): string {
+  const tr = resolveMvT(t);
+  return tr("projects.location.siteName", { ordinal: inspectionSiteOrdinalWord(index, tr) });
 }
 
-export function createProjectInspectionSiteForm(index = 0): MvProjectInspectionSiteForm {
+export function createProjectInspectionSiteForm(index = 0, t?: MvT): MvProjectInspectionSiteForm {
+  const tr = resolveMvT(t);
   return {
     id: createDraftInspectionSiteId(),
-    name: defaultInspectionSiteName(index),
+    name: defaultInspectionSiteName(index, tr),
     ...EMPTY_PROJECT_CONTACT_FORM,
     notes: "",
   };
@@ -276,24 +288,30 @@ export function projectContactFormFromData(
   return { region, city, latitude, longitude, mapUrl, primaryPhone, secondaryPhone };
 }
 
-export function projectContactDataFromForm(form: MvProjectContactForm): {
+export function projectContactDataFromForm(form: MvProjectContactForm, t?: MvT): {
   locations: MvProjectLocation[];
   contacts: MvProjectContact[];
 } {
-  return projectContactDataFromInspectionSites([
-    {
-      id: "single",
-      name: defaultInspectionSiteName(0),
-      ...form,
-      notes: "",
-    },
-  ]);
+  const tr = resolveMvT(t);
+  return projectContactDataFromInspectionSites(
+    [
+      {
+        id: "single",
+        name: defaultInspectionSiteName(0, tr),
+        ...form,
+        notes: "",
+      },
+    ],
+    tr,
+  );
 }
 
 export function projectInspectionSitesFromData(
   locations: unknown[] | undefined,
   contacts: unknown[] | undefined,
+  t?: MvT,
 ): MvProjectInspectionSiteForm[] {
+  const tr = resolveMvT(t);
   const normalizedLocations = (Array.isArray(locations) ? locations : []).map(normalizeProjectLocation);
   const normalizedContacts = (Array.isArray(contacts) ? contacts : [])
     .map((item, index) => normalizeProjectContact(item, index === 1 ? "secondary" : "primary"))
@@ -325,7 +343,7 @@ export function projectInspectionSitesFromData(
   return Array.from({ length: Math.min(siteCount, 10) }, (_, index) => {
     const location = normalizedLocations[index];
     const locationId = location?.id || createInspectionSiteId(index);
-    const siteName = location?.name ?? defaultInspectionSiteName(index);
+    const siteName = location?.name ?? defaultInspectionSiteName(index, tr);
     const byId = normalizedContacts.filter((item) => item.locationId && item.locationId === locationId);
     const byIndex = normalizedContacts.filter((item) => item.locationIndex === index);
     const byName = normalizedContacts.filter((item) => item.locationName && item.locationName === siteName);
@@ -347,7 +365,7 @@ export function projectInspectionSitesFromData(
       location?.name ||
       primary?.locationName ||
       secondary?.locationName ||
-      defaultInspectionSiteName(index);
+      defaultInspectionSiteName(index, tr);
     const siteId = location?.id || primary?.locationId || secondary?.locationId || locationId;
 
     return {
@@ -368,10 +386,11 @@ export function projectInspectionSitesFromData(
   });
 }
 
-export function projectContactDataFromInspectionSites(forms: MvProjectInspectionSiteForm[]): {
+export function projectContactDataFromInspectionSites(forms: MvProjectInspectionSiteForm[], t?: MvT): {
   locations: MvProjectLocation[];
   contacts: MvProjectContact[];
 } {
+  const tr = resolveMvT(t);
   const locations: MvProjectLocation[] = [];
   const contacts: MvProjectContact[] = [];
 
@@ -382,7 +401,7 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
     const longitude = toFiniteCoordinate(form.longitude, "lng");
     const mapUrl = textValue(form.mapUrl, 600);
     const siteId = textValue(form.id, 80) || createInspectionSiteId(index);
-    const name = textValue(form.name, 120) || defaultInspectionSiteName(index);
+    const name = textValue(form.name, 120) || defaultInspectionSiteName(index, tr);
     const primaryPhone = textValue(form.primaryPhone, 60);
     const notes = textValue(form.notes ?? "", INSPECTION_SITE_NOTES_MAX);
     const hasSiteData =
@@ -393,7 +412,7 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
       mapUrl ||
       primaryPhone ||
       notes ||
-      name !== defaultInspectionSiteName(index);
+      name !== defaultInspectionSiteName(index, tr);
 
     if (!hasSiteData) return;
 

@@ -3,13 +3,14 @@
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { isMvMainWorkflowSlug } from "./mv-main-workflow-model";
-import { parseValuationPhaseSlug } from "./mv-valuation-workflow-model";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+import { useMvI18n } from "./mv-i18n";
 import { MvPageLoading } from "./mv-ui";
 
 /** هيكل خفيف أثناء تحميل مقطع ديناميكي — دون تغطية كاملة للشاشة (يختلف عن PageTransitionLoader لجذر الـ workspace). */
 function MvRouteSkeleton() {
-  return <MvPageLoading label="جارٍ فتح مساحة العمل…" />;
+  const { t } = useMvI18n();
+  return <MvPageLoading label={t("index.openingWorkspace")} />;
 }
 
 const ProjectsList = dynamic(() => import("./projects-list"), {
@@ -19,9 +20,6 @@ const ClientsPage = dynamic(() => import("@/components/clients/clients-page"), {
   loading: () => <MvRouteSkeleton />,
 });
 const CompanyAdminDashboard = dynamic(() => import("@/components/company-admin-dashboard"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvProjectWorkspace = dynamic(() => import("./mv-project-workspace"), {
   loading: () => <MvRouteSkeleton />,
 });
 const MvDriveExplorer = dynamic(() => import("./mv-drive-explorer"), {
@@ -87,16 +85,7 @@ function parseMvPath(pathname: string) {
         return { view: "report-workflow" as const, projectId, segments };
       }
       if (segments[2] === "valuation") {
-        if (segments.length === 3) {
-          return {
-            view: "valuation-workflow" as const,
-            projectId,
-            valuationPhase: "hub" as const,
-            segments,
-          };
-        }
-        const valuationPhase = parseValuationPhaseSlug(segments[3]);
-        return { view: "valuation-workflow" as const, projectId, valuationPhase, segments };
+        return { view: "valuation-workflow" as const, projectId, segments };
       }
       if (segments[2] === "asset-images" || segments[2] === "folders") {
         const sub = segments[3];
@@ -115,9 +104,6 @@ function parseMvPath(pathname: string) {
       }
       const stepSlug = segments[2];
       return { view: "workflow" as const, projectId, stepSlug, segments };
-    }
-    if (second === "legacy") {
-      return { view: "legacy-workspace" as const, projectId, segments };
     }
     if (second === "files") {
       return { view: "project-files" as const, projectId, segments };
@@ -156,15 +142,11 @@ export default function MachineValuationSection() {
         />
       );
     case "valuation-workflow":
-      return (
-        <MvValuationShell projectId={route.projectId!} phaseSlug={route.valuationPhase!} />
-      );
+      return <MvValuationShell projectId={route.projectId!} />;
     case "report-workflow":
       return <MvValuationReportWorkspace projectId={route.projectId!} />;
     case "report-data-workflow":
       return <MvReportDataWorkspace projectId={route.projectId!} />;
-    case "legacy-workspace":
-      return <MvProjectWorkspace projectId={route.projectId!} />;
     case "project-files":
       return <MvDriveExplorer projectId={route.projectId!} />;
     case "inspector-files":

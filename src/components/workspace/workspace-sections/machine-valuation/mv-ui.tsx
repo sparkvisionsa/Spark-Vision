@@ -14,6 +14,12 @@ import {
   Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getAdvancedWorkflowSteps,
+  getAssetTypeMeta,
+  readMvLanguage,
+  useMvI18n,
+} from "./mv-i18n";
 import { beginMvLoading } from "./mv-loading-state";
 
 export type MvAssetType = "vehicles" | "machinery" | "electronics" | "furniture" | "other";
@@ -77,8 +83,11 @@ export const MV_WORKFLOW_STEPS: {
   { id: "report", label: "التقرير", mobileLabel: "التقرير" },
 ];
 
-export function formatSarCurrency(value: number) {
-  return new Intl.NumberFormat("ar-SA", {
+export function formatSarCurrency(value: number, locale?: string) {
+  const resolvedLocale =
+    locale ?? (readMvLanguage() === "en" ? "en-SA" : "ar-SA");
+
+  return new Intl.NumberFormat(resolvedLocale, {
     style: "currency",
     currency: "SAR",
     maximumFractionDigits: 0,
@@ -92,7 +101,8 @@ export function MvAssetTypeBadge({
   assetType: MvAssetType;
   className?: string;
 }) {
-  const meta = MV_ASSET_TYPE_META[assetType];
+  const { t } = useMvI18n();
+  const meta = getAssetTypeMeta(t)[assetType];
 
   return (
     <span
@@ -174,28 +184,30 @@ export function MvTopBar({
   compact?: boolean;
   className?: string;
 }) {
+  const { t } = useMvI18n();
+
   const saveContent =
     saveState === "saving" ? (
       <span className="inline-flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
         <span className="h-2 w-2 animate-pulse rounded-full bg-[#378ADD]" />
-        جاري الحفظ
+        {t("common.save.saving")}
       </span>
     ) : saveState === "saved" ? (
       <span className="inline-flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-success)" }}>
         <Save className="h-3.5 w-3.5" />
-        تم الحفظ
+        {t("common.save.saved")}
       </span>
     ) : saveState === "error" ? (
       <span className="inline-flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-danger)" }}>
         <Circle className="h-2.5 w-2.5 fill-current" />
-        خطأ في الحفظ
+        {t("common.save.error")}
         {onRetry ? (
           <button
             type="button"
             onClick={onRetry}
             className="rounded-md px-2 py-1 text-[11px] font-medium underline-offset-2 hover:underline"
           >
-            إعادة المحاولة
+            {t("common.retry")}
           </button>
         ) : null}
       </span>
@@ -281,7 +293,9 @@ export function MvStepper({
   variant?: "default" | "bar";
   className?: string;
 }) {
-  const currentIndex = MV_WORKFLOW_STEPS.findIndex((step) => step.id === currentStepId);
+  const { t, dir } = useMvI18n();
+  const workflowSteps = getAdvancedWorkflowSteps(t);
+  const currentIndex = workflowSteps.findIndex((step) => step.id === currentStepId);
 
   if (variant === "bar") {
     return (
@@ -292,10 +306,10 @@ export function MvStepper({
             : "border-b border-slate-200 bg-[var(--color-background-primary)]",
           className,
         )}
-        dir="rtl"
+        dir={dir}
       >
         <div className="hidden w-full min-w-0 sm:flex">
-          {MV_WORKFLOW_STEPS.map((step, index) => {
+          {workflowSteps.map((step, index) => {
             const state =
               stepStates?.[step.id] ??
               (index < currentIndex ? "completed" : index === currentIndex ? "current" : "pending");
@@ -323,7 +337,7 @@ export function MvStepper({
         </div>
         <div className="px-3 py-2 sm:hidden">
           <div className="text-[11px] font-medium" style={{ color: "var(--color-text-primary)" }}>
-            {MV_WORKFLOW_STEPS[currentIndex]?.mobileLabel ?? "—"}
+            {workflowSteps[currentIndex]?.mobileLabel ?? t("common.notAvailable")}
           </div>
         </div>
       </div>
@@ -341,7 +355,7 @@ export function MvStepper({
       style={{ borderColor: "var(--color-border-tertiary)" }}
     >
       <div className="hidden items-start px-5 py-3 sm:flex">
-        {MV_WORKFLOW_STEPS.map((step, index) => {
+        {workflowSteps.map((step, index) => {
           const state =
             stepStates?.[step.id] ??
             (index < currentIndex ? "completed" : index === currentIndex ? "current" : "pending");
@@ -398,7 +412,7 @@ export function MvStepper({
                   {step.label}
                 </span>
               </button>
-              {index < MV_WORKFLOW_STEPS.length - 1 ? (
+              {index < workflowSteps.length - 1 ? (
                 <div
                   className="mt-[15px] h-px flex-1"
                   style={{
@@ -413,13 +427,16 @@ export function MvStepper({
 
       <div className="space-y-2 px-5 py-3 sm:hidden">
         <div className="text-[12px] font-medium" style={{ color: "var(--color-text-primary)" }}>
-          الخطوة {currentIndex + 1} من {MV_WORKFLOW_STEPS.length} —{" "}
-          {MV_WORKFLOW_STEPS[currentIndex]?.mobileLabel}
+          {t("navigation.advancedWorkflow.stepOf", {
+            current: currentIndex + 1,
+            total: workflowSteps.length,
+            label: workflowSteps[currentIndex]?.mobileLabel ?? t("common.notAvailable"),
+          })}
         </div>
         <div className="h-[3px] w-full overflow-hidden rounded-full bg-[var(--color-background-secondary)]">
           <div
             className="h-full rounded-full bg-[#378ADD]"
-            style={{ width: `${((currentIndex + 1) / MV_WORKFLOW_STEPS.length) * 100}%` }}
+            style={{ width: `${((currentIndex + 1) / workflowSteps.length) * 100}%` }}
           />
         </div>
       </div>
@@ -599,7 +616,7 @@ export function MvMiniPanel({
 }
 
 export function MvPageLoading({
-  label = "جارٍ تحميل البيانات…",
+  label,
   compact = false,
   className,
 }: {
@@ -607,7 +624,10 @@ export function MvPageLoading({
   compact?: boolean;
   className?: string;
 }) {
-  useEffect(() => beginMvLoading(label), [label]);
+  const { t, dir } = useMvI18n();
+  const resolvedLabel = label ?? t("common.loading.default");
+
+  useEffect(() => beginMvLoading(resolvedLabel), [resolvedLabel]);
 
   return (
     <div
@@ -619,16 +639,16 @@ export function MvPageLoading({
       role="status"
       aria-live="polite"
       aria-busy="true"
-      dir="rtl"
+      dir={dir}
     >
-      <span className="sr-only">{label}</span>
+      <span className="sr-only">{resolvedLabel}</span>
     </div>
   );
 }
 
 export function MvErrorState({
-  title = "تعذر تحميل البيانات",
-  description = "تحقق من الاتصال ثم أعد المحاولة. لن تفقد أي بيانات محفوظة.",
+  title,
+  description,
   onRetry,
   action,
   compact = false,
@@ -641,14 +661,18 @@ export function MvErrorState({
   compact?: boolean;
   className?: string;
 }) {
+  const { t, dir } = useMvI18n();
+  const resolvedTitle = title ?? t("common.error.loadTitle");
+  const resolvedDescription = description ?? t("common.error.loadDescription");
+
   return (
-    <div className={cn("mx-auto flex w-full max-w-xl items-center justify-center px-4", compact ? "py-6" : "py-12", className)} dir="rtl">
+    <div className={cn("mx-auto flex w-full max-w-xl items-center justify-center px-4", compact ? "py-6" : "py-12", className)} dir={dir}>
       <div className="w-full rounded-2xl border border-red-200/70 bg-white p-5 text-center shadow-sm">
         <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600">
           <AlertTriangle className="h-5 w-5" />
         </div>
-        <h2 className="mt-3 text-sm font-black text-slate-900">{title}</h2>
-        <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">{description}</p>
+        <h2 className="mt-3 text-sm font-black text-slate-900">{resolvedTitle}</h2>
+        <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">{resolvedDescription}</p>
         {onRetry || action ? (
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             {onRetry ? (
@@ -658,7 +682,7 @@ export function MvErrorState({
                 className="inline-flex h-9 items-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-bold text-white hover:bg-slate-800"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                إعادة المحاولة
+                {t("common.retry")}
               </button>
             ) : null}
             {action}

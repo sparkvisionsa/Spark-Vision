@@ -380,7 +380,7 @@ export function MvReportPageShell({
         data-mv-letterhead-active={letterheadEnabled ? "true" : undefined}
         data-mv-letterhead-background={coverBackground ? "true" : undefined}
         className={cn(
-          "relative mx-auto mb-8 overflow-hidden rounded-md shadow-[0_16px_48px_-14px_rgba(12,68,124,0.38)] ring-1 ring-[#0C447C]/20 motion-safe:animate-mv-report-sheet-reveal",
+          "relative mx-auto mb-8 overflow-hidden rounded-md shadow-[0_16px_48px_-14px_rgba(12,68,124,0.38)] ring-1 ring-[#0C447C]/20",
           customCover ? "bg-white" : coverTemplateClass,
           "h-[297mm] w-[210mm] transition-shadow duration-500 ease-out hover:shadow-[0_22px_55px_-16px_rgba(12,68,124,0.42)]",
           className,
@@ -500,7 +500,7 @@ export function MvReportPageShell({
       data-mv-letterhead-active={letterheadEnabled ? "true" : undefined}
       data-mv-letterhead-background={pageBackground ? "true" : undefined}
       className={cn(
-        "relative mx-auto mb-8 flex flex-col overflow-hidden rounded-md bg-white shadow-[0_10px_36px_-10px_rgba(15,23,42,0.22)] ring-1 ring-[#0C447C]/10 motion-safe:animate-mv-report-sheet-reveal transition-shadow duration-500 ease-out hover:shadow-[0_14px_44px_-12px_rgba(12,68,124,0.18)]",
+        "relative mx-auto mb-8 flex flex-col overflow-hidden rounded-md bg-white shadow-[0_10px_36px_-10px_rgba(15,23,42,0.22)] ring-1 ring-[#0C447C]/10",
         shellDim,
         className,
       )}

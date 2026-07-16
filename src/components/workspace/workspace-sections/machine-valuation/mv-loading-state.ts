@@ -1,3 +1,5 @@
+import { getMvT, readMvLanguage } from "./mv-i18n";
+
 type MvLoadingListener = () => void;
 
 type MvLoadingEntry = {
@@ -10,14 +12,19 @@ const entries = new Map<symbol, MvLoadingEntry>();
 let revision = 0;
 let order = 0;
 
+function defaultLoadingLabel() {
+  return getMvT(readMvLanguage())("common.loading.projectFetch");
+}
+
 function emit() {
   revision += 1;
   for (const listener of listeners) listener();
 }
 
-export function beginMvLoading(label = "جارٍ جلب بيانات المشروع…") {
+export function beginMvLoading(label?: string) {
+  const resolvedLabel = label ?? defaultLoadingLabel();
   const token = Symbol("mv-loading");
-  entries.set(token, { label, order: ++order });
+  entries.set(token, { label: resolvedLabel, order: ++order });
   emit();
 
   let finished = false;
@@ -45,6 +52,6 @@ export function getMvLoadingState() {
   return {
     active: entries.size > 0,
     count: entries.size,
-    label: latest?.label ?? "جارٍ جلب بيانات المشروع…",
+    label: latest?.label ?? defaultLoadingLabel(),
   };
 }

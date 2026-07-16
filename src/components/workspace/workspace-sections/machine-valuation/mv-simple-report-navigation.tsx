@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/prefetch-link";
-import { Check, ChevronDown, Database, Download, Folder, FolderKanban, FolderOpen } from "lucide-react";
+import { Check, ChevronDown, Database, Download, Folder, FolderKanban, FolderOpen, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MvTopBar, type MvBreadcrumbSegment } from "./mv-ui";
 import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
@@ -16,6 +18,7 @@ import {
   computeCompletedSimpleReportSteps,
   hasMeaningfulSimpleReportData,
 } from "./mv-simple-project-progress";
+import { getSimpleReportSteps, useMvI18n } from "./mv-i18n";
 
 export { hasMeaningfulSimpleReportData };
 export type MvSimpleReportStepId =
@@ -24,17 +27,12 @@ export type MvSimpleReportStepId =
   | "valuation-actions"
   | "report-preview";
 
-export const MV_SIMPLE_REPORT_STEPS: {
-  id: MvSimpleReportStepId;
-  title: string;
-}[] = [
-  { id: "report-data", title: "بيانات التقرير" },
-  { id: "asset-images", title: "صور الأصول" },
-  { id: "valuation-actions", title: "إجراءات التقييم" },
-  { id: "report-preview", title: "إعداد التقرير" },
-];
-
-const numberFormatter = new Intl.NumberFormat("ar-SA");
+const SIMPLE_REPORT_STEP_IDS = new Set<MvSimpleReportStepId>([
+  "report-data",
+  "asset-images",
+  "valuation-actions",
+  "report-preview",
+]);
 
 function visitedStorageKey(projectId: string) {
   return `mv:simple-report-visited:${projectId}`;
@@ -47,10 +45,9 @@ export function readVisitedSimpleReportSteps(projectId: string): MvSimpleReportS
     if (!raw) return ["report-data"];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return ["report-data"];
-    const valid = new Set(MV_SIMPLE_REPORT_STEPS.map((step) => step.id));
     return parsed.filter(
       (value): value is MvSimpleReportStepId =>
-        typeof value === "string" && valid.has(value as MvSimpleReportStepId),
+        typeof value === "string" && SIMPLE_REPORT_STEP_IDS.has(value as MvSimpleReportStepId),
     );
   } catch {
     return ["report-data"];
@@ -85,6 +82,75 @@ export function mvSimpleReportStepHref(projectId: string, stepId: MvSimpleReport
   return `/machine-valuation/${projectId}/workflow/report-data`;
 }
 
+function MvToolbarAction({
+  icon,
+  label,
+  compact,
+  accent,
+  variant = "outline",
+  ...triggerProps
+}: {
+  icon: ReactNode;
+  label: string;
+  compact: boolean;
+  accent: "sky" | "emerald" | "slate" | "brand";
+  variant?: "outline" | "solid";
+} & (
+  | { as: "link"; href: string }
+  | { as: "button"; onClick: () => void }
+)) {
+  const sizeClass = compact ? "h-8 w-8" : "h-9 gap-2 px-3";
+  const accentClass =
+    variant === "solid"
+      ? "border-transparent bg-[#0C447C] text-white shadow-sm hover:bg-[#0a3a66] focus-visible:ring-sky-300"
+      : cn(
+          "border bg-white shadow-sm",
+          accent === "sky" &&
+            "border-sky-200 text-sky-700 hover:border-sky-300 hover:bg-sky-50 focus-visible:ring-sky-300",
+          accent === "emerald" &&
+            "border-emerald-200 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 focus-visible:ring-emerald-300",
+          accent === "slate" &&
+            "border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 focus-visible:ring-slate-300",
+        );
+
+  const className = cn(
+    "inline-flex shrink-0 items-center justify-center rounded-xl text-[12px] font-bold transition-all",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1",
+    "active:scale-[0.97]",
+    sizeClass,
+    accentClass,
+  );
+
+  const content = (
+    <>
+      {icon}
+      {!compact ? <span className="whitespace-nowrap">{label}</span> : null}
+    </>
+  );
+
+  const trigger =
+    triggerProps.as === "link" ? (
+      <Link href={triggerProps.href} aria-label={label} className={className}>
+        {content}
+      </Link>
+    ) : (
+      <button type="button" onClick={triggerProps.onClick} aria-label={label} className={className}>
+        {content}
+      </button>
+    );
+
+  if (!compact) return trigger;
+
+  return (
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent side="bottom" className="text-[11px] font-bold">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function MvProjectFoldersMenu({
   projectId,
   projectName,
@@ -96,124 +162,181 @@ export function MvProjectFoldersMenu({
   folders: MvSubProject[];
   compact?: boolean;
 }) {
+  const { t, isArabic, dir } = useMvI18n();
   const [open, setOpen] = useState(false);
   const [assetDataOpen, setAssetDataOpen] = useState(false);
+  const numberFormatter = useMemo(
+    () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
+    [isArabic],
+  );
+
+  const menuButtonClass = cn(
+    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-700 shadow-sm transition-all",
+    "hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-1",
+    "data-[state=open]:border-sky-300 data-[state=open]:bg-sky-50 data-[state=open]:text-sky-800",
+    compact ? "h-8 px-2.5 text-[12px]" : "h-9 px-3 text-[12px]",
+  );
 
   return (
-    <div className={cn("flex items-center", compact ? "gap-1.5" : "gap-2")}>
-      <Link
-        href={`/machine-valuation/${projectId}/files`}
-        title="الوصول إلى ملفات المشروع"
-        aria-label="الوصول إلى ملفات المشروع"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-sky-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-50",
-          compact ? "h-7 w-7 rounded-md" : "h-8 w-8 rounded-xl",
-        )}
-      >
-        <FolderOpen className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-      </Link>
+    <TooltipProvider>
+      <div className={cn("flex items-center rounded-2xl bg-slate-50/70 p-1", compact ? "gap-1" : "gap-1.5")}>
+        <MvToolbarAction
+          as="link"
+          href={`/machine-valuation/${projectId}/files`}
+          label={t("navigation.projectFolders.openFilesShort")}
+          compact={compact}
+          accent="sky"
+          icon={<FolderOpen className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+        />
 
-      <button
-        type="button"
-        onClick={() => setAssetDataOpen(true)}
-        title="بيانات الأصول"
-        aria-label="بيانات الأصول"
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-200 bg-[#0C447C] font-bold text-white shadow-sm transition hover:bg-[#0a3a66]",
-          compact ? "h-7 px-2 text-[10px]" : "h-8 gap-2 rounded-xl px-2.5 text-[11px]",
-        )}
-      >
-        <Database className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-        بيانات الأصول
-      </button>
+        <MvToolbarAction
+          as="button"
+          onClick={() => setAssetDataOpen(true)}
+          label={t("navigation.projectFolders.assetData")}
+          compact={compact}
+          accent="brand"
+          variant="solid"
+          icon={<Database className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+        />
 
-      <MvAssetDataTableModal
-        open={assetDataOpen}
-        onOpenChange={setAssetDataOpen}
-        projectId={projectId}
-        projectName={projectName ?? null}
-      />
+        <MvAssetDataTableModal
+          open={assetDataOpen}
+          onOpenChange={setAssetDataOpen}
+          projectId={projectId}
+          projectName={projectName ?? null}
+        />
 
-      <MvAssetImagesDownloadButton
-        projectId={projectId}
-        title="تنزيل صور الأصول بنفس الشجرة"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-white font-bold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50",
-          compact ? "h-7 w-7 rounded-md" : "h-8 rounded-xl px-2.5 text-[11px]",
-        )}
-      >
-        <Download className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-        {!compact ? <span>صور الأصول</span> : null}
-      </MvAssetImagesDownloadButton>
-
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white font-bold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50",
-            compact
-              ? "h-7 px-2 text-[10px]"
-              : "h-8 gap-2 rounded-xl px-3 text-[11px]",
-          )}
-        >
-          <FolderKanban className={cn("shrink-0 text-sky-700", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
-          مجلدات المشروع
-          <ChevronDown
+        {compact ? (
+          <Tooltip delayDuration={200}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <MvAssetImagesDownloadButton
+                  projectId={projectId}
+                  title={t("navigation.projectFolders.downloadImages")}
+                  className={cn(
+                    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-white text-emerald-700 shadow-sm transition-all",
+                    "hover:border-emerald-300 hover:bg-emerald-50 active:scale-[0.97]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-1",
+                  )}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </MvAssetImagesDownloadButton>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-[11px] font-bold">
+              {t("navigation.projectFolders.downloadImages")}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <MvAssetImagesDownloadButton
+            projectId={projectId}
+            title={t("navigation.projectFolders.downloadImages")}
             className={cn(
-              "shrink-0 text-slate-400 transition",
-              compact ? "h-3 w-3" : "h-3.5 w-3.5",
-              open && "rotate-180",
+              "inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[12px] font-bold text-emerald-700 shadow-sm transition-all",
+              "hover:border-emerald-300 hover:bg-emerald-50 active:scale-[0.97]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-1",
             )}
-          />
-        </button>
+          >
+            <Download className="h-4 w-4" />
+            <span className="whitespace-nowrap">{t("navigation.projectFolders.downloadImagesShort")}</span>
+          </MvAssetImagesDownloadButton>
+        )}
 
-        {open ? (
-          <div className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,520px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/20">
-            <div className="grid gap-1.5 p-2 sm:grid-cols-2">
+        <span className="mx-0.5 h-5 w-px shrink-0 bg-slate-200" aria-hidden />
+
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              title={t("navigation.projectFolders.menu")}
+              aria-label={t("navigation.projectFolders.menu")}
+              data-state={open ? "open" : "closed"}
+              className={menuButtonClass}
+            >
+              <FolderKanban className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+              {!compact ? <span>{t("navigation.projectFolders.menu")}</span> : null}
+              <ChevronDown
+                className={cn(
+                  "shrink-0 text-slate-400 transition-transform",
+                  compact ? "h-3 w-3" : "h-3.5 w-3.5",
+                  open && "rotate-180",
+                )}
+              />
+            </button>
+          </PopoverTrigger>
+
+          <PopoverContent
+            dir={dir}
+            align="end"
+            collisionPadding={12}
+            sideOffset={8}
+            className="w-[min(94vw,30rem)] rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/15"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                  <LayoutGrid className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[12.5px] font-extrabold text-slate-900">{t("navigation.projectFolders.menu")}</p>
+                  <p className="text-[10.5px] font-medium text-slate-400">{t("navigation.projectFolders.menuHint")}</p>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                {t("navigation.projectFolders.foldersCount", { count: numberFormatter.format(folders.length) })}
+              </span>
+            </div>
+
+            <div className="grid max-h-[60vh] gap-1.5 overflow-y-auto p-2.5 sm:grid-cols-2">
               <Link
                 href={`/machine-valuation/${projectId}/inspector-files`}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/90 px-2.5 py-2 text-right transition hover:border-violet-200 hover:bg-violet-50"
+                className="flex items-center gap-2.5 rounded-xl border border-violet-100 bg-violet-50/90 px-2.5 py-2 text-start transition hover:border-violet-200 hover:bg-violet-50 sm:col-span-2"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
                   <Folder className="h-4 w-4 fill-current" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[11px] font-bold text-violet-950">ملفات المعاين</span>
-                  <span className="block truncate text-[10px] font-medium text-violet-700/90">
-                    صور ووثائق المعاين الميداني
+                  <span className="block truncate text-[12px] font-bold text-violet-950">
+                    {t("navigation.projectFolders.inspectorFiles")}
+                  </span>
+                  <span className="block truncate text-[10.5px] font-medium text-violet-700/90">
+                    {t("navigation.projectFolders.inspectorFilesHint")}
                   </span>
                 </span>
               </Link>
+
               {folders.length === 0 ? (
-                <div className="rounded-xl bg-slate-50 px-3 py-3 text-[11px] text-slate-500">
-                  لا توجد مجلدات.
+                <div className="col-span-full flex flex-col items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-6 text-center">
+                  <Folder className="h-5 w-5 text-slate-300" />
+                  <p className="text-[11px] font-medium text-slate-400">{t("navigation.projectFolders.empty")}</p>
                 </div>
               ) : (
                 folders.map((folder, index) => (
                   <Link
                     key={folder._id}
                     href={`/machine-valuation/${projectId}/${folder._id}`}
-                    className="flex items-center gap-2 rounded-xl border border-transparent px-2.5 py-2 text-right transition hover:border-slate-200 hover:bg-slate-50"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-2 text-start transition hover:border-slate-200 hover:bg-slate-50"
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-500">
                       <Folder className="h-4 w-4 fill-current" />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-800">
+                    <span className="min-w-0 flex-1 truncate text-[11.5px] font-bold text-slate-800">
                       {folder.name}
                     </span>
-                    <span className="text-[10px] font-black text-slate-300">
+                    <span className="shrink-0 text-[10px] font-black text-slate-300">
                       {numberFormatter.format(index + 1)}
                     </span>
                   </Link>
                 ))
               )}
             </div>
-          </div>
-        ) : null}
+          </PopoverContent>
+        </Popover>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }
 
@@ -248,16 +371,18 @@ export function MvSimpleReportStepStrip({
   onStepSelect?: (stepId: MvSimpleReportStepId) => void;
   compact?: boolean;
 }) {
+  const { t } = useMvI18n();
+  const steps = useMemo(() => getSimpleReportSteps(t), [t]);
   const visited = new Set(visitedSteps);
   const completed = new Set(completedSteps);
   const router = useRouter();
 
   useEffect(() => {
     if (onStepSelect) return;
-    for (const step of MV_SIMPLE_REPORT_STEPS) {
+    for (const step of steps) {
       void router.prefetch(mvSimpleReportStepHref(projectId, step.id));
     }
-  }, [onStepSelect, projectId, router]);
+  }, [onStepSelect, projectId, router, steps]);
 
   return (
     <div
@@ -272,7 +397,7 @@ export function MvSimpleReportStepStrip({
           compact ? "px-1.5 sm:px-2" : "px-2 sm:px-4",
         )}
       >
-        {MV_SIMPLE_REPORT_STEPS.map((step) => {
+        {steps.map((step) => {
           const isActive = activeStep != null && activeStep === step.id;
           const isDone = completed.has(step.id);
           const isVisited = visited.has(step.id);
@@ -350,6 +475,7 @@ export function MvProjectReportHeader({
   /** شريط مدمج تحت النافبار مباشرة (أقصر) */
   compact?: boolean;
 }) {
+  const { t } = useMvI18n();
   const [loadedProject, setLoadedProject] = useState<MvProject | null>(project ?? null);
   const [loadedSubProjects, setLoadedSubProjects] = useState<MvSubProject[]>(subProjects ?? []);
 
@@ -436,7 +562,7 @@ export function MvProjectReportHeader({
   const topBreadcrumbs =
     breadcrumbs ??
     [
-      { label: "المشاريع", href: MV_PROJECTS_TABLE_PATH },
+      { label: t("navigation.projects"), href: MV_PROJECTS_TABLE_PATH },
       { label: loadedProject?.name ?? projectId },
     ];
 
@@ -454,7 +580,9 @@ export function MvProjectReportHeader({
               compact ? "px-1.5 py-0 text-[9px]" : "px-2 py-0.5 text-[10px]",
             )}
           >
-            {loadedProject?.reportType === "advanced" ? "متقدم" : "مبسط"}
+            {loadedProject?.reportType === "advanced"
+              ? t("navigation.reportTypeBadge.advanced")
+              : t("navigation.reportTypeBadge.simple")}
           </span>
         }
         trailing={

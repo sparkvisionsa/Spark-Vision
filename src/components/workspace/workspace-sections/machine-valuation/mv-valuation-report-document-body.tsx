@@ -21,12 +21,19 @@ import type {
   MvDriveFile,
   MvProject,
   MvProjectReportData,
+  MvCompanyAiReportTemplate,
   MvCompanyReportLetterheadTemplate,
   MvReportEditableSection,
   MvReportInsertedBlock,
   MvReportInsertedBlockKind,
   MvReportPageOrientationPreference,
 } from "./types";
+import {
+  buildAiReportFlowChildren,
+  type MvAiReportTopicKey,
+  type MvAiVariableContext,
+} from "./mv-ai-report-sections";
+import type { MvReportTocRow } from "./mv-valuation-report-toc";
 import {
   MV_VALUATION_ACCOUNTING_APPROACHES,
   type MvValuationAccountingImage,
@@ -1114,6 +1121,12 @@ export interface MvValuationReportDocumentBodyProps {
   reportData: MvProjectReportData;
   companyBrand: { name: string; logoSrc: string | null };
   letterheadTemplate?: MvCompanyReportLetterheadTemplate | null;
+  /**
+   * قالب تقرير مُستخرج بالذكاء الاصطناعي — عند وجوده، تُبنى صفحات التقرير من
+   * `aiTemplate.sections` (مطابَقة بأقسام موثوقة موجودة أو مُركَّبة كقسم AI عام)
+   * بدل الترتيب الافتراضي الثابت. انظر `buildAiReportFlowChildren`.
+   */
+  aiTemplate?: MvCompanyAiReportTemplate | null;
   reportFooterLines: string[];
   tocApproxPages: Record<string, string>;
   sectionGap: number;
@@ -1202,6 +1215,7 @@ export function MvValuationReportDocumentBody({
   reportData,
   companyBrand,
   letterheadTemplate,
+  aiTemplate,
   reportFooterLines,
   tocApproxPages,
   sectionGap,
@@ -1507,6 +1521,8 @@ export function MvValuationReportDocumentBody({
         narrativeB4,
         reportData,
         showCostSubSections,
+        aiTemplate?.id ?? "",
+        aiTemplate?.sections?.length ?? 0,
       ].join("\u0001"),
     [
       paragraphLineHeight,
@@ -1519,6 +1535,7 @@ export function MvValuationReportDocumentBody({
       narrativeB4,
       reportData,
       showCostSubSections,
+      aiTemplate,
     ],
   );
   const insertedBlocks = reportData.reportInsertedBlocks ?? [];
@@ -2002,6 +2019,665 @@ export function MvValuationReportDocumentBody({
     const current = pageOrientation(pageKey, fallback);
     onReportPageOrientationChange?.(pageKey, current === "landscape" ? "portrait" : "landscape");
   };
+  /**
+   * سجلّ الأقسام الأساسية — كل عنصر هو نفس محتوى القسم الافتراضي الديناميكي بلا أي
+   * تغيير في المنطق أو النص (مجرد إعادة تنظيم إلى خريطة يمكن الوصول لعناصرها بالاسم)،
+   * بحيث يمكن لمسار قالب الذكاء الاصطناعي أدناه إعادة استخدام نفس المحتوى الموثوق
+   * والمرتبط ببيانات المشروع الحالية، دون إعادة كتابته أو تكراره.
+   *
+   * لا يوجد أي تمييز بصري (لون/خط) خاص بقالب AI هنا عمداً: الأقسام المطابقة والأقسام
+   * العامة تُعرض بنفس تصميم وألوان وخط القالب الافتراضي المُختبَر تماماً، لضمان تقرير
+   * نهائي متسق ومهني بصرياً بصرف النظر عن الملف المرفوع (الذي قد يحوي ألواناً أو
+   * تصميماً غير مناسبين لتقرير رسمي).
+   */
+  const topic_intro: ReactNode = (
+        <section key="mv-toc-1" id="mv-toc-1" data-mv-report-insert-anchor="mv-toc-1" className="space-y-3">
+          {editableHeading("mv-toc-1", "1.0 مقدمة")}
+          <div className="space-y-3 text-[12px] font-medium leading-7 text-slate-800">
+            <EditableBlock
+              value={editableText(
+                "paragraph.intro",
+                `تم التقييم وإصدار هذا التقرير وفقاً لاتفاقية تنفيذ أعمال التقييم بين شركة ${textValue(companyName, "الجهة المُقيِّمة")} للعميل ${clientName} حسب نطاق العمل المتفق عليه والموضح في «نطاق التقييم»، وذلك بغرض ${textValue(reportData.valuationPurpose, "التقييم")} على أساس ${textValue(reportData.valuationBasis, "القيمة السوقية")} في تاريخ التقييم ${dateValue(reportData.valuationDate)} م.`,
+              )}
+              onChange={(value) => setTextOverride("paragraph.intro", value)}
+              className="leading-7"
+            />
+          </div>
+          <ClearableRichHtmlField html={introExtraHtml} onHtmlChange={onIntroExtraHtml} />
+          {insertedAfter("mv-toc-1")}
+        </section>
+  );
+  const topic_datesUsed: ReactNode = (
+        <section key="mv-toc-2" id="mv-toc-2" data-mv-report-insert-anchor="mv-toc-2" className="mt-6">
+          {editableHeading("mv-toc-2", "2.0 التواريخ المستخدمة")}
+          <ul className="list-disc space-y-1.5 pe-4 text-[12px] font-semibold text-slate-800" style={{ lineHeight: "var(--mv-paragraph-leading, 1.75)" }}>
+            <li>
+              <EditableBlock
+                value={editableText(
+                  "dates.agreement",
+                  reportData.agreementDate
+                    ? `تاريخ الاتفاقية (نطاق العمل): ${dateValue(reportData.agreementDate)}.`
+                    : "تاريخ الاتفاقية: غير محدد — يُضاف من «بيانات التقرير».",
+                )}
+                onChange={(value) => setTextOverride("dates.agreement", value)}
+                className={!reportData.agreementDate && !hasTextOverride("dates.agreement") ? "text-slate-500" : undefined}
+              />
+            </li>
+            <li>
+              <EditableBlock
+                value={editableText("dates.inspection", `تاريخ المعاينة: ${dateValue(reportData.inspectionDate)}.`)}
+                onChange={(value) => setTextOverride("dates.inspection", value)}
+              />
+            </li>
+            <li>
+              <EditableBlock
+                value={editableText("dates.valuation", `تاريخ التقييم: ${dateValue(reportData.valuationDate)}.`)}
+                onChange={(value) => setTextOverride("dates.valuation", value)}
+              />
+            </li>
+            <li>
+              <EditableBlock
+                value={editableText("dates.issue", `تاريخ إصدار التقرير: ${dateValue(reportData.reportIssueDate)}.`)}
+                onChange={(value) => setTextOverride("dates.issue", value)}
+              />
+            </li>
+          </ul>
+          {insertedAfter("mv-toc-2")}
+        </section>
+  );
+  const topic_compliance: ReactNode = (
+        <section key="mv-toc-3" id="mv-toc-3" data-mv-report-insert-anchor="mv-toc-3" className="mt-2 space-y-2">
+          {editableHeading("mv-toc-3", "3.0 الامتثال لمعايير التقييم الدولية")}
+          {narrativeBlock("section.complianceStatement", renderCompanyDefault("scope", "complianceStatement"))}
+          {insertedAfter("mv-toc-3")}
+        </section>
+  );
+  const topic_independence: ReactNode = (
+        <section key="mv-toc-4" id="mv-toc-4" data-mv-report-insert-anchor="mv-toc-4" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-4", "4.0 إقرار بالاستقلالية وعدم تضارب المصالح")}
+          {narrativeBlock("section.independenceStatement", renderCompanyDefault("scope", "independenceStatement"))}
+          {insertedAfter("mv-toc-4")}
+        </section>
+  );
+  const topic_valuerIdentity: ReactNode = (
+        <section key="mv-toc-5" id="mv-toc-5" data-mv-report-insert-anchor="mv-toc-5" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-5", "5.0 هوية المقيم")}
+          {narrativeBlock(
+            "section.valuerIdentity",
+            [
+              `يتولى عمليات التقييم شركة ${textValue(companyName, "الجهة المُقيِّمة")}${
+                valuationFirmLicense ? ` للتقييم ترخيص رقم: ${valuationFirmLicense}` : ""
+              }${
+                reportData.valuationFirmAddress?.trim()
+                  ? `، وعنوانها الرئيسي: ${reportData.valuationFirmAddress.trim()}`
+                  : ""
+              }.`,
+              `يقود تقييم هذا التقرير ${leadValuerName ? `الأستاذ ${leadValuerName}` : "المقيم المسؤول"}${
+                reportData.leadValuerTitle?.trim() ? `، ${reportData.leadValuerTitle.trim()}` : ""
+              }${
+                reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback
+                  ? `، عضوية رقم: ${(reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback).trim()}`
+                  : ""
+              }.`,
+            ].join("\n"),
+          )}
+          {insertedAfter("mv-toc-5")}
+        </section>
+  );
+  const topic_clientIdentity: ReactNode = (
+        <section key="mv-toc-6" id="mv-toc-6" data-mv-report-insert-anchor="mv-toc-6" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-6", "6.0 هوية العميل (المستخدم المقصود)")}
+          {narrativeBlock(
+            "section.clientIdentity",
+            `بحسب اتفاقية تنفيذ أعمال التقييم فإن العميل هو ${textValue(clientName, "العميل")}${
+              reportData.clientLegalType?.trim() ? ` نوعها ${reportData.clientLegalType.trim()}` : ""
+            }${
+              reportData.clientActivity?.trim() ? ` نشاطها ${reportData.clientActivity.trim()}` : ""
+            }${
+              clientRepresentativeName ? ` يمثلها الأستاذ/${clientRepresentativeName}` : ""
+            }${
+              reportData.clientRepresentativeRole?.trim()
+                ? ` صفته ${reportData.clientRepresentativeRole.trim()}`
+                : ""
+            }.`,
+          )}
+          {insertedAfter("mv-toc-6")}
+        </section>
+  );
+  const topic_intendedUsers: ReactNode = (
+        <section key="mv-toc-7" id="mv-toc-7" data-mv-report-insert-anchor="mv-toc-7" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-7", "7.0 هوية المستخدمين المقصودين الآخرين")}
+          {narrativeBlock(
+            "section.intendedUsers",
+            textValue(reportData.intendedUsers, "لا يوجد مستخدمون مقصودون آخرون."),
+          )}
+          {insertedAfter("mv-toc-7")}
+        </section>
+  );
+  const topic_assetSummary: ReactNode = (
+        <section
+          key="mv-toc-asset-summary"
+          id="mv-toc-asset-summary"
+          data-mv-report-insert-anchor="mv-toc-asset-summary"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-asset-summary", "8.0 الأصل محل التقييم")}
+          {narrativeBlock(
+            "section.assetSummary",
+            `${
+              assetFolderLabels.length > 0
+                ? `${assetFolderLabels.join("، ")}. `
+                : ""
+            }${MV_DEFAULT_ASSET_SUMMARY_TEXT}`,
+          )}
+          {insertedAfter("mv-toc-asset-summary")}
+        </section>
+  );
+  const topic_scopeOfWork: ReactNode = (
+        <section key="mv-toc-8" id="mv-toc-8" data-mv-report-insert-anchor="mv-toc-8" className="mt-2 space-y-2">
+          {editableHeading("mv-toc-8", "9.0 نطاق العمل")}
+          {narrativeBlock(
+            "scopeOfWorkDetails",
+            fieldOrCompanyDefault(reportData.scopeOfWorkDetails, "scope", "scopeOfWorkDetails"),
+          )}
+          {insertedAfter("mv-toc-8")}
+        </section>
+  );
+  const topic_valuationPurpose: ReactNode = (
+        <section key="mv-toc-9" id="mv-toc-9" data-mv-report-insert-anchor="mv-toc-9" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-9", "10.0 الغرض من التقييم")}
+          {narrativeBlock(
+            "section.valuationPurpose",
+            `الغرض المتبع في هذا التقرير لتقييم الأصل كما في نطاق التقييم هو ${textValue(reportData.valuationPurpose, "غير محدد")}، حيث أن الغرض يحدد أساس القيمة المناسب حسب الحالة العامة للاستخدام المقصود من التقرير.`,
+          )}
+          {insertedAfter("mv-toc-9")}
+        </section>
+  );
+  const topic_intendedUse: ReactNode = (
+        <section key="mv-toc-10" id="mv-toc-10" data-mv-report-insert-anchor="mv-toc-10" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-10", "11.0 الاستخدام المقصود")}
+          {narrativeBlock(
+            "section.intendedUse",
+            reportData.intendedUse?.trim()
+              ? `يتم استخدام هذا التقرير للعميل ${textValue(clientName, "العميل")} لمساعدته في إجراءات ${reportData.intendedUse.trim()} للأصول محل التقييم.`
+              : renderCompanyDefault("scope", "intendedUseStatement"),
+          )}
+          {insertedAfter("mv-toc-10")}
+        </section>
+  );
+  const topic_valuationBasis: ReactNode = (
+        <section key="mv-toc-11" id="mv-toc-11" data-mv-report-insert-anchor="mv-toc-11" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-11", "12.0 أساس القيمة المستخدم")}
+          {narrativeBlock(
+            "section.valuationBasisIntro",
+            `الأساس المناسب هو: ${textValue(reportData.valuationBasis, "القيمة السوقية")}.`,
+          )}
+          {narrativeBlock(
+            "valuationBasisDefinition",
+            fieldOrCompanyDefault(
+              reportData.valuationBasisDefinition,
+              "scope",
+              "valuationBasisDefinition",
+            ),
+          )}
+          {insertedAfter("mv-toc-11")}
+        </section>
+  );
+  const topic_valuePremise: ReactNode = (
+        <section key="mv-toc-12" id="mv-toc-12" data-mv-report-insert-anchor="mv-toc-12" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-12", "13.0 فرضية القيمة")}
+          {narrativeBlock(
+            "valuePremise",
+            reportData.valuePremise?.trim() ||
+              companyDefault("scope", "valuePremiseDefinition") ||
+              "غير محدد.",
+          )}
+          {insertedAfter("mv-toc-12")}
+        </section>
+  );
+  const topic_useRestriction: ReactNode = (
+        <section key="mv-toc-13" id="mv-toc-13" data-mv-report-insert-anchor="mv-toc-13" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-13", "14.0 القيود على الاستخدام أو التوزيع أو النشر")}
+          {narrativeBlock(
+            "useRestriction",
+            reportData.useRestriction?.trim() || renderCompanyDefault("scope", "useRestriction"),
+          )}
+          {insertedAfter("mv-toc-13")}
+        </section>
+  );
+  const topic_externalSpecialists: ReactNode = (
+        <section key="mv-toc-14" id="mv-toc-14" data-mv-report-insert-anchor="mv-toc-14" className="mt-2 space-y-2">
+          {editableHeading("mv-toc-14", "15.0 الاستعانة بأخصائيين")}
+          {narrativeBlock(
+            "externalSpecialistUse",
+            fieldOrCompanyDefault(reportData.externalSpecialistUse, "scope", "externalSpecialistUse"),
+          )}
+          {insertedAfter("mv-toc-14")}
+        </section>
+  );
+  const topic_esg: ReactNode = (
+        <section key="mv-toc-15" id="mv-toc-15" data-mv-report-insert-anchor="mv-toc-15" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-15", "16.0 العوامل البيئية والاجتماعية والحوكمة")}
+          {narrativeBlock(
+            "esgConsiderations",
+            fieldOrCompanyDefault(reportData.esgConsiderations, "scope", "esgConsiderations"),
+          )}
+          {insertedAfter("mv-toc-15")}
+        </section>
+  );
+  const topic_reportType: ReactNode = (
+        <section key="mv-toc-16" id="mv-toc-16" data-mv-report-insert-anchor="mv-toc-16" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-16", "17.0 نوع التقرير")}
+          {narrativeBlock(
+            "section.reportTypeLine",
+            `نوع التقرير ${textValue(reportData.reportTypeLabel, "مفصَّل")} ويتم إيصال التقييم عن طريق البريد الإلكتروني.`,
+          )}
+          {insertedAfter("mv-toc-16")}
+        </section>
+  );
+  const topic_informationSources: ReactNode = (
+        <section key="mv-toc-17" id="mv-toc-17" data-mv-report-insert-anchor="mv-toc-17" className="mt-5 space-y-2">
+          {editableHeading(
+            "mv-toc-17",
+            "18.0 طبيعة ومصادر المعلومات التي تم الاعتماد عليها (المدخلات الرئيسية المستخدمة)",
+          )}
+          {narrativeBlock(
+            "informationSources",
+            fieldOrCompanyDefault(reportData.informationSources, "scope", "informationSources"),
+          )}
+          {insertedAfter("mv-toc-17")}
+        </section>
+  );
+  const topic_assetSubject: ReactNode = (
+        <section key="mv-toc-18" id="mv-toc-18" data-mv-report-insert-anchor="mv-toc-18" className="space-y-2">
+          {editableHeading("mv-toc-18", "19.0 الأصل محل التقييم")}
+          {narrativeBlock(
+            "section.assetSubjectIntro",
+            `${
+              assetFolderLabels.length > 0
+                ? `يشمل الأصل محل التقييم: ${assetFolderLabels.join("، ")}. `
+                : ""
+            }${fieldOrCompanyDefault(reportData.assetSubjectDescription, "methodology", "assetSubjectDescription")}`,
+          )}
+          {insertedAfter("mv-toc-18")}
+        </section>
+  );
+  const topic_partialDescription: ReactNode = (
+        <section key="mv-toc-18-1" id="mv-toc-18-1" data-mv-report-insert-anchor="mv-toc-18-1" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-18-1", "19.1 الوصف الجزئي")}
+          {narrativeBlock(
+            "section.partialDescriptionIntro",
+            "يُعرض الوصف الجزئي وحسابات القيمة في «مرفق 1»، والصور في «مرفق 2»، والمستندات المستلمة من العميل في «مرفق 3»، وبيان شهادة التسجيل في بوابة «تقييم» في «مرفق 4».",
+          )}
+          {narrativeBlock(
+            "assetDetailedDescription",
+            fieldOrCompanyDefault(
+              reportData.assetDetailedDescription,
+              "methodology",
+              "assetDetailedDescription",
+            ),
+          )}
+          {insertedAfter("mv-toc-18-1")}
+        </section>
+  );
+  const topic_exclusions: ReactNode = (
+        <section
+          key="mv-toc-exclusions"
+          id="mv-toc-exclusions"
+          data-mv-report-insert-anchor="mv-toc-exclusions"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-exclusions", "20.0 الاستثناءات")}
+          {narrativeBlock("section.exclusionsList", MV_DEFAULT_EXCLUSIONS_TEXT)}
+          {insertedAfter("mv-toc-exclusions")}
+        </section>
+  );
+  const topic_currency: ReactNode = (
+        <section key="mv-toc-19" id="mv-toc-19" data-mv-report-insert-anchor="mv-toc-19" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-19", "21.0 العملة")}
+          {narrativeBlock(
+            "section.currencyLine",
+            `العملة المستخدمة هي ${effectiveCurrencyLabel}.`,
+          )}
+          {insertedAfter("mv-toc-19")}
+        </section>
+  );
+  const topic_valuationProcedures: ReactNode = (
+        <section
+          key="mv-toc-procedures"
+          id="mv-toc-procedures"
+          data-mv-report-insert-anchor="mv-toc-procedures"
+          className="mt-5 space-y-2"
+        >
+          {editableHeading("mv-toc-procedures", "22.0 إجراءات التقييم")}
+          {narrativeBlock("section.valuationProcedures", MV_DEFAULT_VALUATION_PROCEDURES_TEXT)}
+          {insertedAfter("mv-toc-procedures")}
+        </section>
+  );
+  const topic_inspection: ReactNode = (
+        <section key="mv-toc-20" id="mv-toc-20" data-mv-report-insert-anchor="mv-toc-20" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-20", "23.0 المعاينة")}
+          {narrativeBlock(
+            "section.inspectionLine",
+            `تمت المعاينة في ${effectiveInspectionLocation} بتاريخ ${dateValue(reportData.inspectionDate)} م.${
+              effectiveInspectionMapUrl ? `\nالموقع: ${effectiveInspectionMapUrl}` : ""
+            }`,
+            "break-words",
+          )}
+          {insertedAfter("mv-toc-20")}
+        </section>
+  );
+  const topic_methodologyRationale: ReactNode = (
+        <section key="mv-toc-21" id="mv-toc-21" data-mv-report-insert-anchor="mv-toc-21" className="mt-2 space-y-2">
+          {editableHeading("mv-toc-21", "24.0 منهجية التقييم والتحليل")}
+          {narrativeBlock(
+            "methodologyRationale",
+            fieldOrCompanyDefault(reportData.methodologyRationale, "methodology", "methodologyRationale"),
+          )}
+          {insertedAfter("mv-toc-21")}
+        </section>
+  );
+  const topic_assumptions: ReactNode = (
+        <section key="mv-toc-23" id="mv-toc-23" data-mv-report-insert-anchor="mv-toc-23" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-23", "26.0 الافتراضات المهمة والافتراضات الخاصة")}
+          {narrativeBlock(
+            "generalAssumptions",
+            fieldOrCompanyDefault(
+              reportData.generalAssumptions || reportData.importantAssumptions,
+              "assumptions",
+              "generalAssumptions",
+            ),
+          )}
+          {(() => {
+            const specialText = fieldOrCompanyDefault(
+              reportData.specialAssumptions,
+              "assumptions",
+              "specialAssumptions",
+            );
+            return specialText.trim() ? narrativeBlock("specialAssumptions", specialText) : null;
+          })()}
+          {insertedAfter("mv-toc-23")}
+        </section>
+  );
+  const topic_valueOpinion: ReactNode = (
+        <section key="mv-toc-24" id="mv-toc-24" data-mv-report-insert-anchor="mv-toc-24">
+          {editableHeading("mv-toc-24", "27.0 رأي القيمة")}
+          <div className="mt-3 space-y-6 text-right">
+            <EditableBlock
+              value={editableText("paragraph.valueOpinion", valueOpinionSentence)}
+              onChange={(value) => setTextOverride("paragraph.valueOpinion", value)}
+              className="text-[12.5px] font-semibold leading-8 text-slate-950"
+            />
+            {preparerDisplayRows.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-[12px] font-semibold text-slate-500">
+                لا صفوف من لوحة الشركة — أضف مقيّمين وتوقيعات من لوحة إدارة الشركة.
+              </p>
+            ) : (
+              <div className="mx-auto max-w-[560px] space-y-4">
+                {preparerDisplayRows.map((row) => (
+                  <div
+                    key={row.id}
+                    dir="ltr"
+                    className="grid grid-cols-[minmax(120px,0.85fr)_minmax(190px,1.15fr)] items-center gap-x-10 gap-y-2"
+                  >
+                    <div dir="rtl" className="flex min-h-[76px] flex-col items-center justify-start">
+                      <EditableBlock
+                        value={labelText("preparer.signature", "التوقيع")}
+                        onChange={(value) => setTextOverride("label.preparer.signature", value)}
+                        className="mb-1 min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
+                        multiline={false}
+                      />
+                      <div className="flex min-h-[48px] items-center justify-center">
+                        {!sheetDraft && row.signatureImageDataUrl ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={row.signatureImageDataUrl}
+                            alt=""
+                            className="max-h-[58px] max-w-[150px] object-contain"
+                          />
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </div>
+                    </div>
+                    <div dir="rtl" className="space-y-0.5 text-right text-slate-950">
+                      <EditableBlock
+                        dir="rtl"
+                        value={row.name}
+                        onChange={(value) => updatePreparerField(row.id, "name", value)}
+                        className="mv-report-preparer-field min-h-6 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[12px] font-bold leading-6 outline-none focus:border-sky-300 print:border-0"
+                        multiline={false}
+                      />
+                      <EditableBlock
+                        dir="rtl"
+                        value={row.roleLabel}
+                        onChange={(value) => updatePreparerField(row.id, "roleLabel", value)}
+                        className="mv-report-preparer-field min-h-5 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[11.5px] font-semibold leading-5 outline-none focus:border-sky-300 print:border-0"
+                        multiline={false}
+                      />
+                      <div className="flex items-center justify-start gap-1 text-[11px] font-bold leading-5">
+                        <span>رقم:</span>
+                        <EditableBlock
+                          dir="ltr"
+                          value={row.membershipNo}
+                          onChange={(value) => updatePreparerField(row.id, "membershipNo", value)}
+                          className="mv-report-preparer-field min-h-5 min-w-[90px] rounded border border-transparent bg-transparent px-1 py-0 text-right tabular-nums outline-none focus:border-sky-300 print:border-0"
+                          multiline={false}
+                          placeholder="رقم العضوية"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-1 flex justify-center">
+              <div className="min-w-[170px] text-center">
+                <EditableBlock
+                  value={labelText("preparer.stamp", "الختم")}
+                  onChange={(value) => setTextOverride("label.preparer.stamp", value)}
+                  className="min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
+                  multiline={false}
+                />
+                {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={letterheadTemplate.signatureStampDataUrl}
+                    alt=""
+                    className="mx-auto mt-1 max-h-16 max-w-[170px] object-contain"
+                  />
+                ) : (
+                  <div className="mx-auto mt-3 h-px w-[150px] bg-slate-300" />
+                )}
+              </div>
+            </div>
+          </div>
+          {insertedAfter("mv-toc-24")}
+        </section>
+  );
+  const topic_costApproach: ReactNode = (
+    <Fragment key="mv-toc-22">
+        <section key="mv-toc-22" id="mv-toc-22" data-mv-report-insert-anchor="mv-toc-22" className="mt-5 space-y-2">
+          {editableHeading("mv-toc-22", applyApproachHeading)}
+          {narrativeBlock(
+            "costApproachDetails",
+            fieldOrCompanyDefault(reportData.costApproachDetails, "methodology", "costApproachDetails"),
+          )}
+          {insertedAfter("mv-toc-22")}
+        </section>
+        {showCostSubSections ? (
+          <>
+            <section key="mv-toc-22-1" id="mv-toc-22-1" data-mv-report-insert-anchor="mv-toc-22-1" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-1", "25.1 القيمة المتبقية (القيمة التخريدية)")}
+              {narrativeBlock("salvageValueDescription", companyDefault("methodology", "salvageValueDescription"))}
+              {insertedAfter("mv-toc-22-1")}
+            </section>
+
+            <section key="mv-toc-22-2" id="mv-toc-22-2" data-mv-report-insert-anchor="mv-toc-22-2" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-2", "25.2 الإهلاك المادي")}
+              {narrativeBlock(
+                "physicalDepreciationDescription",
+                companyDefault("methodology", "physicalDepreciationDescription"),
+              )}
+              {insertedAfter("mv-toc-22-2")}
+            </section>
+
+            <section key="mv-toc-22-3" id="mv-toc-22-3" data-mv-report-insert-anchor="mv-toc-22-3" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-3", "25.3 التقادم الوظيفي")}
+              {narrativeBlock(
+                "functionalObsolescenceDescription",
+                companyDefault("methodology", "functionalObsolescenceDescription"),
+              )}
+              {insertedAfter("mv-toc-22-3")}
+            </section>
+
+            <section key="mv-toc-22-4" id="mv-toc-22-4" data-mv-report-insert-anchor="mv-toc-22-4" className="mt-5 space-y-2">
+              {editableHeading("mv-toc-22-4", "25.4 التقادم الاقتصادي")}
+              {narrativeBlock(
+                "economicObsolescenceDescription",
+                companyDefault("methodology", "economicObsolescenceDescription"),
+              )}
+              {insertedAfter("mv-toc-22-4")}
+            </section>
+          </>
+        ) : null}
+    </Fragment>
+  );
+
+  const narrativeB1Node: ReactNode = narrativeB1?.trim() ? (
+    <div key="mv-narrative-b1" className="mb-3">
+      <ClearableRichHtmlField html={narrativeB1} onHtmlChange={onNarrativeB1} />
+    </div>
+  ) : null;
+  const narrativeB2Node: ReactNode = narrativeB2?.trim() ? (
+    <div key="mv-narrative-b2" className="mb-3">
+      <ClearableRichHtmlField html={narrativeB2} onHtmlChange={onNarrativeB2} />
+    </div>
+  ) : null;
+  const narrativeB3Node: ReactNode = narrativeB3?.trim() ? (
+    <div key="mv-narrative-b3" className="mb-3">
+      <ClearableRichHtmlField html={narrativeB3} onHtmlChange={onNarrativeB3} />
+    </div>
+  ) : null;
+  const narrativeB4Node: ReactNode = narrativeB4?.trim() ? (
+    <div key="mv-narrative-b4" className="mb-3">
+      <ClearableRichHtmlField html={narrativeB4} onHtmlChange={onNarrativeB4} />
+    </div>
+  ) : null;
+
+  const topicSections: Partial<Record<MvAiReportTopicKey, ReactNode>> = {
+    intro: topic_intro,
+    datesUsed: topic_datesUsed,
+    compliance: topic_compliance,
+    independence: topic_independence,
+    valuerIdentity: topic_valuerIdentity,
+    clientIdentity: topic_clientIdentity,
+    intendedUsers: topic_intendedUsers,
+    assetSummary: topic_assetSummary,
+    scopeOfWork: topic_scopeOfWork,
+    valuationPurpose: topic_valuationPurpose,
+    intendedUse: topic_intendedUse,
+    valuationBasis: topic_valuationBasis,
+    valuePremise: topic_valuePremise,
+    useRestriction: topic_useRestriction,
+    externalSpecialists: topic_externalSpecialists,
+    esg: topic_esg,
+    reportType: topic_reportType,
+    informationSources: topic_informationSources,
+    assetSubject: topic_assetSubject,
+    partialDescription: topic_partialDescription,
+    exclusions: topic_exclusions,
+    currency: topic_currency,
+    valuationProcedures: topic_valuationProcedures,
+    inspection: topic_inspection,
+    methodologyRationale: topic_methodologyRationale,
+    assumptions: topic_assumptions,
+    valueOpinion: topic_valueOpinion,
+    costApproach: topic_costApproach,
+  };
+
+  /** ترتيب العرض الافتراضي (غير مرتبط بقالب AI) — مطابق تماماً لما كان موجوداً سابقاً. */
+  const defaultFlowChildren: ReactNode[] = [
+    topic_intro,
+    topic_datesUsed,
+    narrativeB1Node,
+    topic_compliance,
+    topic_independence,
+    topic_valuerIdentity,
+    topic_clientIdentity,
+    topic_intendedUsers,
+    topic_assetSummary,
+    narrativeB2Node,
+    topic_scopeOfWork,
+    topic_valuationPurpose,
+    topic_intendedUse,
+    topic_valuationBasis,
+    topic_valuePremise,
+    topic_useRestriction,
+    narrativeB3Node,
+    topic_externalSpecialists,
+    topic_esg,
+    topic_reportType,
+    topic_informationSources,
+    topic_assetSubject,
+    topic_partialDescription,
+    topic_exclusions,
+    topic_currency,
+    topic_valuationProcedures,
+    topic_inspection,
+    narrativeB4Node,
+    topic_methodologyRationale,
+    topic_costApproach,
+    topic_assumptions,
+    topic_valueOpinion,
+  ];
+
+  /**
+   * عند تطبيق قالب ذكاء اصطناعي، نستبدل القائمة الثابتة أعلاه بقائمة مبنية من
+   * `aiTemplate.sections` — كل قسم مكتشف من AI يُطابَق بموضوع من `topicSections`
+   * (فيُعرض محتواه الديناميكي الموثوق كما هو)، أو يُعرض كقسم AI عام مستقل إن لم
+   * يطابق أي موضوع معروف. الأقسام الافتراضية غير المُطابَقة لا تُعرض إطلاقاً —
+   * وهذا ما يُخفي القالب الأساسي فعلياً عند تفعيل قالب AI، بدل تراكب الاثنين.
+   */
+  const aiVariableContext: MvAiVariableContext = {
+    projectName: projectDisplayName,
+    clientName,
+    clientPhone,
+    clientEmail,
+    companyName,
+    valuationDateDisplay: dateValue(reportData.valuationDate),
+    reportIssueDateDisplay: dateValue(reportData.reportIssueDate),
+    inspectionDateDisplay: dateValue(reportData.inspectionDate),
+    finalValueDisplay,
+    finalValueWords,
+    currencyLabel: effectiveCurrencyLabel,
+    reportReference: referenceLabel,
+    reportTitle,
+    leadValuerName,
+    assetFolderLabelsText: assetFolderLabels.join("، "),
+    assetImagesCountText:
+      orderedImages.length > 0 ? `${orderedImages.length} صورة أصول مرفقة في مرفق 2` : "",
+    valuationImagesCountText:
+      valuationAccountImages.length > 0
+        ? `${valuationAccountImages.length} صورة حسابات قيمة مرفقة في مرفق 1`
+        : "",
+    signatoryNamesText: preparerDisplayRows.map((row) => row.name).filter(Boolean).join("، "),
+  };
+  const aiFlow = buildAiReportFlowChildren({
+    aiTemplate,
+    topicSections,
+    ctx: aiVariableContext,
+  });
+  const flowChildren: ReactNode[] = aiFlow?.nodes ?? defaultFlowChildren;
+  /**
+   * فهرس (TOC) مطابق تماماً لما يظهر فعلاً في المتن عند تفعيل قالب AI — بترقيم تسلسلي
+   * نظيف (1.0، 2.0…) بدل الفهرس الثابت الذي كان يسرد الأقسام الافتراضية الـ27 كاملة
+   * دوماً، بصرف النظر عمّا اختاره قالب AI فعلياً (وهو ما كان يجعل الفهرس مضللاً/غير
+   * مطابق للمحتوى الحقيقي في التقرير).
+   */
+  const tocRows: MvReportTocRow[] = aiFlow
+    ? aiFlow.tocRows.map((row, index) => ({ ...row, num: `${index + 1}.0` }))
+    : MV_REPORT_TOC_ROWS;
   return (
     <MvReportLetterheadProvider value={letterheadTemplate}>
     <div
@@ -2256,6 +2932,7 @@ export function MvValuationReportDocumentBody({
         footerLines={reportFooterLines}
         draftWatermark={sheetDraft}
         editableSections={editableSections}
+        rows={tocRows}
         tocApproxPages={tocApproxPages}
         onTocAnchorClick={onTocAnchorClick}
         editableText={editableText}
@@ -2285,535 +2962,7 @@ export function MvValuationReportDocumentBody({
           ["--mv-heading-scale" as string]: String(headingScale),
         }}
       >
-        <section id="mv-toc-1" data-mv-report-insert-anchor="mv-toc-1" className="space-y-3">
-          {editableHeading("mv-toc-1", "1.0 مقدمة")}
-          <div className="space-y-3 text-[12px] font-medium leading-7 text-slate-800">
-            <EditableBlock
-              value={editableText(
-                "paragraph.intro",
-                `تم التقييم وإصدار هذا التقرير وفقاً لاتفاقية تنفيذ أعمال التقييم بين شركة ${textValue(companyName, "الجهة المُقيِّمة")} للعميل ${clientName} حسب نطاق العمل المتفق عليه والموضح في «نطاق التقييم»، وذلك بغرض ${textValue(reportData.valuationPurpose, "التقييم")} على أساس ${textValue(reportData.valuationBasis, "القيمة السوقية")} في تاريخ التقييم ${dateValue(reportData.valuationDate)} م.`,
-              )}
-              onChange={(value) => setTextOverride("paragraph.intro", value)}
-              className="leading-7"
-            />
-          </div>
-          <ClearableRichHtmlField html={introExtraHtml} onHtmlChange={onIntroExtraHtml} />
-          {insertedAfter("mv-toc-1")}
-        </section>
-        <section id="mv-toc-2" data-mv-report-insert-anchor="mv-toc-2" className="mt-6">
-          {editableHeading("mv-toc-2", "2.0 التواريخ المستخدمة")}
-          <ul className="list-disc space-y-1.5 pe-4 text-[12px] font-semibold text-slate-800" style={{ lineHeight: "var(--mv-paragraph-leading, 1.75)" }}>
-            <li>
-              <EditableBlock
-                value={editableText(
-                  "dates.agreement",
-                  reportData.agreementDate
-                    ? `تاريخ الاتفاقية (نطاق العمل): ${dateValue(reportData.agreementDate)}.`
-                    : "تاريخ الاتفاقية: غير محدد — يُضاف من «بيانات التقرير».",
-                )}
-                onChange={(value) => setTextOverride("dates.agreement", value)}
-                className={!reportData.agreementDate && !hasTextOverride("dates.agreement") ? "text-slate-500" : undefined}
-              />
-            </li>
-            <li>
-              <EditableBlock
-                value={editableText("dates.inspection", `تاريخ المعاينة: ${dateValue(reportData.inspectionDate)}.`)}
-                onChange={(value) => setTextOverride("dates.inspection", value)}
-              />
-            </li>
-            <li>
-              <EditableBlock
-                value={editableText("dates.valuation", `تاريخ التقييم: ${dateValue(reportData.valuationDate)}.`)}
-                onChange={(value) => setTextOverride("dates.valuation", value)}
-              />
-            </li>
-            <li>
-              <EditableBlock
-                value={editableText("dates.issue", `تاريخ إصدار التقرير: ${dateValue(reportData.reportIssueDate)}.`)}
-                onChange={(value) => setTextOverride("dates.issue", value)}
-              />
-            </li>
-          </ul>
-          {insertedAfter("mv-toc-2")}
-        </section>
-
-        {narrativeB1?.trim() ? (
-          <div className="mb-3">
-            <ClearableRichHtmlField html={narrativeB1} onHtmlChange={onNarrativeB1} />
-          </div>
-        ) : null}
-
-        {/* 3.0 الامتثال لمعايير التقييم الدولية */}
-        <section id="mv-toc-3" data-mv-report-insert-anchor="mv-toc-3" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-3", "3.0 الامتثال لمعايير التقييم الدولية")}
-          {narrativeBlock("section.complianceStatement", renderCompanyDefault("scope", "complianceStatement"))}
-          {insertedAfter("mv-toc-3")}
-        </section>
-
-        {/* 4.0 إقرار بالاستقلالية وعدم تضارب المصالح */}
-        <section id="mv-toc-4" data-mv-report-insert-anchor="mv-toc-4" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-4", "4.0 إقرار بالاستقلالية وعدم تضارب المصالح")}
-          {narrativeBlock("section.independenceStatement", renderCompanyDefault("scope", "independenceStatement"))}
-          {insertedAfter("mv-toc-4")}
-        </section>
-
-        {/* 5.0 هوية المقيم — narrative paragraph built from project + company fields */}
-        <section id="mv-toc-5" data-mv-report-insert-anchor="mv-toc-5" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-5", "5.0 هوية المقيم")}
-          {narrativeBlock(
-            "section.valuerIdentity",
-            [
-              `يتولى عمليات التقييم شركة ${textValue(companyName, "الجهة المُقيِّمة")}${
-                valuationFirmLicense ? ` للتقييم ترخيص رقم: ${valuationFirmLicense}` : ""
-              }${
-                reportData.valuationFirmAddress?.trim()
-                  ? `، وعنوانها الرئيسي: ${reportData.valuationFirmAddress.trim()}`
-                  : ""
-              }.`,
-              `يقود تقييم هذا التقرير ${leadValuerName ? `الأستاذ ${leadValuerName}` : "المقيم المسؤول"}${
-                reportData.leadValuerTitle?.trim() ? `، ${reportData.leadValuerTitle.trim()}` : ""
-              }${
-                reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback
-                  ? `، عضوية رقم: ${(reportData.leadValuerMembershipNo?.trim() || leadValuerMembershipFallback).trim()}`
-                  : ""
-              }.`,
-            ].join("\n"),
-          )}
-          {insertedAfter("mv-toc-5")}
-        </section>
-
-        {/* 6.0 هوية العميل (المستخدم المقصود) */}
-        <section id="mv-toc-6" data-mv-report-insert-anchor="mv-toc-6" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-6", "6.0 هوية العميل (المستخدم المقصود)")}
-          {narrativeBlock(
-            "section.clientIdentity",
-            `بحسب اتفاقية تنفيذ أعمال التقييم فإن العميل هو ${textValue(clientName, "العميل")}${
-              reportData.clientLegalType?.trim() ? ` نوعها ${reportData.clientLegalType.trim()}` : ""
-            }${
-              reportData.clientActivity?.trim() ? ` نشاطها ${reportData.clientActivity.trim()}` : ""
-            }${
-              clientRepresentativeName ? ` يمثلها الأستاذ/${clientRepresentativeName}` : ""
-            }${
-              reportData.clientRepresentativeRole?.trim()
-                ? ` صفته ${reportData.clientRepresentativeRole.trim()}`
-                : ""
-            }.`,
-          )}
-          {insertedAfter("mv-toc-6")}
-        </section>
-
-        {/* 7.0 هوية المستخدمين المقصودين الآخرين */}
-        <section id="mv-toc-7" data-mv-report-insert-anchor="mv-toc-7" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-7", "7.0 هوية المستخدمين المقصودين الآخرين")}
-          {narrativeBlock(
-            "section.intendedUsers",
-            textValue(reportData.intendedUsers, "لا يوجد مستخدمون مقصودون آخرون."),
-          )}
-          {insertedAfter("mv-toc-7")}
-        </section>
-
-        {/* 8.0 الأصل محل التقييم — مختصر مع إشارة للمرفقات (مطابق لتقرير «تقييم») */}
-        <section
-          id="mv-toc-asset-summary"
-          data-mv-report-insert-anchor="mv-toc-asset-summary"
-          className="mt-5 space-y-2"
-        >
-          {editableHeading("mv-toc-asset-summary", "8.0 الأصل محل التقييم")}
-          {narrativeBlock(
-            "section.assetSummary",
-            `${
-              assetFolderLabels.length > 0
-                ? `${assetFolderLabels.join("، ")}. `
-                : ""
-            }${MV_DEFAULT_ASSET_SUMMARY_TEXT}`,
-          )}
-          {insertedAfter("mv-toc-asset-summary")}
-        </section>
-
-        {narrativeB2?.trim() ? (
-          <div className="mb-3">
-            <ClearableRichHtmlField html={narrativeB2} onHtmlChange={onNarrativeB2} />
-          </div>
-        ) : null}
-
-        {/* 9.0 نطاق العمل */}
-        <section id="mv-toc-8" data-mv-report-insert-anchor="mv-toc-8" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-8", "9.0 نطاق العمل")}
-          {narrativeBlock(
-            "scopeOfWorkDetails",
-            fieldOrCompanyDefault(reportData.scopeOfWorkDetails, "scope", "scopeOfWorkDetails"),
-          )}
-          {insertedAfter("mv-toc-8")}
-        </section>
-
-        {/* 10.0 الغرض من التقييم — single dynamic line */}
-        <section id="mv-toc-9" data-mv-report-insert-anchor="mv-toc-9" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-9", "10.0 الغرض من التقييم")}
-          {narrativeBlock(
-            "section.valuationPurpose",
-            `الغرض المتبع في هذا التقرير لتقييم الأصل كما في نطاق التقييم هو ${textValue(reportData.valuationPurpose, "غير محدد")}، حيث أن الغرض يحدد أساس القيمة المناسب حسب الحالة العامة للاستخدام المقصود من التقرير.`,
-          )}
-          {insertedAfter("mv-toc-9")}
-        </section>
-
-        {/* 11.0 الاستخدام المقصود */}
-        <section id="mv-toc-10" data-mv-report-insert-anchor="mv-toc-10" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-10", "11.0 الاستخدام المقصود")}
-          {narrativeBlock(
-            "section.intendedUse",
-            reportData.intendedUse?.trim()
-              ? `يتم استخدام هذا التقرير للعميل ${textValue(clientName, "العميل")} لمساعدته في إجراءات ${reportData.intendedUse.trim()} للأصول محل التقييم.`
-              : renderCompanyDefault("scope", "intendedUseStatement"),
-          )}
-          {insertedAfter("mv-toc-10")}
-        </section>
-
-        {/* 12.0 أساس القيمة المستخدم */}
-        <section id="mv-toc-11" data-mv-report-insert-anchor="mv-toc-11" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-11", "12.0 أساس القيمة المستخدم")}
-          {narrativeBlock(
-            "section.valuationBasisIntro",
-            `الأساس المناسب هو: ${textValue(reportData.valuationBasis, "القيمة السوقية")}.`,
-          )}
-          {narrativeBlock(
-            "valuationBasisDefinition",
-            fieldOrCompanyDefault(
-              reportData.valuationBasisDefinition,
-              "scope",
-              "valuationBasisDefinition",
-            ),
-          )}
-          {insertedAfter("mv-toc-11")}
-        </section>
-
-        {/* 13.0 فرضية القيمة */}
-        <section id="mv-toc-12" data-mv-report-insert-anchor="mv-toc-12" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-12", "13.0 فرضية القيمة")}
-          {narrativeBlock(
-            "valuePremise",
-            reportData.valuePremise?.trim() ||
-              companyDefault("scope", "valuePremiseDefinition") ||
-              "غير محدد.",
-          )}
-          {insertedAfter("mv-toc-12")}
-        </section>
-
-        {/* 14.0 القيود على الاستخدام أو التوزيع أو النشر */}
-        <section id="mv-toc-13" data-mv-report-insert-anchor="mv-toc-13" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-13", "14.0 القيود على الاستخدام أو التوزيع أو النشر")}
-          {narrativeBlock(
-            "useRestriction",
-            reportData.useRestriction?.trim() || renderCompanyDefault("scope", "useRestriction"),
-          )}
-          {insertedAfter("mv-toc-13")}
-        </section>
-
-        {narrativeB3?.trim() ? (
-          <div className="mb-3">
-            <ClearableRichHtmlField html={narrativeB3} onHtmlChange={onNarrativeB3} />
-          </div>
-        ) : null}
-
-        {/* 15.0 الاستعانة بأخصائيين */}
-        <section id="mv-toc-14" data-mv-report-insert-anchor="mv-toc-14" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-14", "15.0 الاستعانة بأخصائيين")}
-          {narrativeBlock(
-            "externalSpecialistUse",
-            fieldOrCompanyDefault(reportData.externalSpecialistUse, "scope", "externalSpecialistUse"),
-          )}
-          {insertedAfter("mv-toc-14")}
-        </section>
-
-        {/* 16.0 العوامل البيئية والاجتماعية والحوكمة */}
-        <section id="mv-toc-15" data-mv-report-insert-anchor="mv-toc-15" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-15", "16.0 العوامل البيئية والاجتماعية والحوكمة")}
-          {narrativeBlock(
-            "esgConsiderations",
-            fieldOrCompanyDefault(reportData.esgConsiderations, "scope", "esgConsiderations"),
-          )}
-          {insertedAfter("mv-toc-15")}
-        </section>
-
-        {/* 17.0 نوع التقرير */}
-        <section id="mv-toc-16" data-mv-report-insert-anchor="mv-toc-16" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-16", "17.0 نوع التقرير")}
-          {narrativeBlock(
-            "section.reportTypeLine",
-            `نوع التقرير ${textValue(reportData.reportTypeLabel, "مفصَّل")} ويتم إيصال التقييم عن طريق البريد الإلكتروني.`,
-          )}
-          {insertedAfter("mv-toc-16")}
-        </section>
-
-        {/* 18.0 طبيعة ومصادر المعلومات */}
-        <section id="mv-toc-17" data-mv-report-insert-anchor="mv-toc-17" className="mt-5 space-y-2">
-          {editableHeading(
-            "mv-toc-17",
-            "18.0 طبيعة ومصادر المعلومات التي تم الاعتماد عليها (المدخلات الرئيسية المستخدمة)",
-          )}
-          {narrativeBlock(
-            "informationSources",
-            fieldOrCompanyDefault(reportData.informationSources, "scope", "informationSources"),
-          )}
-          {insertedAfter("mv-toc-17")}
-        </section>
-
-        {/* 19.0 الأصل محل التقييم */}
-        <section id="mv-toc-18" data-mv-report-insert-anchor="mv-toc-18" className="space-y-2">
-          {editableHeading("mv-toc-18", "19.0 الأصل محل التقييم")}
-          {narrativeBlock(
-            "section.assetSubjectIntro",
-            `${
-              assetFolderLabels.length > 0
-                ? `يشمل الأصل محل التقييم: ${assetFolderLabels.join("، ")}. `
-                : ""
-            }${fieldOrCompanyDefault(reportData.assetSubjectDescription, "methodology", "assetSubjectDescription")}`,
-          )}
-          {insertedAfter("mv-toc-18")}
-        </section>
-
-        {/* 19.1 الوصف الجزئي */}
-        <section id="mv-toc-18-1" data-mv-report-insert-anchor="mv-toc-18-1" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-18-1", "19.1 الوصف الجزئي")}
-          {narrativeBlock(
-            "section.partialDescriptionIntro",
-            "يُعرض الوصف الجزئي وحسابات القيمة في «مرفق 1»، والصور في «مرفق 2»، والمستندات المستلمة من العميل في «مرفق 3»، وبيان شهادة التسجيل في بوابة «تقييم» في «مرفق 4».",
-          )}
-          {narrativeBlock(
-            "assetDetailedDescription",
-            fieldOrCompanyDefault(
-              reportData.assetDetailedDescription,
-              "methodology",
-              "assetDetailedDescription",
-            ),
-          )}
-          {insertedAfter("mv-toc-18-1")}
-        </section>
-
-        {/* 20.0 الاستثناءات — جديد، مطابق لبنود تقرير الهيئة */}
-        <section
-          id="mv-toc-exclusions"
-          data-mv-report-insert-anchor="mv-toc-exclusions"
-          className="mt-5 space-y-2"
-        >
-          {editableHeading("mv-toc-exclusions", "20.0 الاستثناءات")}
-          {narrativeBlock("section.exclusionsList", MV_DEFAULT_EXCLUSIONS_TEXT)}
-          {insertedAfter("mv-toc-exclusions")}
-        </section>
-
-        {/* 21.0 العملة */}
-        <section id="mv-toc-19" data-mv-report-insert-anchor="mv-toc-19" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-19", "21.0 العملة")}
-          {narrativeBlock(
-            "section.currencyLine",
-            `العملة المستخدمة هي ${effectiveCurrencyLabel}.`,
-          )}
-          {insertedAfter("mv-toc-19")}
-        </section>
-
-        {/* 22.0 إجراءات التقييم — جديد، يسبق المعاينة كما في تقرير «تقييم» */}
-        <section
-          id="mv-toc-procedures"
-          data-mv-report-insert-anchor="mv-toc-procedures"
-          className="mt-5 space-y-2"
-        >
-          {editableHeading("mv-toc-procedures", "22.0 إجراءات التقييم")}
-          {narrativeBlock("section.valuationProcedures", MV_DEFAULT_VALUATION_PROCEDURES_TEXT)}
-          {insertedAfter("mv-toc-procedures")}
-        </section>
-
-        {/* 23.0 المعاينة */}
-        <section id="mv-toc-20" data-mv-report-insert-anchor="mv-toc-20" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-20", "23.0 المعاينة")}
-          {narrativeBlock(
-            "section.inspectionLine",
-            `تمت المعاينة في ${effectiveInspectionLocation} بتاريخ ${dateValue(reportData.inspectionDate)} م.${
-              effectiveInspectionMapUrl ? `\nالموقع: ${effectiveInspectionMapUrl}` : ""
-            }`,
-            "break-words",
-          )}
-          {insertedAfter("mv-toc-20")}
-        </section>
-
-        {narrativeB4?.trim() ? (
-          <div className="mb-3">
-            <ClearableRichHtmlField html={narrativeB4} onHtmlChange={onNarrativeB4} />
-          </div>
-        ) : null}
-
-        {/* 24.0 منهجية التقييم والتحليل */}
-        <section id="mv-toc-21" data-mv-report-insert-anchor="mv-toc-21" className="mt-2 space-y-2">
-          {editableHeading("mv-toc-21", "24.0 منهجية التقييم والتحليل")}
-          {narrativeBlock(
-            "methodologyRationale",
-            fieldOrCompanyDefault(reportData.methodologyRationale, "methodology", "methodologyRationale"),
-          )}
-          {insertedAfter("mv-toc-21")}
-        </section>
-
-        {/* 25.0 تطبيق أسلوب التقييم — العنوان ديناميكي حسب الأسلوب المختار */}
-        <section id="mv-toc-22" data-mv-report-insert-anchor="mv-toc-22" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-22", applyApproachHeading)}
-          {narrativeBlock(
-            "costApproachDetails",
-            fieldOrCompanyDefault(reportData.costApproachDetails, "methodology", "costApproachDetails"),
-          )}
-          {insertedAfter("mv-toc-22")}
-        </section>
-
-        {/* الأقسام الفرعية 25.1 → 25.4 — تظهر فقط مع أسلوب التكلفة */}
-        {showCostSubSections ? (
-          <>
-            <section id="mv-toc-22-1" data-mv-report-insert-anchor="mv-toc-22-1" className="mt-5 space-y-2">
-              {editableHeading("mv-toc-22-1", "25.1 القيمة المتبقية (القيمة التخريدية)")}
-              {narrativeBlock("salvageValueDescription", companyDefault("methodology", "salvageValueDescription"))}
-              {insertedAfter("mv-toc-22-1")}
-            </section>
-
-            <section id="mv-toc-22-2" data-mv-report-insert-anchor="mv-toc-22-2" className="mt-5 space-y-2">
-              {editableHeading("mv-toc-22-2", "25.2 الإهلاك المادي")}
-              {narrativeBlock(
-                "physicalDepreciationDescription",
-                companyDefault("methodology", "physicalDepreciationDescription"),
-              )}
-              {insertedAfter("mv-toc-22-2")}
-            </section>
-
-            <section id="mv-toc-22-3" data-mv-report-insert-anchor="mv-toc-22-3" className="mt-5 space-y-2">
-              {editableHeading("mv-toc-22-3", "25.3 التقادم الوظيفي")}
-              {narrativeBlock(
-                "functionalObsolescenceDescription",
-                companyDefault("methodology", "functionalObsolescenceDescription"),
-              )}
-              {insertedAfter("mv-toc-22-3")}
-            </section>
-
-            <section id="mv-toc-22-4" data-mv-report-insert-anchor="mv-toc-22-4" className="mt-5 space-y-2">
-              {editableHeading("mv-toc-22-4", "25.4 التقادم الاقتصادي")}
-              {narrativeBlock(
-                "economicObsolescenceDescription",
-                companyDefault("methodology", "economicObsolescenceDescription"),
-              )}
-              {insertedAfter("mv-toc-22-4")}
-            </section>
-          </>
-        ) : null}
-
-        {/* 26.0 الافتراضات المهمة والافتراضات الخاصة */}
-        <section id="mv-toc-23" data-mv-report-insert-anchor="mv-toc-23" className="mt-5 space-y-2">
-          {editableHeading("mv-toc-23", "26.0 الافتراضات المهمة والافتراضات الخاصة")}
-          {narrativeBlock(
-            "generalAssumptions",
-            fieldOrCompanyDefault(
-              reportData.generalAssumptions || reportData.importantAssumptions,
-              "assumptions",
-              "generalAssumptions",
-            ),
-          )}
-          {(() => {
-            const specialText = fieldOrCompanyDefault(
-              reportData.specialAssumptions,
-              "assumptions",
-              "specialAssumptions",
-            );
-            return specialText.trim() ? narrativeBlock("specialAssumptions", specialText) : null;
-          })()}
-          {insertedAfter("mv-toc-23")}
-        </section>
-
-        <section id="mv-toc-24" data-mv-report-insert-anchor="mv-toc-24">
-          {editableHeading("mv-toc-24", "27.0 رأي القيمة")}
-          <div className="mt-3 space-y-6 text-right">
-            <EditableBlock
-              value={editableText("paragraph.valueOpinion", valueOpinionSentence)}
-              onChange={(value) => setTextOverride("paragraph.valueOpinion", value)}
-              className="text-[12.5px] font-semibold leading-8 text-slate-950"
-            />
-            {preparerDisplayRows.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-[12px] font-semibold text-slate-500">
-                لا صفوف من لوحة الشركة — أضف مقيّمين وتوقيعات من لوحة إدارة الشركة.
-              </p>
-            ) : (
-              <div className="mx-auto max-w-[560px] space-y-4">
-                {preparerDisplayRows.map((row) => (
-                  <div
-                    key={row.id}
-                    dir="ltr"
-                    className="grid grid-cols-[minmax(120px,0.85fr)_minmax(190px,1.15fr)] items-center gap-x-10 gap-y-2"
-                  >
-                    <div dir="rtl" className="flex min-h-[76px] flex-col items-center justify-start">
-                      <EditableBlock
-                        value={labelText("preparer.signature", "التوقيع")}
-                        onChange={(value) => setTextOverride("label.preparer.signature", value)}
-                        className="mb-1 min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
-                        multiline={false}
-                      />
-                      <div className="flex min-h-[48px] items-center justify-center">
-                        {!sheetDraft && row.signatureImageDataUrl ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={row.signatureImageDataUrl}
-                            alt=""
-                            className="max-h-[58px] max-w-[150px] object-contain"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </div>
-                    </div>
-                    <div dir="rtl" className="space-y-0.5 text-right text-slate-950">
-                      <EditableBlock
-                        dir="rtl"
-                        value={row.name}
-                        onChange={(value) => updatePreparerField(row.id, "name", value)}
-                        className="mv-report-preparer-field min-h-6 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[12px] font-bold leading-6 outline-none focus:border-sky-300 print:border-0"
-                        multiline={false}
-                      />
-                      <EditableBlock
-                        dir="rtl"
-                        value={row.roleLabel}
-                        onChange={(value) => updatePreparerField(row.id, "roleLabel", value)}
-                        className="mv-report-preparer-field min-h-5 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[11.5px] font-semibold leading-5 outline-none focus:border-sky-300 print:border-0"
-                        multiline={false}
-                      />
-                      <div className="flex items-center justify-start gap-1 text-[11px] font-bold leading-5">
-                        <span>رقم:</span>
-                        <EditableBlock
-                          dir="ltr"
-                          value={row.membershipNo}
-                          onChange={(value) => updatePreparerField(row.id, "membershipNo", value)}
-                          className="mv-report-preparer-field min-h-5 min-w-[90px] rounded border border-transparent bg-transparent px-1 py-0 text-right tabular-nums outline-none focus:border-sky-300 print:border-0"
-                          multiline={false}
-                          placeholder="رقم العضوية"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-1 flex justify-center">
-              <div className="min-w-[170px] text-center">
-                <EditableBlock
-                  value={labelText("preparer.stamp", "الختم")}
-                  onChange={(value) => setTextOverride("label.preparer.stamp", value)}
-                  className="min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
-                  multiline={false}
-                />
-                {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={letterheadTemplate.signatureStampDataUrl}
-                    alt=""
-                    className="mx-auto mt-1 max-h-16 max-w-[170px] object-contain"
-                  />
-                ) : (
-                  <div className="mx-auto mt-3 h-px w-[150px] bg-slate-300" />
-                )}
-              </div>
-            </div>
-          </div>
-          {insertedAfter("mv-toc-24")}
-        </section>
+        {flowChildren}
       </ReportFlowPages>
 
       {/* Legacy custom sections without a target anchor render at the very end,

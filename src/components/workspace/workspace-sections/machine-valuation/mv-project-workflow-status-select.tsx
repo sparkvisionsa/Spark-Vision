@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { MvProjectWorkflowStatus } from "./types";
 import { MvStatusBadge } from "./mv-ui";
+import { useMvI18n } from "./mv-i18n";
 
 export type MvProjectWorkflowStatusOption = {
   value: MvProjectWorkflowStatus;
@@ -18,11 +19,7 @@ export type MvProjectWorkflowStatusOption = {
   labelEn: string;
 };
 
-export const MV_PROJECT_WORKFLOW_STATUS_FALLBACK: MvProjectWorkflowStatusOption[] = [
-  { value: "new", labelAr: "جديد", labelEn: "New" },
-  { value: "review", labelAr: "قيد المراجعة", labelEn: "Under review" },
-  { value: "approved", labelAr: "معتمد", labelEn: "Approved" },
-];
+export { getWorkflowStatusOptions } from "./mv-i18n";
 
 function getStatusTone(status: MvProjectWorkflowStatus): "info" | "warning" | "success" {
   if (status === "approved") return "success";
@@ -59,6 +56,7 @@ export function MvProjectWorkflowStatusSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { t } = useMvI18n();
 
   const handleSelect = async (nextStatus: MvProjectWorkflowStatus) => {
     if (nextStatus === value || saving || disabled) {
@@ -84,7 +82,7 @@ export function MvProjectWorkflowStatusSelect({
           (disabled || saving) && "cursor-not-allowed opacity-70",
           className,
         )}
-        aria-label="تغيير حالة المشروع"
+        aria-label={t("status.workflow.changeAria")}
         onClick={(event) => event.stopPropagation()}
       >
         <MvStatusBadge

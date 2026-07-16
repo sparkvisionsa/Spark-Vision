@@ -57,6 +57,7 @@ import {
   useMvInPageNavigation,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-inpage-navigation";
 import { MvExperienceBoundary } from "@/components/workspace/workspace-sections/machine-valuation/mv-experience-boundary";
+import { useMvI18n } from "@/components/workspace/workspace-sections/machine-valuation/mv-i18n";
 
 function openAuthModal() {
   window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
@@ -140,30 +141,26 @@ function parseMachineValuationPath(pathname: string) {
 }
 
 function MachineSidebarAccount() {
+  const { t, isArabic } = useMvI18n();
   const { user, profile, loading } = useAuthTracking();
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
 
   if (loading) {
     return (
-      <div className={cn("flex items-center gap-2.5", collapsed && "justify-center")} aria-busy="true">
-        <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-slate-200/80" />
-        {!collapsed ? (
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="h-3 w-24 animate-pulse rounded bg-slate-200/80" />
-            <div className="h-2.5 w-32 animate-pulse rounded bg-slate-200/70" />
-          </div>
-        ) : null}
+      <div className={cn("flex items-center gap-2", collapsed && "justify-center")} aria-busy="true">
+        <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/10" />
+        {!collapsed ? <div className="h-3 min-w-0 flex-1 animate-pulse rounded bg-white/10" /> : null}
       </div>
     );
   }
 
   if (user) {
     const displayName = user.phone?.trim() || user.username;
-    const subtitle = profile?.email?.trim() || user.email?.trim() || "حساب فعّال";
+    const subtitle = profile?.email?.trim() || user.email?.trim();
     const avatar = (
       <div
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan-300/15 text-[12px] font-semibold text-cyan-100 ring-1 ring-cyan-300/25"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-white"
         aria-hidden
       >
         {userInitials(displayName)}
@@ -172,28 +169,20 @@ function MachineSidebarAccount() {
 
     if (collapsed) {
       return (
-        <Link
-          href="/profile"
-          title={displayName}
-          className="flex justify-center rounded-lg p-0.5 transition hover:bg-white/10"
-        >
+        <Link href="/profile" title={displayName} className="flex justify-center rounded-lg p-0.5 hover:bg-white/10">
           {avatar}
         </Link>
       );
     }
 
     return (
-      <Link
-        href="/profile"
-        className="group/account flex items-center gap-2.5 rounded-lg px-1 py-1 transition hover:bg-white/10"
-      >
+      <Link href="/profile" className="flex items-center gap-2 rounded-lg px-0.5 py-0.5 transition hover:bg-white/10">
         {avatar}
-        <div className="min-w-0 flex-1 text-right">
-          <p className="truncate text-[13px] font-semibold leading-tight text-white">{displayName}</p>
-          <p className="mt-0.5 truncate text-[10px] leading-snug text-slate-300">{subtitle}</p>
-          <p className="mt-0.5 text-[10px] font-medium text-slate-400 group-hover/account:text-cyan-100">
-            الملف الشخصي
-          </p>
+        <div className="min-w-0 flex-1 text-end">
+          <p className="truncate text-[12px] font-semibold text-white">{displayName}</p>
+          {subtitle ? (
+            <p className="truncate text-[10px] text-slate-400">{subtitle}</p>
+          ) : null}
         </div>
       </Link>
     );
@@ -201,10 +190,10 @@ function MachineSidebarAccount() {
 
   const guestAvatar = (
     <div
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-300/15 text-[12px] font-semibold text-amber-100 ring-1 ring-amber-300/25"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-slate-200"
       aria-hidden
     >
-      ز
+      {isArabic ? "ز" : "G"}
     </div>
   );
 
@@ -213,8 +202,8 @@ function MachineSidebarAccount() {
       <button
         type="button"
         onClick={() => openAuthModal()}
-        title="تسجيل الدخول"
-        className="flex w-full justify-center rounded-lg p-0.5 transition hover:bg-white/10"
+        title={t("shell.auth.signIn")}
+        className="flex w-full justify-center rounded-lg p-0.5 hover:bg-white/10"
       >
         {guestAvatar}
       </button>
@@ -222,27 +211,50 @@ function MachineSidebarAccount() {
   }
 
   return (
-    <div className="flex items-start gap-2.5">
-      <div className="shrink-0 pt-0.5">{guestAvatar}</div>
-      <div className="min-w-0 flex-1 text-right">
-        <p className="text-[13px] font-semibold text-slate-900">زائر</p>
-        <p className="mt-0.5 text-[10px] leading-snug text-slate-600">سجّل الدخول لربط المشاريع وحفظ التقدم.</p>
-        <div className="mt-1.5 flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-[10px] font-semibold">
-          <button
-            type="button"
-            onClick={() => openAuthModal()}
-            className="rounded px-0 py-0.5 text-[#0C447C] underline-offset-2 transition hover:underline"
-          >
-            تسجيل الدخول
-          </button>
+    <div className="flex items-center gap-2">
+      {guestAvatar}
+      <div className="min-w-0 flex-1 text-end">
+        <p className="text-[12px] font-semibold text-white">{t("shell.account.guest")}</p>
+        <button
+          type="button"
+          onClick={() => openAuthModal()}
+          className="mt-0.5 text-[10px] font-semibold text-cyan-200/90 hover:text-white hover:underline"
+        >
+          {t("shell.auth.signIn")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MachineSidebarBrand() {
+  const { t } = useMvI18n();
+  const { state, isMobile } = useSidebar();
+  const collapsed = !isMobile && state === "collapsed";
+
+  if (collapsed) {
+    return (
+      <div className="flex justify-center">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-cyan-200">
+          <Wrench className="h-3.5 w-3.5" />
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-cyan-200">
+        <Wrench className="h-3.5 w-3.5" />
+      </div>
+      <p className="min-w-0 flex-1 truncate text-end text-[13px] font-semibold text-white">{t("shell.brandTitle")}</p>
     </div>
   );
 }
 
 
 function MachineSidebarNav() {
+  const { t } = useMvI18n();
   const { currentPath } = useMvInPageNavigation();
   const pathname = currentPath;
   const {
@@ -270,7 +282,7 @@ function MachineSidebarNav() {
               <SidebarMenuButton asChild size="sm" className="h-9 rounded-lg text-[12px] text-slate-300 hover:bg-white/10 hover:text-white">
                 <Link href="/value-tech#products" className="flex items-center gap-2">
                   <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-cyan-300" />
-                  <span>المنتجات</span>
+                  <span>{t("navigation.products")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -288,7 +300,7 @@ function MachineSidebarNav() {
                 asChild
                 isActive={projectsNavActive}
                 size="sm"
-                tooltip={collapsed ? "المشاريع" : undefined}
+                tooltip={collapsed ? t("navigation.projects") : undefined}
                 className={cn(
                   "h-10 rounded-lg text-[12px]",
                   projectsNavActive ? activeNav : idleNav,
@@ -296,7 +308,7 @@ function MachineSidebarNav() {
               >
                 <Link href="/machine-valuation/projects" className="flex items-center gap-2">
                   <FolderKanban className="h-3.5 w-3.5 shrink-0 text-amber-300" />
-                  <span className="truncate">المشاريع</span>
+                  <span className="truncate">{t("navigation.projects")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -306,12 +318,12 @@ function MachineSidebarNav() {
                 asChild
                 isActive={isCompanyPanel}
                 size="sm"
-                tooltip={collapsed ? "إعدادات عامة" : undefined}
+                tooltip={collapsed ? t("navigation.generalSettings") : undefined}
                 className={cn("h-10 rounded-lg text-[12px]", isCompanyPanel ? activeNav : idleNav)}
               >
                 <Link href="/machine-valuation/company" className="flex items-center gap-2">
                   <Building2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                  <span className="truncate">إعدادات عامة</span>
+                  <span className="truncate">{t("navigation.generalSettings")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -321,12 +333,12 @@ function MachineSidebarNav() {
                 asChild
                 isActive={isReportSettingsPanel}
                 size="sm"
-                tooltip={collapsed ? "بيانات إعداد التقرير النهائي" : undefined}
+                tooltip={collapsed ? t("navigation.reportSettings") : undefined}
                 className={cn("h-10 rounded-lg text-[12px]", isReportSettingsPanel ? activeNav : idleNav)}
               >
                 <Link href="/machine-valuation/report-settings" className="flex items-center gap-2">
                   <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                  <span className="truncate">بيانات إعداد التقرير النهائي</span>
+                  <span className="truncate">{t("navigation.reportSettings")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -336,12 +348,12 @@ function MachineSidebarNav() {
                 asChild
                 isActive={isClientsPanel}
                 size="sm"
-                tooltip={collapsed ? "العملاء" : undefined}
+                tooltip={collapsed ? t("navigation.clients") : undefined}
                 className={cn("h-10 rounded-lg text-[12px]", isClientsPanel ? activeNav : idleNav)}
               >
                 <Link href="/machine-valuation/clients" className="flex items-center gap-2">
                   <Users className="h-3.5 w-3.5 shrink-0 text-violet-300" />
-                  <span className="truncate">العملاء</span>
+                  <span className="truncate">{t("navigation.clients")}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -373,7 +385,7 @@ function MachineWorkspace({ children }: { children: ReactNode }) {
         sidebarCollapsed ? "md:px-3 lg:px-4" : "md:px-5",
       )}
     >
-      <SidebarTrigger className="fixed right-3 top-[4.25rem] z-40 rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 md:hidden" />
+      <SidebarTrigger className="fixed end-3 top-[4.25rem] z-40 rounded-full border border-slate-200 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 md:hidden" />
       <div
         className={cn(
           "mx-auto flex min-h-0 w-full min-w-0 flex-1 flex-col",
@@ -388,28 +400,37 @@ function MachineWorkspace({ children }: { children: ReactNode }) {
 }
 
 function MachineSidebarToggleArrow() {
+  const { t, isArabic } = useMvI18n();
   const { toggleSidebar, state } = useSidebar();
   const isExpanded = state === "expanded";
+  const sideOffset = isExpanded ? "var(--sidebar-width)" : "calc(var(--sidebar-width-icon) + 1rem)";
 
   return (
     <div
       className="pointer-events-none fixed top-1/2 z-20 hidden -translate-y-1/2 md:block"
-      style={{
-        right: isExpanded ? "var(--sidebar-width)" : "calc(var(--sidebar-width-icon) + 1rem)",
-        transition: "right 200ms linear",
-      }}
+      style={
+        isArabic
+          ? { right: sideOffset, left: "auto", transition: "right 200ms linear" }
+          : { left: sideOffset, right: "auto", transition: "left 200ms linear" }
+      }
     >
       <button
         type="button"
         onClick={toggleSidebar}
-        aria-label="طيّ أو فتح الشريط الجانبي"
+        aria-label={t("shell.sidebar.toggle")}
         className={cn(
-          "pointer-events-auto flex h-8 w-8 translate-x-1/2 items-center justify-center rounded-full border",
+          "pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border",
           "border-white/15 bg-slate-950 text-cyan-200 shadow-lg shadow-slate-950/25",
           "transition-all duration-200 ease-out hover:scale-105 hover:border-cyan-300/40 hover:bg-slate-900 active:scale-95",
+          isArabic ? "translate-x-1/2" : "-translate-x-1/2",
         )}
       >
-        <ChevronLeft className={cn("h-4 w-4 transition-transform duration-300 ease-out", !isExpanded && "rotate-180")} />
+        <ChevronLeft
+          className={cn(
+            "h-4 w-4 transition-transform duration-300 ease-out",
+            isArabic ? !isExpanded && "rotate-180" : isExpanded && "rotate-180",
+          )}
+        />
       </button>
     </div>
   );
@@ -426,13 +447,14 @@ export default function MachineValuationShell({ children }: { children: ReactNod
 }
 
 function MachineValuationShellInner({ children }: { children: ReactNode }) {
+  const { dir, isArabic } = useMvI18n();
   const { navigate, isMachineValuationPath } = useMvInPageNavigation();
 
   return (
     <MvExperienceBoundary>
     <div
       className="mv-system-scope flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[linear-gradient(135deg,#eef4f8_0%,#f8fafc_48%,#eef7f2_100%)] pt-14 text-slate-900"
-      dir="rtl"
+      dir={dir}
       onClickCapture={(event) => {
         if (
           event.defaultPrevented ||
@@ -469,21 +491,14 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
         )}
       >
         <Sidebar
-          side="right"
+          side={isArabic ? "right" : "left"}
           variant="floating"
           collapsible="icon"
           className="top-14 z-20 border-0 bg-transparent text-slate-100 shadow-none"
         >
-          <SidebarHeader className="m-2 rounded-lg border border-white/10 bg-slate-950/95 px-3 py-3 shadow-2xl shadow-slate-950/25 backdrop-blur">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="min-w-0 text-right">
-                <p className="text-[9px] font-semibold tracking-[0.12em] text-cyan-200/80">MACHINE VALUATION</p>
-                <p className="truncate text-[13px] font-semibold text-white">تقييم الآلات</p>
-              </div>
-              <div className="shrink-0 rounded-lg bg-cyan-300/10 p-1.5 text-cyan-200 ring-1 ring-cyan-300/20">
-                <Wrench className="h-3.5 w-3.5" />
-              </div>
-            </div>
+          <SidebarHeader className="m-2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5">
+            <MachineSidebarBrand />
+            <div className="my-2 h-px bg-white/10 group-data-[collapsible=icon]:hidden" />
             <MachineSidebarAccount />
           </SidebarHeader>
 

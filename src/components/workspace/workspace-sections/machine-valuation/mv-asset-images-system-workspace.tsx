@@ -19,6 +19,7 @@ import {
   mergePicAssetPreferFull,
   picAssetNeedsMediaFetch,
 } from "./mv-pic-asset-progressive-load";
+import { useMvI18n } from "./mv-i18n";
 
 interface MvAssetImagesSystemWorkspaceProps {
   projectId: string;
@@ -57,7 +58,12 @@ function parseKey(k: string): { subId: string; index: number } | null {
 const REPORT_QUEUE_KEY = (projectId: string) => `sv:mv-report-image-queue:${projectId}`;
 
 export default function MvAssetImagesSystemWorkspace({ projectId, projectName }: MvAssetImagesSystemWorkspaceProps) {
+  const { t, dir, isArabic } = useMvI18n();
   const { toast } = useToast();
+  const numberFormatter = useMemo(
+    () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
+    [isArabic],
+  );
   const [loading, setLoading] = useState(true);
   const [blocks, setBlocks] = useState<FolderBlock[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -85,7 +91,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
           forceRefresh: opts?.silent === true,
           retries: 1,
           timeoutMs: 15_000,
-          loadingLabel: "جارٍ تجهيز مجلدات صور الأصول…",
+          loadingLabel: t("assetImages.system.preparingFolders"),
         },
       );
       if (myLoadId !== loadIdRef.current) return;
@@ -127,14 +133,14 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
       if (myLoadId !== loadIdRef.current) return;
       if (showFullPageLoad) {
         setBlocks([]);
-        setLoadError(mvErrorMessage(error, "تعذر تحميل صور النظام."));
+        setLoadError(mvErrorMessage(error, t("assetImages.system.loadFailed")));
       } else {
-        toast({ variant: "destructive", description: mvErrorMessage(error, "تعذر تحديث الصور.") });
+        toast({ variant: "destructive", description: mvErrorMessage(error, t("assetImages.system.refreshFailed")) });
       }
     } finally {
       if (myLoadId === loadIdRef.current && showFullPageLoad) setLoading(false);
     }
-  }, [projectId, toast]);
+  }, [projectId, t, toast]);
 
   useEffect(() => {
     void load();
@@ -180,7 +186,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
 
   const runDelete = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`حذف ${selected.size} صورة من أصول المشروع؟ لا يمكن التراجع.`)) return;
+    if (!window.confirm(t("assetImages.system.deleteConfirm", { count: numberFormatter.format(selected.size) }))) return;
 
     setWorking(true);
     try {
@@ -215,11 +221,11 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
         );
       }
       clearSelection();
-      toast({ description: "تم حذف الصور المحددة." });
+      toast({ description: t("assetImages.system.deleteSuccess") });
     } catch (e) {
       toast({
         variant: "destructive",
-        description: e instanceof Error ? e.message : "تعذر حذف الصور.",
+        description: e instanceof Error ? e.message : t("assetImages.system.deleteFailed"),
       });
     } finally {
       setWorking(false);
@@ -228,7 +234,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
 
   const runAddToReport = () => {
     if (selected.size === 0) {
-      toast({ description: "اختر صورة واحدة على الأقل." });
+      toast({ description: t("assetImages.system.selectAtLeastOne") });
       return;
     }
     type QueueItem = {
@@ -264,32 +270,32 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
       })();
       const merged = Array.isArray(prev) ? [...(prev as QueueItem[]), ...items] : items;
       sessionStorage.setItem(key, JSON.stringify(merged));
-      toast({ description: `تمت إضافة ${items.length} صورة لقائمة التقرير (مؤقتاً في الجلسة).` });
+      toast({ description: t("assetImages.system.addedToReportQueue", { count: numberFormatter.format(items.length) }) });
     } catch {
-      toast({ variant: "destructive", description: "تعذر حفظ القائمة." });
+      toast({ variant: "destructive", description: t("assetImages.system.queueSaveFailed") });
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen" dir="rtl">
+      <div className="min-h-screen" dir={dir}>
         <MvTopBar breadcrumbs={[{ label: "..." }]} saveState="idle" />
-        <MvPageLoading label="جارٍ تحميل صور الأصول من النظام…" />
+        <MvPageLoading label={t("assetImages.system.loading")} />
       </div>
     );
   }
 
   if (loadError) {
     return (
-      <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
+      <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
         <MvProjectReportHeader
           compact
           projectId={projectId}
           activeStep="asset-images"
-          breadcrumbs={[{ label: projectName ?? projectId }, { label: "تحديث الصور من النظام" }]}
+          breadcrumbs={[{ label: projectName ?? projectId }, { label: t("workflow.systemImages.breadcrumb") }]}
         />
         <MvErrorState
-          title="تعذر تحميل صور النظام"
+          title={t("assetImages.system.loadFailedTitle")}
           description={loadError}
           onRetry={() => void load()}
           className="flex-1"
@@ -299,15 +305,15 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
   }
 
   return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir="rtl">
+    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
       <MvProjectReportHeader
         compact
         projectId={projectId}
         activeStep="asset-images"
         breadcrumbs={[
           { label: projectName ?? projectId, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: "تحديد صور الأصول", href: `/machine-valuation/${projectId}/workflow/asset-images` },
-          { label: "تحديث الصور من النظام" },
+          { label: t("assetImages.breadcrumb"), href: `/machine-valuation/${projectId}/workflow/asset-images` },
+          { label: t("workflow.systemImages.breadcrumb") },
         ]}
       />
       <div className="shrink-0 border-b border-slate-200/80 bg-white shadow-sm">
@@ -321,10 +327,10 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                 onClick={selectAll}
                 disabled={allSelectionKeys.length === 0}
               >
-                تحديد الكل
+                {t("assetImages.system.selectAll")}
               </Button>
               <Button type="button" variant="outline" className="h-8 text-[11px]" onClick={clearSelection}>
-                إلغاء التحديد
+                {t("assetImages.system.clearSelection")}
               </Button>
               <Button
                 type="button"
@@ -334,7 +340,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                 onClick={() => void runDelete()}
               >
                 {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                حذف المحدد
+                {t("assetImages.system.deleteSelected")}
               </Button>
               <Button
                 type="button"
@@ -342,13 +348,13 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                 disabled={selected.size === 0}
                 onClick={runAddToReport}
               >
-                إضافة المحدد للتقرير
+                {t("assetImages.system.addToReport")}
               </Button>
               <Button type="button" variant="ghost" asChild className="h-8 text-[11px]">
-                <Link href={`/machine-valuation/${projectId}/workflow/asset-images`}>رجوع</Link>
+                <Link href={`/machine-valuation/${projectId}/workflow/asset-images`}>{t("assetImages.system.back")}</Link>
               </Button>
               <Button type="button" variant="ghost" className="h-8 text-[11px]" onClick={() => void load({ silent: true })}>
-                تحديث
+                {t("assetImages.system.refresh")}
               </Button>
             </div>
           </div>
@@ -361,7 +367,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
           <div className="flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-[11px] text-sky-900">
             <span className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              جارٍ استكمال تفاصيل المجلدات في الخلفية
+              {t("assetImages.system.hydratingFolders")}
             </span>
             <span className="font-semibold tabular-nums">
               {hydration.completed} / {hydration.total}
@@ -371,8 +377,8 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
         {blocks.length === 0 ? (
           <MvEmptyState
             icon={<ImageIcon className="h-6 w-6" />}
-            title="لا توجد مجلدات أصول بعد"
-            description="يظهر هنا محتوى «2.صور المعاينة» عند إنشاء مجلدات الأصول (مثلاً من استيراد الأصول أو إنشاء المجلدات من الجداول)."
+            title={t("assetImages.system.emptyTitle")}
+            description={t("assetImages.system.emptyBody")}
           />
         ) : (
           <div className="space-y-4">
@@ -410,15 +416,15 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                           checked={allInFolder}
                           onCheckedChange={(v) => setFolderAll(b.sub._id, images.length, Boolean(v))}
                         />
-                        تحديد الكل في المجلد ({images.length})
+                        {t("assetImages.system.selectAllInFolder", { count: numberFormatter.format(images.length) })}
                       </label>
                     ) : folderHydrating ? (
                       <span className="flex items-center gap-1.5 text-[11px] text-sky-700">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        جارٍ تحميل الصور
+                        {t("assetImages.system.loadingImages")}
                       </span>
                     ) : (
-                      <span className="text-[11px] text-slate-400">لا صور</span>
+                      <span className="text-[11px] text-slate-400">{t("assetImages.system.noImages")}</span>
                     )}
                   </div>
                   {b.picAsset ? (
@@ -436,7 +442,7 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                     </div>
                   ) : (
                     <p className="px-3 py-4 text-center text-[12px] text-slate-500">
-                      لا بيانات أصل مربوطة بهذا المجلد بعد
+                      {t("assetImages.system.noLinkedAsset")}
                     </p>
                   )}
                 </section>
@@ -450,7 +456,9 @@ export default function MvAssetImagesSystemWorkspace({ projectId, projectName }:
                   className="h-9 min-w-40 text-[12px]"
                   onClick={() => setVisibleLimit((current) => Math.min(current + 40, blocks.length))}
                 >
-                  عرض المزيد ({Math.min(40, blocks.length - visibleLimit)})
+                  {t("assetImages.system.showMore", {
+                    count: numberFormatter.format(Math.min(40, blocks.length - visibleLimit)),
+                  })}
                 </Button>
               </div>
             ) : null}

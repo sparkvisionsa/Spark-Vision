@@ -42,8 +42,6 @@ const WORKSPACE_PRELOADERS: Partial<Record<string, () => Promise<unknown>>> = {
   "/value-tech": () => import("@/components/workspace/workspace-sections/value-tech-hub"),
   "/value-tech-app": () => import("@/components/workspace/workspace-sections/value-tech-app"),
   "/real-estate-valuation": () => import("@/components/workspace/workspace-sections/real-estate-valuation"),
-  "/machine-valuation": () => import("@/components/workspace/workspace-sections/machine-valuation/index"),
-  "/machine-valuation/projects": () => import("@/components/workspace/workspace-sections/machine-valuation/index"),
   "/clients": () => import("@/components/workspace/workspace-sections/clients"),
   "/settings": () => import("@/components/workspace/workspace-sections/settings"),
   "/evaluation-source": () => import("@/components/workspace/workspace-sections/evaluation-source-index"),

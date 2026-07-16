@@ -1,4 +1,5 @@
 import type { MvSubProject } from "./types";
+import { getMvT, readMvLanguage } from "./mv-i18n";
 
 /** Shown with the photos icon in the UI. */
 export function isPhotosSubfolderName(name: string): boolean {
@@ -39,7 +40,7 @@ export function buildAssetParentFolderPath(
     parentId = parent.parent;
   }
   parts.reverse();
-  return parts.length > 0 ? parts.join(" > ") : "—";
+  return parts.length > 0 ? parts.join(" > ") : getMvT(readMvLanguage())("common.notAvailable");
 }
 
 export function sortSubProjectsForDisplay(subs: MvSubProject[]): MvSubProject[] {

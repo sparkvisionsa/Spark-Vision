@@ -39,7 +39,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { MvDialogContent } from "./mv-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,13 +51,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types";
+import { getMvT, readMvLanguage, useMvI18n, type MvT } from "./mv-i18n";
 
-const numberFormatter = new Intl.NumberFormat("ar-SA");
+function createNumberFormatter(isArabic: boolean) {
+  return new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
+}
 
-function formatShortDate(value: string) {
+function formatShortDate(value: string, isArabic: boolean, notAvailable: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-SA", {
+  if (Number.isNaN(date.getTime())) return notAvailable;
+  return new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -65,20 +69,26 @@ function formatShortDate(value: string) {
   }).format(date);
 }
 
-function formatNumberish(v: number | string | null | undefined): string {
-  if (v == null) return "—";
-  if (typeof v === "number" && Number.isFinite(v)) return numberFormatter.format(v);
+function formatNumberish(
+  v: number | string | null | undefined,
+  formatter: Intl.NumberFormat,
+  notAvailable: string,
+): string {
+  if (v == null) return notAvailable;
+  if (typeof v === "number" && Number.isFinite(v)) return formatter.format(v);
   return String(v);
 }
 
-function picAssetTypeLabel(t: string): string {
-  const k = t.toLowerCase();
-  if (k === "vehicles" || k === "vehicle" || k === "car" || k === "cars") return "مركبات";
-  if (k === "machinery" || k === "machine") return "آلات ومعدات";
-  if (k === "electronics" || k === "electronic") return "إلكترونيات";
-  if (k === "furniture") return "أثاث";
-  if (k === "other") return "أخرى";
-  return t || "—";
+function picAssetTypeLabel(t: MvT, assetType: string): string {
+  const k = assetType.toLowerCase();
+  if (k === "vehicles" || k === "vehicle" || k === "car" || k === "cars") {
+    return t("assetTypes.table.vehicles");
+  }
+  if (k === "machinery" || k === "machine") return t("assetTypes.table.machinery");
+  if (k === "electronics" || k === "electronic") return t("assetTypes.table.electronics");
+  if (k === "furniture") return t("assetTypes.furniture");
+  if (k === "other") return t("assetTypes.other");
+  return assetType || t("common.notAvailable");
 }
 
 /** المركبة فقط — الحقول الخاصة بالعلامة/الموديل/سنة الصنع/الكم لا تظهر إلا لها */
@@ -94,19 +104,23 @@ function picAssetIsOther(t: unknown): boolean {
   return k === "other";
 }
 
-function picAssetTypeDisplayValue(asset: PicAsset): string {
+function picAssetTypeDisplayValue(asset: PicAsset, t: MvT, notAvailable: string): string {
   if (picAssetIsOther(asset.assetType)) {
     const sub = typeof asset.subAssetType === "string" ? asset.subAssetType.trim() : "";
-    return sub || "—";
+    return sub || notAvailable;
   }
-  return picAssetTypeLabel(String(asset.assetType));
+  return picAssetTypeLabel(t, String(asset.assetType));
 }
 
-function formatFullDate(value: string | null | undefined): string {
-  if (!value) return "—";
+function formatFullDate(
+  value: string | null | undefined,
+  isArabic: boolean,
+  notAvailable: string,
+): string {
+  if (!value) return notAvailable;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("ar-SA", {
+  if (Number.isNaN(date.getTime())) return notAvailable;
+  return new Intl.DateTimeFormat(isArabic ? "ar-SA" : "en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -191,10 +205,10 @@ export async function patchMvSubprojectPicAsset(
   try {
     data = JSON.parse(text) as { picAsset?: PicAsset };
   } catch {
-    throw new Error("استجابة غير صالحة من الخادم");
+    throw new Error(getMvT(readMvLanguage())("assetImages.picPanel.invalidServerResponse"));
   }
   const pic = (data as { picAsset?: PicAsset }).picAsset;
-  if (!pic) throw new Error("لم تُعاد بيانات الأصل من الخادم");
+  if (!pic) throw new Error(getMvT(readMvLanguage())("assetImages.picPanel.assetNotReturned"));
   return pic;
 }
 
@@ -224,6 +238,9 @@ export function MvPicAssetPanel({
   onToggleSelectionKey,
 }: MvPicAssetPanelProps) {
   const { toast } = useToast();
+  const { t, dir, isArabic } = useMvI18n();
+  const numberFormatter = useMemo(() => createNumberFormatter(isArabic), [isArabic]);
+  const notAvailable = t("common.notAvailable");
   const [working, setWorking] = useState(false);
   const [dataOpen, setDataOpen] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -266,14 +283,14 @@ export function MvPicAssetPanel({
         });
         onPatched(updated);
         if (!silent) {
-          toast({ title: "تم الحفظ", description: "تم تحديث الصور." });
+          toast({ title: t("common.save.saved"), description: t("assetImages.picPanel.savedImages") });
         }
       } catch (e) {
         onPatched(before);
         toast({
           variant: "destructive",
-          title: "تعذّر الحفظ",
-          description: e instanceof Error ? e.message : "حدث خطأ",
+          title: t("common.save.error"),
+          description: e instanceof Error ? e.message : t("assetImages.picPanel.genericError"),
         });
       } finally {
         if (!silent) {
@@ -281,7 +298,7 @@ export function MvPicAssetPanel({
         }
       }
     },
-    [asset, onPatched, projectId, subProjectId, toast],
+    [asset, onPatched, projectId, subProjectId, t, toast],
   );
 
   const handleDeleteConfirm = useCallback(async () => {
@@ -337,20 +354,22 @@ export function MvPicAssetPanel({
           "overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/80 via-white to-white shadow-sm ring-1 ring-slate-200/50",
         mode === "imagesOnly" && "contents",
       )}
-      dir="rtl"
+      dir={dir}
     >
       {mode === "full" ? (
         <div className="border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-sm sm:px-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold tracking-tight text-slate-900">أصل المجلد</h2>
+              <h2 className="text-base font-semibold tracking-tight text-slate-900">
+                {t("assetImages.picPanel.folderAsset")}
+              </h2>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                {formatShortDate(asset.updatedAt)}
+                {formatShortDate(asset.updatedAt, isArabic, notAvailable)}
               </span>
               {working ? (
                 <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" aria-live="polite">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  جاري الحفظ…
+                  {t("assetImages.picPanel.saving")}
                 </span>
               ) : null}
             </div>
@@ -362,7 +381,7 @@ export function MvPicAssetPanel({
                 onClick={() => setDataOpen(true)}
               >
                 <PanelLeftOpen className="h-4 w-4" />
-                عرض بيانات الأصول
+                {t("assetImages.picPanel.viewAssetData")}
               </Button>
             </div>
           </div>
@@ -376,13 +395,13 @@ export function MvPicAssetPanel({
             aria-live="polite"
           >
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            جاري حفظ ترتيب الصور…
+            {t("assetImages.picPanel.savingOrder")}
           </div>
         ) : null}
         {images.length === 0 ? (
           <div className="flex min-h-[120px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center">
             <ImageIcon className="mb-2 h-8 w-8 text-slate-300" />
-            <p className="text-sm text-slate-500">لا توجد صور مرفوعة بعد</p>
+            <p className="text-sm text-slate-500">{t("assetImages.picPanel.noImagesYet")}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
@@ -400,7 +419,7 @@ export function MvPicAssetPanel({
                   type="button"
                   onClick={() => openLightbox(idx)}
                   className="absolute inset-0 z-0 block h-full w-full"
-                  aria-label={`معاينة صورة ${idx + 1}`}
+                  aria-label={t("assetImages.picPanel.previewImageAria", { n: String(idx + 1) })}
                 />
                 {isExternalPicImage(im) ? (
                   isExternalPicVideo(im) ? (
@@ -427,7 +446,9 @@ export function MvPicAssetPanel({
                   <GripVertical className="h-3.5 w-3.5 opacity-80" />
                 </div>
                 <div className="pointer-events-none absolute bottom-0 right-0 left-0 bg-gradient-to-t from-black/55 to-transparent px-2 py-2 pt-6">
-                  <p className="text-[10px] font-medium text-white">صورة {idx + 1}</p>
+                  <p className="text-[10px] font-medium text-white">
+                    {t("assetImages.picPanel.imageLabel", { n: String(idx + 1) })}
+                  </p>
                 </div>
                 {onToggleSelectionKey && selectionKeyForIndex ? (
                   <div
@@ -447,7 +468,7 @@ export function MvPicAssetPanel({
                       <button
                         type="button"
                         className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/45 text-white backdrop-blur-sm transition hover:bg-black/60"
-                        aria-label="إجراءات الصورة"
+                        aria-label={t("assetImages.actions.imageMenu")}
                       >
                         <MoreVertical className="h-4 w-4" />
                       </button>
@@ -458,7 +479,7 @@ export function MvPicAssetPanel({
                         onSelect={() => setDeleteIdx(idx)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        حذف
+                        {t("common.delete")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -471,9 +492,9 @@ export function MvPicAssetPanel({
 
       {/* Lightbox: تمرير رأسي بين جميع الصور */}
       <Dialog open={lightbox != null} onOpenChange={(o) => !o && closeLightbox()}>
-        <DialogContent className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white">
+        <MvDialogContent closeOnDark className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white">
           <DialogTitle className="sr-only">
-            معرض الصور — {images.length} صورة — تمرير عمودي
+            {t("assetImages.picPanel.lightboxTitle", { count: String(images.length) })}
           </DialogTitle>
           {lightbox != null && images.length > 0 ? (
             <div
@@ -511,7 +532,7 @@ export function MvPicAssetPanel({
               ))}
             </div>
           ) : null}
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
 
       {/* بيانات الأصول — في المسار الكامل فقط */}
@@ -531,17 +552,21 @@ export function MvPicAssetPanel({
               : 0;
         return (
       <Dialog open={dataOpen} onOpenChange={setDataOpen}>
-        <DialogContent
+        <MvDialogContent
           className="max-h-[min(90vh,880px)] max-w-lg gap-0 overflow-hidden rounded-3xl border border-slate-200/60 p-0 shadow-2xl sm:max-w-xl"
-          dir="rtl"
+          dir={dir}
         >
-          <DialogTitle className="sr-only">بيانات الأصل — {asset.name}</DialogTitle>
+          <DialogTitle className="sr-only">
+            {t("assetImages.picPanel.assetDataSrOnly", { name: asset.name })}
+          </DialogTitle>
           <div className="relative overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 pb-5 pt-6 text-right text-white">
             <div className="pointer-events-none absolute -left-16 -top-12 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
             <p className="relative text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
-              أصل المجلد
+              {t("assetImages.picPanel.folderAsset")}
             </p>
-            <h2 className="relative mt-1 text-lg font-bold leading-snug sm:text-xl">بيانات الأصل</h2>
+            <h2 className="relative mt-1 text-lg font-bold leading-snug sm:text-xl">
+              {t("assetImages.picPanel.assetDataTitle")}
+            </h2>
             <p className="relative mt-1.5 break-words text-sm font-medium text-sky-100/95" dir="auto">
               {asset.name}
             </p>
@@ -551,7 +576,10 @@ export function MvPicAssetPanel({
                 className="border-0 bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm"
               >
                 <ImageIcon className="me-1 inline h-3.5 w-3.5 opacity-90" />
-                {numberFormatter.format(imageTotal)} {imageTotal === 1 ? "صورة" : "صور"}
+                {numberFormatter.format(imageTotal)}{" "}
+                {imageTotal === 1
+                  ? t("assetImages.picPanel.imageSingular")
+                  : t("assetImages.picPanel.imagePlural")}
               </Badge>
               {voiceTotal > 0 ? (
                 <Badge
@@ -559,92 +587,117 @@ export function MvPicAssetPanel({
                   className="border-0 bg-violet-500/35 px-2.5 py-0.5 text-[11px] font-medium text-violet-50 backdrop-blur-sm"
                 >
                   <Mic className="ms-0.5 inline h-3.5 w-3.5" />
-                  {numberFormatter.format(voiceTotal)} صوت
+                  {numberFormatter.format(voiceTotal)} {t("assetImages.picPanel.voiceCount")}
                 </Badge>
               ) : null}
             </div>
           </div>
           <ScrollArea className="max-h-[min(64vh,640px)]">
             <div className="space-y-4 bg-slate-50/30 px-4 py-4 sm:px-5">
-              <DataSection title="التعريف الأساسي" icon={<Tag className="h-3.5 w-3.5" />}>
+              <DataSection title={t("assetImages.picPanel.sections.basicId")} icon={<Tag className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label="اسم المجلد" value={asset.name} className="sm:col-span-2" />
+                  <Field label={t("assetImages.picPanel.fields.folderName")} value={asset.name} className="sm:col-span-2" notAvailable={notAvailable} />
                   {picAssetIsVehicle(asset.assetType) ? (
-                    <Field label="العلامة" value={asset.brand} />
+                    <Field label={t("assetImages.picPanel.fields.brand")} value={asset.brand} notAvailable={notAvailable} />
                   ) : (
-                    <Field label="نوع الأصل" value={picAssetTypeDisplayValue(asset)} />
+                    <Field
+                      label={t("assetImages.picPanel.fields.assetType")}
+                      value={picAssetTypeDisplayValue(asset, t, notAvailable)}
+                      notAvailable={notAvailable}
+                    />
                   )}
                   {!picAssetIsVehicle(asset.assetType) ? (
-                    <Field label="الكمية" value={formatNumberish(asset.quantity)} />
+                    <Field
+                      label={t("assetImages.picPanel.fields.quantity")}
+                      value={formatNumberish(asset.quantity, numberFormatter, notAvailable)}
+                      notAvailable={notAvailable}
+                    />
                   ) : null}
-                  <Field label="الرمز" value={asset.code} />
-                  <Field label="مُستكمل" value={asset.isDone ? "نعم" : "لا"} />
-                  <Field label="متواجد" value={asset.isPresent ? "نعم" : "لا"} />
+                  <Field label={t("assetImages.picPanel.fields.code")} value={asset.code} notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.isDone")} value={asset.isDone ? t("common.yes") : t("common.no")} notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.isPresent")} value={asset.isPresent ? t("common.yes") : t("common.no")} notAvailable={notAvailable} />
                 </div>
               </DataSection>
 
-              <DataSection title="الحالة والملاحظات" icon={<FileText className="h-3.5 w-3.5" />}>
+              <DataSection title={t("assetImages.picPanel.sections.conditionNotes")} icon={<FileText className="h-3.5 w-3.5" />}>
                 <div className="space-y-3">
                   <LongTextField
-                    label="الحالة"
+                    label={t("assetImages.picPanel.fields.condition")}
                     value={asset.condition}
-                    placeholder="لا توجد ملاحظات على حالة الأصل."
+                    placeholder={t("assetImages.picPanel.placeholders.noCondition")}
+                    notAvailable={notAvailable}
                   />
                   <LongTextField
-                    label="الملاحظات"
+                    label={t("assetImages.picPanel.fields.notes")}
                     value={asset.notes}
-                    placeholder="لا توجد ملاحظات على هذا الأصل."
+                    placeholder={t("assetImages.picPanel.placeholders.noNotes")}
+                    notAvailable={notAvailable}
                   />
                 </div>
               </DataSection>
 
               {picAssetIsVehicle(asset.assetType) ? (
-                <DataSection title="بيانات المركبة" icon={<Car className="h-3.5 w-3.5" />}>
+                <DataSection title={t("assetImages.picPanel.sections.vehicleData")} icon={<Car className="h-3.5 w-3.5" />}>
                   <div className="grid gap-2.5 sm:grid-cols-2">
-                    <Field label="العلامة" value={asset.brand} />
-                    <Field label="الموديل" value={asset.model} />
-                    <Field label="سنة الصنع" value={formatNumberish(asset.manufactureYear)} />
+                    <Field label={t("assetImages.picPanel.fields.brand")} value={asset.brand} notAvailable={notAvailable} />
+                    <Field label={t("assetImages.picPanel.fields.model")} value={asset.model} notAvailable={notAvailable} />
                     <Field
-                      label="المسافة المقطوعة (كم)"
-                      value={formatNumberish(asset.kilometersDriven)}
+                      label={t("assetImages.picPanel.fields.manufactureYear")}
+                      value={formatNumberish(asset.manufactureYear, numberFormatter, notAvailable)}
+                      notAvailable={notAvailable}
+                    />
+                    <Field
+                      label={t("assetImages.picPanel.fields.kilometers")}
+                      value={formatNumberish(asset.kilometersDriven, numberFormatter, notAvailable)}
                       icon={<Gauge className="h-3.5 w-3.5 text-slate-400" />}
+                      notAvailable={notAvailable}
                     />
                   </div>
                 </DataSection>
               ) : null}
 
-              <DataSection title="معلومات السجل" icon={<Hash className="h-3.5 w-3.5" />}>
+              <DataSection title={t("assetImages.picPanel.sections.registryInfo")} icon={<Hash className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label="معرّف الأصل" value={asset._id} className="sm:col-span-2" />
-                  <Field label="اسم الورقة" value={asset.sheetName} />
-                  <Field label="معرّف الاستيراد" value={asset.importId} />
+                  <Field label={t("assetImages.picPanel.fields.assetId")} value={asset._id} className="sm:col-span-2" notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.sheetName")} value={asset.sheetName} notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.importId")} value={asset.importId} notAvailable={notAvailable} />
                 </div>
               </DataSection>
 
-              <DataSection title="التواريخ" icon={<CalendarClock className="h-3.5 w-3.5" />}>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label="تاريخ الإنشاء" value={formatFullDate(asset.createdAt)} />
-                  <Field label="آخر تحديث" value={formatFullDate(asset.updatedAt)} />
-                </div>
-              </DataSection>
-
-              <DataSection title="الوسائط" icon={<Package className="h-3.5 w-3.5" />}>
+              <DataSection title={t("assetImages.picPanel.sections.dates")} icon={<CalendarClock className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   <Field
-                    label="عدد الصور"
-                    value={numberFormatter.format(imageTotal)}
-                    icon={<ImageIcon className="h-3.5 w-3.5 text-slate-400" />}
+                    label={t("assetImages.picPanel.fields.createdAt")}
+                    value={formatFullDate(asset.createdAt, isArabic, notAvailable)}
+                    notAvailable={notAvailable}
                   />
                   <Field
-                    label="عدد الملاحظات الصوتية"
+                    label={t("assetImages.picPanel.fields.updatedAt")}
+                    value={formatFullDate(asset.updatedAt, isArabic, notAvailable)}
+                    notAvailable={notAvailable}
+                  />
+                </div>
+              </DataSection>
+
+              <DataSection title={t("assetImages.picPanel.sections.media")} icon={<Package className="h-3.5 w-3.5" />}>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <Field
+                    label={t("assetImages.picPanel.fields.imageCount")}
+                    value={numberFormatter.format(imageTotal)}
+                    icon={<ImageIcon className="h-3.5 w-3.5 text-slate-400" />}
+                    notAvailable={notAvailable}
+                  />
+                  <Field
+                    label={t("assetImages.picPanel.fields.voiceNoteCount")}
                     value={numberFormatter.format(voiceTotal)}
                     icon={<Mic className="h-3.5 w-3.5 text-slate-400" />}
+                    notAvailable={notAvailable}
                   />
                 </div>
                 {voiceNotes.length > 0 ? (
                   <div className="mt-3 space-y-2.5 border-t border-slate-100 pt-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      ملاحظات صوتية ({numberFormatter.format(voiceNotes.length)})
+                      {t("assetImages.picPanel.voiceNotes", { count: numberFormatter.format(voiceNotes.length) })}
                     </p>
                     {voiceNotes.map((v, i) => (
                       <div
@@ -654,7 +707,9 @@ export function MvPicAssetPanel({
                         {isExternalVoice(v) ? (
                           <div className="space-y-2">
                             {typeof v.duration === "number" && Number.isFinite(v.duration) ? (
-                              <p className="text-[11px] text-violet-800">المدة تقريباً: {v.duration} ث</p>
+                              <p className="text-[11px] text-violet-800">
+                                {t("assetImages.picPanel.approxDuration", { seconds: String(v.duration) })}
+                              </p>
                             ) : null}
                             <audio controls className="h-9 w-full max-w-full" src={v.url} preload="metadata">
                               <track kind="captions" />
@@ -668,7 +723,7 @@ export function MvPicAssetPanel({
                             rel="noreferrer"
                           >
                             <FileAudio className="h-3.5 w-3.5 shrink-0 opacity-80" />
-                            فتح مرفق صوتي من التخزين
+                            {t("assetImages.picPanel.openStoredAudio")}
                           </a>
                         )}
                       </div>
@@ -678,25 +733,25 @@ export function MvPicAssetPanel({
               </DataSection>
             </div>
           </ScrollArea>
-        </DialogContent>
+        </MvDialogContent>
       </Dialog>
         );
       })()
       ) : null}
 
       <AlertDialog open={deleteIdx != null} onOpenChange={(o) => !o && setDeleteIdx(null)}>
-        <AlertDialogContent dir="rtl">
+        <AlertDialogContent dir={dir}>
           <AlertDialogHeader>
-            <AlertDialogTitle>حذف الصورة؟</AlertDialogTitle>
-            <AlertDialogDescription>سيتم إزالتها نهائياً من بيانات الأصل. يمكنك التراجع بتحديث الصفحة فقط إذا ألغي الطلب.</AlertDialogDescription>
+            <AlertDialogTitle>{t("assetImages.picPanel.deleteImageTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("assetImages.picPanel.deleteImageDescription")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDeleteConfirm()}
               className="bg-red-600 hover:bg-red-700"
             >
-              حذف
+              {t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -732,11 +787,13 @@ function Field({
   value,
   className,
   icon,
+  notAvailable,
 }: {
   label: string;
   value: string | null | undefined;
   className?: string;
   icon?: React.ReactNode;
+  notAvailable: string;
 }) {
   return (
     <div
@@ -750,7 +807,7 @@ function Field({
         {icon ?? null}
       </div>
       <p className="mt-0.5 break-words text-sm font-medium text-slate-900" dir="auto">
-        {value != null && String(value).trim() !== "" ? String(value) : "—"}
+        {value != null && String(value).trim() !== "" ? String(value) : notAvailable}
       </p>
     </div>
   );
@@ -760,10 +817,12 @@ function LongTextField({
   label,
   value,
   placeholder,
+  notAvailable,
 }: {
   label: string;
   value: string | null | undefined;
   placeholder?: string;
+  notAvailable: string;
 }) {
   const text = typeof value === "string" ? value.trim() : "";
   const hasText = text.length > 0;
@@ -777,7 +836,7 @@ function LongTextField({
         )}
         dir="auto"
       >
-        {hasText ? text : placeholder ?? "—"}
+        {hasText ? text : placeholder ?? notAvailable}
       </div>
     </div>
   );

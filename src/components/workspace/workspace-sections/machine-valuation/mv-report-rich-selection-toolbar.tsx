@@ -4,6 +4,7 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { Palette, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useMvI18n } from "./mv-i18n";
 
 const PRESET_COLORS = [
   "#0f172a",
@@ -108,6 +109,7 @@ export function ReportRichSelectionToolbar({
   containerRef: RefObject<HTMLElement | null>;
   enabled: boolean;
 }) {
+  const { t } = useMvI18n();
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState<ToolbarPos>({ top: 0, left: 0, width: 260 });
   const [panel, setPanel] = useState<"none" | "color" | "size">("none");
@@ -249,7 +251,7 @@ export function ReportRichSelectionToolbar({
         e.preventDefault();
       }}
       role="toolbar"
-      aria-label="تنسيق النص المحدد"
+      aria-label={t("report.richToolbar.ariaLabel")}
     >
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap justify-end gap-1">
@@ -265,7 +267,7 @@ export function ReportRichSelectionToolbar({
             onClick={() => setPanel((p) => (p === "color" ? "none" : "color"))}
           >
             <Palette className="h-3.5 w-3.5" />
-            تغيير اللون
+            {t("report.richToolbar.changeColor")}
           </Button>
           <Button
             type="button"
@@ -279,13 +281,13 @@ export function ReportRichSelectionToolbar({
             onClick={() => setPanel((p) => (p === "size" ? "none" : "size"))}
           >
             <Type className="h-3.5 w-3.5" />
-            حجم الخط
+            {t("report.richToolbar.fontSize")}
           </Button>
         </div>
 
         {panel === "color" ? (
           <div className="space-y-2 border-t border-slate-100 pt-2" data-toolbar-interactive>
-            <p className="text-[10px] font-bold text-slate-500">ألوان رئيسية</p>
+            <p className="text-[10px] font-bold text-slate-500">{t("report.richToolbar.presetColors")}</p>
             <div className="flex flex-wrap justify-end gap-1.5">
               {PRESET_COLORS.map((c) => (
                 <button
@@ -300,7 +302,7 @@ export function ReportRichSelectionToolbar({
               ))}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[10px] font-bold text-slate-500">لون مخصص</span>
+              <span className="text-[10px] font-bold text-slate-500">{t("report.richToolbar.customColor")}</span>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -309,7 +311,7 @@ export function ReportRichSelectionToolbar({
                   className="h-8 w-12 cursor-pointer rounded border border-slate-200 bg-white"
                 />
                 <Button type="button" size="sm" className="h-8 text-[11px]" onClick={() => applyColor(customColor)}>
-                  تطبيق
+                  {t("report.settings.apply")}
                 </Button>
               </div>
             </div>
@@ -346,7 +348,7 @@ export function ReportRichSelectionToolbar({
               onMouseDown={(e) => e.preventDefault()}
               onClick={applyFontSize}
             >
-              تطبيق
+              {t("report.settings.apply")}
             </Button>
           </div>
         ) : null}
