@@ -654,42 +654,134 @@ const USE_LABELS: Record<Lang, Record<string, string>> = {
   en: { "1": "Land", "2": "Buildings" },
 };
 
+type AssetCategory = "land" | "building" | "both";
+
+type PropertyTypeOption = {
+  value: string;
+  label: { ar: string; en: string };
+  category: AssetCategory;
+};
+
+// Full list of property types. IDs already in use in existing evalData
+// (1,2,3,4,5,6,7,9,10,21,22,24,28,67) are preserved exactly so old records
+// keep resolving to the same option. New types get ids in the 100+ range.
+const PROPERTY_TYPES: PropertyTypeOption[] = [
+  { value: "1",   label: { ar: "أرض", en: "Land" }, category: "land" },
+  { value: "2",   label: { ar: "شقة", en: "Apartment" }, category: "building" },
+  { value: "3",   label: { ar: "فيلا سكنية", en: "Residential Villa" }, category: "building" },
+  { value: "4",   label: { ar: "عمارة", en: "Building" }, category: "building" },
+  { value: "5",   label: { ar: "إستراحة", en: "Rest House" }, category: "building" },
+  { value: "6",   label: { ar: "مزرعة", en: "Farm" }, category: "both" },
+  { value: "7",   label: { ar: "مستودع", en: "Warehouse" }, category: "building" },
+  { value: "108", label: { ar: "محطة", en: "Station" }, category: "building" },
+  { value: "9",   label: { ar: "محل تجاري", en: "Shop" }, category: "building" },
+  { value: "10",  label: { ar: "دور", en: "Floor" }, category: "building" },
+  { value: "111", label: { ar: "ورشة", en: "Workshop" }, category: "building" },
+  { value: "112", label: { ar: "ارض مسورة", en: "Walled Land" }, category: "land" },
+  { value: "113", label: { ar: "مدرسة", en: "School" }, category: "building" },
+  { value: "114", label: { ar: "قصر", en: "Palace" }, category: "building" },
+  { value: "115", label: { ar: "مصنع ومبنى", en: "Factory & Building" }, category: "building" },
+  { value: "116", label: { ar: "الأكشاك والخدمات الذاتية", en: "Kiosks & Self Services" }, category: "building" },
+  { value: "117", label: { ar: "المعارض والمساحات المكتبية والمستودعات", en: "Showrooms, Offices & Warehouses" }, category: "building" },
+  { value: "118", label: { ar: "مباني", en: "Buildings" }, category: "building" },
+  { value: "119", label: { ar: "أرض مقام عليها مباني", en: "Land with Buildings" }, category: "both" },
+  { value: "120", label: { ar: "أرض زراعية", en: "Agricultural Land" }, category: "land" },
+  { value: "21",  label: { ar: "أرض سكنية", en: "Residential Land" }, category: "land" },
+  { value: "22",  label: { ar: "أرض تجارية", en: "Commercial Land" }, category: "land" },
+  { value: "123", label: { ar: "أرض سكنية تجارية", en: "Residential-Commercial Land" }, category: "land" },
+  { value: "24",  label: { ar: "فندق", en: "Hotel" }, category: "building" },
+  { value: "125", label: { ar: "مبنى", en: "Building" }, category: "building" },
+  { value: "126", label: { ar: "محطة وقود", en: "Gas Station" }, category: "building" },
+  { value: "127", label: { ar: "ارض", en: "Land" }, category: "land" },
+  { value: "28",  label: { ar: "مبنى تجاري", en: "Commercial Building" }, category: "building" },
+  { value: "129", label: { ar: "مبنى إداري تجاري", en: "Admin-Commercial Building" }, category: "building" },
+  { value: "130", label: { ar: "أرض خام", en: "Raw Land" }, category: "land" },
+  { value: "131", label: { ar: "مجمع سكني", en: "Residential Complex" }, category: "building" },
+  { value: "132", label: { ar: "أرض متعددة الإستخدام", en: "Multi-Use Land" }, category: "land" },
+  { value: "133", label: { ar: "برج", en: "Tower" }, category: "building" },
+  { value: "134", label: { ar: "برج جوال", en: "Mobile Tower" }, category: "building" },
+  { value: "135", label: { ar: "مكاتب", en: "Offices" }, category: "building" },
+  { value: "136", label: { ar: "مكتبي", en: "Office" }, category: "building" },
+  { value: "137", label: { ar: "ترفيهي", en: "Recreational" }, category: "building" },
+  { value: "138", label: { ar: "نادي رياضي", en: "Sports Club" }, category: "building" },
+  { value: "139", label: { ar: "فيلا دوبلكس", en: "Duplex Villa" }, category: "building" },
+  { value: "140", label: { ar: "حوش مسور", en: "Walled Yard" }, category: "land" },
+  { value: "141", label: { ar: "مستودع + عمائر", en: "Warehouse + Buildings" }, category: "building" },
+  { value: "142", label: { ar: "حوش", en: "Yard" }, category: "land" },
+  { value: "143", label: { ar: "أرض(سكني مكتبي)", en: "Land (Residential/Office)" }, category: "land" },
+  { value: "144", label: { ar: "أرض استخدام مستودعات", en: "Land - Warehouse Use" }, category: "land" },
+  { value: "145", label: { ar: "عمارة سكنية تجارية", en: "Residential-Commercial Building" }, category: "building" },
+  { value: "146", label: { ar: "مبني سكني دور ارضي وملحق علوي", en: "Residential Building - Ground Floor + Upper Annex" }, category: "building" },
+  { value: "147", label: { ar: "مزرعة قائمة", en: "Existing Farm" }, category: "both" },
+  { value: "148", label: { ar: "عمائر تحت الإنشاء", en: "Buildings Under Construction" }, category: "building" },
+  { value: "149", label: { ar: "عمارة تجارية مكتبية", en: "Commercial-Office Building" }, category: "building" },
+  { value: "150", label: { ar: "مرفق - حديقة", en: "Facility - Garden" }, category: "building" },
+  { value: "151", label: { ar: "مجمع سكني تجاري", en: "Residential-Commercial Complex" }, category: "building" },
+  { value: "152", label: { ar: "محلات وفيلا", en: "Shops & Villa" }, category: "building" },
+  { value: "153", label: { ar: "مجمع تجاري", en: "Commercial Complex" }, category: "building" },
+  { value: "154", label: { ar: "فلل سكنية", en: "Residential Villas" }, category: "building" },
+  { value: "155", label: { ar: "ارض بها محلات تجارية", en: "Land with Commercial Shops" }, category: "land" },
+  { value: "156", label: { ar: "محطة وقود وعمارتين سكنية", en: "Gas Station + Two Residential Buildings" }, category: "building" },
+  { value: "157", label: { ar: "معرض سيارات", en: "Car Showroom" }, category: "building" },
+  { value: "158", label: { ar: "فيلا", en: "Villa" }, category: "building" },
+  { value: "159", label: { ar: "عمائر سكنية تجارية وفلل سكنية", en: "Residential-Commercial Buildings & Villas" }, category: "building" },
+  { value: "160", label: { ar: "برج تجاري مكتبي طبي", en: "Commercial-Office-Medical Tower" }, category: "building" },
+  { value: "161", label: { ar: "معرض تجاري", en: "Commercial Showroom" }, category: "building" },
+  { value: "162", label: { ar: "معارض", en: "Showrooms" }, category: "building" },
+  { value: "163", label: { ar: "مرفق", en: "Facility" }, category: "building" },
+  { value: "164", label: { ar: "عمارتين سكنية تجارية", en: "Two Residential-Commercial Buildings" }, category: "building" },
+  { value: "165", label: { ar: "فلل سكنية وارض", en: "Residential Villas & Land" }, category: "both" },
+  { value: "166", label: { ar: "عمارتين سكنية", en: "Two Residential Buildings" }, category: "building" },
+  { value: "67",  label: { ar: "عمارة سكنية", en: "Residential Building" }, category: "building" },
+  { value: "168", label: { ar: "ارض عليها اعمدة الدور الارضي", en: "Land with Ground Floor Columns" }, category: "land" },
+  { value: "169", label: { ar: "مستودعات", en: "Warehouses" }, category: "building" },
+  { value: "170", label: { ar: "مبنى اداري ومصانع", en: "Admin Building & Factories" }, category: "building" },
+  { value: "171", label: { ar: "أرض ومباني", en: "Land & Buildings" }, category: "both" },
+  { value: "172", label: { ar: "شقق سكنية", en: "Residential Apartments" }, category: "building" },
+  { value: "173", label: { ar: "عمائر", en: "Buildings" }, category: "building" },
+  { value: "174", label: { ar: "برج اتصالات", en: "Communications Tower" }, category: "building" },
+  { value: "175", label: { ar: "شقة دورين", en: "Two-Floor Apartment" }, category: "building" },
+  { value: "176", label: { ar: "ارض سكني", en: "Residential Land" }, category: "land" },
+  { value: "177", label: { ar: "ارض لغرفة كهرباء", en: "Land for Electricity Room" }, category: "land" },
+  { value: "178", label: { ar: "عمارة ومستودع", en: "Building & Warehouse" }, category: "building" },
+  { value: "179", label: { ar: "مكونات مباني", en: "Building Components" }, category: "building" },
+  { value: "180", label: { ar: "معرض رقم G-17", en: "Showroom No. G-17" }, category: "building" },
+  { value: "181", label: { ar: "كشك", en: "Kiosk" }, category: "building" },
+  { value: "182", label: { ar: "مبنى مواقف", en: "Parking Building" }, category: "building" },
+  { value: "183", label: { ar: "بيت شعبي", en: "Popular House" }, category: "building" },
+  { value: "184", label: { ar: "مربط خيول", en: "Horse Stable" }, category: "building" },
+  { value: "185", label: { ar: "مكتب", en: "Office" }, category: "building" },
+  { value: "186", label: { ar: "عمارة سكنية تجارية (فندق)+عمارة سكنية", en: "Residential-Commercial Building (Hotel) + Residential Building" }, category: "building" },
+];
+
+// Legacy shape used elsewhere in the file (kept for anything already
+// referencing PROPERTY_TYPES_OPTIONS[lang]).
 const PROPERTY_TYPES_OPTIONS: Record<Lang, { value: string; label: string }[]> =
   {
-    ar: [
-      { value: "1", label: "أرض" },
-      { value: "2", label: "شقة" },
-      { value: "3", label: "فيلا سكنية" },
-      { value: "4", label: "عمارة" },
-      { value: "5", label: "إستراحة" },
-      { value: "6", label: "مزرعة" },
-      { value: "7", label: "مستودع" },
-      { value: "9", label: "محل تجاري" },
-      { value: "10", label: "دور" },
-      { value: "21", label: "أرض سكنية" },
-      { value: "22", label: "أرض تجارية" },
-      { value: "24", label: "فندق" },
-      { value: "28", label: "مبنى تجاري" },
-      { value: "67", label: "عمارة سكنية" },
-    ],
-    en: [
-      { value: "1", label: "Land" },
-      { value: "2", label: "Apartment" },
-      { value: "3", label: "Residential Villa" },
-      { value: "4", label: "Building" },
-      { value: "5", label: "Rest House" },
-      { value: "6", label: "Farm" },
-      { value: "7", label: "Warehouse" },
-      { value: "9", label: "Shop" },
-      { value: "10", label: "Floor" },
-      { value: "21", label: "Residential Land" },
-      { value: "22", label: "Commercial Land" },
-      { value: "24", label: "Hotel" },
-      { value: "28", label: "Commercial Building" },
-      { value: "67", label: "Residential Building" },
-    ],
+    ar: PROPERTY_TYPES.map((o) => ({ value: o.value, label: o.label.ar })),
+    en: PROPERTY_TYPES.map((o) => ({ value: o.value, label: o.label.en })),
   };
 
+// assetCategoryId: "1" = land, "2" = buildings. Falls back to the full
+// list when no category has been chosen yet, or when a type doesn't
+// belong exclusively to the opposite category ("both" always shows).
+function getPropertyTypesForCategory(
+  assetCategoryId: string | undefined,
+  lang: Lang,
+): { value: string; label: string }[] {
+  const wanted =
+    assetCategoryId === "1" ? "land" : assetCategoryId === "2" ? "building" : null;
+  const filtered = wanted
+    ? PROPERTY_TYPES.filter((o) => o.category === wanted || o.category === "both")
+    : PROPERTY_TYPES;
+  return filtered.map((o) => ({ value: o.value, label: o.label[lang] }));
+}
+
+function getPropertyTypeLabel(id: string | undefined, lang: Lang): string {
+  if (!id) return "";
+  const found = PROPERTY_TYPES.find((o) => o.value === id);
+  return found ? found.label[lang] : id;
+}
 const REGIONS: Record<Lang, { value: string; label: string }[]> = {
   ar: [
     { value: "1", label: "منطقة الرياض" },
@@ -2501,7 +2593,7 @@ export function TransactionEvaluationPage({
             label={t.client}
             value={tx?.clientName ?? tx?.clientId}
           />
-          <ReadOnlyItem label={t.template} value={tx?.templateId} />
+          <ReadOnlyItem label={t.template} value={tx?.templateName ?? tx?.templateId} />u
           <ReadOnlyItem label={t.notes} value={tx?.intendedUse} full />
         </ReadOnlyGrid>
         <div
@@ -2880,9 +2972,8 @@ export function TransactionEvaluationPage({
             <InlineSelectField
               displayValue={
                 ev.location.propertyTypeId
-                  ? (PROPERTY_TYPES_OPTIONS[lang].find(
-                      (o) => o.value === ev.location.propertyTypeId,
-                    )?.label ?? ev.assetInfo.propertyType)
+                  ? (getPropertyTypeLabel(ev.location.propertyTypeId, lang) ||
+                     ev.assetInfo.propertyType)
                   : ev.assetInfo.propertyType
               }
               selectValue={ev.location.propertyTypeId}
@@ -2893,10 +2984,14 @@ export function TransactionEvaluationPage({
               hint={
                 ev.assetInfo.propertyType && ev.location.propertyTypeId
                   ? `${isRtl ? "من الصك:" : "From deed:"} ${ev.assetInfo.propertyType}`
-                  : undefined
+                  : !ev.location.assetCategoryId
+                    ? (lang === "ar"
+                        ? "اختر تصنيف الأصل أولاً لتصفية القائمة"
+                        : "Select asset category first to filter the list")
+                    : undefined
               }
             >
-              {PROPERTY_TYPES_OPTIONS[lang].map((o) => (
+              {getPropertyTypesForCategory(ev.location.assetCategoryId, lang).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -2925,7 +3020,6 @@ export function TransactionEvaluationPage({
               ["parcelNumber", "parcelNumber"],
               ["planNumber", "planNumber"],
               ["blockNumber", "blockNumber"],
-              ["elevation", "elevation"],
             ] as [keyof typeof ev.basic, TKeys][]
           ).map(([key, labelKey]) => (
             <Field key={key} label={t[labelKey] as string}>
@@ -2969,12 +3063,23 @@ export function TransactionEvaluationPage({
             </Select>
           </Field>
           <Field label={t.inspectionBoundaries} full>
-            <Input
+            <Select
               value={ev.basic.inspectionBoundaries}
               onChange={(e) =>
                 setField("basic", "inspectionBoundaries", e.target.value)
               }
-            />
+            >
+              <option value="" disabled>{t.selectValue}</option>
+              <option value="معاينة خارجية">
+                {lang === "ar" ? "معاينة خارجية" : "External Inspection"}
+              </option>
+              <option value="معاينة داخلية">
+                {lang === "ar" ? "معاينة داخلية" : "Internal Inspection"}
+              </option>
+              <option value="معاينة داخلية وخارجية">
+                {lang === "ar" ? "معاينة داخلية وخارجية" : "Internal & External Inspection"}
+              </option>
+            </Select>
           </Field>
         </GridFields>
       </SectionCard>
