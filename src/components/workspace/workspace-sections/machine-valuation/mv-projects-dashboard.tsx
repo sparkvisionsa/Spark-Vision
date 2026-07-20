@@ -91,7 +91,7 @@ import {
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { mvAutoPdfDownloadStorageKey, MV_REPORT_PDF_PARENT_MESSAGE } from "./mv-home-routes";
+import { downloadWordBlob } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
@@ -208,12 +208,14 @@ function ProjectActionsMenu({
   onOpenAssetFolders,
   onOpenLocations,
   onDownloadFinalReport,
+  downloadingFinalReport,
   onDelete,
 }: {
   project: MvProject;
   onOpenAssetFolders: (project: MvProject) => void;
   onOpenLocations: (project: MvProject) => void;
   onDownloadFinalReport: (project: MvProject) => void;
+  downloadingFinalReport?: boolean;
   onDelete: (projectId: string) => void;
 }) {
   const { t, isArabic } = useMvI18n();
@@ -290,10 +292,15 @@ function ProjectActionsMenu({
           {t("projects.actions.exportAssetsExcel")}
         </DropdownMenuItem>
         <DropdownMenuItem
-          className="cursor-pointer gap-2 text-[13px]"
+          className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={downloadingFinalReport}
           onSelect={() => onDownloadFinalReport(project)}
         >
-          <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
+          {downloadingFinalReport ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0C447C]" />
+          ) : (
+            <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
+          )}
           {t("projects.actions.downloadFinalReport")}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -1182,9 +1189,7 @@ export default function MvProjectsDashboard() {
   const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
-  const [backgroundPdfExport, setBackgroundPdfExport] = useState<{ projectId: string; nonce: number } | null>(
-    null,
-  );
+  const [downloadingFinalReportId, setDownloadingFinalReportId] = useState<string | null>(null);
   const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
     getWorkflowStatusOptions(),
   );
@@ -1647,48 +1652,55 @@ export default function MvProjectsDashboard() {
   };
 
   const startBackgroundFinalReportDownload = useCallback(
-    (project: MvProject) => {
-      if (typeof window === "undefined") return;
-      sessionStorage.setItem(mvAutoPdfDownloadStorageKey(project._id), "1");
-      setBackgroundPdfExport({ projectId: project._id, nonce: Date.now() });
+    async (project: MvProject) => {
+      if (downloadingFinalReportId) return;
+      const projectId = project._id;
+      const projectName = (project.name || t("projects.table.project")).trim();
+      setDownloadingFinalReportId(projectId);
       toast({
-        description: t("projects.pdfExport.preparing", {
-          name: (project.name || t("projects.table.project")).trim(),
-        }),
+        description: t("projects.wordExport.preparing", { name: projectName }),
       });
-    },
-    [toast, t],
-  );
-
-  useEffect(() => {
-    function onReportPdfExportMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return;
-      const payload = event.data as { type?: string; projectId?: string; ok?: boolean };
-      if (payload?.type !== MV_REPORT_PDF_PARENT_MESSAGE) return;
-      setBackgroundPdfExport((curr) =>
-        curr && payload.projectId === curr.projectId ? null : curr,
-      );
-      if (payload.ok === true) {
-        toast({ description: t("report.export.downloadedPdf") });
-      } else {
+      try {
+        // الخادم يحمّل القالب + بيانات التقرير + صور الأصول المحددة للتقرير
+        const response = await fetch(
+          `/api/mv/projects/${encodeURIComponent(projectId)}/word-template/merge`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        );
+        if (!response.ok) {
+          let message = t("errors.projects.wordDownloadFailed");
+          try {
+            const json = (await response.json()) as { message?: string | string[] };
+            const m = json.message;
+            if (typeof m === "string" && m.trim()) message = m.trim();
+            else if (Array.isArray(m) && typeof m[0] === "string" && m[0].trim()) message = m[0].trim();
+          } catch {
+            /* keep default */
+          }
+          throw new Error(message);
+        }
+        const blob = await response.blob();
+        const safeName = projectName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
+        downloadWordBlob(blob, `${safeName}-merged-report.docx`);
+        toast({ description: t("report.export.wordTemplate") });
+      } catch (error) {
         toast({
           variant: "destructive",
-          description: t("errors.projects.pdfDownloadFailed"),
+          description:
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : t("errors.projects.wordDownloadFailed"),
         });
+      } finally {
+        setDownloadingFinalReportId((current) => (current === projectId ? null : current));
       }
-    }
-    window.addEventListener("message", onReportPdfExportMessage);
-    return () => window.removeEventListener("message", onReportPdfExportMessage);
-  }, [toast, t]);
-
-  useEffect(() => {
-    if (!backgroundPdfExport) return;
-    const { projectId, nonce } = backgroundPdfExport;
-    const id = window.setTimeout(() => {
-      setBackgroundPdfExport((curr) => (curr?.nonce === nonce && curr.projectId === projectId ? null : curr));
-    }, 240_000);
-    return () => clearTimeout(id);
-  }, [backgroundPdfExport]);
+    },
+    [downloadingFinalReportId, toast, t],
+  );
 
   const handleWorkflowStatusChange = useCallback(
     async (projectId: string, nextStatus: MvProjectWorkflowStatus) => {
@@ -2037,7 +2049,8 @@ export default function MvProjectsDashboard() {
                                 project={project}
                                 onOpenAssetFolders={openAssetFoldersModal}
                                 onOpenLocations={openContactDataModal}
-                                onDownloadFinalReport={startBackgroundFinalReportDownload}
+                                onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
+                                downloadingFinalReport={downloadingFinalReportId === project._id}
                                 onDelete={(id) => void handleDeleteProject(id)}
                               />
                             </div>
@@ -2096,7 +2109,8 @@ export default function MvProjectsDashboard() {
                           project={project}
                           onOpenAssetFolders={openAssetFoldersModal}
                           onOpenLocations={openContactDataModal}
-                          onDownloadFinalReport={startBackgroundFinalReportDownload}
+                          onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
+                          downloadingFinalReport={downloadingFinalReportId === project._id}
                           onDelete={(id) => void handleDeleteProject(id)}
                         />
                       </div>
@@ -2384,16 +2398,6 @@ export default function MvProjectsDashboard() {
         }}
         onSaveAndContinue={finishAssetFoldersAndContinue}
       />
-
-      {backgroundPdfExport ? (
-        <iframe
-          key={backgroundPdfExport.nonce}
-          title={t("projects.pdfExport.iframeTitle")}
-          src={`/machine-valuation/${encodeURIComponent(backgroundPdfExport.projectId)}/workflow/report`}
-          className="pointer-events-none fixed left-0 top-0 z-[-5] h-[1600px] w-[2400px] -translate-x-[3000px] border-0 opacity-0"
-          aria-hidden
-        />
-      ) : null}
     </div>
   );
 }

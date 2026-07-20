@@ -426,6 +426,9 @@ export const mvEn = {
         "{name} — Preparing PDF in the background; download will start automatically.",
       iframeTitle: "Export report",
     },
+    wordExport: {
+      preparing: "{name} — Merging Word template bookmarks and downloading the file…",
+    },
     deleteConfirm:
       'Delete project "{name}"? All related data will be removed and cannot be undone.',
   },
@@ -1489,6 +1492,8 @@ export const mvEn = {
       selectCompany: "Select the company for this project.",
       pdfDownloadFailed:
         "Download did not complete from Projects. Open Report setup for your project and try again there.",
+      wordDownloadFailed:
+        "Could not download the Word report. Make sure a company Word template is uploaded, then try again.",
     },
     locations: {
       saveFirst: "Save inspection site first before adding inspector files.",
