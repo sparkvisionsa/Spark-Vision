@@ -59,11 +59,9 @@ function formatFinalValueAmount(value: unknown): string {
   return new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 0 }).format(amount);
 }
 
-function formatFinalValue(value: unknown, currency?: string | null) {
-  const formatted = formatFinalValueAmount(value);
-  if (!formatted) return "";
-  const suffix = currency?.trim() ? ` ${currency.trim()}` : " ر.س";
-  return `${formatted}${suffix}`;
+function formatFinalValue(value: unknown, _currency?: string | null) {
+  // القالب يحتوي عادة على «ر.س.» بجانب إشارة «قيمة» — نملأ الرقم فقط لتفادي التكرار
+  return formatFinalValueAmount(value);
 }
 
 function buildClientIdentity(reportData: MvProjectReportData): string {

@@ -37,8 +37,11 @@ export type MvWordBookmarkMergeStats = {
 };
 
 const COVER_BOOKMARK_FONT_FAMILY = "Tajawal";
-const COVER_TITLE_BOOKMARK_NAMES = ["عنوان", "عنوانغ", "غلاف", "عنواناصل"];
+/** عناوين غلاف التقرير فقط — لا تشمل عنوانغ / عنواناصل داخل فقرات الجسم */
+const COVER_TITLE_BOOKMARK_NAMES = ["عنوان", "غلاف"];
 const COVER_CLIENT_BOOKMARK_NAMES = ["عميلغلاف"];
+/** إشارات عنوان تظهر داخل جمل التقرير ويجب أن ترث تنسيق الفقرة المحيطة */
+const INLINE_TITLE_BOOKMARK_NAMES = ["عنوانغ", "عنواناصل"];
 
 function normalizeCoverBookmarkName(name: string): string {
   return name
@@ -50,6 +53,9 @@ function normalizeCoverBookmarkName(name: string): string {
 
 function isCoverFontBookmark(name: string): boolean {
   const normalized = normalizeCoverBookmarkName(name);
+  if (INLINE_TITLE_BOOKMARK_NAMES.some((item) => normalizeCoverBookmarkName(item) === normalized)) {
+    return false;
+  }
   return [...COVER_TITLE_BOOKMARK_NAMES, ...COVER_CLIENT_BOOKMARK_NAMES].some(
     (item) => normalizeCoverBookmarkName(item) === normalized,
   );
