@@ -10,6 +10,10 @@ export type ServerWordMergeParams = {
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
+  imageLayout?: {
+    imagesPerRow: number;
+    imagesPerPage: number;
+  };
 };
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -60,6 +64,7 @@ export async function mergeWordReportTemplateViaServer(
         textByBookmarkName: buildTextByBookmarkName(textValues),
         assetImageUrls: params.assetImageUrls,
         valuationImageUrls: params.valuationImageUrls,
+        imageLayout: params.imageLayout,
         assetImagesBase64: [],
         valuationImagesBase64: params.mergeInput.valuationImages.map((item) =>
           arrayBufferToBase64(item.image),

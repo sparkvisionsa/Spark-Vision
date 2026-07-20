@@ -1479,13 +1479,72 @@ function dedupeReportMediaRows(rows: MvDriveFile[]): MvDriveFile[] {
     const key = sourceUrl
       ? fileIdFromUrl
         ? `file:${decodeURIComponent(fileIdFromUrl)}`
-        : `url:${sourceUrl}`
+        : `url:${stableReportMediaUrl(sourceUrl)}`
       : `file:${file._id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     output.push(file);
   }
   return output;
+}
+
+function stableReportMediaUrl(url: string): string {
+  const raw = url.trim();
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.origin.toLowerCase()}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+/**
+ * صور التطبيق (assets.images) هي مصدر التحديد في مودال «تحديد صور التقرير».
+ * نسخ GridFS قد تبقى includeInReport=true قديمًا — نطبّق قرار الأصل على المرآة قبل الدمج.
+ */
+function mergeReportAssetMediaRows(
+  driveRows: MvDriveFile[],
+  picRows: (MvDriveFile & { sourceUrl?: string })[],
+): MvDriveFile[] {
+  const picIncludeByFileId = new Map<string, boolean>();
+  const picIncludeByUrl = new Map<string, boolean>();
+
+  for (const file of picRows) {
+    const included = file.includeInReport === true;
+    const sourceUrl = file.sourceUrl?.trim() || "";
+    const fileIdFromUrl = sourceUrl.match(/\/files\/([^/?#]+)\/download(?:[?#]|$)/i)?.[1];
+    if (fileIdFromUrl) {
+      picIncludeByFileId.set(decodeURIComponent(fileIdFromUrl), included);
+    } else if (sourceUrl) {
+      picIncludeByUrl.set(stableReportMediaUrl(sourceUrl), included);
+    }
+  }
+
+  const adjustedDrive = driveRows.map((file) => {
+    if (picIncludeByFileId.has(String(file._id))) {
+      return {
+        ...file,
+        includeInReport: picIncludeByFileId.get(String(file._id)) === true,
+      };
+    }
+    const driveSource = (file as MvDriveFile & { sourceUrl?: string }).sourceUrl?.trim() || "";
+    if (!driveSource) return file;
+    const fileIdFromUrl = driveSource.match(/\/files\/([^/?#]+)\/download(?:[?#]|$)/i)?.[1];
+    if (fileIdFromUrl) {
+      const fid = decodeURIComponent(fileIdFromUrl);
+      if (picIncludeByFileId.has(fid)) {
+        return { ...file, includeInReport: picIncludeByFileId.get(fid) === true };
+      }
+      return file;
+    }
+    const urlKey = stableReportMediaUrl(driveSource);
+    if (picIncludeByUrl.has(urlKey)) {
+      return { ...file, includeInReport: picIncludeByUrl.get(urlKey) === true };
+    }
+    return file;
+  });
+
+  return dedupeReportMediaRows([...adjustedDrive, ...picRows]);
 }
 
 const defaultReportLayout: ReportLayoutPrefs = {
@@ -1815,7 +1874,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       let picRows: (MvDriveFile & { sourceUrl?: string })[] = [];
       const publishPartialMedia = () => {
         if (runId !== loadRunRef.current) return;
-        const next = mergeWithCachedMedia(dedupeReportMediaRows([...driveRows, ...picRows]));
+        const next = mergeWithCachedMedia(mergeReportAssetMediaRows(driveRows, picRows));
         startTransition(() => setFiles(next));
       };
 
@@ -1899,7 +1958,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
       if (runId !== loadRunRef.current) return;
       setReportMediaLoading(false);
-      const streamedMedia = dedupeReportMediaRows([...driveRows, ...picRows]);
+      const streamedMedia = mergeReportAssetMediaRows(driveRows, picRows);
       const mediaComplete = mediaResults.every((result) => result.status === "fulfilled");
       const merged = mediaComplete ? streamedMedia : mergeWithCachedMedia(streamedMedia);
       setFiles(merged);
@@ -2706,6 +2765,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         reportData,
         assetImageSources: wordTemplateAssetImageSources,
         valuationImageSources: wordTemplateValuationImageSources,
+        loadImages: false,
       });
       setPdfExportProgress(55);
       setPdfExportLabel(t("report.export.mergingWord"));

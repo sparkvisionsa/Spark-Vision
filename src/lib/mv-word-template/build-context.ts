@@ -25,21 +25,20 @@ function hasMergeValue(value: unknown): value is string | number {
 
 function formatDateAr(value?: unknown) {
   if (value == null) return "";
-  const raw =
+  const raw = typeof value === "string" ? value.trim() : "";
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date =
     value instanceof Date
-      ? value.toISOString()
-      : typeof value === "string" || typeof value === "number"
-        ? String(value).trim()
-        : "";
-  if (!raw) return "";
-  const dateOnly = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? raw;
-  const date = new Date(`${dateOnly}T12:00:00`);
+      ? value
+      : typeof value === "number"
+        ? new Date(value)
+        : iso
+          ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+          : new Date(raw);
   if (Number.isNaN(date.getTime())) return raw;
-  return new Intl.DateTimeFormat("ar-SA", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(date);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}/${date.getFullYear()}`;
 }
 
 function coerceFiniteNumber(value: unknown): number | null {

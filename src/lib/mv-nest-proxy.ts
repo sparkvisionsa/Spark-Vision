@@ -1,6 +1,21 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { Agent, fetch as undiciFetch } from "undici";
 import { mvBackendOriginForProxy } from "@/lib/mv-backend-origin";
+
+/**
+ * ‎fetch‎ المدمج في Node (عبر undici داخلياً) له مهلة افتراضية لرؤوس/جسم الاستجابة تُقارب
+ * 300 ثانية (‎UND_ERR_HEADERS_TIMEOUT‎) — عمليات مثل دمج Word لمشروع بمئات الصور أو تنزيل
+ * أرشيف صور ضخم قد تستغرق أطول من ذلك على خادم مُحمَّل، فيُفشلها الوكيل بـ502 رغم أن Nest
+ * لا يزال يعالجها فعلياً. نستخدم هنا ‎undici‎ صريحاً (بدل الكائن العام) مع ‎Agent‎ بمهلة
+ * أطول بكثير، مخصّص لهذا الوكيل وحده.
+ */
+const MV_PROXY_TIMEOUT_MS = 15 * 60_000;
+const mvProxyAgent = new Agent({
+  headersTimeout: MV_PROXY_TIMEOUT_MS,
+  bodyTimeout: MV_PROXY_TIMEOUT_MS,
+  connectTimeout: 30_000,
+});
 
 const FORWARD_HEADERS = [
   "cookie",
@@ -27,10 +42,11 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
   }
 
   const method = request.method.toUpperCase();
-  const init: RequestInit & { duplex?: "half" } = {
+  const init: RequestInit & { duplex?: "half"; dispatcher?: Agent } = {
     method,
     headers,
     redirect: "manual",
+    dispatcher: mvProxyAgent,
   };
 
   if (method !== "GET" && method !== "HEAD") {
@@ -42,7 +58,7 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
   }
 
   try {
-    const upstream = await fetch(target, init);
+    const upstream = await undiciFetch(target, init as never);
     const outHeaders = new Headers();
     const passthrough = [
       "content-type",
@@ -70,7 +86,9 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
         headers: outHeaders,
       });
     }
-    return new NextResponse(upstream.body, {
+    // نوع ‎ReadableStream‎ في undici (‎stream/web‎) وDOM lib متطابقان بنيوياً وقت التشغيل
+    // لكن من مصدرين مختلفين في تعريفات TypeScript — تحويل صريح آمن هنا.
+    return new NextResponse(upstream.body as unknown as BodyInit | null, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: outHeaders,

@@ -1,18 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Download, FileType, Loader2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertCircle, CheckCircle2, Download, Images, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   downloadWordBlob,
-  listKnownBookmarkNames,
   mergeWordReportTemplateSmart,
-  MV_WORD_ALL_BOOKMARKS,
   prepareMvWordMergeInput,
-  scanDocxBookmarks,
 } from "@/lib/mv-word-template";
 import { resolveImageBookmarkDef, resolveTextBookmarkDef } from "@/lib/mv-word-template/bookmarks";
 import type { MvProjectReportData } from "./types";
@@ -30,6 +27,10 @@ type CompanyWordTemplate = {
   sizeBytes?: number;
   bookmarkNames?: string[];
 };
+
+function recommendedImagesPerPage(imagesPerRow: number): number {
+  return imagesPerRow * (imagesPerRow >= 4 ? 5 : 4);
+}
 
 function normalizeCompanyWordTemplate(value: unknown): CompanyWordTemplate | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -51,12 +52,6 @@ function normalizeCompanyWordTemplate(value: unknown): CompanyWordTemplate | nul
     sizeBytes: typeof data.sizeBytes === "number" ? data.sizeBytes : undefined,
     bookmarkNames: Array.isArray(data.bookmarkNames) ? data.bookmarkNames.map(String).filter(Boolean) : [],
   };
-}
-
-async function fetchCompanyWordTemplateBuffer(fileUrl: string, loadFailed: string): Promise<ArrayBuffer> {
-  const response = await fetch(fileUrl, { credentials: "include", cache: "no-store" });
-  if (!response.ok) throw new Error(loadFailed);
-  return response.arrayBuffer();
 }
 
 export interface MvWordTemplatePanelProps {
@@ -86,8 +81,9 @@ export function MvWordTemplatePanel({
   const [generating, setGenerating] = useState(false);
   const [mergeStage, setMergeStage] = useState("");
   const [mergeProgress, setMergeProgress] = useState<number | null>(null);
-  const [foundBookmarks, setFoundBookmarks] = useState<string[]>([]);
   const [companyWordTemplate, setCompanyWordTemplate] = useState<CompanyWordTemplate | null>(null);
+  const [imagesPerRow, setImagesPerRow] = useState(4);
+  const imagesPerPage = recommendedImagesPerPage(imagesPerRow);
 
   const hasCompanyTemplate = Boolean(companyWordTemplate?.fileUrl);
   const templateFileName = companyWordTemplate?.fileName?.trim() || t("report.wordTemplate.defaultName");
@@ -114,7 +110,7 @@ export function MvWordTemplatePanel({
   }, []);
 
   const runMergeAndDownload = useCallback(
-    async (templateBuffer: ArrayBuffer) => {
+    async () => {
       setGenerating(true);
       setMergeProgress(12);
       setMergeStage(t("report.wordTemplate.preparing"));
@@ -125,16 +121,18 @@ export function MvWordTemplatePanel({
           reportData,
           assetImageSources,
           valuationImageSources,
+          loadImages: false,
         });
 
         setMergeProgress(46);
         setMergeStage(t("report.wordTemplate.merging"));
         const { blob, bookmarkStats, mergeSource } = await mergeWordReportTemplateSmart({
           projectId,
-          templateBuffer,
+          templateBuffer: new ArrayBuffer(0),
           mergeInput,
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
+          imageLayout: { imagesPerRow, imagesPerPage },
         });
         const safeName = (projectName || "report").replace(/[\\/:*?"<>|]+/g, "-");
         const filename = `${safeName}-updated-report.docx`;
@@ -208,130 +206,98 @@ export function MvWordTemplatePanel({
         window.setTimeout(() => setMergeProgress(null), 300);
       }
     },
-    [assetImageSources, displayNumber, projectId, projectName, reportData, t, toast, valuationImageSources],
+    [
+      assetImageSources,
+      displayNumber,
+      imagesPerPage,
+      imagesPerRow,
+      projectId,
+      projectName,
+      reportData,
+      t,
+      toast,
+      valuationImageSources,
+    ],
   );
 
   const generateMergedReport = useCallback(async () => {
     if (!hasTemplate) return;
     try {
-      const templateBuffer = await fetchCompanyWordTemplateBuffer(
-        companyWordTemplate?.fileUrl || "",
-        t("report.wordTemplate.loadFailed"),
-      );
-      const cached = companyWordTemplate?.bookmarkNames ?? [];
-      if (cached.length > 0) {
-        setFoundBookmarks(cached);
-      } else {
-        setMergeStage(t("report.wordTemplate.readingBookmarks"));
-        const bookmarks = scanDocxBookmarks(templateBuffer);
-        setFoundBookmarks(bookmarks);
-      }
-      await runMergeAndDownload(templateBuffer);
+      await runMergeAndDownload();
     } catch {
       /* toast in runMergeAndDownload */
     }
-  }, [
-    companyWordTemplate?.bookmarkNames,
-    companyWordTemplate?.fileUrl,
-    hasTemplate,
-    runMergeAndDownload,
-    t,
-  ]);
+  }, [hasTemplate, runMergeAndDownload]);
 
   const busy = disabled || generating;
-  const displayBookmarks = foundBookmarks.length > 0 ? foundBookmarks : companyWordTemplate?.bookmarkNames ?? [];
-  const matchedCount = displayBookmarks.filter(
-    (name) => resolveTextBookmarkDef(name) || resolveImageBookmarkDef(name),
-  ).length;
 
   return (
-    <div className={cn("space-y-2.5", layout === "modal" && "space-y-3")} dir={dir}>
-      <div
-        className={cn(
-          "rounded-xl border border-sky-200/80 bg-gradient-to-b from-sky-50/90 to-white p-2.5 shadow-sm",
-          layout === "modal" && "p-3",
-        )}
-      >
-        <div className="mb-2 flex items-start gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0C447C]/10 text-[#0C447C]">
-            <FileType className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1 text-right">
-            <p className="text-[11.5px] font-black text-slate-900">{t("report.wordTemplate.title")}</p>
-            <p className="mt-0.5 text-[9.5px] font-semibold leading-snug text-slate-600">
-              {t("report.wordTemplate.description")}
-            </p>
-          </div>
-        </div>
-
-        {!hasTemplate ? (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-right">
+    <div className={cn(layout === "modal" ? "p-1" : "space-y-2.5")} dir={dir}>
+      {!hasTemplate ? (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-right">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-            <p className="text-[10px] font-bold leading-5 text-amber-900">
+            <p className="text-[11px] font-bold leading-5 text-amber-900">
               {t("report.wordTemplate.uploadFirst")}
             </p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-emerald-50/60 px-4 py-3">
+            <div className="min-w-0 text-right">
+              <p className="truncate text-[11px] font-black text-slate-900">{templateFileName}</p>
+              <p className="mt-0.5 text-[9px] font-semibold text-emerald-700">
+                {t("report.wordTemplate.activeFromCompany")}
+              </p>
+            </div>
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
           </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2 py-1.5">
-              <div className="min-w-0 flex-1 text-right">
-                <p className="truncate text-[10.5px] font-black text-emerald-900">{templateFileName}</p>
-                <p className="text-[9px] font-semibold text-emerald-700">
-                  {t("report.wordTemplate.activeFromCompany")}
-                </p>
+
+          <div className="space-y-3 p-4">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sky-800">
+                <Images className="h-4 w-4 shrink-0" />
+                <span className="text-[10px] font-black">
+                  {t("report.wordTemplate.assetImages", { count: assetImageSources.length })}
+                </span>
               </div>
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <div className="flex items-center gap-2 rounded-xl bg-violet-50 px-3 py-2 text-violet-800">
+                <Images className="h-4 w-4 shrink-0" />
+                <span className="text-[10px] font-black">
+                  {t("report.wordTemplate.valuationImages", { count: valuationImageSources.length })}
+                </span>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
 
-      {hasTemplate ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="mb-2 flex flex-wrap items-center gap-1">
-            <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] text-slate-700">
-              {t("report.wordTemplate.bookmarksInFile", { count: displayBookmarks.length })}
-            </Badge>
-            <Badge className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] text-emerald-800">
-              {t("report.wordTemplate.known", { count: matchedCount })}
-            </Badge>
-            <Badge className="rounded-full bg-sky-100 px-2 py-0.5 text-[9px] text-sky-800">
-              {t("report.wordTemplate.assetImages", { count: assetImageSources.length })}
-            </Badge>
-            <Badge className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] text-violet-800">
-              {t("report.wordTemplate.valuationImages", { count: valuationImageSources.length })}
-            </Badge>
-          </div>
-
-          {displayBookmarks.length > 0 ? (
-            <p className="mb-2 text-[9px] font-semibold leading-relaxed text-slate-600">
-              {displayBookmarks.slice(0, 12).join(" · ")}
-              {displayBookmarks.length > 12 ? " …" : ""}
-            </p>
-          ) : null}
-
-          <details className="mb-2 rounded-lg border border-slate-100 bg-slate-50/70 p-1.5">
-            <summary className="cursor-pointer text-[9.5px] font-black text-slate-700">
-              {t("report.wordTemplate.supportedBookmarks", { count: listKnownBookmarkNames().length })}
-            </summary>
-            <div className="mt-1.5 max-h-32 space-y-1 overflow-y-auto">
-              {MV_WORD_ALL_BOOKMARKS.map((def) => (
-                <p key={def.field} className="text-[9px] text-slate-600">
-                  <span className="font-mono font-bold">{def.names.join("، ")}</span>
-                  {" → "}
-                  {def.labelAr}
-                </p>
-              ))}
+            <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+              <label className="space-y-1.5 text-[10px] font-bold text-slate-700">
+                <span>{t("report.wordTemplate.imagesPerRow")}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={6}
+                  value={imagesPerRow}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setImagesPerRow(Math.max(1, Math.min(6, Number(event.target.value) || 1)))
+                  }
+                  className="h-9 rounded-lg border-slate-200 bg-white text-center text-xs font-black shadow-none"
+                />
+              </label>
+              <label className="space-y-1.5 text-[10px] font-bold text-slate-700">
+                <span>{t("report.wordTemplate.imagesPerPage")}</span>
+                <div className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-center text-xs font-black text-slate-700">
+                  {imagesPerPage}
+                </div>
+              </label>
             </div>
-          </details>
 
           {mergeProgress != null ? (
-            <div className="mb-2 rounded-lg border border-emerald-100 bg-emerald-50/70 px-2 py-1.5">
-              <div className="mb-1 flex items-center justify-between gap-2 text-[9px] font-black text-emerald-800">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
+              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-black text-emerald-800">
                 <span>{mergeStage || t("report.wordTemplate.preparingFile")}</span>
                 <span dir="ltr">{Math.round(mergeProgress)}%</span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white">
+              <div className="h-2 overflow-hidden rounded-full bg-white">
                 <div
                   className="h-full rounded-full bg-emerald-700 transition-all duration-300"
                   style={{ width: `${Math.max(4, Math.min(100, mergeProgress))}%` }}
@@ -342,7 +308,7 @@ export function MvWordTemplatePanel({
 
           <Button
             type="button"
-            className="h-9 w-full gap-2 rounded-lg bg-emerald-700 text-[11px] font-black hover:bg-emerald-800"
+            className="h-11 w-full gap-2 rounded-xl bg-emerald-700 text-xs font-black shadow-sm hover:bg-emerald-800"
             disabled={busy}
             onClick={() => void generateMergedReport()}
           >
@@ -350,7 +316,8 @@ export function MvWordTemplatePanel({
             {generating && mergeStage ? mergeStage : t("report.wordTemplate.startMerge")}
           </Button>
         </div>
-      ) : null}
+        </div>
+      )}
     </div>
   );
 }

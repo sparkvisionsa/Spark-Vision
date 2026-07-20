@@ -52,6 +52,11 @@ import {
 } from "./asset-import-panel";
 import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
+import {
+  MvReportImagesSelectModal,
+  type MvReportSelectAssetSection,
+  type MvReportSelectUpdate,
+} from "./mv-report-images-select-modal";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types"
 import {
@@ -211,10 +216,6 @@ function isExternalPicAssetVideo(image: PicAssetImage): boolean {
   return false;
 }
 
-function isExternalPicAssetStillImage(image: PicAssetImage): image is Extract<PicAssetImage, { url: string }> {
-  return isExternalPicAssetImage(image) && !isExternalPicAssetVideo(image);
-}
-
 function isMvDriveFileVideo(file: MvDriveFile): boolean {
   const mt = (file.mimeType || "").toLowerCase();
   if (mt.startsWith("video/")) return true;
@@ -352,6 +353,83 @@ function effectiveDriveFileId(file: AssetImageViewFile): string | null {
   if (!isDisplayOnlyPicAssetImage(file)) return file._id;
   const effective = (file.downloadFileId ?? "").trim();
   return effective ? effective : null;
+}
+
+function stableAssetImageSourceUrl(sourceUrl: string): string {
+  const raw = sourceUrl.trim();
+  try {
+    const url = new URL(raw);
+    // معاملات الرابط والـ hash قد تتبدل في روابط Spaces الموقعة، لا في الصورة نفسها.
+    return `${url.origin.toLowerCase()}${url.pathname}`.toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+/**
+ * الصورة قد تملك أكثر من هوية في البيانات القديمة: رابط Spaces، سجل GridFS، أو
+ * displayOrder. نحتفظ بكل المفاتيح كي تربط الهوية الواحدة بين المصدرين، بدلاً من
+ * اختيار مفتاح واحد (الذي كان يترك `file:*` و`url:*` للصورة نفسها دون تطابق).
+ */
+function assetImageLogicalKeys(file: AssetImageViewFile, canonicalPicAssetId: string): string[] {
+  const keys: string[] = [];
+  const sourceUrl = file.sourceUrl?.trim();
+  if (sourceUrl) keys.push(`url:${stableAssetImageSourceUrl(sourceUrl)}`);
+
+  const effectiveId = effectiveDriveFileId(file);
+  if (effectiveId) keys.push(`file:${effectiveId}`);
+
+  if (typeof file.displayOrder === "number") {
+    keys.push(`order:${canonicalPicAssetId}:${file.displayOrder}`);
+  }
+  if (keys.length === 0) keys.push(`row:${file._id}`);
+  return keys;
+}
+
+/**
+ * يوحّد كل تمثيلات الصورة (Drive/صف العرض/معرّف قديم) مع تفضيل الملف الحقيقي.
+ * عند مرور سجل يربط مجموعتين سابقتين بمفتاحين مختلفين، تدمج المجموعتان كذلك.
+ */
+function dedupeAssetImageViewFiles(
+  files: readonly AssetImageViewFile[],
+  canonicalPicAssetId: string,
+): AssetImageViewFile[] {
+  type Entry = { file: AssetImageViewFile; keys: Set<string>; active: boolean };
+  const byKey = new Map<string, Entry>();
+  const entries: Entry[] = [];
+
+  for (const file of files) {
+    const keys = assetImageLogicalKeys(file, canonicalPicAssetId);
+    const matches = Array.from(new Set(keys.map((key) => byKey.get(key)).filter((entry): entry is Entry => Boolean(entry))));
+    const entry =
+      matches.find((candidate) => !isDisplayOnlyPicAssetImage(candidate.file)) ??
+      matches[0] ??
+      (() => {
+        const next: Entry = { file, keys: new Set(), active: true };
+        entries.push(next);
+        return next;
+      })();
+
+    if (isDisplayOnlyPicAssetImage(entry.file) && !isDisplayOnlyPicAssetImage(file)) {
+      entry.file = file;
+    }
+    for (const duplicate of matches) {
+      if (duplicate === entry || !duplicate.active) continue;
+      if (isDisplayOnlyPicAssetImage(entry.file) && !isDisplayOnlyPicAssetImage(duplicate.file)) {
+        entry.file = duplicate.file;
+      }
+      for (const key of duplicate.keys) {
+        entry.keys.add(key);
+        byKey.set(key, entry);
+      }
+      duplicate.active = false;
+    }
+    for (const key of keys) {
+      entry.keys.add(key);
+      byKey.set(key, entry);
+    }
+  }
+  return entries.filter((entry) => entry.active).map((entry) => entry.file);
 }
 
 function selectableReportFileIds(files: readonly AssetImageViewFile[]): string[] {
@@ -979,6 +1057,12 @@ function previewFolderStatsLabel(
   numberFormatter: Intl.NumberFormat,
 ): string {
   if (isAssetFolderNode(node)) {
+    if (node.includedImageCount > 0) {
+      return t("assetImages.meta.imageCountWithReport", {
+        count: numberFormatter.format(node.imageCount),
+        selected: numberFormatter.format(node.includedImageCount),
+      });
+    }
     return t("assetImages.meta.imageCount", { count: numberFormatter.format(node.imageCount) });
   }
   return t("assetImages.meta.assetFolderCount", {
@@ -1010,6 +1094,52 @@ function collectFolderVideos(node: ImageFolderNode): AssetImageViewFile[] {
 
 function isReportImageIncluded(file: MvDriveFile): boolean {
   return file.includeInReport === true;
+}
+
+/**
+ * صور العرض من بيانات الأصل: إن وُجد ملف Drive مرتبط (fileId) فمصدر التحديد
+ * للتقرير هو metadata الملف؛ وإلا includeInReport على عنصر الأصل (روابط خارجية).
+ */
+function isAssetViewFileReportIncluded(
+  file: AssetImageViewFile,
+  filesById: Map<string, MvDriveFile>,
+): boolean {
+  if (isDisplayOnlyPicAssetImage(file)) {
+    const effectiveId = effectiveDriveFileId(file);
+    if (effectiveId) {
+      const drive = filesById.get(effectiveId);
+      if (drive) return isReportImageIncluded(drive);
+    }
+    return file.includeInReport === true;
+  }
+  return isReportImageIncluded(file);
+}
+
+function collectAssetFolderNodes(node: ImageFolderNode): ImageFolderNode[] {
+  const out: ImageFolderNode[] = [];
+  const walk = (current: ImageFolderNode) => {
+    if (isAssetFolderNode(current)) out.push(current);
+    for (const child of current.folders) walk(child);
+  };
+  for (const child of node.folders) walk(child);
+  return out;
+}
+
+function reportSelectPreviewUrl(projectId: string, file: AssetImageViewFile): string {
+  const sourceUrl = typeof file.sourceUrl === "string" ? file.sourceUrl.trim() : "";
+  if (sourceUrl) return sourceUrl;
+  const effectiveId = effectiveDriveFileId(file);
+  if (effectiveId && !isLocalPreviewDriveId(effectiveId)) {
+    return `/api/mv/projects/${projectId}/files/${encodeURIComponent(effectiveId)}/download`;
+  }
+  if (!isDisplayOnlyPicAssetImage(file) && file._id && !isLocalPreviewDriveId(file._id)) {
+    return downloadHref(projectId, file);
+  }
+  return "";
+}
+
+function fileNameFromPathSafe(file: AssetImageViewFile): string {
+  return fileNameFromPath(file.relativePath || file.name);
 }
 
 export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImagesHubProps) {
@@ -1072,6 +1202,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [reportData, setReportData] = useState<MvProjectReportData>({ includeAssetImages: true });
   const [includeAssetImagesInReport, setIncludeAssetImagesInReport] = useState(true);
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
+  const reportSelectionPendingRef = useRef(0);
+  const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [lightboxFile, setLightboxFile] = useState<MvDriveFile | null>(null);
   const dragReorderFromIdx = useRef<number | null>(null);
@@ -1765,18 +1897,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           )
         : [];
       const assetImageRows = assetFileRowsAll.filter((f) => !isMvDriveFileVideo(f));
-      const assetVideoRows = assetFileRowsAll.filter((f) => isMvDriveFileVideo(f));
-      const assetFileIds = new Set(assetFileRowsAll.map((file) => file._id));
-      const assetSourceUrls = new Set(
-        assetFileRowsAll
-          .map((file) => file.sourceUrl?.trim())
-          .filter((url): url is string => Boolean(url)),
-      );
-      const assetFileOrders = new Set(
-        assetFileRowsAll
-          .map((file) => file.displayOrder)
-          .filter((order): order is number => typeof order === "number"),
-      );
 
       const rawImages = row.picAsset?.images ?? [];
       const indexed = rawImages.map((image, originalIndex) => ({ image, originalIndex }));
@@ -1798,26 +1918,19 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               isVideoEntry,
             ),
           )
-          .filter((file): file is AssetImageViewFile => {
-            if (!file) return false;
-            if (assetFileIds.has(file.downloadFileId ?? file._id)) return false;
-            const u = file.sourceUrl?.trim();
-            if (u && assetSourceUrls.has(u)) {
-              return false;
-            }
-            return typeof file.displayOrder !== "number" || !assetFileOrders.has(file.displayOrder);
-          });
+          .filter((file): file is AssetImageViewFile => file != null);
 
-      const picStillRows = mapDisplay(
-        indexed.filter(({ image }) => isExternalPicAssetStillImage(image)),
-        false,
-      );
-      const picVideoRows = mapDisplay(
-        indexed.filter(({ image }) => isExternalPicAssetVideo(image)),
-        true,
-      );
+      /**
+       * لا ندمج مصدرين في أي حال: عند توفر صور الأصل في ‎assets.images‎ فهي المصدر
+       * المرجعي الوحيد للعرض، سواء كانت URL من تطبيق المعاينة أو fileId قديماً.
+       * سجلات Drive/GridFS المقابلة هي نسخ خدمة للتنزيل فقط. هذا يمنع التكرار
+       * جذرياً بدلاً من محاولة مطابقة المرآة بالرابط أو الترتيب.
+       */
+      const canonicalPicImageEntries = indexed.filter(({ image }) => !isExternalPicAssetVideo(image));
+      const canonicalPicImageRows = mapDisplay(canonicalPicImageEntries, false);
+      const displayRows = canonicalPicImageRows.length > 0 ? canonicalPicImageRows : assetImageRows;
 
-      node.images = sortImages([...assetImageRows, ...picStillRows]);
+      node.images = sortImages(dedupeAssetImageViewFiles(displayRows, picAssetId));
       // هذا التبويب مخصص للصور فقط: لا نُحمّل/نعرض فيديوهات.
       node.videos = [];
       node.imageCount = node.images.length;
@@ -1885,16 +1998,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       node.imageCount = node.images.length + node.folders.reduce((sum, folder) => sum + folder.imageCount, 0);
       node.videoCount = node.videos.length + node.folders.reduce((sum, folder) => sum + folder.videoCount, 0);
       node.includedImageCount =
-        node.images.filter(isReportImageIncluded).length +
+        node.images.filter((image) => isAssetViewFileReportIncluded(image, filesById)).length +
         node.folders.reduce((sum, folder) => sum + folder.includedImageCount, 0);
       node.includedVideoCount =
-        node.videos.filter(isReportImageIncluded).length +
+        node.videos.filter((video) => isAssetViewFileReportIncluded(video, filesById)).length +
         node.folders.reduce((sum, folder) => sum + folder.includedVideoCount, 0);
     };
 
     sortAndCount(rootNode);
     return { previewRoot: rootNode, previewFoldersById: fb };
-  }, [filesByPicAssetId, previewPhotoFolders, projectId, t]);
+  }, [filesById, filesByPicAssetId, previewPhotoFolders, projectId, t]);
 
   const previewRowsById = useMemo(
     () => new Map(previewPhotoFolders.map((row) => [row.sub._id, row])),
@@ -1938,6 +2051,41 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const selectedCount = reportSelectedFileIds.size;
+
+  const reportSelectSections = useMemo((): MvReportSelectAssetSection[] => {
+    const assetNodes = collectAssetFolderNodes(previewRoot);
+    return assetNodes.map((node) => {
+      const pathParts = findFolderNodePath(previewRoot, node.path)
+        .filter((item) => item.path !== "__pv_root__" && item.path !== node.path)
+        .map((item) => item.name);
+      return {
+        id: node.path,
+        name: node.name,
+        pathLabel: pathParts.length > 0 ? pathParts.join(" / ") : undefined,
+        images: node.images.map((file) => {
+          const displayOnly = isDisplayOnlyPicAssetImage(file);
+          const effectiveId = displayOnly ? effectiveDriveFileId(file) : file._id;
+          return {
+            key: file._id,
+            name: fileNameFromPathSafe(file),
+            previewUrl: reportSelectPreviewUrl(projectId, file),
+            selected: isAssetViewFileReportIncluded(file, filesById),
+            disabled: displayOnly ? false : !effectiveId,
+          };
+        }),
+      };
+    });
+  }, [filesById, previewRoot, projectId]);
+
+  const reportSelectSelectedCount = useMemo(
+    () =>
+      reportSelectSections.reduce(
+        (sum, section) => sum + section.images.filter((image) => image.selected).length,
+        0,
+      ),
+    [reportSelectSections],
+  );
+
   const selectedPreviewNodeFiles = useMemo(() => {
     if (!selectedPreviewFolderNode) return [];
     if (selectedPreviewFolderNode.path === "__pv_root__") return [];
@@ -1997,7 +2145,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         const chips = compactChips([
           t("assetImages.meta.image"),
           isDisplayOnlyPicAssetImage(file) ? t("assetImages.meta.fromAssetData") : t("assetImages.meta.savedFile"),
-          file.includeInReport === true ? t("assetImages.report.include") : t("assetImages.report.exclude"),
+          isAssetViewFileReportIncluded(file, filesById)
+            ? t("assetImages.report.include")
+            : t("assetImages.report.exclude"),
           recentLabel ? t("assetImages.meta.addedRecently", { when: recentLabel }) : null,
         ]);
         const searchText = [
@@ -2088,7 +2238,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
     visit(previewRoot, [previewRoot.name], ["__pv_root__"], false);
     return rows;
-  }, [appliedAssetSearch, assetSearchOpen, previewRoot]);
+  }, [
+    appliedAssetSearch,
+    assetSearchOpen,
+    dateTimeFormatter,
+    filesById,
+    numberFormatter,
+    previewKindLabel,
+    previewRoot,
+    t,
+  ]);
   const assetSearchStats = useMemo(
     () => ({
       folders: assetSearchRows.filter((row) => row.kind === "folder").length,
@@ -3140,19 +3299,38 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (fileIds.length === 0) return;
 
       const remoteIds = fileIds.filter((id) => !isLocalPreviewDriveId(id));
-      const previousFiles = files;
-      setFiles((current) =>
-        current.map((file) =>
+      const previousById = new Map(filesRef.current.map((file) => [file._id, file.includeInReport === true]));
+      setFiles((current) => {
+        const next = current.map((file) =>
           fileIds.includes(file._id)
             ? { ...file, includeInReport, updatedAt: new Date().toISOString() }
             : file,
-        ),
-      );
+        );
+        const serverRows = next.filter((file) => !isLocalPreviewDriveId(file._id));
+        writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.assetImageFiles(projectId), {
+          rows: serverRows.slice(0, 500),
+        });
+        // حافظ على نفس التحديد في كاش صفحة إعداد التقرير حتى لا تُعرض كل الصور من جلسة قديمة
+        const reportSessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
+        const reportBundle =
+          readMvWorkflowSessionJson<{ files?: MvDriveFile[] }>(reportSessionKey) ?? {};
+        if (Array.isArray(reportBundle.files) && reportBundle.files.length > 0) {
+          writeMvWorkflowSessionJson(reportSessionKey, {
+            ...reportBundle,
+            files: reportBundle.files.map((file) =>
+              fileIds.includes(file._id) ? { ...file, includeInReport } : file,
+            ),
+            fetchedAt: Date.now(),
+          });
+        }
+        return next;
+      });
 
       if (remoteIds.length === 0) return;
 
+      reportSelectionPendingRef.current += 1;
+      setReportSelectionSaving(true);
       try {
-        setReportSelectionSaving(true);
         const response = await fetch(
           `/api/mv/projects/${projectId}/asset-image-files/report-selection`,
           {
@@ -3174,24 +3352,26 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }
           throw new Error(message);
         }
-        const rows = (await response.json()) as MvDriveFile[];
-        setFiles((prev) =>
-          mergeServerListWithStillPendingLocals(
-            rows,
-            prev.filter((file) => isLocalPreviewDriveId(file._id)),
+        // لا نستبدل قائمة الصور بالكامل حتى لا تومض الواجهة أو تُخفى الصور أثناء الحفظ
+        await response.json().catch(() => null);
+      } catch (error) {
+        setFiles((current) =>
+          current.map((file) =>
+            fileIds.includes(file._id)
+              ? { ...file, includeInReport: previousById.get(file._id) === true }
+              : file,
           ),
         );
-      } catch (error) {
-        setFiles(previousFiles);
         toast({
           variant: "destructive",
           description: error instanceof Error ? error.message : t("assetImages.toast.reportSelectionSaveFailed"),
         });
       } finally {
-        setReportSelectionSaving(false);
+        reportSelectionPendingRef.current = Math.max(0, reportSelectionPendingRef.current - 1);
+        if (reportSelectionPendingRef.current === 0) setReportSelectionSaving(false);
       }
     },
-    [files, projectId, toast],
+    [projectId, t, toast],
   );
 
   const toggleImageSelection = useCallback(
@@ -3205,6 +3385,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const togglePicAssetImageSelection = useCallback(
     async (viewFile: AssetImageViewFile) => {
+      const nextInclude = !isAssetViewFileReportIncluded(viewFile, filesById);
+      const effectiveId = effectiveDriveFileId(viewFile);
+      if (effectiveId) {
+        void updateReportSelection([effectiveId], nextInclude);
+      }
+
       const subProjectId = viewFile.picAssetSubProjectId?.trim() || "";
       const idx = typeof viewFile.picAssetImageIndex === "number" ? viewFile.picAssetImageIndex : -1;
       if (!subProjectId || idx < 0) return;
@@ -3214,11 +3400,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!asset) return;
       const current = (asset.images ?? []).slice();
       const target = current[idx];
+      // عناصر fileId تُحفظ عبر Drive؛ عناصر url تحتفظ بـ includeInReport على الأصل
       if (!target || !("url" in target) || typeof (target as { url?: unknown }).url !== "string") return;
 
-      const existing = (target as { includeInReport?: boolean }).includeInReport;
-      const nextInclude = typeof existing === "boolean" ? !existing : false;
-      const nextImages = current.map((im, i) => (i === idx ? { ...(im as object), includeInReport: nextInclude } : im));
+      const nextImages = current.map((im, i) =>
+        i === idx ? { ...(im as object), includeInReport: nextInclude } : im,
+      );
 
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
@@ -3234,7 +3421,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         });
       }
     },
-    [previewPhotoFolders, projectId, toast],
+    [filesById, previewPhotoFolders, projectId, t, toast, updateReportSelection],
   );
 
   const deletePicAssetImage = useCallback(
@@ -3282,6 +3469,223 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       void updateReportSelection(fileIds, shouldInclude);
     },
     [foldersByPath, updateReportSelection],
+  );
+
+  const syncIncludeAssetImagesFlag = useCallback(
+    async (enabled: boolean) => {
+      if ((includeAssetImagesInReport !== false) === enabled) return;
+      const previousReportData = reportData;
+      const nextReportData: MvProjectReportData = {
+        ...reportData,
+        includeAssetImages: enabled,
+      };
+      try {
+        const response = await fetch(`/api/mv/projects/${projectId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reportData: nextReportData }),
+        });
+        if (!response.ok) throw new Error("save_failed");
+        const updated = (await response.json()) as MvProject;
+        const savedReportData = updated.reportData ?? nextReportData;
+        setReportData({
+          ...savedReportData,
+          includeAssetImages: savedReportData.includeAssetImages !== false,
+        });
+        setIncludeAssetImagesInReport(savedReportData.includeAssetImages !== false);
+      } catch {
+        setReportData(previousReportData);
+        setIncludeAssetImagesInReport(previousReportData.includeAssetImages !== false);
+      }
+    },
+    [includeAssetImagesInReport, projectId, reportData],
+  );
+
+  const setPicAssetFolderReportSelection = useCallback(
+    async (node: ImageFolderNode, includeInReport: boolean) => {
+      const subProjectId = node.path?.trim() || "";
+      if (!subProjectId || subProjectId === "__pv_root__") return;
+      const entry = previewPhotoFolders.find((row) => row.sub._id === subProjectId);
+      const asset = entry?.picAsset;
+      if (!asset) return;
+      const previousImages = asset.images ?? [];
+      const nextImages = previousImages.map((image) =>
+        !isExternalPicAssetVideo(image) ? { ...(image as object), includeInReport } : image,
+      );
+      setPreviewPhotoFolders((prev) =>
+        prev.map((row) =>
+          row.sub._id === subProjectId && row.picAsset
+            ? { ...row, picAsset: { ...row.picAsset, images: nextImages as PicAssetImage[] } }
+            : row,
+        ),
+      );
+      try {
+        const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
+          images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
+        });
+        setPreviewPhotoFolders((prev) =>
+          prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
+        );
+      } catch (error) {
+        setPreviewPhotoFolders((prev) =>
+          prev.map((row) =>
+            row.sub._id === subProjectId && row.picAsset
+              ? { ...row, picAsset: { ...row.picAsset, images: previousImages } }
+              : row,
+          ),
+        );
+        toast({
+          variant: "destructive",
+          description:
+            error instanceof Error ? error.message : t("assetImages.toast.imageReportToggleFailed"),
+        });
+      }
+    },
+    [previewPhotoFolders, projectId, t, toast],
+  );
+
+  const applyPicAssetReportSelectionBatch = useCallback(
+    async (subProjectId: string, indexSelection: Map<number, boolean>) => {
+      if (indexSelection.size === 0) return;
+      const entry = previewPhotoFolders.find((row) => row.sub._id === subProjectId);
+      const asset = entry?.picAsset;
+      if (!asset) return;
+      const previousImages = (asset.images ?? []).slice();
+      const nextImages = previousImages.map((image, i) => {
+        if (!indexSelection.has(i)) return image;
+        const includeInReport = indexSelection.get(i) === true;
+        const raw = image as unknown;
+        if (typeof raw === "string" && raw.trim()) {
+          return { fileId: raw.trim(), includeInReport } as PicAssetImage;
+        }
+        if (raw && typeof raw === "object" && "url" in raw) {
+          return { ...(raw as object), includeInReport } as PicAssetImage;
+        }
+        if (raw && typeof raw === "object" && "fileId" in raw) {
+          const fileId = (raw as { fileId?: unknown }).fileId;
+          if (typeof fileId === "string" && fileId.trim()) {
+            return { ...(raw as object), fileId, includeInReport } as PicAssetImage;
+          }
+        }
+        return image;
+      });
+      setPreviewPhotoFolders((prev) =>
+        prev.map((row) =>
+          row.sub._id === subProjectId && row.picAsset
+            ? { ...row, picAsset: { ...row.picAsset, images: nextImages as PicAssetImage[] } }
+            : row,
+        ),
+      );
+      try {
+        const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
+          images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
+        });
+        setPreviewPhotoFolders((prev) =>
+          prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
+        );
+      } catch (error) {
+        setPreviewPhotoFolders((prev) =>
+          prev.map((row) =>
+            row.sub._id === subProjectId && row.picAsset
+              ? { ...row, picAsset: { ...row.picAsset, images: previousImages } }
+              : row,
+          ),
+        );
+        toast({
+          variant: "destructive",
+          description:
+            error instanceof Error ? error.message : t("assetImages.toast.imageReportToggleFailed"),
+        });
+      }
+    },
+    [previewPhotoFolders, projectId, t, toast],
+  );
+
+  const handleReportSelectApply = useCallback(
+    (updates: MvReportSelectUpdate[]) => {
+      if (updates.length === 0) return;
+
+      const includeIds: string[] = [];
+      const excludeIds: string[] = [];
+      const picBatches = new Map<string, Map<number, boolean>>();
+      let selectedAfter = 0;
+
+      const pushDriveId = (id: string, selected: boolean) => {
+        const trimmed = id.trim();
+        if (!trimmed || isLocalPreviewDriveId(trimmed)) return;
+        (selected ? includeIds : excludeIds).push(trimmed);
+      };
+
+      const driveIdsBySourceUrl = new Map<string, string[]>();
+      for (const drive of filesRef.current) {
+        const sourceUrl =
+          typeof (drive as MvDriveFile & { sourceUrl?: string }).sourceUrl === "string"
+            ? (drive as MvDriveFile & { sourceUrl?: string }).sourceUrl!.trim()
+            : "";
+        if (!sourceUrl || sourceUrl.includes("/files/")) continue;
+        let key = sourceUrl.toLowerCase();
+        try {
+          const parsed = new URL(sourceUrl);
+          key = `${parsed.origin.toLowerCase()}${parsed.pathname}`.toLowerCase();
+        } catch {
+          /* keep */
+        }
+        const list = driveIdsBySourceUrl.get(key) ?? [];
+        list.push(drive._id);
+        driveIdsBySourceUrl.set(key, list);
+      }
+
+      for (const update of updates) {
+        const node = previewFoldersById.get(update.sectionId);
+        if (!node) continue;
+        const file = node.images.find((row) => row._id === update.imageKey);
+        if (!file) continue;
+        if (update.selected) selectedAfter += 1;
+
+        if (isDisplayOnlyPicAssetImage(file)) {
+          const effectiveId = effectiveDriveFileId(file);
+          if (effectiveId) pushDriveId(effectiveId, update.selected);
+
+          const sourceUrl = typeof file.sourceUrl === "string" ? file.sourceUrl.trim() : "";
+          if (sourceUrl && !sourceUrl.includes("/files/")) {
+            let key = sourceUrl.toLowerCase();
+            try {
+              const parsed = new URL(sourceUrl);
+              key = `${parsed.origin.toLowerCase()}${parsed.pathname}`.toLowerCase();
+            } catch {
+              /* keep */
+            }
+            for (const driveId of driveIdsBySourceUrl.get(key) ?? []) {
+              pushDriveId(driveId, update.selected);
+            }
+          }
+
+          const subProjectId = file.picAssetSubProjectId?.trim() || "";
+          const idx = typeof file.picAssetImageIndex === "number" ? file.picAssetImageIndex : -1;
+          if (subProjectId && idx >= 0) {
+            const batch = picBatches.get(subProjectId) ?? new Map<number, boolean>();
+            batch.set(idx, update.selected);
+            picBatches.set(subProjectId, batch);
+          }
+          continue;
+        }
+        pushDriveId(file._id, update.selected);
+      }
+
+      for (const [subProjectId, batch] of picBatches) {
+        void applyPicAssetReportSelectionBatch(subProjectId, batch);
+      }
+      if (includeIds.length > 0) void updateReportSelection(includeIds, true);
+      if (excludeIds.length > 0) void updateReportSelection(excludeIds, false);
+      void syncIncludeAssetImagesFlag(selectedAfter > 0);
+    },
+    [
+      applyPicAssetReportSelectionBatch,
+      previewFoldersById,
+      syncIncludeAssetImagesFlag,
+      updateReportSelection,
+    ],
   );
 
   const updateAssetImagesReportEnabled = useCallback(
@@ -3872,9 +4276,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         const displayOnly = isDisplayOnlyPicAssetImage(file as AssetImageViewFile);
         const effectiveId = displayOnly ? effectiveDriveFileId(file as AssetImageViewFile) : file._id;
         if (!effectiveId || isLocalPreviewDriveId(effectiveId)) continue;
-        const included = displayOnly
-          ? (file as AssetImageViewFile).includeInReport === true
-          : isReportImageIncluded(filesById.get(effectiveId) ?? (file as MvDriveFile));
+        const included = isAssetViewFileReportIncluded(file as AssetImageViewFile, filesById);
         if (included) selected.push(effectiveId);
       }
       if (selected.includes(draggedId) && selected.length > 1) return selected;
@@ -4066,56 +4468,38 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const togglePreviewFolderSelection = useCallback(
     (folderId: string) => {
       const node = previewFoldersById.get(folderId);
-      const nodeFiles = node
-        ? [...collectFolderImages(node)]
-        : [];
+      const nodeFiles = node ? [...collectFolderImages(node)] : [];
       if (!node || nodeFiles.length === 0) return;
-      const shouldInclude = !nodeFiles.every(isReportImageIncluded);
+      const shouldInclude = !nodeFiles.every((file) => isAssetViewFileReportIncluded(file, filesById));
 
-      const driveFileIds = nodeFiles
-        .filter((f) => !isDisplayOnlyPicAssetImage(f))
-        .map((f) => f._id);
+      const driveFileIds: string[] = [];
+      const picBatches = new Map<string, Map<number, boolean>>();
+      for (const file of nodeFiles) {
+        if (isDisplayOnlyPicAssetImage(file)) {
+          const effectiveId = effectiveDriveFileId(file);
+          if (effectiveId) {
+            driveFileIds.push(effectiveId);
+          }
+          const sid = file.picAssetSubProjectId?.trim() || "";
+          const idx = typeof file.picAssetImageIndex === "number" ? file.picAssetImageIndex : -1;
+          if (sid && idx >= 0) {
+            const batch = picBatches.get(sid) ?? new Map<number, boolean>();
+            batch.set(idx, shouldInclude);
+            picBatches.set(sid, batch);
+          }
+          continue;
+        }
+        driveFileIds.push(file._id);
+      }
+
       if (driveFileIds.length > 0) {
         void updateReportSelection(driveFileIds, shouldInclude);
       }
-
-      const displayOnlyBySub = new Map<string, number[]>();
-      nodeFiles.forEach((f) => {
-        if (!isDisplayOnlyPicAssetImage(f)) return;
-        const sid = f.picAssetSubProjectId?.trim() || "";
-        const idx = typeof f.picAssetImageIndex === "number" ? f.picAssetImageIndex : -1;
-        if (!sid || idx < 0) return;
-        displayOnlyBySub.set(sid, [...(displayOnlyBySub.get(sid) ?? []), idx]);
-      });
-
-      if (displayOnlyBySub.size > 0) {
-        (async () => {
-          for (const [subProjectId, idxs] of displayOnlyBySub.entries()) {
-            const entry = previewPhotoFolders.find((row) => row.sub._id === subProjectId);
-            const asset = entry?.picAsset;
-            if (!asset) continue;
-            const current = (asset.images ?? []).slice();
-            const nextImages = current.map((im, i) =>
-              idxs.includes(i) ? { ...(im as object), includeInReport: shouldInclude } : im,
-            );
-            try {
-              const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
-                images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
-              });
-              setPreviewPhotoFolders((prev) =>
-                prev.map((r) => (r.sub._id === subProjectId ? { ...r, picAsset: updated } : r)),
-              );
-            } catch (e) {
-              toast({
-                variant: "destructive",
-                description: e instanceof Error ? e.message : t("assetImages.toast.folderReportToggleFailed"),
-              });
-            }
-          }
-        })();
+      for (const [subProjectId, batch] of picBatches) {
+        void applyPicAssetReportSelectionBatch(subProjectId, batch);
       }
     },
-    [previewFoldersById, previewPhotoFolders, projectId, toast, updateReportSelection],
+    [applyPicAssetReportSelectionBatch, filesById, previewFoldersById, updateReportSelection],
   );
 
   const deleteCurrentPreviewPathImages = useCallback(() => {
@@ -4362,7 +4746,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const effectiveId = displayOnly ? effectiveDriveFileId(file) : file._id;
     const effective = effectiveId ? filesById.get(effectiveId) : undefined;
     const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
-    const selected = displayOnly ? file.includeInReport === true : (canMutate ? isReportImageIncluded(effective!) : false);
+    const selected = canMutate ? isAssetViewFileReportIncluded(file, filesById) : false;
     const isVideoRow = treeMedia === "videos" || isViewFileVideo(file);
     const canDragPlace =
       treeMedia === "videos"
@@ -4469,8 +4853,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   };
 
   const renderPreviewTreeFolder = (node: ImageFolderNode, level = 0, treeMedia: AppPreviewMediaTab = "images") => {
-    const leafFiles = treeMedia === "videos" ? node.videos : node.images;
-    const hasChildren = node.folders.length > 0 || leafFiles.length > 0;
+    // شجرة التنقل تعرض المجلدات فقط. عرض ملفات الورقة هنا كان يكرر الصور
+    // المرئية نفسها الموجودة في شبكة المحتوى فور فتح الأصل.
+    const hasChildren = node.folders.length > 0;
     const expanded = expandedPreviewIds.has(node.path);
     const active = selectedPreviewFolderId === node.path && appPreviewMediaTab === treeMedia;
     const totalSelectable = treeMedia === "videos" ? node.videoCount : node.imageCount;
@@ -4649,7 +5034,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         {expanded ? (
           <div className="mt-0.5 space-y-0.5">
             {node.folders.map((folder) => renderPreviewTreeFolder(folder, level + 1, treeMedia))}
-            {leafFiles.map((file) => renderPreviewTreeImage(file, level + 2, treeMedia))}
           </div>
         ) : null}
       </div>
@@ -5058,20 +5442,21 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     </div>
 
                     <div className="ms-auto flex shrink-0 items-center gap-2">
-                      <label className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 shadow-sm">
-                        <Checkbox
-                          checked={includeAssetImagesInReport}
-                          disabled={reportSelectionSaving}
-                          onCheckedChange={(value) => void updateAssetImagesReportEnabled(value === true)}
-                          className="border-emerald-400"
-                          aria-label={t("assetImages.report.toggleAll")}
-                        />
-                        <span>{t("assetImages.report.toggleAll")}</span>
-                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-9 shrink-0 rounded-lg bg-emerald-700 px-3.5 text-[12px] font-black text-white shadow-sm hover:bg-emerald-800"
+                        disabled={reportSelectionSaving}
+                        onClick={() => setReportImagesSelectOpen(true)}
+                      >
+                        {t("assetImages.report.selectReportImages")}
+                      </Button>
 
-                      {selectedCount > 0 ? (
+                      {reportSelectSelectedCount > 0 ? (
                         <span className="flex h-9 shrink-0 items-center rounded-full bg-emerald-100 px-2.5 text-[11px] font-bold text-emerald-950">
-                          {t("assetImages.report.selectedCount", { count: numberFormatter.format(selectedCount) })}
+                          {t("assetImages.report.selectedCount", {
+                            count: numberFormatter.format(reportSelectSelectedCount),
+                          })}
                         </span>
                       ) : null}
 
@@ -5228,8 +5613,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                           {activeContentFolders.map((folder) => {
                             const folderFiles = collectFolderImages(folder);
-                            const folderSelected = folderFiles.length > 0 && folderFiles.every(isReportImageIncluded);
-                            const folderPartiallySelected = !folderSelected && folderFiles.some(isReportImageIncluded);
+                            const folderSelected =
+                              folderFiles.length > 0 &&
+                              folderFiles.every((file) => isAssetViewFileReportIncluded(file, filesById));
+                            const folderPartiallySelected =
+                              !folderSelected &&
+                              folderFiles.some((file) => isAssetViewFileReportIncluded(file, filesById));
                             const folderKindLabel = previewKindLabel(folder);
                             const folderCreateParentId =
                               !isAssetFolderNode(folder) && !folder.isSynthetic && folder.path !== "__pv_root__" ? folder.path : null;
@@ -5395,11 +5784,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         const effective = effectiveId ? filesById.get(effectiveId) : undefined;
                         const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
                         const isVideoCell = isViewFileVideo(file);
-                        const imageSelected = displayOnly
-                          ? file.includeInReport === true
-                          : canMutate
-                            ? isReportImageIncluded(effective!)
-                            : false;
+                        const imageSelected = canMutate
+                          ? isAssetViewFileReportIncluded(file, filesById)
+                          : false;
                         const canDragPlace =
                           !displayOnly &&
                           canMutate &&
@@ -5606,6 +5993,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }
         />
       ) : null}
+
+      <MvReportImagesSelectModal
+        open={reportImagesSelectOpen}
+        onOpenChange={setReportImagesSelectOpen}
+        sections={reportSelectSections}
+        saving={reportSelectionSaving}
+        onApplySelection={handleReportSelectApply}
+      />
 
       <MvAssetImageFoldersModal
         open={assetImageFoldersModalOpen}

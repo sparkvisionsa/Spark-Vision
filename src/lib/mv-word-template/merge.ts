@@ -40,6 +40,10 @@ export async function mergeWordReportTemplateSmart(params: {
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
+  imageLayout?: {
+    imagesPerRow: number;
+    imagesPerPage: number;
+  };
 }): Promise<MvWordMergeResult> {
   const serverResult = await mergeWordReportTemplateViaServer({
     projectId: params.projectId,
@@ -47,6 +51,7 @@ export async function mergeWordReportTemplateSmart(params: {
     mergeInput: params.mergeInput,
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
+    imageLayout: params.imageLayout,
   });
   return { ...serverResult, mergeSource: "server" };
 }

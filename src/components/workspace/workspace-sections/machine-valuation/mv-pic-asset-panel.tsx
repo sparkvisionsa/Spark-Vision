@@ -181,7 +181,13 @@ export function mvPicAssetImagesToPatchPayload(images: PicAssetImage[]): unknown
       }
       return o;
     }
-    if ("fileId" in im && im.fileId) return im.fileId;
+    if ("fileId" in im && im.fileId) {
+      const includeInReport = (im as { includeInReport?: unknown }).includeInReport;
+      if (typeof includeInReport === "boolean") {
+        return { fileId: im.fileId, includeInReport };
+      }
+      return im.fileId;
+    }
     return im;
   });
 }
