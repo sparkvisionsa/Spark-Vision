@@ -269,18 +269,25 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       project?.valuationAccountingWorkspace?.images?.length ??
       project?.valuationAccountImageCount ??
       0;
+    const clientDocumentImageCount =
+      project?.clientDocumentsWorkspace?.images?.length ??
+      project?.clientDocumentImageCount ??
+      0;
 
     return new Set(
       computeCompletedSimpleReportSteps({
         reportData: project?.reportData,
         assetImageCount: assetImageCount > 0 ? assetImageCount : (project?.assetImageCount ?? 0),
         valuationAccountImageCount,
+        clientDocumentImageCount,
         visitedReportPreview: visitedSteps.has("report-preview"),
       }),
     );
   }, [
     assetImageCount,
     project?.assetImageCount,
+    project?.clientDocumentImageCount,
+    project?.clientDocumentsWorkspace?.images,
     project?.reportData,
     project?.valuationAccountImageCount,
     project?.valuationAccountingWorkspace?.images,

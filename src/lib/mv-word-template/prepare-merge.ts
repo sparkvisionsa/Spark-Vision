@@ -91,6 +91,7 @@ export async function prepareMvWordMergeInput(params: {
   reportData: MvProjectReportData;
   assetImageSources: MvWordImageSource[];
   valuationImageSources: MvWordImageSource[];
+  clientImageSources?: MvWordImageSource[];
   loadImages?: boolean;
 }): Promise<MvWordMergeInput> {
   if (params.loadImages === false) {
@@ -100,12 +101,14 @@ export async function prepareMvWordMergeInput(params: {
       reportData: params.reportData,
       assetImages: [],
       valuationImages: [],
+      clientImages: [],
     };
   }
 
-  const [assetImages, valuationImages] = await Promise.all([
+  const [assetImages, valuationImages, clientImages] = await Promise.all([
     loadWordMergeImages(params.assetImageSources),
     loadWordMergeImages(params.valuationImageSources, { readDimensions: true }),
+    loadWordMergeImages(params.clientImageSources ?? []),
   ]);
 
   return {
@@ -114,6 +117,7 @@ export async function prepareMvWordMergeInput(params: {
     reportData: params.reportData,
     assetImages,
     valuationImages,
+    clientImages,
   };
 }
 

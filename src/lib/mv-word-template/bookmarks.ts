@@ -17,7 +17,7 @@ export type MvWordBookmarkTextField =
   | "inspectionLocation"
   | "inspectionMapUrl";
 
-export type MvWordBookmarkImageField = "assetImages" | "valuationImages";
+export type MvWordBookmarkImageField = "assetImages" | "valuationImages" | "clientImages";
 
 export type MvWordTextBookmarkDef = {
   type: "text";
@@ -151,6 +151,13 @@ export const MV_WORD_IMAGE_BOOKMARKS: MvWordImageBookmarkDef[] = [
     names: ["صورحسابات"],
     labelAr: "صور حسابات القيمة",
     layout: "stack",
+  },
+  {
+    type: "images",
+    field: "clientImages",
+    names: ["مستنداتعميل"],
+    labelAr: "مستندات العميل (مرفق 3)",
+    layout: "grid3",
   },
 ];
 

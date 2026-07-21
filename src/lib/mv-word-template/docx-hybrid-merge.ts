@@ -157,7 +157,10 @@ export async function mergeWordHybrid(
     throw new Error(bufferValidation.error ?? "ملف Word الناتج غير صالح.");
   }
 
-  const hasImages = input.assetImages.length > 0 || input.valuationImages.length > 0;
+  const hasImages =
+    input.assetImages.length > 0 ||
+    input.valuationImages.length > 0 ||
+    input.clientImages.length > 0;
   if (!hasImages) {
     return { buffer: safeBuffer, stats };
   }

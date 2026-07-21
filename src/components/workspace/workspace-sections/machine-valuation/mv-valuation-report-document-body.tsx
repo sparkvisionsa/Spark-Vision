@@ -38,6 +38,10 @@ import {
   MV_VALUATION_ACCOUNTING_APPROACHES,
   type MvValuationAccountingImage,
 } from "./mv-valuation-accounting-store";
+import {
+  resolveClientDocumentImageSrc,
+  type MvClientDocumentImage,
+} from "./mv-client-documents-store";
 import { ReportRichHtmlField } from "./mv-report-rich-selection-toolbar";
 import { MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 import {
@@ -215,7 +219,7 @@ function SectionShell({
       dir="rtl"
       className={cn("scroll-mt-4 text-right", className)}
     >
-      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+      <div className="mb-2 flex shrink-0 flex-wrap items-end justify-between gap-2">
         <div
           className="min-w-0 flex-1 text-right text-[17px] font-black leading-tight text-[#0a1f33] sm:text-[19px]"
           style={{ letterSpacing: 0 }}
@@ -224,7 +228,7 @@ function SectionShell({
         </div>
         {headerExtra ? <div className="mv-report-chrome shrink-0 print:hidden">{headerExtra}</div> : null}
       </div>
-      {children}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
     </section>
   );
 }
@@ -1173,6 +1177,8 @@ export interface MvValuationReportDocumentBodyProps {
   reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
   onReportPageOrientationChange?: (pageKey: string, orientation: MvReportPageOrientationPreference) => void;
   valuationAccountImages: MvValuationAccountingImage[];
+  /** صور مستندات العميل من خطوة «ملفات العميل» — تُعرض في مرفق 3 (2×2). */
+  clientDocumentImages?: MvClientDocumentImage[];
   resolveImageSrc?: (src: string) => string;
   moveImage: (fileId: string, direction: -1 | 1) => void;
   hideImage: (fileId: string) => void;
@@ -1255,6 +1261,7 @@ export function MvValuationReportDocumentBody({
   reportPageOrientations = {},
   onReportPageOrientationChange,
   valuationAccountImages,
+  clientDocumentImages = [],
   resolveImageSrc,
   moveImage,
   hideImage,
@@ -1470,6 +1477,11 @@ export function MvValuationReportDocumentBody({
       : `calc((100% - ${Math.max(0, imageInnerGap) * (assetPhotosPerRow - 1)}px) / ${assetPhotosPerRow})`;
   const assetPhotoChunks: MvDriveFile[][] =
     orderedImages.length > 0 ? chunkArray(orderedImages, assetPhotosPerPage) : [[]];
+  const CLIENT_DOCS_PER_PAGE = 4;
+  const clientDocChunks: MvClientDocumentImage[][] =
+    clientDocumentImages.length > 0
+      ? chunkArray(clientDocumentImages, CLIENT_DOCS_PER_PAGE)
+      : [[]];
 
   const valuationSheets = includeValuationAccountImages
     ? MV_VALUATION_ACCOUNTING_APPROACHES.flatMap((approach) => {
@@ -3163,76 +3175,152 @@ export function MvValuationReportDocumentBody({
         );
       })}
 
-      <MvReportPageShell
-        variant="interior"
-        companyName={companyName}
-        companyNameNode={editableCompanyNameNode}
-        logoSrc={logoSrc}
-        footerLines={reportFooterLines}
-        draftWatermark={sheetDraft}
-      >
-        <SectionShell
-          id="mv-annex-3"
-          title={
-            <EditableBlock
-              value={editableText("heading.mv-annex-3", "مرفق 3: المستندات المستلمة من العميل")}
-              onChange={(value) => setTextOverride("heading.mv-annex-3", value)}
-              className="min-h-[1.75rem]"
-              multiline={false}
-            />
-          }
-          headerExtra={
-            <div className="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                onClick={() => receivedDocsPdfInputRef.current?.click()}
-                disabled={receivedDocsPdfBusy}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50 disabled:opacity-60"
-                title="إرفاق ملف PDF وتحويل أول صفحة إلى صورة"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                {receivedDocsPdfBusy ? "تحويل..." : "إرفاق PDF"}
-              </button>
-              <button
-                type="button"
-                onClick={() => receivedDocsImageInputRef.current?.click()}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
-                title="إرفاق صورة لمستندات العميل"
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-                إرفاق صورة
-              </button>
-            </div>
-          }
-        >
-          <div
-            tabIndex={0}
-            onPaste={handleReceivedDocsPaste}
-            onDragOver={(event) => {
-              if (!Array.from(event.dataTransfer.types).includes("Files")) return;
-              event.preventDefault();
-              setReceivedDocsDropActive(true);
-              event.dataTransfer.dropEffect = "copy";
-            }}
-            onDragLeave={(event) => {
-              if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-              setReceivedDocsDropActive(false);
-            }}
-            onDrop={handleReceivedDocsDrop}
-            className={cn(
-              "rounded-lg outline-none transition",
-              receivedDocsDropActive && "ring-2 ring-sky-300 ring-offset-2 ring-offset-white",
-            )}
+      {clientDocChunks.map((chunk, chunkIdx) => {
+        const anchorId = chunkIdx === 0 ? "mv-annex-3" : `mv-annex-3-${chunkIdx}`;
+        const orientation = pageOrientation(anchorId, "portrait");
+        return (
+          <MvReportPageShell
+            key={`client-docs-${chunkIdx}`}
+            variant="interior"
+            orientation={orientation}
+            companyName={companyName}
+            companyNameNode={editableCompanyNameNode}
+            logoSrc={logoSrc}
+            footerLines={reportFooterLines}
+            draftWatermark={sheetDraft}
           >
-            <ClearableRichHtmlField
-              html={receivedClientDocumentsHtml}
-              onHtmlChange={(next) => onReportDataPatch({ receivedClientDocumentsHtml: next })}
-              emptyHtml={EMPTY_RICH_HTML}
-            />
-          </div>
-          {insertedAfter("mv-annex-3")}
-        </SectionShell>
-      </MvReportPageShell>
+            <SectionShell
+              id={anchorId}
+              className="flex h-full min-h-0 flex-1 flex-col"
+              title={
+                <EditableBlock
+                  value={editableText(
+                    chunkIdx === 0 ? "heading.mv-annex-3" : `heading.mv-annex-3-${chunkIdx}`,
+                    "مرفق 3: المستندات المستلمة من العميل",
+                  )}
+                  onChange={(value) =>
+                    setTextOverride(
+                      chunkIdx === 0 ? "heading.mv-annex-3" : `heading.mv-annex-3-${chunkIdx}`,
+                      value,
+                    )
+                  }
+                  className="min-h-[1.75rem]"
+                  multiline={false}
+                />
+              }
+              headerExtra={
+                <div className="flex flex-wrap items-center gap-1">
+                  {chunkIdx === 0 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/machine-valuation/${projectId}/workflow/client-files`)}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
+                        title="إدارة ملفات العميل"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        ملفات العميل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => receivedDocsPdfInputRef.current?.click()}
+                        disabled={receivedDocsPdfBusy}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50 disabled:opacity-60"
+                        title="إرفاق PDF إضافي داخل التقرير"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        {receivedDocsPdfBusy ? "تحويل..." : "إرفاق PDF"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => receivedDocsImageInputRef.current?.click()}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
+                        title="إرفاق صورة إضافية داخل التقرير"
+                      >
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        إرفاق صورة
+                      </button>
+                    </>
+                  ) : null}
+                  <PageRotateButton
+                    orientation={orientation}
+                    onClick={() => togglePageOrientation(anchorId, "portrait")}
+                  />
+                </div>
+              }
+            >
+              {chunk.length === 0 ? (
+                <div
+                  tabIndex={0}
+                  onPaste={handleReceivedDocsPaste}
+                  onDragOver={(event) => {
+                    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+                    event.preventDefault();
+                    setReceivedDocsDropActive(true);
+                    event.dataTransfer.dropEffect = "copy";
+                  }}
+                  onDragLeave={(event) => {
+                    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                    setReceivedDocsDropActive(false);
+                  }}
+                  onDrop={handleReceivedDocsDrop}
+                  className={cn(
+                    "rounded-lg outline-none transition",
+                    receivedDocsDropActive && "ring-2 ring-sky-300 ring-offset-2 ring-offset-white",
+                  )}
+                >
+                  <div className="mb-3 rounded-lg border border-dashed border-slate-300 bg-white/80 px-5 py-8 text-center shadow-sm">
+                    <p className="text-[13px] font-black text-slate-700">لا توجد مستندات عميل بعد.</p>
+                    <p className="mx-auto mt-2 max-w-md text-[11px] font-semibold leading-6 text-slate-500">
+                      ارفع ملفات PDF أو صوراً من خطوة «ملفات العميل» قبل إعداد التقرير، وستظهر هنا صورتان في الصف وأربع في الصفحة.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-3 h-8 rounded-lg text-[11px] font-bold"
+                      onClick={() => navigate(`/machine-valuation/${projectId}/workflow/client-files`)}
+                    >
+                      فتح ملفات العميل
+                    </Button>
+                  </div>
+                  <ClearableRichHtmlField
+                    html={receivedClientDocumentsHtml}
+                    onHtmlChange={(next) => onReportDataPatch({ receivedClientDocumentsHtml: next })}
+                    emptyHtml={EMPTY_RICH_HTML}
+                  />
+                </div>
+              ) : (
+                /* ارتفاع الشبكة ≈ 95% تحت العنوان؛ هامش سفلي 10px فقط */
+                <div className="flex min-h-0 flex-1 flex-col px-[2.5%] pt-[2.5%] pb-[10px]">
+                  <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-x-1.5 gap-y-1.5">
+                    {chunk.map((image) => {
+                      const rawSrc = resolveClientDocumentImageSrc(projectId, image);
+                      const src = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;
+                      return (
+                        <figure
+                          key={image.id}
+                          className="flex min-h-0 flex-col overflow-hidden bg-white"
+                        >
+                          <div className="flex min-h-0 flex-1 items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={src}
+                              alt={image.name}
+                              className="h-full w-full object-contain"
+                              loading="lazy"
+                            />
+                          </div>
+                        </figure>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {chunkIdx === 0 ? insertedAfter("mv-annex-3") : null}
+            </SectionShell>
+          </MvReportPageShell>
+        );
+      })}
 
       <MvReportPageShell
         variant="interior"

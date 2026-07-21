@@ -14,6 +14,7 @@ export type MvWordMergeInput = {
   reportData: MvProjectReportData;
   assetImages: MvWordMergeImageItem[];
   valuationImages: MvWordMergeImageItem[];
+  clientImages: MvWordMergeImageItem[];
 };
 
 function hasMergeValue(value: unknown): value is string | number {

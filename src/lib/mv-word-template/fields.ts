@@ -286,6 +286,11 @@ export const MV_WORD_IMAGE_LOOP_TAGS = {
     labelAr: "صور حسابات القيمة",
     hint: "{{#valuationImages}}{{@image}}{{/valuationImages}}",
   },
+  clientImages: {
+    tag: "clientImages",
+    labelAr: "مستندات العميل",
+    hint: "{{#clientImages}}{{@image}}{{/clientImages}}",
+  },
 } as const;
 
 export function resolveFieldByAlias(tag: string): MvWordMergeFieldDef | undefined {

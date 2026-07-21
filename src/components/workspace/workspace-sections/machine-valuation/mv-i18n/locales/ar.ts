@@ -40,6 +40,7 @@ export const mvAr = {
       reportData: "بيانات التقرير",
       assetImages: "صور الأصول",
       valuationActions: "إجراءات التقييم",
+      clientFiles: "ملفات العميل",
       reportPreview: "إعداد التقرير",
     },
     reportTypeBadge: {
@@ -1058,6 +1059,40 @@ export const mvAr = {
     },
   },
 
+  clientFiles: {
+    breadcrumb: "ملفات العميل",
+    loading: "جارٍ فتح ملفات العميل…",
+    title: "ملفات العميل",
+    subtitle:
+      "ارفع ملفات PDF أو صوراً للمستندات المستلمة من العميل. صفحات PDF تُحوَّل تلقائياً إلى صور بدون هوامش بيضاء، وتظهر في «مرفق 3» داخل إعداد التقرير وفي ملف Word.",
+    upload: {
+      button: "رفع ملفات",
+      working: "جارٍ معالجة الملفات…",
+      convertingPdf: "تحويل PDF: {{name}}",
+      pdfProgress: "{{name}} — صفحة {{done}} من {{total}}",
+      uploadingImage: "رفع صورة: {{name}}",
+      success: "تم رفع {{count}} ملف/ملفات بنجاح",
+      successLocal: "تم حفظ {{count}} ملف/ملفات محلياً — تعذرت المزامنة مع الخادم",
+      failed: "تعذر رفع أو تحويل الملفات",
+      invalidType: "يُسمح بملفات PDF أو الصور فقط",
+    },
+    drop: {
+      title: "اسحب الملفات هنا أو اضغط للاختيار",
+      hint: "PDF (كل الصفحات تُحوَّل إلى صور) أو صور JPEG/PNG — وتُحفظ مباشرة في المشروع",
+    },
+    gallery: {
+      title: "صور المستندات",
+      subtitle: "{{count}} صورة جاهزة لمرفق 3 (صورتان في الصف · 4 في الصفحة)",
+      empty: "لا توجد مستندات بعد. ارفع ملف PDF أو صورة للبدء.",
+      delete: "حذف الصورة",
+      preview: "معاينة الصورة",
+      imageKind: "صورة",
+    },
+    clearAll: "مسح الكل",
+    sync: {
+      failed: "تعذر مزامنة ملفات العميل مع الخادم. سيتم الإبقاء على النسخة المحلية.",
+    },
+  },
   valuation: {
     breadcrumb: "إجراءات التقييم",
     loading: "جارٍ تجهيز مساحة التقييم…",

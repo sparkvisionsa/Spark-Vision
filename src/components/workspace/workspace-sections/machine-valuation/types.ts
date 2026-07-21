@@ -1,5 +1,6 @@
 import type { MvColumnFormatKind } from "@/lib/mv-hyperformula";
 import type { MvValuationAccountingStore } from "./mv-valuation-accounting-store";
+import type { MvClientDocumentsStore } from "./mv-client-documents-store";
 
 export type MvCellFontFamily =
   | "default"
@@ -354,6 +355,10 @@ export interface MvProject {
   inspectorFiles?: MvInspectorFile[];
   /** يُحمَّل من الخادم — حالة دائمة لإجراءات التقييم (مسار النظام). */
   valuationAccountingWorkspace?: MvValuationAccountingStore;
+  /** مستندات العميل (PDF/صور) لخطوة «ملفات العميل» ومرفق 3. */
+  clientDocumentsWorkspace?: MvClientDocumentsStore;
+  /** عدد صور مستندات العميل (يُحسب في قائمة المشاريع). */
+  clientDocumentImageCount?: number;
 }
 
 /** يطابق حقول الأصل في الـ API لمجلدات الأصول تحت «2.صور المعاينة» */
@@ -536,7 +541,8 @@ export type MvView =
   | "inspector-files"
   | "valuation-workflow"
   | "report-workflow"
-  | "report-data-workflow";
+  | "report-data-workflow"
+  | "client-files-workflow";
 
 export interface MvGeneratedFolderResult {
   photosFolderId: string;

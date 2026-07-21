@@ -25,12 +25,14 @@ export type MvSimpleReportStepId =
   | "report-data"
   | "asset-images"
   | "valuation-actions"
+  | "client-files"
   | "report-preview";
 
 const SIMPLE_REPORT_STEP_IDS = new Set<MvSimpleReportStepId>([
   "report-data",
   "asset-images",
   "valuation-actions",
+  "client-files",
   "report-preview",
 ]);
 
@@ -77,6 +79,7 @@ export function countProjectAssetImages(subProjects: MvSubProject[]): number {
 export function mvSimpleReportStepHref(projectId: string, stepId: MvSimpleReportStepId): string {
   if (stepId === "asset-images") return `/machine-valuation/${projectId}/workflow/asset-images`;
   if (stepId === "valuation-actions") return `/machine-valuation/${projectId}/workflow/valuation`;
+  if (stepId === "client-files") return `/machine-valuation/${projectId}/workflow/client-files`;
   if (stepId === "report-preview") return `/machine-valuation/${projectId}/workflow/report`;
   if (stepId === "report-data") return `/machine-valuation/${projectId}/workflow/report-data`;
   return `/machine-valuation/${projectId}/workflow/report-data`;
@@ -393,7 +396,7 @@ export function MvSimpleReportStepStrip({
     >
       <div
         className={cn(
-          "mx-auto grid max-w-7xl grid-cols-4",
+          "mx-auto grid max-w-7xl grid-cols-5",
           compact ? "px-1.5 sm:px-2" : "px-2 sm:px-4",
         )}
       >
@@ -406,8 +409,8 @@ export function MvSimpleReportStepStrip({
               className={cn(
                 "inline-flex max-w-[11rem] items-center justify-center gap-0.5 truncate font-bold leading-tight",
                 compact
-                  ? "max-w-[9rem] text-[10px] sm:max-w-[10rem] sm:text-[11px]"
-                  : "gap-1 text-[12px] sm:max-w-[12rem] sm:text-[14px]",
+                  ? "max-w-[7.5rem] text-[9px] sm:max-w-[9rem] sm:text-[11px]"
+                  : "gap-1 text-[11px] sm:max-w-[11rem] sm:text-[13px]",
               )}
             >
               {isDone ? (
@@ -541,17 +544,24 @@ export function MvProjectReportHeader({
       loadedProject?.valuationAccountingWorkspace?.images?.length ??
       loadedProject?.valuationAccountImageCount ??
       0;
+    const clientDocumentImageCount =
+      loadedProject?.clientDocumentsWorkspace?.images?.length ??
+      loadedProject?.clientDocumentImageCount ??
+      0;
 
     return computeCompletedSimpleReportSteps({
       reportData: loadedProject?.reportData,
       assetImageCount:
         assetImageCount > 0 ? assetImageCount : (loadedProject?.assetImageCount ?? 0),
       valuationAccountImageCount,
+      clientDocumentImageCount,
       visitedReportPreview: visitedSteps?.includes("report-preview"),
     });
   }, [
     completedSteps,
     loadedProject?.assetImageCount,
+    loadedProject?.clientDocumentImageCount,
+    loadedProject?.clientDocumentsWorkspace?.images,
     loadedProject?.reportData,
     loadedProject?.valuationAccountImageCount,
     loadedProject?.valuationAccountingWorkspace?.images,

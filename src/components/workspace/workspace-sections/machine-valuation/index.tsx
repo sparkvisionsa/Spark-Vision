@@ -37,6 +37,9 @@ const MvWorkflowShell = dynamic(() => import("./mv-workflow-shell"), {
 const MvValuationShell = dynamic(() => import("./mv-valuation-shell"), {
   loading: () => <MvRouteSkeleton />,
 });
+const MvClientFilesShell = dynamic(() => import("./mv-client-files-shell"), {
+  loading: () => <MvRouteSkeleton />,
+});
 const MvReportDataWorkspace = dynamic(() => import("./mv-report-data-workspace"), {
   loading: () => <MvRouteSkeleton />,
 });
@@ -86,6 +89,9 @@ function parseMvPath(pathname: string) {
       }
       if (segments[2] === "valuation") {
         return { view: "valuation-workflow" as const, projectId, segments };
+      }
+      if (segments[2] === "client-files") {
+        return { view: "client-files-workflow" as const, projectId, segments };
       }
       if (segments[2] === "asset-images" || segments[2] === "folders") {
         const sub = segments[3];
@@ -143,6 +149,8 @@ export default function MachineValuationSection() {
       );
     case "valuation-workflow":
       return <MvValuationShell projectId={route.projectId!} />;
+    case "client-files-workflow":
+      return <MvClientFilesShell projectId={route.projectId!} />;
     case "report-workflow":
       return <MvValuationReportWorkspace projectId={route.projectId!} />;
     case "report-data-workflow":

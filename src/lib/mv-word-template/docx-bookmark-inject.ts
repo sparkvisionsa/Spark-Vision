@@ -21,7 +21,7 @@ function buildPlaceholderRun(placeholder: string): string {
   return `<w:r><w:t>${placeholder}</w:t></w:r>`;
 }
 
-function buildImageLoopBlock(loopField: "assetImages" | "valuationImages"): string {
+function buildImageLoopBlock(loopField: "assetImages" | "valuationImages" | "clientImages"): string {
   return [
     `<w:p><w:r><w:t>{#${loopField}}</w:t></w:r></w:p>`,
     `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>{image}</w:t></w:r></w:p>`,

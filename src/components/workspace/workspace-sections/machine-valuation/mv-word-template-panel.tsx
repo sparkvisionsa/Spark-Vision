@@ -61,6 +61,7 @@ export interface MvWordTemplatePanelProps {
   reportData: MvProjectReportData;
   assetImageSources: MvWordTemplateImageSource[];
   valuationImageSources: MvWordTemplateImageSource[];
+  clientImageSources?: MvWordTemplateImageSource[];
   onReportDataPatch: (patch: Partial<MvProjectReportData>) => void;
   disabled?: boolean;
   layout?: "drawer" | "modal";
@@ -73,6 +74,7 @@ export function MvWordTemplatePanel({
   reportData,
   assetImageSources,
   valuationImageSources,
+  clientImageSources = [],
   disabled = false,
   layout = "drawer",
 }: MvWordTemplatePanelProps) {
@@ -121,6 +123,7 @@ export function MvWordTemplatePanel({
           reportData,
           assetImageSources,
           valuationImageSources,
+          clientImageSources,
           loadImages: false,
         });
 
@@ -132,6 +135,7 @@ export function MvWordTemplatePanel({
           mergeInput,
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
+          clientImageUrls: clientImageSources.map((s) => s.url),
           imageLayout: { imagesPerRow, imagesPerPage },
         });
         const safeName = (projectName || "report").replace(/[\\/:*?"<>|]+/g, "-");
@@ -208,6 +212,7 @@ export function MvWordTemplatePanel({
     },
     [
       assetImageSources,
+      clientImageSources,
       displayNumber,
       imagesPerPage,
       imagesPerRow,

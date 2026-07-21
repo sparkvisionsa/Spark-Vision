@@ -40,6 +40,7 @@ export const mvEn = {
       reportData: "Report data",
       assetImages: "Asset images",
       valuationActions: "Valuation actions",
+      clientFiles: "Client files",
       reportPreview: "Report setup",
     },
     reportTypeBadge: {
@@ -1060,6 +1061,40 @@ export const mvEn = {
     },
   },
 
+  clientFiles: {
+    breadcrumb: "Client files",
+    loading: "Opening client files…",
+    title: "Client files",
+    subtitle:
+      "Upload PDF files or images of documents received from the client. PDF pages are converted to cropped images and appear in Appendix 3 in report setup and in the Word export.",
+    upload: {
+      button: "Upload files",
+      working: "Processing files…",
+      convertingPdf: "Converting PDF: {{name}}",
+      pdfProgress: "{{name}} — page {{done}} of {{total}}",
+      uploadingImage: "Uploading image: {{name}}",
+      success: "Uploaded {{count}} file(s) successfully",
+      successLocal: "Saved {{count}} file(s) locally — syncing with the server failed",
+      failed: "Could not upload or convert files",
+      invalidType: "Only PDF or image files are allowed",
+    },
+    drop: {
+      title: "Drop files here or click to browse",
+      hint: "PDF (all pages become images) or JPEG/PNG — saved directly to the project",
+    },
+    gallery: {
+      title: "Document images",
+      subtitle: "{{count}} image(s) ready for Appendix 3 (2 per row · 4 per page)",
+      empty: "No documents yet. Upload a PDF or image to start.",
+      delete: "Delete image",
+      preview: "Preview image",
+      imageKind: "Image",
+    },
+    clearAll: "Clear all",
+    sync: {
+      failed: "Could not sync client files with the server. The local copy will be kept.",
+    },
+  },
   valuation: {
     breadcrumb: "Valuation actions",
     loading: "Preparing valuation workspace…",

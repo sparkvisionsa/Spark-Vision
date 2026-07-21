@@ -40,6 +40,7 @@ export async function mergeWordReportTemplateSmart(params: {
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
+  clientImageUrls?: string[];
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
@@ -51,6 +52,7 @@ export async function mergeWordReportTemplateSmart(params: {
     mergeInput: params.mergeInput,
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
+    clientImageUrls: params.clientImageUrls,
     imageLayout: params.imageLayout,
   });
   return { ...serverResult, mergeSource: "server" };

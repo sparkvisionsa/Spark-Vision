@@ -353,10 +353,15 @@ export async function applyImageBookmarksToDocument(
   for (const range of ranges) {
     const imageDef = resolveImageBookmarkDef(range.name);
     if (!imageDef) continue;
-    const images = imageDef.field === "assetImages" ? input.assetImages : input.valuationImages;
+    const images =
+      imageDef.field === "assetImages"
+        ? input.assetImages
+        : imageDef.field === "clientImages"
+          ? input.clientImages
+          : input.valuationImages;
     if (images.length === 0) continue;
 
-    const removePlaceholders = imageDef.field === "assetImages";
+    const removePlaceholders = imageDef.field === "assetImages" || imageDef.field === "clientImages";
     const region = findImageBookmarkReplaceRegion(xml, range.startIndex, removePlaceholders);
     if (!region) continue;
 

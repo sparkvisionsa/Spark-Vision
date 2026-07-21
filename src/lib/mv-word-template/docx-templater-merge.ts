@@ -22,6 +22,7 @@ function buildRenderData(input: MvWordMergeInput) {
     ...scalars,
     assetImages: buildImageLoopData(input.assetImages),
     valuationImages: buildImageLoopData(input.valuationImages),
+    clientImages: buildImageLoopData(input.clientImages),
   };
 }
 

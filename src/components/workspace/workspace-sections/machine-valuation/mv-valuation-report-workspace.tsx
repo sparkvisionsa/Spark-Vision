@@ -73,6 +73,14 @@ import {
   type MvValuationAccountingImage,
   type MvValuationAccountingStore,
 } from "./mv-valuation-accounting-store";
+import {
+  clientDocumentImagesForReport,
+  mergeClientDocumentsStores,
+  readClientDocumentsStore,
+  resolveClientDocumentImageSrc,
+  writeClientDocumentsStore,
+  type MvClientDocumentsStore,
+} from "./mv-client-documents-store";
 import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-export-menu";
 import { MvWordTemplateModal } from "./mv-word-template-modal";
 import {
@@ -1643,6 +1651,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportMediaLoading, setReportMediaLoading] = useState(false);
   const [valuationAccountStore, setValuationAccountStore] =
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
+  const [clientDocumentsStore, setClientDocumentsStore] =
+    useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
   const [companySignatories, setCompanySignatories] = useState<ReportSignatureRow[]>([]);
   const [companyAdminMembershipNo, setCompanyAdminMembershipNo] = useState<string | null>(null);
   const [companyBrand, setCompanyBrand] = useState<{ name: string; logoSrc: string | null }>({
@@ -2203,9 +2213,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         );
         setCompanyAiTemplates(normalizeCompanyAiTemplatesForReport(data.reportDefaults?.aiTemplates, t));
         const companyWordTemplateUrl = data.reportDefaults?.wordTemplate?.fileUrl;
+        const trimmedUrl =
+          typeof companyWordTemplateUrl === "string" ? companyWordTemplateUrl.trim() : "";
         setCompanyWordTemplateReady(
-          typeof companyWordTemplateUrl === "string" &&
-            companyWordTemplateUrl.trim().startsWith("/uploads/company-report-templates/"),
+          trimmedUrl.startsWith("/uploads/company-report-templates/") ||
+            (trimmedUrl.startsWith("/files/") && trimmedUrl.toLowerCase().endsWith(".docx")),
         );
       } catch {
         /* ignore */
@@ -2221,6 +2233,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     () => JSON.stringify(project?.valuationAccountingWorkspace ?? null),
     [project?.valuationAccountingWorkspace],
   );
+  const serverClientDocsKey = useMemo(
+    () => JSON.stringify(project?.clientDocumentsWorkspace ?? null),
+    [project?.clientDocumentsWorkspace],
+  );
 
   useEffect(() => {
     if (!project) return;
@@ -2231,6 +2247,16 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     );
     writeValuationAccountingStore(projectId, merged);
   }, [project, projectId, serverAccountingKey]);
+
+  useEffect(() => {
+    if (!project) return;
+    const local = readClientDocumentsStore(projectId);
+    const merged = mergeClientDocumentsStores(project.clientDocumentsWorkspace, local);
+    setClientDocumentsStore((prev) =>
+      JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged,
+    );
+    writeClientDocumentsStore(projectId, merged);
+  }, [project, projectId, serverClientDocsKey]);
 
   useEffect(() => {
     if (typeof window === "undefined" || loading) return;
@@ -2633,6 +2659,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       .filter((image): image is MvValuationAccountingImage => image != null);
   }, [valuationAccountImages, valuationImageOrder]);
 
+  const clientDocumentImages = useMemo(
+    () => clientDocumentImagesForReport(clientDocumentsStore),
+    [clientDocumentsStore],
+  );
+
   const persistValuationAccountingFromReport = useCallback(
     async (nextStore: MvValuationAccountingStore) => {
       writeValuationAccountingStore(projectId, nextStore);
@@ -2750,6 +2781,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [orderedValuationImages, projectId],
   );
 
+  const wordTemplateClientImageSources = useMemo(
+    () =>
+      clientDocumentImages
+        .map((image) => ({
+          url: resolveClientDocumentImageSrc(projectId, image),
+          caption: image.name || image.sourceFileName,
+        }))
+        .filter((row) => Boolean(row.url)),
+    [clientDocumentImages, projectId],
+  );
+
   const wordTemplateReady = companyWordTemplateReady;
   const isSimpleReport = (project?.reportType ?? "simple") === "simple";
 
@@ -2765,6 +2807,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         reportData,
         assetImageSources: wordTemplateAssetImageSources,
         valuationImageSources: wordTemplateValuationImageSources,
+        clientImageSources: wordTemplateClientImageSources,
         loadImages: false,
       });
       setPdfExportProgress(55);
@@ -2775,6 +2818,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         mergeInput,
         assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
         valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
+        clientImageUrls: wordTemplateClientImageSources.map((s) => s.url),
       });
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       downloadWordBlob(result.blob, `${safeName}-merged-report.docx`);
@@ -2801,6 +2845,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     t,
     toast,
     wordTemplateAssetImageSources,
+    wordTemplateClientImageSources,
     wordTemplateValuationImageSources,
   ]);
 
@@ -3375,6 +3420,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     reportPageOrientations,
     onReportPageOrientationChange: updateReportPageOrientation,
     valuationAccountImages: orderedValuationImages,
+    clientDocumentImages,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
     hideImage,
@@ -4275,6 +4321,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           reportData={reportData}
           assetImageSources={wordTemplateAssetImageSources}
           valuationImageSources={wordTemplateValuationImageSources}
+          clientImageSources={wordTemplateClientImageSources}
           onReportDataPatch={onReportDataPatch}
           disabled={loading || reportMediaLoading}
         />
