@@ -440,14 +440,11 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
       />
 
       <MvWorkflowPageScrollBody className="pb-8">
-        <main className="mx-auto max-w-5xl space-y-5 px-4 py-5">
+        <main className="mx-auto w-full max-w-7xl space-y-5 px-3 py-5 sm:px-4">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <h1 className="text-[18px] font-black text-slate-950">{t("clientFiles.title")}</h1>
-                <p className="mt-1 max-w-2xl text-[12.5px] font-medium leading-6 text-slate-500">
-                  {t("clientFiles.subtitle")}
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button

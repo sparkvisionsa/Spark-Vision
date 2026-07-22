@@ -106,6 +106,7 @@ export async function mergeWordHybrid(
     textBookmarksSkipped: 0,
     assetImagesInserted: 0,
     valuationImagesInserted: 0,
+    clientImagesInserted: 0,
     bookmarksFound: [],
     imageErrors: [],
   };

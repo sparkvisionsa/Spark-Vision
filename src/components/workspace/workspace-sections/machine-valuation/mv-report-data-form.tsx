@@ -228,10 +228,14 @@ export function MvReportDataForm({
   const valuationBasisOptions = useMemo(
     () => [
       t("reportData.options.basis.marketValue"),
-      t("reportData.options.basis.fairValue"),
+      t("reportData.options.basis.marketRent"),
+      t("reportData.options.basis.equitableValue"),
       t("reportData.options.basis.investmentValue"),
-      t("reportData.options.basis.specialValue"),
-      t("reportData.options.basis.insuranceValue"),
+      t("reportData.options.basis.synergisticValue"),
+      t("reportData.options.basis.liquidationValue"),
+      t("reportData.options.basis.fairValue"),
+      t("reportData.options.basis.fairMarketValue"),
+      t("reportData.options.basis.other"),
     ],
     [t],
   );

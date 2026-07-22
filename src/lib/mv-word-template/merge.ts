@@ -44,6 +44,8 @@ export async function mergeWordReportTemplateSmart(params: {
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
+    clientImagesPerRow?: number;
+    clientImagesPerPage?: number;
   };
 }): Promise<MvWordMergeResult> {
   const serverResult = await mergeWordReportTemplateViaServer({

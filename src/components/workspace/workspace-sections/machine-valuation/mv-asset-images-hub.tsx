@@ -3400,12 +3400,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!asset) return;
       const current = (asset.images ?? []).slice();
       const target = current[idx];
-      // عناصر fileId تُحفظ عبر Drive؛ عناصر url تحتفظ بـ includeInReport على الأصل
-      if (!target || !("url" in target) || typeof (target as { url?: unknown }).url !== "string") return;
+      if (!target) return;
 
-      const nextImages = current.map((im, i) =>
-        i === idx ? { ...(im as object), includeInReport: nextInclude } : im,
-      );
+      // نحدّث includeInReport على الأصل دائماً (fileId وurl) ليطابق إعداد التقرير وWord
+      const nextImages = current.map((im, i) => {
+        if (i !== idx) return im;
+        const raw = im as unknown;
+        if (typeof raw === "string" && raw.trim()) {
+          return { fileId: raw.trim(), includeInReport: nextInclude } as PicAssetImage;
+        }
+        if (raw && typeof raw === "object") {
+          return { ...(raw as object), includeInReport: nextInclude } as PicAssetImage;
+        }
+        return im;
+      });
 
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
@@ -3757,6 +3765,24 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           );
         }
 
+        // مزامنة اختيار التقرير على assets.images لكل مجلد صور
+        const picSyncJobs = previewPhotoFolders
+          .map((folder) => {
+            const images = folder.picAsset?.images ?? [];
+            if (images.length === 0) return null;
+            const batch = new Map<number, boolean>();
+            images.forEach((image, index) => {
+              if (isExternalPicAssetVideo(image)) return;
+              batch.set(index, checked);
+            });
+            if (batch.size === 0) return null;
+            return applyPicAssetReportSelectionBatch(folder.sub._id, batch);
+          })
+          .filter((job): job is Promise<void> => job != null);
+        if (picSyncJobs.length > 0) {
+          await Promise.allSettled(picSyncJobs);
+        }
+
         setReportData({
           ...savedReportData,
           includeAssetImages: includeMaster,
@@ -3784,7 +3810,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         setReportSelectionSaving(false);
       }
     },
-    [files, projectId, reportData, toast],
+    [applyPicAssetReportSelectionBatch, files, previewPhotoFolders, projectId, reportData, t, toast],
   );
 
   const deleteFileIds = useCallback(

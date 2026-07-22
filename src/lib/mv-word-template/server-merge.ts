@@ -14,6 +14,8 @@ export type ServerWordMergeParams = {
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
+    clientImagesPerRow?: number;
+    clientImagesPerPage?: number;
   };
 };
 
@@ -96,6 +98,7 @@ export async function mergeWordReportTemplateViaServer(
     textFilled: 0,
     assetImagesInserted: params.mergeInput.assetImages.length,
     valuationImagesInserted: params.mergeInput.valuationImages.length,
+    clientImagesInserted: params.mergeInput.clientImages.length,
     bookmarksFound: [] as string[],
   };
   if (statsHeader) {
@@ -106,6 +109,9 @@ export async function mergeWordReportTemplateViaServer(
         assetImagesInserted: Number(parsed.assetImagesInserted ?? serverStats.assetImagesInserted),
         valuationImagesInserted: Number(
           parsed.valuationImagesInserted ?? serverStats.valuationImagesInserted,
+        ),
+        clientImagesInserted: Number(
+          parsed.clientImagesInserted ?? serverStats.clientImagesInserted,
         ),
         bookmarksFound: Array.isArray(parsed.bookmarksFound)
           ? parsed.bookmarksFound.map(String)
@@ -122,6 +128,7 @@ export async function mergeWordReportTemplateViaServer(
     textBookmarksSkipped: 0,
     assetImagesInserted: serverStats.assetImagesInserted,
     valuationImagesInserted: serverStats.valuationImagesInserted,
+    clientImagesInserted: serverStats.clientImagesInserted,
     bookmarksFound: serverStats.bookmarksFound,
     imageErrors: [],
   };

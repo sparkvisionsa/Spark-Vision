@@ -21,7 +21,7 @@ export function MvWordTemplateModal({
 }: MvWordTemplateModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <MvDialogContent className="max-h-[min(92vh,760px)] max-w-lg gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-w-xl">
+      <MvDialogContent className="max-h-[min(92vh,820px)] max-w-lg gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl sm:max-w-xl">
         <DialogHeader className="border-b border-slate-100 bg-gradient-to-l from-sky-50 to-white px-5 py-4 pe-14 text-start">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0C447C] text-white shadow-sm">
@@ -34,7 +34,7 @@ export function MvWordTemplateModal({
             </div>
           </div>
         </DialogHeader>
-        <div className="max-h-[calc(min(92vh,760px)-4.75rem)] overflow-y-auto bg-slate-50/50 p-3.5">
+        <div className="max-h-[calc(min(92vh,820px)-4.75rem)] overflow-y-auto bg-slate-50/50 p-3.5">
           <MvWordTemplatePanel {...panelProps} layout="modal" />
         </div>
       </MvDialogContent>

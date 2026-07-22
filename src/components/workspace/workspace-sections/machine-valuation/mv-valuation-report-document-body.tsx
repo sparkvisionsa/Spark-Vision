@@ -1177,8 +1177,10 @@ export interface MvValuationReportDocumentBodyProps {
   reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
   onReportPageOrientationChange?: (pageKey: string, orientation: MvReportPageOrientationPreference) => void;
   valuationAccountImages: MvValuationAccountingImage[];
-  /** صور مستندات العميل من خطوة «ملفات العميل» — تُعرض في مرفق 3 (2×2). */
+  /** صور مستندات العميل من خطوة «ملفات العميل» — تُعرض في مرفق 3. */
   clientDocumentImages?: MvClientDocumentImage[];
+  /** عدد الصور في الصف/الارتفاع لمرفق 3 (1|2|3 → صفحة N×N). */
+  clientDocumentsImagesPerRow?: 1 | 2 | 3;
   resolveImageSrc?: (src: string) => string;
   moveImage: (fileId: string, direction: -1 | 1) => void;
   hideImage: (fileId: string) => void;
@@ -1262,6 +1264,7 @@ export function MvValuationReportDocumentBody({
   onReportPageOrientationChange,
   valuationAccountImages,
   clientDocumentImages = [],
+  clientDocumentsImagesPerRow = 2,
   resolveImageSrc,
   moveImage,
   hideImage,
@@ -1477,11 +1480,22 @@ export function MvValuationReportDocumentBody({
       : `calc((100% - ${Math.max(0, imageInnerGap) * (assetPhotosPerRow - 1)}px) / ${assetPhotosPerRow})`;
   const assetPhotoChunks: MvDriveFile[][] =
     orderedImages.length > 0 ? chunkArray(orderedImages, assetPhotosPerPage) : [[]];
-  const CLIENT_DOCS_PER_PAGE = 4;
+  const clientDocsPerRow = (
+    clientDocumentsImagesPerRow === 1 || clientDocumentsImagesPerRow === 3
+      ? clientDocumentsImagesPerRow
+      : 2
+  ) as 1 | 2 | 3;
+  const clientDocsPerPage = clientDocsPerRow * clientDocsPerRow;
   const clientDocChunks: MvClientDocumentImage[][] =
     clientDocumentImages.length > 0
-      ? chunkArray(clientDocumentImages, CLIENT_DOCS_PER_PAGE)
+      ? chunkArray(clientDocumentImages, clientDocsPerPage)
       : [[]];
+  const clientDocsGridClass =
+    clientDocsPerRow === 1
+      ? "grid-cols-1 grid-rows-1"
+      : clientDocsPerRow === 3
+        ? "grid-cols-3 grid-rows-3"
+        : "grid-cols-2 grid-rows-2";
 
   const valuationSheets = includeValuationAccountImages
     ? MV_VALUATION_ACCOUNTING_APPROACHES.flatMap((approach) => {
@@ -3272,7 +3286,7 @@ export function MvValuationReportDocumentBody({
                   <div className="mb-3 rounded-lg border border-dashed border-slate-300 bg-white/80 px-5 py-8 text-center shadow-sm">
                     <p className="text-[13px] font-black text-slate-700">لا توجد مستندات عميل بعد.</p>
                     <p className="mx-auto mt-2 max-w-md text-[11px] font-semibold leading-6 text-slate-500">
-                      ارفع ملفات PDF أو صوراً من خطوة «ملفات العميل» قبل إعداد التقرير، وستظهر هنا صورتان في الصف وأربع في الصفحة.
+                      ارفع ملفات PDF أو صوراً من خطوة «ملفات العميل» قبل إعداد التقرير، وستظهر هنا حسب عدد الصور في الصف (1 أو 2 أو 3).
                     </p>
                     <Button
                       type="button"
@@ -3290,9 +3304,9 @@ export function MvValuationReportDocumentBody({
                   />
                 </div>
               ) : (
-                /* ارتفاع الشبكة ≈ 95% تحت العنوان؛ هامش سفلي 10px فقط */
+                /* ارتفاع الشبكة ≈ المساحة تحت العنوان؛ شبكة N×N حسب إعداد Word/التقرير */
                 <div className="flex min-h-0 flex-1 flex-col px-[2.5%] pt-[2.5%] pb-[10px]">
-                  <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-x-1.5 gap-y-1.5">
+                  <div className={cn("grid min-h-0 flex-1 gap-x-1.5 gap-y-1.5", clientDocsGridClass)}>
                     {chunk.map((image) => {
                       const rawSrc = resolveClientDocumentImageSrc(projectId, image);
                       const src = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;

@@ -32,6 +32,7 @@ export type MvWordBookmarkMergeStats = {
   textBookmarksSkipped: number;
   assetImagesInserted: number;
   valuationImagesInserted: number;
+  clientImagesInserted: number;
   bookmarksFound: string[];
   imageErrors: string[];
 };
@@ -42,6 +43,11 @@ const COVER_TITLE_BOOKMARK_NAMES = ["عنوان", "غلاف"];
 const COVER_CLIENT_BOOKMARK_NAMES = ["عميلغلاف"];
 /** إشارات عنوان تظهر داخل جمل التقرير ويجب أن ترث تنسيق الفقرة المحيطة */
 const INLINE_TITLE_BOOKMARK_NAMES = ["عنوانغ", "عنواناصل"];
+/** غلاف: عنوان 22pt، عميل 14pt، هامش 12px من حافة الصفحة اليمنى */
+const COVER_TITLE_FONT_SIZE_HALF_POINTS = 44;
+const COVER_CLIENT_FONT_SIZE_HALF_POINTS = 28;
+const COVER_EDGE_MARGIN_TWIPS = 12 * 15; // 12px × 15 twips/px
+const DEFAULT_SECTION_RIGHT_MARGIN_TWIPS = 1440;
 
 function normalizeCoverBookmarkName(name: string): string {
   return name
@@ -51,27 +57,126 @@ function normalizeCoverBookmarkName(name: string): string {
     .toLowerCase();
 }
 
+function isCoverTitleBookmark(name: string): boolean {
+  const normalized = normalizeCoverBookmarkName(name);
+  return COVER_TITLE_BOOKMARK_NAMES.some(
+    (item) => normalizeCoverBookmarkName(item) === normalized,
+  );
+}
+
+function isCoverClientBookmark(name: string): boolean {
+  const normalized = normalizeCoverBookmarkName(name);
+  return COVER_CLIENT_BOOKMARK_NAMES.some(
+    (item) => normalizeCoverBookmarkName(item) === normalized,
+  );
+}
+
 function isCoverFontBookmark(name: string): boolean {
   const normalized = normalizeCoverBookmarkName(name);
   if (INLINE_TITLE_BOOKMARK_NAMES.some((item) => normalizeCoverBookmarkName(item) === normalized)) {
     return false;
   }
-  return [...COVER_TITLE_BOOKMARK_NAMES, ...COVER_CLIENT_BOOKMARK_NAMES].some(
-    (item) => normalizeCoverBookmarkName(item) === normalized,
+  return isCoverTitleBookmark(name) || isCoverClientBookmark(name);
+}
+
+function coverBookmarkFontSizeHalfPoints(name: string): number | null {
+  if (isCoverTitleBookmark(name)) return COVER_TITLE_FONT_SIZE_HALF_POINTS;
+  if (isCoverClientBookmark(name)) return COVER_CLIENT_FONT_SIZE_HALF_POINTS;
+  return null;
+}
+
+function resolveSectionRightMarginTwips(xml: string, position: number): number {
+  const bodyMatch = xml.match(/<w:body\b[^>]*>[\s\S]*<\/w:body>/i);
+  const bodyXml = bodyMatch?.[0] ?? xml;
+  const after = bodyXml.slice(Math.max(0, position));
+  const nextSect = after.match(
+    /<w:sectPr\b[^>]*>[\s\S]*?<w:pgMar\b([^>]*?)(?:\s*\/>|>[\s\S]*?<\/w:pgMar>)/i,
   );
+  const sectAttrs =
+    nextSect?.[1] ??
+    bodyXml.match(/<w:pgMar\b([^>]*?)(?:\s*\/>|>[\s\S]*?<\/w:pgMar>)/i)?.[1] ??
+    "";
+  const rightMatch = sectAttrs.match(/\bw:right="(-?\d+)"/);
+  if (!rightMatch) return DEFAULT_SECTION_RIGHT_MARGIN_TWIPS;
+  const value = Number(rightMatch[1]);
+  return Number.isFinite(value) ? value : DEFAULT_SECTION_RIGHT_MARGIN_TWIPS;
+}
+
+function buildCoverParagraphProperties(
+  name: string,
+  xml: string,
+  position: number,
+  insideTextBox: boolean,
+): string {
+  // موجب داخل مربع النص؛ سالب في فقرة الصفحة لتقريب النص من حافة الصفحة (12px).
+  const rightIndent = insideTextBox
+    ? COVER_EDGE_MARGIN_TWIPS
+    : COVER_EDGE_MARGIN_TWIPS - resolveSectionRightMarginTwips(xml, position);
+  const size = coverBookmarkFontSizeHalfPoints(name);
+  const sizeXml =
+    size != null
+      ? `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>`
+      : "";
+  // Word مع RTL (bidi): jc=left يظهر يميناً بصرياً، وjc=right يظهر يساراً.
+  return (
+    `<w:pPr>` +
+    `<w:bidi/>` +
+    `<w:ind w:right="${rightIndent}" w:left="0"/>` +
+    `<w:jc w:val="left"/>` +
+    `<w:rPr>` +
+    `<w:rFonts w:ascii="${COVER_BOOKMARK_FONT_FAMILY}" w:hAnsi="${COVER_BOOKMARK_FONT_FAMILY}" w:eastAsia="${COVER_BOOKMARK_FONT_FAMILY}" w:cs="${COVER_BOOKMARK_FONT_FAMILY}" w:hint="cs"/>` +
+    `<w:lang w:val="ar-SA" w:bidi="ar-SA"/>` +
+    sizeXml +
+    `</w:rPr>` +
+    `</w:pPr>`
+  );
+}
+
+function applyCoverParagraphAlignment(xml: string, range: BookmarkRange): string {
+  if (!isCoverFontBookmark(range.name)) return xml;
+  const paragraph = findEnclosingParagraph(xml, range.startIndex);
+  if (!paragraph) return xml;
+  const paraXml = xml.slice(paragraph.start, paragraph.end);
+  const beforePara = xml.slice(0, paragraph.start);
+  const lastTxOpen = beforePara.lastIndexOf("<w:txbxContent");
+  const lastTxClose = beforePara.lastIndexOf("</w:txbxContent>");
+  const inTextBox = lastTxOpen >= 0 && lastTxOpen > lastTxClose;
+  const coverPPr = buildCoverParagraphProperties(range.name, xml, range.startIndex, inTextBox);
+  let nextParaXml: string;
+  if (/<w:pPr\b[^>]*(?:\/>|>[\s\S]*?<\/w:pPr>)/.test(paraXml)) {
+    nextParaXml = paraXml.replace(/<w:pPr\b[^>]*(?:\/>|>[\s\S]*?<\/w:pPr>)/, coverPPr);
+  } else {
+    nextParaXml = paraXml.replace(/<w:p\b[^>]*>/, (open) => `${open}${coverPPr}`);
+  }
+  return xml.slice(0, paragraph.start) + nextParaXml + xml.slice(paragraph.end);
 }
 
 function applyCoverBookmarkFont(name: string, rPr: string): string {
   if (!isCoverFontBookmark(name)) return rPr;
 
+  const size = coverBookmarkFontSizeHalfPoints(name);
   const fonts = `<w:rFonts w:ascii="${COVER_BOOKMARK_FONT_FAMILY}" w:hAnsi="${COVER_BOOKMARK_FONT_FAMILY}" w:eastAsia="${COVER_BOOKMARK_FONT_FAMILY}" w:cs="${COVER_BOOKMARK_FONT_FAMILY}" w:hint="cs"/>`;
-  if (!rPr.trim()) return `<w:rPr>${fonts}</w:rPr>`;
+  const lang = `<w:lang w:val="ar-SA" w:bidi="ar-SA"/>`;
+  const sizeXml =
+    size != null ? `<w:sz w:val="${size}"/><w:szCs w:val="${size}"/>` : "";
+  const boldXml = isCoverClientBookmark(name) ? `<w:b/><w:bCs/>` : "";
+  const rtl = `<w:rtl/>`;
+  const extras = `${fonts}${lang}${sizeXml}${boldXml}${rtl}`;
 
-  const withoutFonts = rPr.replace(/<w:rFonts\b[^>]*(?:\/>|>[\s\S]*?<\/w:rFonts>)/g, "");
-  if (/^<w:rPr\b[^>]*\/>$/.test(withoutFonts.trim())) {
-    return withoutFonts.replace(/\/>\s*$/, `>${fonts}</w:rPr>`);
+  let next = rPr;
+  next = next.replace(/<w:rFonts\b[^>]*(?:\/>|>[\s\S]*?<\/w:rFonts>)/g, "");
+  next = next.replace(/<w:sz\b[^>]*(?:\/>|>[\s\S]*?<\/w:sz>)/g, "");
+  next = next.replace(/<w:szCs\b[^>]*(?:\/>|>[\s\S]*?<\/w:szCs>)/g, "");
+  next = next.replace(/<w:lang\b[^>]*(?:\/>|>[\s\S]*?<\/w:lang>)/g, "");
+  next = next.replace(/<w:b\b[^>]*(?:\/>|>[\s\S]*?<\/w:b>)/g, "");
+  next = next.replace(/<w:bCs\b[^>]*(?:\/>|>[\s\S]*?<\/w:bCs>)/g, "");
+  next = next.replace(/<w:rtl\b[^>]*(?:\/>|>[\s\S]*?<\/w:rtl>)/g, "");
+
+  if (!next.trim()) return `<w:rPr>${extras}</w:rPr>`;
+  if (/^<w:rPr\b[^>]*\/>$/.test(next.trim())) {
+    return next.replace(/\/>\s*$/, `>${extras}</w:rPr>`);
   }
-  return withoutFonts.replace(/<w:rPr\b[^>]*>/, (match) => `${match}${fonts}`);
+  return next.replace(/<w:rPr\b[^>]*>/, (match) => `${match}${extras}`);
 }
 
 export function findBookmarkRanges(xml: string): BookmarkRange[] {
@@ -317,30 +422,38 @@ export function findImageBookmarkReplaceRegion(
 export function replaceBookmarkTextSafely(xml: string, range: BookmarkRange, text: string): string {
   if (!text.trim()) return xml;
 
-  const startTag = xml.slice(range.startIndex, range.innerStart);
-  const endTag = xml.slice(range.innerEnd, range.endIndex);
-  const inner = xml.slice(range.innerStart, range.innerEnd);
-  const startInsideRun = isInsideRun(xml, range.startIndex);
+  // طبّق محاذاة/هامش الغلاف على الفقرة أولاً (قد يغيّر إزاحة الإشارة).
+  let workingXml = applyCoverParagraphAlignment(xml, range);
+  const ranges = findBookmarkRanges(workingXml);
+  const liveRange =
+    ranges.find((item) => item.id === range.id) ??
+    ranges.find((item) => normalizeCoverBookmarkName(item.name) === normalizeCoverBookmarkName(range.name)) ??
+    range;
+
+  const startTag = workingXml.slice(liveRange.startIndex, liveRange.innerStart);
+  const endTag = workingXml.slice(liveRange.innerEnd, liveRange.endIndex);
+  const inner = workingXml.slice(liveRange.innerStart, liveRange.innerEnd);
+  const startInsideRun = isInsideRun(workingXml, liveRange.startIndex);
   const rPr =
-    extractFirstRunProperties(inner) || extractRunPropertiesAtPosition(xml, range.startIndex);
-  const styledRPr = applyCoverBookmarkFont(range.name, rPr);
+    extractFirstRunProperties(inner) || extractRunPropertiesAtPosition(workingXml, liveRange.startIndex);
+  const styledRPr = applyCoverBookmarkFont(liveRange.name, rPr);
 
   if (/<\/w:r>\s*<w:r\b/.test(inner)) {
-    return replaceSpanningBookmark(xml, range, text, styledRPr);
+    return replaceSpanningBookmark(workingXml, liveRange, text, styledRPr);
   }
 
   if (!isSimpleBookmarkInner(inner, startInsideRun)) {
     if (startInsideRun && /<w:r\b/.test(inner)) {
-      return replaceSpanningBookmark(xml, range, text, styledRPr);
+      return replaceSpanningBookmark(workingXml, liveRange, text, styledRPr);
     }
     const bookmarkBlock = `${startTag}${buildBookmarkTextContent(text, styledRPr, startInsideRun)}${endTag}`;
-    return xml.slice(0, range.startIndex) + bookmarkBlock + xml.slice(range.endIndex);
+    return workingXml.slice(0, liveRange.startIndex) + bookmarkBlock + workingXml.slice(liveRange.endIndex);
   }
 
   let newInner: string;
 
   if (/<w:t\b/.test(inner)) {
-    newInner = isCoverFontBookmark(range.name)
+    newInner = isCoverFontBookmark(liveRange.name)
       ? buildBookmarkTextContent(text, styledRPr, startInsideRun)
       : writeWtTextNodes(inner, text);
   } else if (startInsideRun) {
@@ -349,7 +462,13 @@ export function replaceBookmarkTextSafely(xml: string, range: BookmarkRange, tex
     newInner = buildTextRunWithFormatting(text, styledRPr);
   }
 
-  return xml.slice(0, range.startIndex) + startTag + newInner + endTag + xml.slice(range.endIndex);
+  return (
+    workingXml.slice(0, liveRange.startIndex) +
+    startTag +
+    newInner +
+    endTag +
+    workingXml.slice(liveRange.endIndex)
+  );
 }
 
 /** بديل أبسط عند فشل الاستبدال الآمن — يحافظ على الإشارة داخل الجملة */
@@ -360,18 +479,31 @@ export function replaceBookmarkTextFallback(
 ): string {
   if (!text.trim()) return xml;
 
-  const startTag = xml.slice(range.startIndex, range.innerStart);
-  const endTag = xml.slice(range.innerEnd, range.endIndex);
-  const startInsideRun = isInsideRun(xml, range.startIndex);
+  let workingXml = applyCoverParagraphAlignment(xml, range);
+  const ranges = findBookmarkRanges(workingXml);
+  const liveRange =
+    ranges.find((item) => item.id === range.id) ??
+    ranges.find((item) => normalizeCoverBookmarkName(item.name) === normalizeCoverBookmarkName(range.name)) ??
+    range;
+
+  const startTag = workingXml.slice(liveRange.startIndex, liveRange.innerStart);
+  const endTag = workingXml.slice(liveRange.innerEnd, liveRange.endIndex);
+  const startInsideRun = isInsideRun(workingXml, liveRange.startIndex);
   const rPr =
-    extractFirstRunProperties(xml.slice(range.innerStart, range.innerEnd)) ||
-    extractRunPropertiesAtPosition(xml, range.startIndex);
-  const styledRPr = applyCoverBookmarkFont(range.name, rPr);
+    extractFirstRunProperties(workingXml.slice(liveRange.innerStart, liveRange.innerEnd)) ||
+    extractRunPropertiesAtPosition(workingXml, liveRange.startIndex);
+  const styledRPr = applyCoverBookmarkFont(liveRange.name, rPr);
   const newInner = startInsideRun
     ? buildTextRunContentOnly(text, styledRPr)
     : buildTextRunWithFormatting(text, styledRPr);
 
-  return xml.slice(0, range.startIndex) + startTag + newInner + endTag + xml.slice(range.endIndex);
+  return (
+    workingXml.slice(0, liveRange.startIndex) +
+    startTag +
+    newInner +
+    endTag +
+    workingXml.slice(liveRange.endIndex)
+  );
 }
 
 export function listMergeablePartPaths(fileNames: string[]): string[] {

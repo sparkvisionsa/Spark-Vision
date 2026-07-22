@@ -1507,8 +1507,9 @@ function stableReportMediaUrl(url: string): string {
 }
 
 /**
- * صور التطبيق (assets.images) هي مصدر التحديد في مودال «تحديد صور التقرير».
- * نسخ GridFS قد تبقى includeInReport=true قديمًا — نطبّق قرار الأصل على المرآة قبل الدمج.
+ * يدمج صفوف GridFS مع صفوف صور التطبيق دون إسقاط التحديد.
+ * كانت صور التطبيق تُفرض كمصدر وحيد وتُحوَّل القيم الناقصة إلى false فتمسح اختيار GridFS.
+ * السياسة: الصورة تظهر في التقرير إذا كانت محدّدة في أي من المصدرين (OR).
  */
 function mergeReportAssetMediaRows(
   driveRows: MvDriveFile[],
@@ -1522,17 +1523,30 @@ function mergeReportAssetMediaRows(
     const sourceUrl = file.sourceUrl?.trim() || "";
     const fileIdFromUrl = sourceUrl.match(/\/files\/([^/?#]+)\/download(?:[?#]|$)/i)?.[1];
     if (fileIdFromUrl) {
-      picIncludeByFileId.set(decodeURIComponent(fileIdFromUrl), included);
+      const fid = decodeURIComponent(fileIdFromUrl);
+      picIncludeByFileId.set(fid, picIncludeByFileId.get(fid) === true || included);
     } else if (sourceUrl) {
-      picIncludeByUrl.set(stableReportMediaUrl(sourceUrl), included);
+      const urlKey = stableReportMediaUrl(sourceUrl);
+      picIncludeByUrl.set(urlKey, picIncludeByUrl.get(urlKey) === true || included);
     }
   }
+
+  const resolveMergedInclude = (
+    driveIncluded: boolean,
+    picFlag: boolean | undefined,
+  ): boolean => {
+    if (picFlag === undefined) return driveIncluded;
+    return driveIncluded || picFlag;
+  };
 
   const adjustedDrive = driveRows.map((file) => {
     if (picIncludeByFileId.has(String(file._id))) {
       return {
         ...file,
-        includeInReport: picIncludeByFileId.get(String(file._id)) === true,
+        includeInReport: resolveMergedInclude(
+          file.includeInReport === true,
+          picIncludeByFileId.get(String(file._id)),
+        ),
       };
     }
     const driveSource = (file as MvDriveFile & { sourceUrl?: string }).sourceUrl?.trim() || "";
@@ -1541,18 +1555,47 @@ function mergeReportAssetMediaRows(
     if (fileIdFromUrl) {
       const fid = decodeURIComponent(fileIdFromUrl);
       if (picIncludeByFileId.has(fid)) {
-        return { ...file, includeInReport: picIncludeByFileId.get(fid) === true };
+        return {
+          ...file,
+          includeInReport: resolveMergedInclude(
+            file.includeInReport === true,
+            picIncludeByFileId.get(fid),
+          ),
+        };
       }
       return file;
     }
     const urlKey = stableReportMediaUrl(driveSource);
     if (picIncludeByUrl.has(urlKey)) {
-      return { ...file, includeInReport: picIncludeByUrl.get(urlKey) === true };
+      return {
+        ...file,
+        includeInReport: resolveMergedInclude(
+          file.includeInReport === true,
+          picIncludeByUrl.get(urlKey),
+        ),
+      };
     }
     return file;
   });
 
-  return dedupeReportMediaRows([...adjustedDrive, ...picRows]);
+  const driveFileIds = new Set(adjustedDrive.map((file) => String(file._id)));
+  const adjustedPic = picRows.map((file) => {
+    const sourceUrl = file.sourceUrl?.trim() || "";
+    const fileIdFromUrl = sourceUrl.match(/\/files\/([^/?#]+)\/download(?:[?#]|$)/i)?.[1];
+    if (fileIdFromUrl) {
+      const fid = decodeURIComponent(fileIdFromUrl);
+      const driveMatch = adjustedDrive.find((row) => String(row._id) === fid);
+      if (driveMatch) {
+        return { ...file, includeInReport: driveMatch.includeInReport === true };
+      }
+      if (driveFileIds.has(fid)) {
+        return file;
+      }
+    }
+    return file;
+  });
+
+  return dedupeReportMediaRows([...adjustedDrive, ...adjustedPic]);
 }
 
 const defaultReportLayout: ReportLayoutPrefs = {
@@ -3421,6 +3464,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     onReportPageOrientationChange: updateReportPageOrientation,
     valuationAccountImages: orderedValuationImages,
     clientDocumentImages,
+    clientDocumentsImagesPerRow: reportData.clientDocumentsImagesPerRow ?? 2,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
     hideImage,

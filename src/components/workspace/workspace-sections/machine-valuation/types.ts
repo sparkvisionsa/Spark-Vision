@@ -233,6 +233,11 @@ export interface MvProjectReportData {
   reportPresentationDraft?: boolean;
   /** محتوى HTML — مرفق مستندات مستلمة من العميل */
   receivedClientDocumentsHtml?: string;
+  /**
+   * عدد صور مستندات العميل في الصف (ومثله في الارتفاع): 1 → صفحة بصورة واحدة،
+   * 2 → 2×2، 3 → 3×3. يُستخدم في مرفق 3 ودمج Word.
+   */
+  clientDocumentsImagesPerRow?: 1 | 2 | 3;
   /** محتوى HTML — شهادة التسجيل في بوابة «تقييم» */
   sceRegistrationCertificateHtml?: string;
   /** تعديلات نصية مباشرة داخل صفحة إعداد التقرير، بما يشمل القيم الديناميكية. */

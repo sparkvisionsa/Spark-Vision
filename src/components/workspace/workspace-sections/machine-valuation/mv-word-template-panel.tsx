@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Download, Images, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +19,8 @@ export type MvWordTemplateImageSource = {
   caption?: string;
 };
 
+export type MvClientDocumentsImagesPerRow = 1 | 2 | 3;
+
 type CompanyWordTemplate = {
   fileName?: string;
   fileUrl?: string | null;
@@ -28,8 +29,24 @@ type CompanyWordTemplate = {
   bookmarkNames?: string[];
 };
 
-function recommendedImagesPerPage(imagesPerRow: number): number {
+/** صور حسابات القيمة في Word: صورة واحدة ثابتة في الصف/الصفحة. */
+const VALUATION_IMAGES_PER_ROW = 1;
+const DEFAULT_ASSET_IMAGES_PER_ROW = 4;
+
+function recommendedAssetImagesPerPage(imagesPerRow: number): number {
   return imagesPerRow * (imagesPerRow >= 4 ? 5 : 4);
+}
+
+function normalizeAssetImagesPerRow(value: unknown): number {
+  const n = Math.trunc(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_ASSET_IMAGES_PER_ROW;
+  return Math.max(1, Math.min(6, n));
+}
+
+function normalizeClientImagesPerRow(value: unknown): MvClientDocumentsImagesPerRow {
+  const n = Math.trunc(Number(value));
+  if (n === 1 || n === 3) return n;
+  return 2;
 }
 
 function normalizeCompanyWordTemplate(value: unknown): CompanyWordTemplate | null {
@@ -67,6 +84,68 @@ export interface MvWordTemplatePanelProps {
   layout?: "drawer" | "modal";
 }
 
+function ImageStatRow({
+  label,
+  count,
+  perRow,
+  editable,
+  options,
+  disabled,
+  onChange,
+  hint,
+}: {
+  label: string;
+  count: number;
+  perRow: number;
+  editable?: boolean;
+  options?: number[];
+  disabled?: boolean;
+  onChange?: (value: number) => void;
+  hint?: string;
+}) {
+  const selectOptions = options ?? [1, 2, 3];
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-slate-800">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+            <Images className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-black text-slate-900">{label}</p>
+            <p className="text-[10px] font-bold tabular-nums text-slate-500">{count}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-500">في الصف</span>
+          {editable ? (
+            <select
+              value={perRow}
+              disabled={disabled}
+              onChange={(event) => onChange?.(Number(event.target.value))}
+              className="h-9 min-w-[4.5rem] rounded-lg border border-slate-200 bg-white px-2 text-center text-xs font-black text-slate-900 shadow-none outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+              aria-label={label}
+            >
+              {selectOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex h-9 min-w-[4.5rem] items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-xs font-black tabular-nums text-slate-700">
+              {perRow}
+            </div>
+          )}
+        </div>
+      </div>
+      {hint ? (
+        <p className="mt-1.5 text-[9.5px] font-semibold leading-4 text-slate-400">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function MvWordTemplatePanel({
   projectId,
   projectName,
@@ -75,6 +154,7 @@ export function MvWordTemplatePanel({
   assetImageSources,
   valuationImageSources,
   clientImageSources = [],
+  onReportDataPatch,
   disabled = false,
   layout = "drawer",
 }: MvWordTemplatePanelProps) {
@@ -84,12 +164,20 @@ export function MvWordTemplatePanel({
   const [mergeStage, setMergeStage] = useState("");
   const [mergeProgress, setMergeProgress] = useState<number | null>(null);
   const [companyWordTemplate, setCompanyWordTemplate] = useState<CompanyWordTemplate | null>(null);
-  const [imagesPerRow, setImagesPerRow] = useState(4);
-  const imagesPerPage = recommendedImagesPerPage(imagesPerRow);
+  const [assetImagesPerRow, setAssetImagesPerRow] = useState(DEFAULT_ASSET_IMAGES_PER_ROW);
+  const [clientImagesPerRow, setClientImagesPerRow] = useState<MvClientDocumentsImagesPerRow>(() =>
+    normalizeClientImagesPerRow(reportData.clientDocumentsImagesPerRow),
+  );
 
+  const assetImagesPerPage = recommendedAssetImagesPerPage(assetImagesPerRow);
+  const clientImagesPerPage = clientImagesPerRow * clientImagesPerRow;
   const hasCompanyTemplate = Boolean(companyWordTemplate?.fileUrl);
   const templateFileName = companyWordTemplate?.fileName?.trim() || t("report.wordTemplate.defaultName");
   const hasTemplate = hasCompanyTemplate;
+
+  useEffect(() => {
+    setClientImagesPerRow(normalizeClientImagesPerRow(reportData.clientDocumentsImagesPerRow));
+  }, [reportData.clientDocumentsImagesPerRow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +198,25 @@ export function MvWordTemplatePanel({
       cancelled = true;
     };
   }, []);
+
+  const updateClientImagesPerRow = useCallback(
+    (value: number) => {
+      const next = normalizeClientImagesPerRow(value);
+      setClientImagesPerRow(next);
+      onReportDataPatch({ clientDocumentsImagesPerRow: next });
+    },
+    [onReportDataPatch],
+  );
+
+  const imageLayout = useMemo(
+    () => ({
+      imagesPerRow: assetImagesPerRow,
+      imagesPerPage: assetImagesPerPage,
+      clientImagesPerRow,
+      clientImagesPerPage,
+    }),
+    [assetImagesPerPage, assetImagesPerRow, clientImagesPerPage, clientImagesPerRow],
+  );
 
   const runMergeAndDownload = useCallback(
     async () => {
@@ -136,7 +243,7 @@ export function MvWordTemplatePanel({
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
           clientImageUrls: clientImageSources.map((s) => s.url),
-          imageLayout: { imagesPerRow, imagesPerPage },
+          imageLayout,
         });
         const safeName = (projectName || "report").replace(/[\\/:*?"<>|]+/g, "-");
         const filename = `${safeName}-updated-report.docx`;
@@ -165,13 +272,19 @@ export function MvWordTemplatePanel({
           knownFound.length === 0 &&
           bookmarkStats.textBookmarksFilled === 0 &&
           bookmarkStats.assetImagesInserted === 0 &&
-          bookmarkStats.valuationImagesInserted === 0
+          bookmarkStats.valuationImagesInserted === 0 &&
+          (bookmarkStats.clientImagesInserted ?? 0) === 0
         ) {
           toast({
             variant: "destructive",
             description: t("report.wordTemplate.toastNoBookmarks"),
           });
-        } else if (bookmarkStats.textBookmarksFilled === 0 && bookmarkStats.assetImagesInserted === 0 && bookmarkStats.valuationImagesInserted === 0) {
+        } else if (
+          bookmarkStats.textBookmarksFilled === 0 &&
+          bookmarkStats.assetImagesInserted === 0 &&
+          bookmarkStats.valuationImagesInserted === 0 &&
+          (bookmarkStats.clientImagesInserted ?? 0) === 0
+        ) {
           toast({
             variant: "destructive",
             description: t("report.wordTemplate.toastNoData"),
@@ -182,7 +295,7 @@ export function MvWordTemplatePanel({
               mergeSource === "server"
                 ? t("report.wordTemplate.toastUpdatedServer")
                 : t("report.wordTemplate.toastUpdatedBrowser"),
-              bookmarkStats.textBookmarksFilled >= 0 && bookmarkStats.textBookmarksFilled > 0
+              bookmarkStats.textBookmarksFilled > 0
                 ? t("report.wordTemplate.toastTextCount", { count: bookmarkStats.textBookmarksFilled })
                 : mergeSource === "server"
                   ? t("report.wordTemplate.toastMergedData")
@@ -192,6 +305,11 @@ export function MvWordTemplatePanel({
                 : "",
               bookmarkStats.valuationImagesInserted > 0
                 ? t("report.wordTemplate.toastValuationImages", { count: bookmarkStats.valuationImagesInserted })
+                : "",
+              (bookmarkStats.clientImagesInserted ?? 0) > 0
+                ? t("report.wordTemplate.toastClientImages", {
+                    count: bookmarkStats.clientImagesInserted,
+                  })
                 : "",
             ]
               .filter(Boolean)
@@ -214,8 +332,7 @@ export function MvWordTemplatePanel({
       assetImageSources,
       clientImageSources,
       displayNumber,
-      imagesPerPage,
-      imagesPerRow,
+      imageLayout,
       projectId,
       projectName,
       reportData,
@@ -240,10 +357,10 @@ export function MvWordTemplatePanel({
     <div className={cn(layout === "modal" ? "p-1" : "space-y-2.5")} dir={dir}>
       {!hasTemplate ? (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-right">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-            <p className="text-[11px] font-bold leading-5 text-amber-900">
-              {t("report.wordTemplate.uploadFirst")}
-            </p>
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <p className="text-[11px] font-bold leading-5 text-amber-900">
+            {t("report.wordTemplate.uploadFirst")}
+          </p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
@@ -258,69 +375,69 @@ export function MvWordTemplatePanel({
           </div>
 
           <div className="space-y-3 p-4">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-sky-800">
-                <Images className="h-4 w-4 shrink-0" />
-                <span className="text-[10px] font-black">
-                  {t("report.wordTemplate.assetImages", { count: assetImageSources.length })}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl bg-violet-50 px-3 py-2 text-violet-800">
-                <Images className="h-4 w-4 shrink-0" />
-                <span className="text-[10px] font-black">
-                  {t("report.wordTemplate.valuationImages", { count: valuationImageSources.length })}
-                </span>
-              </div>
+            <div className="space-y-2">
+              <p className="text-[10px] font-black text-slate-600">
+                {t("report.wordTemplate.imageStatsTitle")}
+              </p>
+              <ImageStatRow
+                label={t("report.wordTemplate.assetImagesLabel")}
+                count={assetImageSources.length}
+                perRow={assetImagesPerRow}
+                editable
+                options={[1, 2, 3, 4, 5, 6]}
+                disabled={busy}
+                onChange={(value) => setAssetImagesPerRow(normalizeAssetImagesPerRow(value))}
+                hint={t("report.wordTemplate.assetPerRowHint", {
+                  perRow: String(assetImagesPerRow),
+                  perPage: String(assetImagesPerPage),
+                })}
+              />
+              <ImageStatRow
+                label={t("report.wordTemplate.valuationImagesLabel")}
+                count={valuationImageSources.length}
+                perRow={VALUATION_IMAGES_PER_ROW}
+                hint={t("report.wordTemplate.valuationFixedPerRowHint")}
+              />
+              <ImageStatRow
+                label={t("report.wordTemplate.clientImagesLabel")}
+                count={clientImageSources.length}
+                perRow={clientImagesPerRow}
+                editable
+                options={[1, 2, 3]}
+                disabled={busy}
+                onChange={updateClientImagesPerRow}
+                hint={t("report.wordTemplate.clientPerRowHint", {
+                  perRow: String(clientImagesPerRow),
+                  perPage: String(clientImagesPerPage),
+                })}
+              />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-              <label className="space-y-1.5 text-[10px] font-bold text-slate-700">
-                <span>{t("report.wordTemplate.imagesPerRow")}</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={6}
-                  value={imagesPerRow}
-                  disabled={busy}
-                  onChange={(event) =>
-                    setImagesPerRow(Math.max(1, Math.min(6, Number(event.target.value) || 1)))
-                  }
-                  className="h-9 rounded-lg border-slate-200 bg-white text-center text-xs font-black shadow-none"
-                />
-              </label>
-              <label className="space-y-1.5 text-[10px] font-bold text-slate-700">
-                <span>{t("report.wordTemplate.imagesPerPage")}</span>
-                <div className="flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-center text-xs font-black text-slate-700">
-                  {imagesPerPage}
+            {mergeProgress != null ? (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
+                <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-black text-emerald-800">
+                  <span>{mergeStage || t("report.wordTemplate.preparingFile")}</span>
+                  <span dir="ltr">{Math.round(mergeProgress)}%</span>
                 </div>
-              </label>
-            </div>
-
-          {mergeProgress != null ? (
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
-              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-black text-emerald-800">
-                <span>{mergeStage || t("report.wordTemplate.preparingFile")}</span>
-                <span dir="ltr">{Math.round(mergeProgress)}%</span>
+                <div className="h-2 overflow-hidden rounded-full bg-white">
+                  <div
+                    className="h-full rounded-full bg-emerald-700 transition-all duration-300"
+                    style={{ width: `${Math.max(4, Math.min(100, mergeProgress))}%` }}
+                  />
+                </div>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white">
-                <div
-                  className="h-full rounded-full bg-emerald-700 transition-all duration-300"
-                  style={{ width: `${Math.max(4, Math.min(100, mergeProgress))}%` }}
-                />
-              </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          <Button
-            type="button"
-            className="h-11 w-full gap-2 rounded-xl bg-emerald-700 text-xs font-black shadow-sm hover:bg-emerald-800"
-            disabled={busy}
-            onClick={() => void generateMergedReport()}
-          >
-            {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {generating && mergeStage ? mergeStage : t("report.wordTemplate.startMerge")}
-          </Button>
-        </div>
+            <Button
+              type="button"
+              className="h-11 w-full gap-2 rounded-xl bg-emerald-700 text-xs font-black shadow-sm hover:bg-emerald-800"
+              disabled={busy}
+              onClick={() => void generateMergedReport()}
+            >
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {generating && mergeStage ? mergeStage : t("report.wordTemplate.startMerge")}
+            </Button>
+          </div>
         </div>
       )}
     </div>

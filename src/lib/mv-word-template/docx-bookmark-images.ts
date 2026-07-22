@@ -346,6 +346,7 @@ export async function applyImageBookmarksToDocument(
   const imageOps: Array<{
     region: { start: number; end: number };
     layout: "grid3" | "stack";
+    field: "assetImages" | "valuationImages" | "clientImages";
     images: MvWordMergeImageItem[];
   }> = [];
   const seenRegions = new Set<string>();
@@ -369,7 +370,7 @@ export async function applyImageBookmarksToDocument(
     if (seenRegions.has(regionKey)) continue;
 
     seenRegions.add(regionKey);
-    imageOps.push({ region, layout: imageDef.layout, images });
+    imageOps.push({ region, layout: imageDef.layout, field: imageDef.field, images });
   }
 
   if (imageOps.length === 0) return { xml: documentXml, relsXml: null };
@@ -413,7 +414,8 @@ export async function applyImageBookmarksToDocument(
 
     xml = candidate;
     relsDirty = true;
-    if (op.layout === "grid3") stats.assetImagesInserted += built.count;
+    if (op.field === "assetImages") stats.assetImagesInserted += built.count;
+    else if (op.field === "clientImages") stats.clientImagesInserted += built.count;
     else stats.valuationImagesInserted += built.count;
     await yieldToMain();
   }

@@ -10,8 +10,11 @@ export type UploadProjectFileOptions = {
 
 const uploadT = () => getMvT(readMvLanguage());
 
-const VALUATION_ACCOUNTING_UPLOAD_SOFT_MAX_BYTES = 3.5 * 1024 * 1024;
-const VALUATION_ACCOUNTING_UPLOAD_RETRY_MAX_BYTES = 1.8 * 1024 * 1024;
+const VALUATION_ACCOUNTING_UPLOAD_SOFT_MAX_BYTES = 14 * 1024 * 1024;
+const VALUATION_ACCOUNTING_UPLOAD_RETRY_MAX_BYTES = 8 * 1024 * 1024;
+/** حدود ضغط لطيفة — لا نُسقّط دقة صفحات PDF (~300DPI) إلا عند الضرورة القصوى */
+const VALUATION_ACCOUNTING_COMPRESS_MAX_SIDE = 6200;
+const VALUATION_ACCOUNTING_COMPRESS_MAX_PIXELS = 40_000_000;
 
 function isLikelyImageFile(file: File) {
   return file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
@@ -70,42 +73,57 @@ async function compressImageForUpload(file: File, maxBytes: number): Promise<Fil
   const naturalHeight = image.naturalHeight || image.height;
   if (naturalWidth < 1 || naturalHeight < 1) return file;
 
-  const maxPixels = 10_000_000;
-  const maxSide = 3200;
-  const initialScale = Math.min(
-    1,
-    maxSide / Math.max(naturalWidth, naturalHeight),
-    Math.sqrt(maxPixels / Math.max(1, naturalWidth * naturalHeight)),
-  );
-  const qualities = [0.88, 0.82, 0.76, 0.68, 0.6, 0.52];
+  // أولاً: أعد الترميز بنفس الأبعاد بجودة عالية — غالباً يكفي دون تصغير يُبكسل الأرقام
+  const qualities = [0.96, 0.93, 0.9, 0.86, 0.82];
   let best: Blob | null = null;
-  let scale = Number.isFinite(initialScale) && initialScale > 0 ? initialScale : 1;
+  let scale = 1;
 
-  while (scale >= 0.32) {
+  const encodeAtScale = async (nextScale: number) => {
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+    canvas.width = Math.max(1, Math.round(naturalWidth * nextScale));
+    canvas.height = Math.max(1, Math.round(naturalHeight * nextScale));
     const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) break;
+    if (!ctx) return null as Blob | null;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    // عند التصغير فقط: تنعيم عالي؛ عند 1:1 عطّله للحفاظ على حدة النص
+    ctx.imageSmoothingEnabled = nextScale < 0.999;
+    if (nextScale < 0.999) ctx.imageSmoothingQuality = "high";
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
+    let localBest: Blob | null = null;
     for (const quality of qualities) {
       const blob = await canvasToBlob(canvas, "image/jpeg", quality);
-      if (!best || blob.size < best.size) best = blob;
+      if (!localBest || blob.size < localBest.size) localBest = blob;
       if (blob.size <= maxBytes) {
         canvas.width = 1;
         canvas.height = 1;
         return new File([blob], jpegUploadName(file.name), { type: "image/jpeg" });
       }
     }
-
     canvas.width = 1;
     canvas.height = 1;
-    scale *= 0.78;
+    return localBest;
+  };
+
+  const sameSize = await encodeAtScale(1);
+  if (sameSize instanceof File) return sameSize;
+  if (sameSize) best = sameSize;
+
+  // ثانياً: تصغير تدريجي خفيف فقط إذا لزم تجاوز حد الرفع
+  const initialScale = Math.min(
+    1,
+    VALUATION_ACCOUNTING_COMPRESS_MAX_SIDE / Math.max(naturalWidth, naturalHeight),
+    Math.sqrt(VALUATION_ACCOUNTING_COMPRESS_MAX_PIXELS / Math.max(1, naturalWidth * naturalHeight)),
+  );
+  scale = Number.isFinite(initialScale) && initialScale > 0 ? Math.min(1, initialScale) : 1;
+  if (scale >= 0.999) scale = 0.92;
+
+  while (scale >= 0.55) {
+    const encoded = await encodeAtScale(scale);
+    if (encoded instanceof File) return encoded;
+    if (encoded && (!best || encoded.size < best.size)) best = encoded;
+    scale *= 0.88;
   }
 
   if (best && best.size < file.size) {

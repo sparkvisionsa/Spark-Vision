@@ -1,12 +1,13 @@
 /**
- * تحويل صفحات PDF إلى صور JPEG مع قص الهوامش البيضاء —
- * نفس مبدأ إجراءات التقييم (مرفق 1).
+ * تحويل صفحات PDF إلى صور JPEG عالية الوضوح مع قص الهوامش البيضاء —
+ * نفس مبدأ إجراءات التقييم (مرفق 1) وملفات العميل.
  */
 
-export const MV_PDF_UPLOAD_RENDER_SCALE = 2.4;
-export const MV_PDF_UPLOAD_MAX_PAGE_PIXELS = 20_000_000;
-export const MV_PDF_PARALLEL_PAGES = 8;
-export const MV_PDF_PAGE_EXPORT_JPEG_QUALITY = 0.92;
+/** ~300 DPI (72×4.2) لقراءة الأرقام والنصوص الصغيرة بوضوح */
+export const MV_PDF_UPLOAD_RENDER_SCALE = 4.2;
+export const MV_PDF_UPLOAD_MAX_PAGE_PIXELS = 48_000_000;
+export const MV_PDF_PARALLEL_PAGES = 3;
+export const MV_PDF_PAGE_EXPORT_JPEG_QUALITY = 0.97;
 
 export type MvPdfPageImageFile = {
   file: File;
@@ -103,6 +104,7 @@ export function trimCanvasWhiteMargins(
   if (!outCtx) return { canvas, cropped: false };
   outCtx.fillStyle = "#ffffff";
   outCtx.fillRect(0, 0, out.width, out.height);
+  outCtx.imageSmoothingEnabled = false;
   outCtx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
   return { canvas: out, cropped: true };
 }
@@ -125,15 +127,24 @@ export async function renderPdfPageToJpegFile(
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.floor(viewport.width));
   canvas.height = Math.max(1, Math.floor(viewport.height));
-  const ctx = canvas.getContext("2d", { alpha: false });
+  const ctx = canvas.getContext("2d", {
+    alpha: false,
+    colorSpace: "srgb",
+  } as CanvasRenderingContext2DSettings);
   if (!ctx) throw new Error("تعذر تجهيز صفحة PDF كصورة.");
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  ctx.imageSmoothingEnabled = false;
+  await page.render({
+    canvas,
+    canvasContext: ctx,
+    viewport,
+    intent: "print",
+  } as Parameters<typeof page.render>[0]).promise;
 
   const suffix = pageCount > 1 ? `-page-${String(pageNumber).padStart(2, "0")}` : "";
   const trimmed = trimCanvasWhiteMargins(canvas, {
-    padding: Math.max(8, Math.round(10 * scale)),
+    padding: Math.max(10, Math.round(8 * scale)),
     threshold: 248,
   });
   const imageFile = await canvasToJpegFile(trimmed.canvas, `${baseName}${suffix}.jpg`);
