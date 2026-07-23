@@ -1261,6 +1261,21 @@ body.vt-products-hub-active {
   100% { transform: translateX(-250%); }
 }
 
+.mv-route-progress-bar {
+  animation: mv-route-progress 1.15s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes mv-inline-progress {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+.mv-inline-progress {
+  animation: mv-inline-progress 1.05s ease-in-out infinite;
+  will-change: transform;
+}
+
 @keyframes mv-loader-orbit {
   to { transform: rotate(360deg); }
 }

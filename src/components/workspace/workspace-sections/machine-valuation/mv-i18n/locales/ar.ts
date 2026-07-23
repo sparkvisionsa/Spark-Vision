@@ -856,6 +856,7 @@ export const mvAr = {
       cannotCreateInsideAsset:
         "لا يمكن إنشاء مجلدات داخل أصل موجود. اختر مجلداً عادياً أو الجذر.",
       duplicateAssetName: "يوجد مجلد عادي بنفس اسم الأصل المطلوب. اختر اسم أصل مختلفاً.",
+      createFolderFailed: "تعذر إنشاء المجلد أو الأصل: {reason}",
       selectFolderOrRootForFolder:
         "اختر مجلدًا فعليًا داخل صور الأصول أو افتح الجذر لإنشاء مجلد جديد.",
       selectFolderOrRootForAsset:

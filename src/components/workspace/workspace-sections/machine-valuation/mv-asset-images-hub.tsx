@@ -328,6 +328,69 @@ function folderPartsFromPickedImage(item: PickedImageFile) {
   return parts.length > 1 ? parts.slice(0, -1) : [];
 }
 
+/**
+ * مجلد نظام يحتوي صوراً مباشرة عندما يكون لنفس المسار مجلدات فرعية أيضاً
+ * (نموذج الشجرة: المجلد العادي لا يخزّن صوراً — الصور داخل أصل فقط).
+ */
+const FOLDER_LOOSE_IMAGES_ASSET_NAME = "صور مباشرة";
+
+type PreviewFolderKnownEntry = {
+  uploadFolderId: string;
+  selectionFolderId: string;
+  name: string;
+  kind: PreviewFolderCreateKind;
+};
+
+function previewFolderPathKey(parts: string[]) {
+  return parts.join("\u0000");
+}
+
+function previewFolderParentNameKey(parentId: string, name: string) {
+  return `${parentId}\u0000${name}`;
+}
+
+/**
+ * يحدّد لكل مقطع في دفعة الرفع إن كان مجلداً عادياً أم أصلاً:
+ * أي مسار له أبناء أعمق → مجلد؛ المسارات الورقية → أصل.
+ * الصور الموجودة مباشرة داخل مجلد له أبناء تُوجَّه إلى أصل «صور مباشرة».
+ */
+function buildFolderUploadPathPlan(allFolderParts: string[][]) {
+  const hasChildren = new Set<string>();
+  for (const parts of allFolderParts) {
+    for (let i = 0; i < parts.length - 1; i++) {
+      hasChildren.add(previewFolderPathKey(parts.slice(0, i + 1)));
+    }
+  }
+
+  const kindByPathKey = new Map<string, PreviewFolderCreateKind>();
+  for (const parts of allFolderParts) {
+    for (let i = 0; i < parts.length; i++) {
+      const key = previewFolderPathKey(parts.slice(0, i + 1));
+      if (hasChildren.has(key)) kindByPathKey.set(key, "folder");
+      else if (!kindByPathKey.has(key)) kindByPathKey.set(key, "asset");
+    }
+  }
+  for (const key of hasChildren) {
+    kindByPathKey.set(key, "folder");
+  }
+
+  const resolveParts = (parts: string[]): string[] => {
+    if (parts.length === 0) return parts;
+    const key = previewFolderPathKey(parts);
+    if (hasChildren.has(key)) {
+      return [...parts, FOLDER_LOOSE_IMAGES_ASSET_NAME];
+    }
+    return parts;
+  };
+
+  const kindForPartsPrefix = (parts: string[], index: number): PreviewFolderCreateKind => {
+    const key = previewFolderPathKey(parts.slice(0, index + 1));
+    return kindByPathKey.get(key) ?? (index === parts.length - 1 ? "asset" : "folder");
+  };
+
+  return { resolveParts, kindForPartsPrefix };
+}
+
 function driveFileFolderPath(file: MvDriveFile): string {
   return file.folderPath ?? folderPathFromRelativePath(file.relativePath || file.name);
 }
@@ -2445,9 +2508,22 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, parent: parentId, folderKind: kind }),
     });
-    if (!response.ok) throw new Error("create_failed");
+    if (!response.ok) {
+      let reason = `HTTP ${response.status}`;
+      try {
+        const data = (await response.json()) as { message?: unknown };
+        if (typeof data.message === "string" && data.message.trim()) {
+          reason = data.message.trim();
+        } else if (Array.isArray(data.message)) {
+          reason = data.message.map(String).filter(Boolean).join(" · ") || reason;
+        }
+      } catch {
+        /* ignore */
+      }
+      throw new Error(t("assetImages.upload.createFolderFailed", { reason }));
+    }
     return (await response.json()) as MvSubProject;
-  }, [projectId]);
+  }, [projectId, t]);
 
   const uploadImagesToPicFolder = useCallback(
     async (
@@ -2595,37 +2671,56 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const ensurePreviewFolderPath = useCallback(
-    async (baseParentId: string, parts: string[], baseSelectionId = baseParentId) => {
+    async (
+      baseParentId: string,
+      parts: string[],
+      baseSelectionId = baseParentId,
+      options?: {
+        known?: Map<string, PreviewFolderKnownEntry>;
+        kindForPartsPrefix?: (parts: string[], index: number) => PreviewFolderCreateKind;
+      },
+    ) => {
       let parentUploadId = baseParentId;
       let parentSelectionId = baseSelectionId;
       let folderName = "";
       let selectionFolderId = "";
 
-      const known = new Map<
-        string,
-        { uploadFolderId: string; selectionFolderId: string; name: string; kind: PreviewFolderCreateKind }
-      >();
-      previewPhotoFolders.forEach((row) => {
-        const parent = row.sub.parent?.trim();
-        const name = cleanPathPart(row.sub.name);
-        if (!parent || !name) return;
-        known.set(`${parent}\u0000${name}`, {
-          uploadFolderId: row.picAsset?._id ?? row.sub._id,
-          selectionFolderId: row.sub._id,
-          name,
-          kind: row.picAsset ? "asset" : "folder",
-        });
-      });
+      const known =
+        options?.known ??
+        (() => {
+          const seeded = new Map<string, PreviewFolderKnownEntry>();
+          const addRow = (row: { sub: MvSubProject; picAsset?: PicAsset | null }) => {
+            const parent = row.sub.parent?.trim();
+            const name = cleanPathPart(row.sub.name);
+            if (!parent || !name) return;
+            const entry: PreviewFolderKnownEntry = {
+              uploadFolderId: row.picAsset?._id ?? row.sub._id,
+              selectionFolderId: row.sub._id,
+              name,
+              kind: row.picAsset ? "asset" : "folder",
+            };
+            seeded.set(previewFolderParentNameKey(parent, name), entry);
+          };
+          previewPhotoFolders.forEach(addRow);
+          recentlyCreatedPreviewFoldersRef.current.forEach(addRow);
+          return seeded;
+        })();
+
+      const rememberKnown = (parentId: string, entry: PreviewFolderKnownEntry) => {
+        known.set(previewFolderParentNameKey(parentId, entry.name), entry);
+      };
 
       for (let index = 0; index < parts.length; index++) {
         const rawPart = parts[index]!;
         const name = cleanPathPart(rawPart);
         if (!name) continue;
-        const targetKind: PreviewFolderCreateKind = index === parts.length - 1 ? "asset" : "folder";
+        const targetKind: PreviewFolderCreateKind =
+          options?.kindForPartsPrefix?.(parts, index) ??
+          (index === parts.length - 1 ? "asset" : "folder");
         folderName = name;
         const existing =
-          known.get(`${parentUploadId}\u0000${name}`) ??
-          known.get(`${parentSelectionId}\u0000${name}`);
+          known.get(previewFolderParentNameKey(parentUploadId, name)) ??
+          known.get(previewFolderParentNameKey(parentSelectionId, name));
         if (existing) {
           if (targetKind === "folder" && existing.kind === "asset") {
             throw new Error(t("assetImages.upload.cannotCreateInsideAsset"));
@@ -2641,14 +2736,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
         const createdFolder = await createPreviewFolderOnServer(name, parentUploadId, targetKind);
         rememberPreviewFolder(createdFolder);
-        const created = {
+        const created: PreviewFolderKnownEntry = {
           uploadFolderId: createdFolder.picAsset?._id ?? createdFolder._id,
           selectionFolderId: createdFolder._id,
           name,
           kind: targetKind,
         };
-        known.set(`${parentUploadId}\u0000${name}`, created);
-        known.set(`${parentSelectionId}\u0000${name}`, created);
+        rememberKnown(parentUploadId, created);
+        rememberKnown(parentSelectionId, created);
         parentUploadId = created.uploadFolderId;
         parentSelectionId = created.selectionFolderId;
         selectionFolderId = created.selectionFolderId;
@@ -2660,7 +2755,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         folderName: folderName || t("assetImages.rootLabel"),
       };
     },
-    [createPreviewFolderOnServer, previewPhotoFolders, rememberPreviewFolder],
+    [createPreviewFolderOnServer, previewPhotoFolders, rememberPreviewFolder, t],
   );
 
   const uploadImagesToActivePreviewLocation = useCallback(
@@ -2747,8 +2842,30 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       >();
       let skippedRootFiles = 0;
 
+      const rawFolderPartsList = imageFiles.map(folderPartsFromPickedImage);
+      const pathPlan = buildFolderUploadPathPlan(rawFolderPartsList);
+      const sharedKnown = (() => {
+        const seeded = new Map<string, PreviewFolderKnownEntry>();
+        const addRow = (row: { sub: MvSubProject; picAsset?: PicAsset | null }) => {
+          const parent = row.sub.parent?.trim();
+          const name = cleanPathPart(row.sub.name);
+          if (!parent || !name) return;
+          const entry: PreviewFolderKnownEntry = {
+            uploadFolderId: row.picAsset?._id ?? row.sub._id,
+            selectionFolderId: row.sub._id,
+            name,
+            kind: row.picAsset ? "asset" : "folder",
+          };
+          seeded.set(previewFolderParentNameKey(parent, name), entry);
+        };
+        previewPhotoFolders.forEach(addRow);
+        recentlyCreatedPreviewFoldersRef.current.forEach(addRow);
+        return seeded;
+      })();
+
       for (const item of imageFiles) {
-        const folderParts = folderPartsFromPickedImage(item);
+        const rawFolderParts = folderPartsFromPickedImage(item);
+        const folderParts = pathPlan.resolveParts(rawFolderParts);
         const fileName = fileNameFromPath(item.relativePath || item.file.name);
         let target: {
           uploadFolderId: string;
@@ -2768,6 +2885,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               baseParentId,
               folderParts,
               targetNode?.path ?? baseParentId,
+              {
+                known: sharedKnown,
+                kindForPartsPrefix: pathPlan.kindForPartsPrefix,
+              },
             );
             folderTargetCache.set(cacheKey, target);
           }
@@ -2874,6 +2995,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       loadImages,
       loadPreviewPhotoFolders,
       photosRootId,
+      previewPhotoFolders,
       removeAssetUploadJobLater,
       selectedPreviewFolderId,
       selectedPreviewFolderNode,

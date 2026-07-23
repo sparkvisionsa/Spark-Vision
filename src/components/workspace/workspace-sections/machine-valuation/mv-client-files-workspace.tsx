@@ -96,7 +96,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
           { signal },
           {
             cacheKey: `project-summary:${projectId}`,
-            cacheTtlMs: 12_000,
+            cacheTtlMs: 90_000,
             retries: 1,
             timeoutMs: 15_000,
             loadingLabel: t("workflow.loading.projectData"),

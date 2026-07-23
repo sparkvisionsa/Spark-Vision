@@ -10,6 +10,7 @@ import { MvErrorState, MvPageLoading } from "./mv-ui";
 import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import type { MvMainWorkflowSlug } from "./mv-main-workflow-model";
 import { useMvI18n } from "./mv-i18n";
+import { prefetchMvWorkflowChunks } from "./mv-workflow-chunk-prefetch";
 
 function MvWorkflowImportLoading() {
   const { t } = useMvI18n();
@@ -63,18 +64,23 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
   const [projectError, setProjectError] = useState<string | null>(null);
 
   const loadProject = useCallback(async (signal?: AbortSignal) => {
-    setLoadingProject(true);
-    setProjectError(null);
+    const hasCached = Boolean(
+      readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))?.project,
+    );
+    // لا تُفرغ الواجهة إن وُجدت بيانات مخزّنة — حدّث في الخلفية فقط
+    if (!hasCached) {
+      setLoadingProject(true);
+      setProjectError(null);
+    }
     try {
       const data = await mvFetchJson<{ project: MvProject }>(
         `/api/mv/projects/${projectId}?picAssetMode=summary`,
         { signal },
         {
           cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 12_000,
+          cacheTtlMs: 90_000,
           retries: 1,
-          timeoutMs: 15_000,
-          loadingLabel: t("workflow.loading.projectData"),
+          timeoutMs: 12_000,
         },
       );
       if (signal?.aborted) return;
@@ -87,10 +93,13 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
         project: data.project,
         fetchedAt: Date.now(),
       });
+      setProjectError(null);
     } catch (error) {
       if (signal?.aborted || isMvAbortError(error)) return;
       setProject((current) => (current?._id === projectId ? current : null));
-      setProjectError(mvErrorMessage(error, t("workflow.error.loadProjectData")));
+      if (!hasCached) {
+        setProjectError(mvErrorMessage(error, t("workflow.error.loadProjectData")));
+      }
     } finally {
       if (!signal?.aborted) setLoadingProject(false);
     }
@@ -104,6 +113,10 @@ export default function MvWorkflowShell({ projectId, stepSlug, assetImagesSub }:
     void loadProject(controller.signal);
     return () => controller.abort();
   }, [loadProject, stepSlug]);
+
+  useEffect(() => {
+    prefetchMvWorkflowChunks({ eager: true });
+  }, []);
 
   const activeProject = project?._id === projectId ? project : null;
 

@@ -387,6 +387,12 @@ export function MvSimpleReportStepStrip({
     }
   }, [onStepSelect, projectId, router, steps]);
 
+  useEffect(() => {
+    void import("./mv-workflow-chunk-prefetch").then((mod) =>
+      mod.prefetchMvWorkflowChunks({ eager: true }),
+    );
+  }, []);
+
   return (
     <div
       className={cn(

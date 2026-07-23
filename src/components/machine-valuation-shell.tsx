@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import { usePathname } from "next/navigation";
 
@@ -449,6 +449,12 @@ export default function MachineValuationShell({ children }: { children: ReactNod
 function MachineValuationShellInner({ children }: { children: ReactNode }) {
   const { dir, isArabic } = useMvI18n();
   const { navigate, isMachineValuationPath } = useMvInPageNavigation();
+
+  useEffect(() => {
+    void import("@/components/workspace/workspace-sections/machine-valuation/mv-workflow-chunk-prefetch").then(
+      (mod) => mod.prefetchMvWorkflowChunks({ eager: true }),
+    );
+  }, []);
 
   return (
     <MvExperienceBoundary>

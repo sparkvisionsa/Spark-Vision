@@ -31,9 +31,12 @@ const ASSET_IMAGE_GAP_TWIPS = 15;
 const VALUATION_IMAGE_PAGE_WIDTH_RATIO = 0.9;
 const VALUATION_IMAGE_RTL_RIGHT_MARGIN_RATIO = 0.03;
 const VALUATION_IMAGE_FALLBACK_ASPECT_RATIO = 0.72;
-const IMAGE_RASTER_MAX_SIDE = 1800;
-const VALUATION_IMAGE_RASTER_MAX_SIDE = 4000;
-const VALUATION_IMAGE_MAX_BYTES = 8_000_000;
+const IMAGE_RASTER_MAX_SIDE = 2200;
+const ASSET_IMAGE_CANVAS_MAX_SIDE = 1800;
+const VALUATION_IMAGE_RASTER_MAX_SIDE = 5200;
+const VALUATION_IMAGE_MAX_BYTES = 16_000_000;
+const DOCUMENT_IMAGE_JPEG_QUALITY = 0.97;
+const ASSET_IMAGE_JPEG_QUALITY = 0.95;
 
 function ensureRelationshipsFile(zip: PizZip): string {
   const existing = zip.file(REls_PATH)?.asText();
@@ -175,13 +178,21 @@ function valuationImageExtent(
 
 async function rasterizeImage(
   buffer: ArrayBuffer,
-  options?: { highFidelity?: boolean },
+  options?: {
+    highFidelity?: boolean;
+    /**
+     * تمطيط عالي الجودة لملء خلية موحّدة بالكامل (Fit Content to Frame):
+     * بدون قصّ وبدون فراغات — محورا العرض/الارتفاع يُعدَّلان بشكل مستقل.
+     */
+    stretchToCanvas?: { widthEmu: number; heightEmu: number; maxSidePx?: number };
+  },
 ): Promise<Uint8Array | null> {
   const rawBytes = new Uint8Array(buffer);
   const highFidelity = options?.highFidelity === true;
+  const stretch = options?.stretchToCanvas;
   const maxBytes = highFidelity ? VALUATION_IMAGE_MAX_BYTES : 3_000_000;
 
-  if (isValidImageBytes(rawBytes, "jpeg") && rawBytes.byteLength <= maxBytes) {
+  if (!stretch && isValidImageBytes(rawBytes, "jpeg") && rawBytes.byteLength <= maxBytes) {
     return rawBytes;
   }
 
@@ -200,19 +211,43 @@ async function rasterizeImage(
     });
     URL.revokeObjectURL(url);
 
-    const maxSide = highFidelity ? VALUATION_IMAGE_RASTER_MAX_SIDE : IMAGE_RASTER_MAX_SIDE;
-    const jpegQuality = highFidelity ? 0.95 : 0.88;
-    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight, 1));
-    const w = Math.max(1, Math.round(img.naturalWidth * scale));
-    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const srcW = Math.max(1, img.naturalWidth);
+    const srcH = Math.max(1, img.naturalHeight);
+    const jpegQuality = highFidelity ? DOCUMENT_IMAGE_JPEG_QUALITY : ASSET_IMAGE_JPEG_QUALITY;
+
+    let canvasW: number;
+    let canvasH: number;
+
+    if (stretch) {
+      const tw = Math.max(1, stretch.widthEmu);
+      const th = Math.max(1, stretch.heightEmu);
+      const side = Math.max(64, stretch.maxSidePx ?? ASSET_IMAGE_CANVAS_MAX_SIDE);
+      if (tw >= th) {
+        canvasW = side;
+        canvasH = Math.max(1, Math.round((side * th) / tw));
+      } else {
+        canvasH = side;
+        canvasW = Math.max(1, Math.round((side * tw) / th));
+      }
+    } else {
+      const maxSide = highFidelity ? VALUATION_IMAGE_RASTER_MAX_SIDE : IMAGE_RASTER_MAX_SIDE;
+      const scale = Math.min(1, maxSide / Math.max(srcW, srcH, 1));
+      canvasW = Math.max(1, Math.round(srcW * scale));
+      canvasH = Math.max(1, Math.round(srcH * scale));
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = canvasW;
+    canvas.height = canvasH;
     const ctx = canvas.getContext("2d");
     if (!ctx) return isValidImageBytes(rawBytes, "jpeg") ? rawBytes : null;
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
+    ctx.fillRect(0, 0, canvasW, canvasH);
+    // تمطيط أو تصغير: تنعيم عالي الجودة دائماً عند تغيّر المقاس (مثل برامج الصور)
+    const resample = canvasW !== srcW || canvasH !== srcH;
+    ctx.imageSmoothingEnabled = resample;
+    if (resample) ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, canvasW, canvasH);
 
     const out = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("blob"))), "image/jpeg", jpegQuality);
@@ -228,7 +263,10 @@ async function addImageToPackage(
   zip: PizZip,
   relsXml: string,
   image: MvWordMergeImageItem,
-  options?: { highFidelity?: boolean },
+  options?: {
+    highFidelity?: boolean;
+    stretchToCanvas?: { widthEmu: number; heightEmu: number; maxSidePx?: number };
+  },
 ): Promise<{ relsXml: string; embedId: string } | null> {
   const bytes = await rasterizeImage(image.image, options);
   if (!bytes) return null;
@@ -260,18 +298,27 @@ async function buildAssetImagesBlock(
   images: MvWordMergeImageItem[],
   docPrBase: number,
   runTemplate: string,
+  options?: { highFidelity?: boolean },
 ): Promise<{ block: string; relsXml: string; count: number }> {
   let rels = relsXml;
   let docPrId = docPrBase;
   let count = 0;
   const rows: string[] = [];
+  const highFidelity = options?.highFidelity === true;
 
   for (let i = 0; i < images.length; i += 3) {
     const chunk = images.slice(i, i + 3);
     const cells: string[] = [];
 
     for (const image of chunk) {
-      const added = await addImageToPackage(zip, rels, image);
+      const added = await addImageToPackage(zip, rels, image, {
+        highFidelity,
+        stretchToCanvas: {
+          widthEmu: ASSET_IMAGE_CX,
+          heightEmu: ASSET_IMAGE_CY,
+          maxSidePx: ASSET_IMAGE_CANVAS_MAX_SIDE,
+        },
+      });
       if (!added) {
         cells.push(buildEmptyCell());
         continue;
@@ -385,7 +432,10 @@ export async function applyImageBookmarksToDocument(
     const valuationLayout = op.layout === "stack" ? valuationImageLayout(xml, op.region.start) : null;
     const built =
       op.layout === "grid3"
-        ? await buildAssetImagesBlock(zip, relsXml, op.images, docPrId, imageRunTemplate)
+        ? await buildAssetImagesBlock(zip, relsXml, op.images, docPrId, imageRunTemplate, {
+            // مستندات العميل نصية/جداول — نفس مسار الدقة العالية لحسابات القيمة
+            highFidelity: op.field === "clientImages",
+          })
         : await buildValuationImagesBlock(
             zip,
             relsXml,

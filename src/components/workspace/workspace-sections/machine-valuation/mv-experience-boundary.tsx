@@ -21,6 +21,7 @@ import {
   subscribeMvLoading,
 } from "./mv-loading-state";
 import { useMvI18n } from "./mv-i18n";
+import { prefetchMvWorkflowChunks } from "./mv-workflow-chunk-prefetch";
 
 type BoundaryProps = {
   children: ReactNode;
@@ -167,16 +168,18 @@ function useStableLoadingVisibility(active: boolean) {
   useEffect(() => {
     if (active) {
       if (visible) return;
+      // تأخير بسيط حتى لا تومض الشاشة عند التنقل السريع جداً
       const showTimer = window.setTimeout(() => {
         shownAtRef.current = performance.now();
         setVisible(true);
-      }, 120);
+      }, 90);
       return () => window.clearTimeout(showTimer);
     }
 
     if (!visible) return;
     const elapsed = performance.now() - shownAtRef.current;
-    const hideTimer = window.setTimeout(() => setVisible(false), Math.max(0, 460 - elapsed));
+    // إخفاء أسرع بعد انتهاء التحميل (كان 460ms)
+    const hideTimer = window.setTimeout(() => setVisible(false), Math.max(0, 220 - elapsed));
     return () => window.clearTimeout(hideTimer);
   }, [active, visible]);
 
@@ -228,6 +231,16 @@ function MvMachineLoadingOverlay({ label }: { label: string }) {
 
 export function MvExperienceBoundary({ children }: { children: ReactNode }) {
   const { currentPath } = useMvInPageNavigation();
+
+  useEffect(() => {
+    prefetchMvWorkflowChunks({ eager: true });
+  }, []);
+
+  useEffect(() => {
+    if (currentPath.includes("/workflow/") || /\/machine-valuation\/[^/]+(\/|$)/.test(currentPath)) {
+      prefetchMvWorkflowChunks({ eager: true });
+    }
+  }, [currentPath]);
 
   return (
     <MvRenderErrorBoundary resetKey={currentPath}>

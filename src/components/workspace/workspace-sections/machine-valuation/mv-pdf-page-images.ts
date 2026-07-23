@@ -1,13 +1,13 @@
 /**
  * تحويل صفحات PDF إلى صور JPEG عالية الوضوح مع قص الهوامش البيضاء —
- * نفس مبدأ إجراءات التقييم (مرفق 1) وملفات العميل.
+ * ملفات العميل + إجراءات التقييم (مرفق 1 / مرفق 3).
  */
 
-/** ~300 DPI (72×4.2) لقراءة الأرقام والنصوص الصغيرة بوضوح */
-export const MV_PDF_UPLOAD_RENDER_SCALE = 4.2;
-export const MV_PDF_UPLOAD_MAX_PAGE_PIXELS = 48_000_000;
-export const MV_PDF_PARALLEL_PAGES = 3;
-export const MV_PDF_PAGE_EXPORT_JPEG_QUALITY = 0.97;
+/** ~320 DPI (72×4.5) لأقصى وضوح عند الطباعة ودمج Word */
+export const MV_PDF_UPLOAD_RENDER_SCALE = 4.5;
+export const MV_PDF_UPLOAD_MAX_PAGE_PIXELS = 56_000_000;
+export const MV_PDF_PARALLEL_PAGES = 2;
+export const MV_PDF_PAGE_EXPORT_JPEG_QUALITY = 0.985;
 
 export type MvPdfPageImageFile = {
   file: File;

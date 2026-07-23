@@ -325,7 +325,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
         {},
         {
           cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 12_000,
+          cacheTtlMs: 90_000,
           loadingLabel: t("import.assetData.loading"),
         },
       );

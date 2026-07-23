@@ -186,8 +186,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         { signal },
         {
           cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 12_000,
-          loadingLabel: t("reportData.preparing"),
+          cacheTtlMs: 90_000,
         },
       );
       if (signal?.aborted) return;

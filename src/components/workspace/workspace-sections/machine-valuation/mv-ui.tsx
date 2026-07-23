@@ -627,6 +627,7 @@ export function MvPageLoading({
   const { t, dir } = useMvI18n();
   const resolvedLabel = label ?? t("common.loading.default");
 
+  // يشغّل شاشة الشعار العامة — المحتوى هنا فارغ عمداً حتى لا تظهر صفحة بيضاء بديلة
   useEffect(() => beginMvLoading(resolvedLabel), [resolvedLabel]);
 
   return (

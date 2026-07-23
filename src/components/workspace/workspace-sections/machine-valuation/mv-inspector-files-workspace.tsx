@@ -246,7 +246,7 @@ export function MvInspectorFilesPanel({
         {},
         {
           cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 12_000,
+          cacheTtlMs: 90_000,
           loadingLabel: t("inspector.files.loadingLabel"),
         },
       );

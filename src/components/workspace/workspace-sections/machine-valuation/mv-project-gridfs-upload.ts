@@ -10,11 +10,11 @@ export type UploadProjectFileOptions = {
 
 const uploadT = () => getMvT(readMvLanguage());
 
-const VALUATION_ACCOUNTING_UPLOAD_SOFT_MAX_BYTES = 14 * 1024 * 1024;
-const VALUATION_ACCOUNTING_UPLOAD_RETRY_MAX_BYTES = 8 * 1024 * 1024;
-/** حدود ضغط لطيفة — لا نُسقّط دقة صفحات PDF (~300DPI) إلا عند الضرورة القصوى */
-const VALUATION_ACCOUNTING_COMPRESS_MAX_SIDE = 6200;
-const VALUATION_ACCOUNTING_COMPRESS_MAX_PIXELS = 40_000_000;
+const VALUATION_ACCOUNTING_UPLOAD_SOFT_MAX_BYTES = 18 * 1024 * 1024;
+const VALUATION_ACCOUNTING_UPLOAD_RETRY_MAX_BYTES = 10 * 1024 * 1024;
+/** حدود ضغط لطيفة — نحافظ على دقة ~320DPI لصفحات PDF/Excel النصية */
+const VALUATION_ACCOUNTING_COMPRESS_MAX_SIDE = 7200;
+const VALUATION_ACCOUNTING_COMPRESS_MAX_PIXELS = 48_000_000;
 
 function isLikelyImageFile(file: File) {
   return file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
@@ -74,7 +74,7 @@ async function compressImageForUpload(file: File, maxBytes: number): Promise<Fil
   if (naturalWidth < 1 || naturalHeight < 1) return file;
 
   // أولاً: أعد الترميز بنفس الأبعاد بجودة عالية — غالباً يكفي دون تصغير يُبكسل الأرقام
-  const qualities = [0.96, 0.93, 0.9, 0.86, 0.82];
+  const qualities = [0.985, 0.97, 0.95, 0.92, 0.88];
   let best: Blob | null = null;
   let scale = 1;
 

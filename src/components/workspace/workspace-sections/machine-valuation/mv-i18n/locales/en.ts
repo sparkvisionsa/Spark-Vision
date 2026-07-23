@@ -857,6 +857,7 @@ export const mvEn = {
         "Cannot create folders inside an existing asset. Choose a regular folder or root.",
       duplicateAssetName:
         "A regular folder already has the requested asset name. Choose a different asset name.",
+      createFolderFailed: "Could not create folder or asset: {reason}",
       selectFolderOrRootForFolder:
         "Select an actual folder inside asset images or open root to create a new folder.",
       selectFolderOrRootForAsset:

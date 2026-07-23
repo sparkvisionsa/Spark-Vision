@@ -350,7 +350,7 @@ function AssetPhotoFigure({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <div
         className={cn(
-          "flex w-full items-center justify-center bg-slate-100",
+          "flex w-full items-center justify-center bg-white",
           uniformSize ? "overflow-hidden" : "",
         )}
         style={{
@@ -365,9 +365,9 @@ function AssetPhotoFigure({
           alt=""
           draggable={false}
           className={cn(
-            "block bg-slate-100",
-            uniformSize ? "object-cover" : "object-contain",
-            uniformSize ? "h-full w-full" : "h-auto w-full",
+            "block bg-white",
+            /* توحيد المساحة: تمطيط لملء الإطار (object-fill) — بدون قصّ وبدون فراغات */
+            uniformSize ? "h-full w-full object-fill" : "h-auto w-full object-contain",
           )}
           style={{
             maxHeight: uniformSize ? "100%" : `${maxImageHeightMm}mm`,
@@ -3306,7 +3306,7 @@ export function MvValuationReportDocumentBody({
               ) : (
                 /* ارتفاع الشبكة ≈ المساحة تحت العنوان؛ شبكة N×N حسب إعداد Word/التقرير */
                 <div className="flex min-h-0 flex-1 flex-col px-[2.5%] pt-[2.5%] pb-[10px]">
-                  <div className={cn("grid min-h-0 flex-1 gap-x-1.5 gap-y-1.5", clientDocsGridClass)}>
+                  <div className={cn("grid min-h-0 flex-1 gap-px", clientDocsGridClass)}>
                     {chunk.map((image) => {
                       const rawSrc = resolveClientDocumentImageSrc(projectId, image);
                       const src = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;
