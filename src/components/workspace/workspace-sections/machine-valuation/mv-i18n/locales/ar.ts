@@ -832,6 +832,12 @@ export const mvAr = {
       savedInFolder: "تم حفظ {count} صورة في المجلد.",
       savedInNamedFolder: "تم حفظ {count} صورة في مجلد «{name}».",
       noValidImages: "لم يتم العثور على صور صالحة للرفع.",
+      dropReadFailed:
+        "تعذر قراءة بعض الملفات من المجلدات المسحوبة. أعد المحاولة أو استخدم زر «رفع مجلد».",
+      dropEmptyAfterError:
+        "تعذر قراءة المجلدات المسحوبة (مشكلة شائعة عند سحب عدة مجلدات). استخدم «رفع مجلد» أو اسحب مجلداً واحداً ثم التالي.",
+      partialUploadSuccess: "اكتمل رفع {ok} صورة، وتعذّر رفع {failed}.",
+      networkRetrying: "إعادة المحاولة بعد انقطاع الشبكة…",
       selectFolderFirst: "اختر مجلدًا فعليًا داخل صور الأصول قبل الرفع.",
       noDirectInAsset:
         "داخل الأصل يسمح برفع الصور مباشرة فقط، ولا يمكن إنشاء مجلدات داخله.",
@@ -840,6 +846,9 @@ export const mvAr = {
       noImagesToUpload: "لا توجد صور للرفع",
       genericFailed: "تعذر رفع الصور.",
       folderFailed: "تعذر رفع المجلد والصور.",
+      payloadTooLarge:
+        "حجم دفعة الرفع أكبر من حد السيرفر (413). سيتم تقسيم الدفعات تلقائياً؛ إن استمر الخطأ زد client_max_body_size في Nginx.",
+      batchRetrying: "إعادة رفع دفعة أصغر بعد رفض الحجم…",
       previewImages: "معاينة صور «{name}» ({current}/{total})",
       uploadToServer: "رفع «{name}» إلى الخادم ({current}/{total})",
       folderPreparing: "تجهيز المجلد والصور…",
@@ -1562,7 +1571,7 @@ export const mvAr = {
       renameFailed: "تعذر تعديل الاسم.",
       moveFailed: "تعذر نقل العنصر.",
       deleteFailed: "تعذر الحذف.",
-      partialDeleteResync: "تعذر حذف بعض العناصر، تمت إعادة المزامنة.",
+      partialDeleteResync: "تعذر إكمال حذف بعض العناصر على الخادم. تم تحديث العرض من الخادم.",
     },
     api: {
       offline: "لا يوجد اتصال بالإنترنت.",

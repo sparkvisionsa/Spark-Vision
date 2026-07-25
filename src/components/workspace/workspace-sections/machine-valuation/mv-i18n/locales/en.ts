@@ -832,6 +832,12 @@ export const mvEn = {
       savedInFolder: "Saved {count} images in folder.",
       savedInNamedFolder: 'Saved {count} images in folder "{name}".',
       noValidImages: "No valid images found to upload.",
+      dropReadFailed:
+        "Could not read some files from the dropped folders. Try again or use “Upload folder”.",
+      dropEmptyAfterError:
+        "Could not read the dropped folders (common when dropping many folders). Use “Upload folder” or drop one folder at a time.",
+      partialUploadSuccess: "Uploaded {ok} images; {failed} failed.",
+      networkRetrying: "Retrying after a network interruption…",
       selectFolderFirst: "Select an actual folder inside asset images before uploading.",
       noDirectInAsset:
         "Inside an asset you can only upload images directly; subfolders are not allowed.",
@@ -840,6 +846,9 @@ export const mvEn = {
       noImagesToUpload: "No images to upload",
       genericFailed: "Could not upload images.",
       folderFailed: "Could not upload folder and images.",
+      payloadTooLarge:
+        "Upload batch exceeds server size limit (413). Batches will be split automatically; if it continues, raise Nginx client_max_body_size.",
+      batchRetrying: "Retrying with a smaller batch after size rejection…",
       previewImages: "Previewing images «{name}» ({current}/{total})",
       uploadToServer: "Uploading «{name}» to server ({current}/{total})",
       folderPreparing: "Preparing folder and images…",
@@ -1563,7 +1572,7 @@ export const mvEn = {
       renameFailed: "Could not rename.",
       moveFailed: "Could not move item.",
       deleteFailed: "Could not delete.",
-      partialDeleteResync: "Some items could not be deleted; resynced.",
+      partialDeleteResync: "Some items could not be deleted on the server. The view was refreshed.",
     },
     api: {
       offline: "No internet connection.",

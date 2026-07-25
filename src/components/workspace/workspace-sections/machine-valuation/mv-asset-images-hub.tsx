@@ -351,8 +351,10 @@ function previewFolderParentNameKey(parentId: string, name: string) {
 
 /**
  * يحدّد لكل مقطع في دفعة الرفع إن كان مجلداً عادياً أم أصلاً:
- * أي مسار له أبناء أعمق → مجلد؛ المسارات الورقية → أصل.
- * الصور الموجودة مباشرة داخل مجلد له أبناء تُوجَّه إلى أصل «صور مباشرة».
+ * - أي مسار له أبناء أعمق (سوبر أب) → مجلد عادي
+ * - المسارات الورقية (الأب المباشر للصور) → أصل في كوليكشن assets
+ * - صور سائبة داخل مجلد له أبناء → أصل فرعي «صور مباشرة»
+ * - لا تُرفع صور في الجذر بدون مجلد/أصل
  */
 function buildFolderUploadPathPlan(allFolderParts: string[][]) {
   const hasChildren = new Set<string>();
@@ -750,12 +752,45 @@ function mergeServerListWithStillPendingLocals(server: MvDriveFile[], locals: Mv
   return sortUploadedAssetDriveFiles([...byPath.values()]);
 }
 
-const ASSET_UPLOAD_FILES_PER_REQUEST = 96;
-/** طلبات رفع متوازية للحمل الثقيل مع الحفاظ على حدّ معقول للتوازي */
-const ASSET_UPLOAD_PARALLEL_REQUESTS = 8;
+/**
+ * رفع سريع مع حماية من 413:
+ * نبدأ بعدوانية (دفعات أكبر + توازٍ أعلى)، وعند الرفض نصغّر الميزانية تلقائياً ونعيد المحاولة
+ * دون فقدان ملفات (تقسيم الدفعة + إعادة الإرسال).
+ */
+const ASSET_UPLOAD_FAST_MAX_FILES = 18;
+const ASSET_UPLOAD_FAST_MAX_BYTES = 18 * 1024 * 1024;
+const ASSET_UPLOAD_FAST_PARALLEL = 5;
+/** توازٍ بين أصول/مجلدات مختلفة أثناء نفس دفعة السحب */
+const ASSET_UPLOAD_GROUP_PARALLEL = 3;
+/** حد أدنى آمن بعد سلسلة 413 */
+const ASSET_UPLOAD_SAFE_MAX_FILES = 3;
+const ASSET_UPLOAD_SAFE_MAX_BYTES = 3 * 1024 * 1024;
+const ASSET_UPLOAD_SAFE_PARALLEL = 2;
 
-/** دفعات عرض المعاينات المحليّة في الواجهة حتى لا يتجمّد الخيط وقت إنشاء blob: عند مجلدات ضخمة */
-const PREVIEW_UI_CHUNK_SIZE = 56;
+type AssetUploadThrottle = {
+  maxFiles: number;
+  maxBytes: number;
+  parallel: number;
+};
+
+function createAssetUploadThrottle(): AssetUploadThrottle {
+  return {
+    maxFiles: ASSET_UPLOAD_FAST_MAX_FILES,
+    maxBytes: ASSET_UPLOAD_FAST_MAX_BYTES,
+    parallel: ASSET_UPLOAD_FAST_PARALLEL,
+  };
+}
+
+function shrinkAssetUploadThrottle(throttle: AssetUploadThrottle) {
+  throttle.maxFiles = Math.max(ASSET_UPLOAD_SAFE_MAX_FILES, Math.floor(throttle.maxFiles / 2));
+  throttle.maxBytes = Math.max(ASSET_UPLOAD_SAFE_MAX_BYTES, Math.floor(throttle.maxBytes / 2));
+  throttle.parallel = Math.max(ASSET_UPLOAD_SAFE_PARALLEL, Math.floor(throttle.parallel / 2));
+}
+
+/** دفعات عرض المعاينات المحليّة — خفيفة حتى لا تنافس الرفع على الخيط الرئيسي */
+const PREVIEW_UI_CHUNK_SIZE = 80;
+/** في الرفع الجماعي لا نُنشئ معاينات blob لكل الصور (تكلفة عالية) */
+const BULK_UPLOAD_SKIP_LOCAL_PREVIEWS = true;
 
 function shouldYieldPreviewUiChunk(chunkIndex: number, totalImages: number) {
   if (totalImages <= PREVIEW_UI_CHUNK_SIZE) return false;
@@ -763,14 +798,147 @@ function shouldYieldPreviewUiChunk(chunkIndex: number, totalImages: number) {
   return chunkNumber % 2 === 1;
 }
 
-function chunkPickedImages<T extends { file: File }>(items: readonly T[], chunkSize: number): T[][] {
-  if (items.length === 0) return [];
-  const size = Math.max(8, chunkSize);
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    out.push(items.slice(i, i + size));
+class AssetUploadHttpError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "AssetUploadHttpError";
+    this.status = status;
   }
+}
+
+function messageForAssetUploadStatus(status: number, serverMessage?: string): string {
+  const t = getMvT(readMvLanguage());
+  if (status === 413) return t("assetImages.upload.payloadTooLarge");
+  if (serverMessage?.trim()) return serverMessage.trim();
+  return t("assetImages.upload.genericFailed");
+}
+
+/** تجميع الملفات حسب عدد الملفات وميزانية الحجم حتى لا يتجاوز طلب واحد حد البوابة */
+function chunkPickedImagesByBudget<T extends { file: File }>(
+  items: readonly T[],
+  maxFiles: number,
+  maxBytes: number,
+): T[][] {
+  if (items.length === 0) return [];
+  const fileCap = Math.max(1, maxFiles);
+  const byteCap = Math.max(256 * 1024, maxBytes);
+  const out: T[][] = [];
+  let current: T[] = [];
+  let currentBytes = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    out.push(current);
+    current = [];
+    currentBytes = 0;
+  };
+
+  for (const item of items) {
+    const size = Math.max(0, Number(item.file.size) || 0);
+    const wouldExceedFiles = current.length >= fileCap;
+    const wouldExceedBytes = current.length > 0 && currentBytes + size > byteCap;
+    if (wouldExceedFiles || wouldExceedBytes) flush();
+    current.push(item);
+    currentBytes += size;
+    if (current.length === 1 && size >= byteCap) flush();
+  }
+  flush();
   return out;
+}
+
+async function postAssetImagesBatchWith413Retry(
+  postOnce: (batch: PickedImageFile[]) => Promise<MvDriveFile[]>,
+  batch: PickedImageFile[],
+  throttle?: AssetUploadThrottle,
+): Promise<MvDriveFile[]> {
+  try {
+    return await postOnce(batch);
+  } catch (error) {
+    const is413 = error instanceof AssetUploadHttpError && error.status === 413;
+    if (!is413) throw error;
+    if (throttle) shrinkAssetUploadThrottle(throttle);
+    if (batch.length <= 1) throw error;
+    const mid = Math.ceil(batch.length / 2);
+    const left = await postAssetImagesBatchWith413Retry(postOnce, batch.slice(0, mid), throttle);
+    const right = await postAssetImagesBatchWith413Retry(postOnce, batch.slice(mid), throttle);
+    return [...left, ...right];
+  }
+}
+
+function isLikelyMongoObjectId(id: string): boolean {
+  return /^[a-f\d]{24}$/i.test(id.trim());
+}
+
+function isHttpGoneStatus(status: number): boolean {
+  return status === 404 || status === 410;
+}
+
+type RemoteMutateResult = "ok" | "gone" | "error";
+
+async function deleteRemoteProjectFile(projectId: string, fileId: string): Promise<RemoteMutateResult> {
+  if (!isLikelyMongoObjectId(fileId)) return "error";
+  try {
+    const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (response.ok) return "ok";
+    if (isHttpGoneStatus(response.status)) return "gone";
+    return "error";
+  } catch {
+    return "error";
+  }
+}
+
+async function deleteRemoteSubproject(projectId: string, subId: string): Promise<RemoteMutateResult> {
+  if (!isLikelyMongoObjectId(subId)) return "error";
+  try {
+    const response = await fetch(
+      `/api/mv/projects/${encodeURIComponent(projectId)}/subprojects/${encodeURIComponent(subId)}`,
+      {
+        method: "DELETE",
+        credentials: "include",
+      },
+    );
+    if (response.ok) return "ok";
+    if (isHttpGoneStatus(response.status)) return "gone";
+    return "error";
+  } catch {
+    return "error";
+  }
+}
+
+async function mapPool<T, R>(items: readonly T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const slots = Math.max(1, Math.min(concurrency, items.length));
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: slots }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await worker(items[i]!);
+      }
+    }),
+  );
+  return results;
+}
+
+function picAssetImageStoredFileId(image: PicAssetImage): string {
+  if (image && typeof image === "object" && "fileId" in image && typeof image.fileId === "string") {
+    return image.fileId.trim();
+  }
+  return "";
+}
+
+function stripPicAssetImagesByFileIds(images: readonly PicAssetImage[], fileIds: ReadonlySet<string>): PicAssetImage[] {
+  if (fileIds.size === 0) return images.slice();
+  return images.filter((image) => {
+    const fileId = picAssetImageStoredFileId(image);
+    return !(fileId && fileIds.has(fileId));
+  });
 }
 
 function previewFolderBasePath(folderDisplayName: string): string {
@@ -796,31 +964,62 @@ function readAssetImportFromSession(projectId: string): AssetImportResult | null
   }
 }
 
-async function postAssetImagesFormData(projectId: string, batch: PickedImageFile[]): Promise<MvDriveFile[]> {
-  const formData = new FormData();
-  for (const item of batch) {
-    formData.append("paths", normalizeRelativePath(item.relativePath, item.file.name));
-    formData.append("files", item.file, item.file.name);
+function sleepMs(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRetryableUploadError(error: unknown): boolean {
+  if (!(error instanceof AssetUploadHttpError)) {
+    // أخطاء شبكة / abort مؤقت
+    return true;
   }
-  const response = await fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
-    method: "POST",
-    credentials: "include",
-    body: formData,
-  });
-  if (!response.ok) {
-    let message = getMvT(readMvLanguage())("assetImages.upload.genericFailed");
+  if (error.status === 413) return false;
+  if (error.status === 408 || error.status === 429) return true;
+  if (error.status >= 500) return true;
+  return false;
+}
+
+async function withUploadNetworkRetries<T>(run: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const data = (await response.json()) as { message?: unknown };
-      if (typeof data.message === "string" && data.message.trim()) {
-        message = data.message.trim();
-      }
-    } catch {
-      /* ignore */
+      return await run();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableUploadError(error) || attempt >= attempts - 1) throw error;
+      await sleepMs(180 * (attempt + 1));
     }
-    throw new Error(message);
   }
-  const raw = (await response.json()) as unknown;
-  return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
+  throw lastError;
+}
+
+async function postAssetImagesFormData(projectId: string, batch: PickedImageFile[]): Promise<MvDriveFile[]> {
+  return withUploadNetworkRetries(async () => {
+    const formData = new FormData();
+    for (const item of batch) {
+      formData.append("paths", normalizeRelativePath(item.relativePath, item.file.name));
+      formData.append("files", item.file, item.file.name);
+    }
+    const response = await fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    });
+    if (!response.ok) {
+      let serverMessage: string | undefined;
+      try {
+        const data = (await response.json()) as { message?: unknown };
+        if (typeof data.message === "string" && data.message.trim()) {
+          serverMessage = data.message.trim();
+        }
+      } catch {
+        /* ignore */
+      }
+      throw new AssetUploadHttpError(messageForAssetUploadStatus(response.status, serverMessage), response.status);
+    }
+    const raw = (await response.json()) as unknown;
+    return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
+  });
 }
 
 async function postAssetImagesFormDataToPicFolder(
@@ -829,36 +1028,38 @@ async function postAssetImagesFormDataToPicFolder(
   folderDisplayName: string,
   batch: PickedImageFile[],
 ): Promise<MvDriveFile[]> {
-  const formData = new FormData();
-  for (const item of batch) {
-    const inner = item.relativePath.replace(/^\/+/, "");
-    const rel = normalizeRelativePath(
-      inner ? `${folderDisplayName}/${inner}` : `${folderDisplayName}/${item.file.name}`,
-      item.file.name,
-    );
-    formData.append("paths", rel);
-    formData.append("files", item.file, item.file.name);
-  }
-  const url = `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files?picAssetFolderId=${encodeURIComponent(picAssetFolderId)}`;
-  const response = await fetch(url, {
-    method: "POST",
-    credentials: "include",
-    body: formData,
-  });
-  if (!response.ok) {
-    let message = getMvT(readMvLanguage())("assetImages.upload.genericFailed");
-    try {
-      const data = (await response.json()) as { message?: unknown };
-      if (typeof data.message === "string" && data.message.trim()) {
-        message = data.message.trim();
-      }
-    } catch {
-      /* ignore */
+  return withUploadNetworkRetries(async () => {
+    const formData = new FormData();
+    for (const item of batch) {
+      const inner = item.relativePath.replace(/^\/+/, "");
+      const rel = normalizeRelativePath(
+        inner ? `${folderDisplayName}/${inner}` : `${folderDisplayName}/${item.file.name}`,
+        item.file.name,
+      );
+      formData.append("paths", rel);
+      formData.append("files", item.file, item.file.name);
     }
-    throw new Error(message);
-  }
-  const raw = (await response.json()) as unknown;
-  return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
+    const url = `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files?picAssetFolderId=${encodeURIComponent(picAssetFolderId)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    });
+    if (!response.ok) {
+      let serverMessage: string | undefined;
+      try {
+        const data = (await response.json()) as { message?: unknown };
+        if (typeof data.message === "string" && data.message.trim()) {
+          serverMessage = data.message.trim();
+        }
+      } catch {
+        /* ignore */
+      }
+      throw new AssetUploadHttpError(messageForAssetUploadStatus(response.status, serverMessage), response.status);
+    }
+    const raw = (await response.json()) as unknown;
+    return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
+  });
 }
 
 async function uploadPickedImagesToPicFolderServer(
@@ -867,123 +1068,179 @@ async function uploadPickedImagesToPicFolderServer(
   folderDisplayName: string,
   imageFiles: PickedImageFile[],
   onUploadedCount?: (uploaded: number, total: number) => void,
+  throttle = createAssetUploadThrottle(),
 ): Promise<MvDriveFile[]> {
-  const batches = chunkPickedImages(imageFiles, ASSET_UPLOAD_FILES_PER_REQUEST);
   const total = imageFiles.length;
-  if (batches.length === 0) return [];
-  if (batches.length === 1) {
-    const rows = await postAssetImagesFormDataToPicFolder(
-      projectId,
-      picAssetFolderId,
-      folderDisplayName,
-      batches[0]!,
+  if (total === 0) return [];
+
+  const postBatch = (batch: PickedImageFile[]) =>
+    postAssetImagesBatchWith413Retry(
+      (slice) => postAssetImagesFormDataToPicFolder(projectId, picAssetFolderId, folderDisplayName, slice),
+      batch,
+      throttle,
     );
-    onUploadedCount?.(total, total);
-    return rows;
-  }
 
-  const slots = Math.min(ASSET_UPLOAD_PARALLEL_REQUESTS, batches.length);
-  const grouped: MvDriveFile[][] = new Array(batches.length);
-  let nextBatch = 0;
-  let finishedBatches = 0;
+  const pending = imageFiles.slice();
+  const uploadedRows: MvDriveFile[] = [];
+  let uploadedFiles = 0;
+  let firstError: unknown = null;
+  let failedFiles = 0;
 
-  async function worker() {
-    while (nextBatch < batches.length) {
-      const i = nextBatch++;
-      grouped[i] = await postAssetImagesFormDataToPicFolder(
-        projectId,
-        picAssetFolderId,
-        folderDisplayName,
-        batches[i]!,
-      );
-      finishedBatches += 1;
-      const uploaded = Math.min(
-        total,
-        batches.slice(0, finishedBatches).reduce((sum, batch) => sum + batch.length, 0),
-      );
-      onUploadedCount?.(uploaded, total);
+  while (pending.length > 0) {
+    const batches = chunkPickedImagesByBudget(pending, throttle.maxFiles, throttle.maxBytes);
+    const wave = batches.slice(0, Math.max(1, throttle.parallel));
+    const waveFileCount = wave.reduce((sum, b) => sum + b.length, 0);
+    pending.splice(0, waveFileCount);
+
+    const waveResults = await mapPool(wave, throttle.parallel, async (batch) => {
+      try {
+        return { ok: true as const, rows: await postBatch(batch), count: batch.length };
+      } catch (error) {
+        return { ok: false as const, error, count: batch.length, rows: [] as MvDriveFile[] };
+      }
+    });
+
+    for (const result of waveResults) {
+      if (result.ok) {
+        uploadedRows.push(...result.rows);
+        uploadedFiles = Math.min(total, uploadedFiles + result.count);
+        onUploadedCount?.(uploadedFiles, total);
+      } else {
+        failedFiles += result.count;
+        if (!firstError) firstError = result.error;
+        const partial = (result.error as Error & { partialRows?: MvDriveFile[] })?.partialRows;
+        if (partial?.length) {
+          uploadedRows.push(...partial);
+          uploadedFiles = Math.min(total, uploadedFiles + partial.length);
+          failedFiles = Math.max(0, failedFiles - partial.length);
+          onUploadedCount?.(uploadedFiles, total);
+        }
+      }
     }
   }
 
-  await Promise.all(Array.from({ length: slots }, () => worker()));
-  return grouped.flat();
+  if (uploadedRows.length === 0 && firstError) throw firstError;
+  if (failedFiles > 0 && firstError) {
+    const err = firstError instanceof Error ? firstError : new Error(String(firstError));
+    (err as Error & { partialRows?: MvDriveFile[] }).partialRows = uploadedRows;
+    throw err;
+  }
+  return uploadedRows;
 }
 
-async function uploadPickedImagesToServer(projectId: string, imageFiles: PickedImageFile[]): Promise<MvDriveFile[]> {
-  const batches = chunkPickedImages(imageFiles, ASSET_UPLOAD_FILES_PER_REQUEST);
-  if (batches.length === 1) {
-    return postAssetImagesFormData(projectId, batches[0]!);
+async function uploadPickedImagesToServer(
+  projectId: string,
+  imageFiles: PickedImageFile[],
+  throttle = createAssetUploadThrottle(),
+): Promise<MvDriveFile[]> {
+  const total = imageFiles.length;
+  if (total === 0) return [];
+  const pending = imageFiles.slice();
+  const uploadedRows: MvDriveFile[] = [];
+
+  const postBatch = (batch: PickedImageFile[]) =>
+    postAssetImagesBatchWith413Retry((slice) => postAssetImagesFormData(projectId, slice), batch, throttle);
+
+  while (pending.length > 0) {
+    const batches = chunkPickedImagesByBudget(pending, throttle.maxFiles, throttle.maxBytes);
+    const wave = batches.slice(0, Math.max(1, throttle.parallel));
+    const waveFileCount = wave.reduce((sum, b) => sum + b.length, 0);
+    pending.splice(0, waveFileCount);
+
+    const waveRows = await mapPool(wave, throttle.parallel, (batch) => postBatch(batch));
+    for (const rows of waveRows) uploadedRows.push(...rows);
   }
+  return uploadedRows;
+}
 
-  const slots = Math.min(ASSET_UPLOAD_PARALLEL_REQUESTS, batches.length);
-  const grouped: MvDriveFile[][] = new Array(batches.length);
-  let nextBatch = 0;
-
-  async function worker() {
-    while (nextBatch < batches.length) {
-      const i = nextBatch++;
-      grouped[i] = await postAssetImagesFormData(projectId, batches[i]!);
+function readFileEntry(entry: WebkitFileEntry): Promise<File | null> {
+  return new Promise((resolve) => {
+    try {
+      entry.file(
+        (file) => resolve(file),
+        () => resolve(null),
+      );
+    } catch {
+      resolve(null);
     }
-  }
-
-  await Promise.all(Array.from({ length: slots }, () => worker()));
-  return grouped.flat();
-}
-
-function readFileEntry(entry: WebkitFileEntry) {
-  return new Promise<File>((resolve, reject) => {
-    entry.file(resolve, reject);
   });
 }
 
-function readDirectoryEntries(entry: WebkitDirectoryEntry) {
-  const reader = entry.createReader();
+function readDirectoryEntries(entry: WebkitDirectoryEntry): Promise<WebkitEntry[]> {
   const all: WebkitEntry[] = [];
+  let reader: ReturnType<WebkitDirectoryEntry["createReader"]>;
+  try {
+    reader = entry.createReader();
+  } catch {
+    return Promise.resolve(all);
+  }
 
-  return new Promise<WebkitEntry[]>((resolve, reject) => {
+  return new Promise((resolve) => {
     const read = () => {
-      reader.readEntries(
-        (batch) => {
-          if (batch.length === 0) {
-            resolve(all);
-            return;
-          }
-          all.push(...batch);
-          read();
-        },
-        reject,
-      );
+      try {
+        reader.readEntries(
+          (batch) => {
+            if (!batch || batch.length === 0) {
+              resolve(all);
+              return;
+            }
+            all.push(...batch);
+            read();
+          },
+          () => resolve(all),
+        );
+      } catch {
+        resolve(all);
+      }
     };
     read();
   });
 }
 
+/** قراءة شجرة مجلد واحد — متسلسلة لتفادي NotFoundError على Windows عند سحب عدة مجلدات */
 async function collectImagesFromEntry(
   entry: WebkitEntry,
   parentPath = "",
 ): Promise<PickedImageFile[]> {
-  const entryName = cleanPathPart(entry.name);
-  const entryPath = parentPath && entryName ? `${parentPath}/${entryName}` : entryName;
+  try {
+    const entryName = cleanPathPart(entry.name);
+    const entryPath = parentPath && entryName ? `${parentPath}/${entryName}` : entryName;
 
-  if (entry.isFile) {
-    const file = await readFileEntry(entry as WebkitFileEntry);
-    if (!isLikelyImage(file)) return [];
-    return [
-      {
-        file,
-        relativePath: normalizeRelativePath(parentPath ? `${parentPath}/${file.name}` : file.name, file.name),
-      },
-    ];
+    if (entry.isFile) {
+      const file = await readFileEntry(entry as WebkitFileEntry);
+      if (!file || !isLikelyImage(file)) return [];
+      return [
+        {
+          file,
+          relativePath: normalizeRelativePath(entryPath || file.name, file.name),
+        },
+      ];
+    }
+
+    if (!entry.isDirectory) return [];
+    const children = await readDirectoryEntries(entry as WebkitDirectoryEntry);
+    const out: PickedImageFile[] = [];
+    for (const child of children) {
+      try {
+        const nested = await collectImagesFromEntry(child, entryPath);
+        out.push(...nested);
+      } catch {
+        /* تخطَّ ملفاً تالفاً وأكمل الباقي */
+      }
+    }
+    return out;
+  } catch {
+    return [];
   }
-
-  if (!entry.isDirectory) return [];
-  const children = await readDirectoryEntries(entry as WebkitDirectoryEntry);
-  const nested = await Promise.all(children.map((child) => collectImagesFromEntry(child, entryPath)));
-  return nested.flat();
 }
 
 function fileDropIdentityKey(file: File): string {
   return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+}
+
+function fileWebkitRelativePath(file: File): string {
+  const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() || "";
+  return rel;
 }
 
 function pickedImagesFromFileList(files: FileList | readonly File[]): PickedImageFile[] {
@@ -994,34 +1251,69 @@ function pickedImagesFromFileList(files: FileList | readonly File[]): PickedImag
     const key = fileDropIdentityKey(file);
     if (seen.has(key)) continue;
     seen.add(key);
+    const relative = fileWebkitRelativePath(file) || file.name;
     picked.push({
       file,
-      relativePath: normalizeRelativePath(file.name, file.name),
+      relativePath: normalizeRelativePath(relative, file.name),
     });
   }
   return picked;
 }
 
-async function collectDroppedImages(dataTransfer: DataTransfer) {
-  const items = Array.from(dataTransfer.items ?? []);
-  const fileItems = items.filter((item) => item.kind === "file");
-  const entries = fileItems.map((item) => {
-    const entry = (
-      item as DataTransferItem & {
-        webkitGetAsEntry?: () => WebkitEntry | null;
-      }
-    ).webkitGetAsEntry?.();
-    return { item, entry: entry ?? null };
-  });
+type DroppedDataTransferSnapshot = {
+  files: File[];
+  entryRows: Array<{ entry: WebkitEntry | null; file: File | null }>;
+};
 
-  const hasDirectory = entries.some((row) => row.entry?.isDirectory);
-
-  // عدة صور من مستكشف الملفات: FileList أوثق من webkitGetAsEntry (مشكلة شائعة على Windows)
-  if (!hasDirectory) {
-    const looseFiles = Array.from(dataTransfer.files ?? []).filter(isLikelyImage);
-    if (looseFiles.length > 0) {
-      return pickedImagesFromFileList(looseFiles);
+/**
+ * لقطة متزامنة داخل onDrop.
+ * مهم: استدعاء webkitGetAsEntry لكل العناصر قبل قراءة dataTransfer.files —
+ * عكس ذلك يُبطل مداخل المجلدات في Chrome (خصوصاً عند سحب عدة مجلدات).
+ */
+function snapshotDataTransferForUpload(dataTransfer: DataTransfer): DroppedDataTransferSnapshot {
+  const entryRows: DroppedDataTransferSnapshot["entryRows"] = [];
+  for (const item of Array.from(dataTransfer.items ?? [])) {
+    if (item.kind !== "file") continue;
+    let entry: WebkitEntry | null = null;
+    try {
+      entry =
+        (
+          item as DataTransferItem & {
+            webkitGetAsEntry?: () => WebkitEntry | null;
+          }
+        ).webkitGetAsEntry?.() ?? null;
+    } catch {
+      entry = null;
     }
+    let file: File | null = null;
+    // لا تستدعِ getAsFile على المجلدات — يكفي الـ entry
+    if (!entry?.isDirectory) {
+      try {
+        file = item.getAsFile();
+      } catch {
+        file = null;
+      }
+    }
+    entryRows.push({ entry, file });
+  }
+
+  let files: File[] = [];
+  try {
+    files = Array.from(dataTransfer.files ?? []);
+  } catch {
+    files = [];
+  }
+  return { files, entryRows };
+}
+
+async function collectDroppedImagesFromSnapshot(
+  snapshot: DroppedDataTransferSnapshot,
+): Promise<PickedImageFile[]> {
+  const fromFileList = pickedImagesFromFileList(snapshot.files);
+  const hasNestedPaths = fromFileList.some((row) => row.relativePath.includes("/"));
+  // إن وُجدت مسارات مجلدات في FileList فهي الأوثق والأسرع
+  if (fromFileList.length > 0 && hasNestedPaths) {
+    return fromFileList;
   }
 
   const picked: PickedImageFile[] = [];
@@ -1038,7 +1330,8 @@ async function collectDroppedImages(dataTransfer: DataTransfer) {
     });
   };
 
-  for (const { item, entry } of entries) {
+  // مجلدات الجذر واحدةاً تلو الآخر — يعمل مع سحب عدة مجلدات بالتوازي من المستكشف
+  for (const { entry, file } of snapshot.entryRows) {
     if (entry) {
       const fromEntry = await collectImagesFromEntry(entry);
       for (const row of fromEntry) {
@@ -1046,14 +1339,27 @@ async function collectDroppedImages(dataTransfer: DataTransfer) {
       }
       continue;
     }
-
-    const file = item.getAsFile();
-    if (file) remember(file, file.name);
+    if (file) {
+      remember(file, fileWebkitRelativePath(file) || file.name);
+    }
   }
 
   if (picked.length > 0) return picked;
+  // احتياطي: صور مفردة بلا مسار مجلد
+  return fromFileList;
+}
 
-  return pickedImagesFromFileList(dataTransfer.files ?? []);
+async function collectDroppedImages(dataTransfer: DataTransfer): Promise<PickedImageFile[]> {
+  try {
+    const snapshot = snapshotDataTransferForUpload(dataTransfer);
+    return await collectDroppedImagesFromSnapshot(snapshot);
+  } catch {
+    try {
+      return pickedImagesFromFileList(dataTransfer.files ?? []);
+    } catch {
+      return [];
+    }
+  }
 }
 
 function selectedAncestors(path: string) {
@@ -1235,6 +1541,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   /** blob: للمعاينة الفورية قبل اكتمال الرفع — يُحرَّر عند الاستبدال أو إلغاء التثبيت */
   const optimisticPreviewUrlsRef = useRef<Map<string, string>>(new Map());
   const recentlyCreatedPreviewFoldersRef = useRef<Map<string, PreviewPhotoFolderEntry>>(new Map());
+  const createPreviewFolderInflightRef = useRef<Map<string, Promise<MvSubProject>>>(new Map());
   const [files, setFiles] = useState<MvDriveFile[]>(() => {
     if (typeof window === "undefined") return [];
     const c = readMvWorkflowSessionJson<{ rows: MvDriveFile[] }>(
@@ -2476,10 +2783,19 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     async (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       setDragging(false);
-      const picked = await collectDroppedImages(event.dataTransfer);
-      void uploadImages(picked);
+      const snapshot = snapshotDataTransferForUpload(event.dataTransfer);
+      try {
+        const picked = await collectDroppedImagesFromSnapshot(snapshot);
+        if (picked.length === 0) {
+          toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
+          return;
+        }
+        void uploadImages(picked);
+      } catch {
+        toast({ variant: "destructive", description: t("assetImages.upload.dropReadFailed") });
+      }
     },
-    [uploadImages],
+    [toast, uploadImages],
   );
 
   const rememberPreviewFolder = useCallback((created: MvSubProject) => {
@@ -2502,27 +2818,41 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     parentId: string,
     kind: PreviewFolderCreateKind = "asset",
   ) => {
-    const response = await fetch(`/api/mv/projects/${projectId}/subprojects`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, parent: parentId, folderKind: kind }),
-    });
-    if (!response.ok) {
-      let reason = `HTTP ${response.status}`;
-      try {
-        const data = (await response.json()) as { message?: unknown };
-        if (typeof data.message === "string" && data.message.trim()) {
-          reason = data.message.trim();
-        } else if (Array.isArray(data.message)) {
-          reason = data.message.map(String).filter(Boolean).join(" · ") || reason;
+    const inflightKey = `${parentId}\u0000${name}\u0000${kind}`;
+    const existing = createPreviewFolderInflightRef.current.get(inflightKey);
+    if (existing) return existing;
+
+    const task = withUploadNetworkRetries(async () => {
+      const response = await fetch(`/api/mv/projects/${projectId}/subprojects`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent: parentId, folderKind: kind }),
+      });
+      if (!response.ok) {
+        let reason = `HTTP ${response.status}`;
+        try {
+          const data = (await response.json()) as { message?: unknown };
+          if (typeof data.message === "string" && data.message.trim()) {
+            reason = data.message.trim();
+          } else if (Array.isArray(data.message)) {
+            reason = data.message.map(String).filter(Boolean).join(" · ") || reason;
+          }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
+        throw new AssetUploadHttpError(
+          t("assetImages.upload.createFolderFailed", { reason }),
+          response.status,
+        );
       }
-      throw new Error(t("assetImages.upload.createFolderFailed", { reason }));
-    }
-    return (await response.json()) as MvSubProject;
+      return (await response.json()) as MvSubProject;
+    }).finally(() => {
+      createPreviewFolderInflightRef.current.delete(inflightKey);
+    });
+
+    createPreviewFolderInflightRef.current.set(inflightKey, task);
+    return task;
   }, [projectId, t]);
 
   const uploadImagesToPicFolder = useCallback(
@@ -2530,7 +2860,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       picFolderId: string,
       folderDisplayName: string,
       picked: PickedImageFile[],
-      options?: { onProgress?: (patch: AssetUploadProgressPatch) => void },
+      options?: {
+        onProgress?: (patch: AssetUploadProgressPatch) => void;
+        throttle?: AssetUploadThrottle;
+      },
     ) => {
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
@@ -2571,8 +2904,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       };
 
       const sessionLocalIds = imageFiles.map(() => `${LOCAL_PREVIEW_ID_PREFIX}${crypto.randomUUID()}`);
+      const skipLocalPreviews = Boolean(options?.onProgress) && BULK_UPLOAD_SKIP_LOCAL_PREVIEWS;
+      const throttle = options?.throttle ?? createAssetUploadThrottle();
 
       const streamLocalPreviewsToUi = async () => {
+        if (skipLocalPreviews) return;
         for (let i = 0; i < imageFiles.length; i += PREVIEW_UI_CHUNK_SIZE) {
           const slice = imageFiles.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
           const idSlice = sessionLocalIds.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
@@ -2626,10 +2962,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             groupTotal: total,
           });
         },
+        throttle,
       );
 
       try {
-        const [, uploadedRows] = await Promise.all([streamLocalPreviewsToUi(), persistToServer]);
+        const uploadedRows = skipLocalPreviews
+          ? await persistToServer
+          : (await Promise.all([streamLocalPreviewsToUi(), persistToServer]))[1]!;
         if (jobId) {
           updateAssetUploadJob(jobId, {
             progress: 100,
@@ -2639,8 +2978,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             total: groupTotal,
           });
         }
-        setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
-        revokeOptimisticUrls(sessionLocalIds);
+        if (!skipLocalPreviews) {
+          setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
+          revokeOptimisticUrls(sessionLocalIds);
+        } else if (uploadedRows.length > 0) {
+          setFiles((prev) => mergeUploadedIntoDriveFileList(prev, uploadedRows));
+        }
         if (!options?.onProgress) {
           toast({
             description: t("assetImages.upload.savedInFolder", { count: numberFormatter.format(uploadedRows.length) }),
@@ -2863,6 +3206,49 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return seeded;
       })();
 
+      // أنشئ كل بادئات المسارات حسب العمق بالتوازي (مثل Drive) قبل تجميع الصور
+      const uniqueResolvedPaths = new Map<string, string[]>();
+      for (const raw of rawFolderPartsList) {
+        const parts = pathPlan.resolveParts(raw);
+        if (parts.length === 0) continue;
+        uniqueResolvedPaths.set(parts.join("\u0000"), parts);
+      }
+      const prefixesByDepth = new Map<number, Map<string, string[]>>();
+      for (const parts of uniqueResolvedPaths.values()) {
+        for (let depth = 1; depth <= parts.length; depth++) {
+          const prefix = parts.slice(0, depth);
+          const key = prefix.join("\u0000");
+          const bucket = prefixesByDepth.get(depth) ?? new Map<string, string[]>();
+          bucket.set(key, prefix);
+          prefixesByDepth.set(depth, bucket);
+        }
+      }
+      const depths = Array.from(prefixesByDepth.keys()).sort((a, b) => a - b);
+      for (const depth of depths) {
+        const prefixes = Array.from(prefixesByDepth.get(depth)?.values() ?? []);
+        pushGlobalProgress(
+          t("assetImages.upload.creatingFolder", {
+            name: prefixes[0]?.[prefixes[0].length - 1] ?? rootFolderLabel,
+          }),
+          rootFolderLabel,
+          serverUploadedCount,
+        );
+        await mapPool(prefixes, Math.min(6, Math.max(2, prefixes.length)), async (parts) => {
+          const cacheKey = parts.join("\u0000");
+          if (folderTargetCache.has(cacheKey)) return;
+          const target = await ensurePreviewFolderPath(
+            baseParentId,
+            parts,
+            targetNode?.path ?? baseParentId,
+            {
+              known: sharedKnown,
+              kindForPartsPrefix: pathPlan.kindForPartsPrefix,
+            },
+          );
+          folderTargetCache.set(cacheKey, target);
+        });
+      }
+
       for (const item of imageFiles) {
         const rawFolderParts = folderPartsFromPickedImage(item);
         const folderParts = pathPlan.resolveParts(rawFolderParts);
@@ -2875,12 +3261,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
         if (folderParts.length > 0) {
           const cacheKey = folderParts.join("\u0000");
-          const cached = folderTargetCache.get(cacheKey);
-          if (cached) {
-            target = cached;
-          } else {
-            const creatingLabel = folderParts[folderParts.length - 1] ?? rootFolderLabel;
-            pushGlobalProgress(t("assetImages.upload.creatingFolder", { name: creatingLabel }), creatingLabel, serverUploadedCount);
+          target = folderTargetCache.get(cacheKey) ?? null;
+          if (!target) {
             target = await ensurePreviewFolderPath(
               baseParentId,
               folderParts,
@@ -2934,46 +3316,103 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       try {
         pushGlobalProgress(t("assetImages.upload.startUpload"), rootFolderLabel, serverUploadedCount);
 
-        for (const group of uploadGroups) {
-          const groupOffset = serverUploadedCount;
-          await uploadImagesToPicFolder(group.uploadFolderId, group.folderName, group.files, {
-            onProgress: (patch) => {
-              const onServer = /server|الخادم/i.test(patch.phase);
-              pushGlobalProgress(
-                patch.phase,
-                group.folderName,
-                onServer
-                  ? Math.min(totalImages, groupOffset + patch.completedInGroup)
-                  : serverUploadedCount,
-              );
-            },
+        let uploadedOk = 0;
+        let failedCount = 0;
+        let lastErrorMessage = "";
+        const groupUploaded = new Map<string, number>();
+        const sharedThrottle = createAssetUploadThrottle();
+
+        const uploadOneGroup = async (group: (typeof uploadGroups)[number]) => {
+          try {
+            await uploadImagesToPicFolder(group.uploadFolderId, group.folderName, group.files, {
+              throttle: sharedThrottle,
+              onProgress: (patch) => {
+                const onServer = /server|الخادم/i.test(patch.phase);
+                if (!onServer) return;
+                groupUploaded.set(group.uploadFolderId, patch.completedInGroup);
+                let sum = 0;
+                for (const value of groupUploaded.values()) sum += value;
+                pushGlobalProgress(patch.phase, group.folderName, Math.min(totalImages, sum));
+              },
+            });
+            groupUploaded.set(group.uploadFolderId, group.files.length);
+            uploadedOk += group.files.length;
+            let sum = 0;
+            for (const value of groupUploaded.values()) sum += value;
+            serverUploadedCount = Math.min(totalImages, sum);
+            pushGlobalProgress(
+              t("assetImages.upload.folderComplete", { name: group.folderName }),
+              group.folderName,
+              serverUploadedCount,
+            );
+            return { ok: true as const };
+          } catch (error) {
+            const partialRows = (error as Error & { partialRows?: MvDriveFile[] }).partialRows;
+            const partialCount = partialRows?.length ?? 0;
+            if (partialCount > 0) {
+              uploadedOk += partialCount;
+              failedCount += Math.max(0, group.files.length - partialCount);
+              groupUploaded.set(group.uploadFolderId, partialCount);
+            } else {
+              failedCount += group.files.length;
+            }
+            lastErrorMessage = error instanceof Error ? error.message : String(error);
+            return { ok: false as const };
+          }
+        };
+
+        await mapPool(uploadGroups, Math.min(ASSET_UPLOAD_GROUP_PARALLEL, uploadGroups.length), uploadOneGroup);
+
+        if (uploadedOk === 0 && failedCount > 0) {
+          updateAssetUploadJob(jobId, {
+            progress: 100,
+            state: "error",
+            phase: t("assetImages.upload.folderFailed"),
           });
-          serverUploadedCount = Math.min(totalImages, groupOffset + group.files.length);
-          pushGlobalProgress(
-            t("assetImages.upload.folderComplete", { name: group.folderName }),
-            group.folderName,
-            serverUploadedCount,
-          );
+          toast({
+            variant: "destructive",
+            description: lastErrorMessage || t("assetImages.upload.folderFailed"),
+          });
+          removeAssetUploadJobLater(jobId, 6000);
+          return;
         }
 
         updateAssetUploadJob(jobId, {
           progress: 100,
-          state: "done",
-          phase: isFolderBatchUpload ? t("assetImages.upload.folderUploadComplete") : t("assetImages.upload.imagesUploadComplete"),
-          current: totalImages,
+          state: failedCount > 0 ? "error" : "done",
+          phase:
+            failedCount > 0
+              ? t("assetImages.upload.partialUploadSuccess", {
+                  ok: numberFormatter.format(uploadedOk),
+                  failed: numberFormatter.format(failedCount),
+                })
+              : isFolderBatchUpload
+                ? t("assetImages.upload.folderUploadComplete")
+                : t("assetImages.upload.imagesUploadComplete"),
+          current: uploadedOk,
           total: totalImages,
           folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
         });
         toast({
-          description: isFolderBatchUpload
-            ? t("assetImages.upload.savedInNamedFolder", { count: numberFormatter.format(totalImages), name: rootFolderLabel })
-            : t("assetImages.upload.savedCount", { count: numberFormatter.format(totalImages) }),
+          variant: failedCount > 0 ? "destructive" : "default",
+          description:
+            failedCount > 0
+              ? t("assetImages.upload.partialUploadSuccess", {
+                  ok: numberFormatter.format(uploadedOk),
+                  failed: numberFormatter.format(failedCount),
+                })
+              : isFolderBatchUpload
+                ? t("assetImages.upload.savedInNamedFolder", {
+                    count: numberFormatter.format(uploadedOk),
+                    name: rootFolderLabel,
+                  })
+                : t("assetImages.upload.savedCount", { count: numberFormatter.format(uploadedOk) }),
         });
-        if (uploadGroups.length === 1) {
+        if (uploadGroups.length === 1 && failedCount === 0) {
           setSelectedPreviewFolderId(uploadGroups[0]!.selectionFolderId);
         }
         await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-        removeAssetUploadJobLater(jobId);
+        removeAssetUploadJobLater(jobId, failedCount > 0 ? 8000 : undefined);
       } catch (error) {
         updateAssetUploadJob(jobId, {
           progress: 100,
@@ -3020,6 +3459,30 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       void uploadImagesToActivePreviewLocation(picked);
     },
     [uploadImagesToActivePreviewLocation],
+  );
+
+  /** لقطة متزامنة ثم رفع — يمنع NotFoundError عند سحب عدة مجلدات */
+  const ingestDroppedFilesToPreview = useCallback(
+    async (
+      snapshotOrDataTransfer: DroppedDataTransferSnapshot | DataTransfer,
+      targetNode?: ImageFolderNode | null,
+    ) => {
+      const snapshot =
+        "entryRows" in snapshotOrDataTransfer
+          ? snapshotOrDataTransfer
+          : snapshotDataTransferForUpload(snapshotOrDataTransfer);
+      try {
+        const picked = await collectDroppedImagesFromSnapshot(snapshot);
+        if (picked.length === 0) {
+          toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
+          return;
+        }
+        void uploadImagesToActivePreviewLocation(picked, targetNode ?? undefined);
+      } catch {
+        toast({ variant: "destructive", description: t("assetImages.upload.dropReadFailed") });
+      }
+    },
+    [toast, uploadImagesToActivePreviewLocation],
   );
 
   const selectionFolderIdForParent = useCallback(
@@ -3217,7 +3680,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 : row,
             ),
           );
-          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         })
         .catch((error) => {
           toast({
@@ -3374,7 +3836,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 : row,
             ),
           );
-          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         })
         .catch((error) => {
           toast({
@@ -3555,7 +4016,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const deletePicAssetImage = useCallback(
-    async (viewFile: AssetImageViewFile) => {
+    async (viewFile: AssetImageViewFile, options?: { skipConfirm?: boolean }) => {
       const subProjectId = viewFile.picAssetSubProjectId?.trim() || "";
       const idx = typeof viewFile.picAssetImageIndex === "number" ? viewFile.picAssetImageIndex : -1;
       if (!subProjectId || idx < 0) return;
@@ -3567,24 +4028,48 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       const current = (asset.images ?? []).slice();
       const target = current[idx];
       if (!target) return;
-      if (!window.confirm(t("assetImages.delete.imageConfirm"))) return;
+      if (!options?.skipConfirm && !window.confirm(t("assetImages.delete.imageConfirm"))) return;
 
+      const fileId = picAssetImageStoredFileId(target) || effectiveDriveFileId(viewFile) || "";
       const nextImages = current.filter((_, i) => i !== idx);
+
+      // تحديث متفائل فوري حتى لا تبقى الصورة ظاهرة وتُحذف مرة ثانية → 404 → رسالة مزامنة
+      setPreviewPhotoFoldersFast((prev) =>
+        prev.map((r) =>
+          r.sub._id === subProjectId && r.picAsset
+            ? { ...r, picAsset: { ...r.picAsset, images: nextImages, updatedAt: new Date().toISOString() } }
+            : r,
+        ),
+      );
+      if (fileId) {
+        setFiles((prev) => prev.filter((f) => f._id !== fileId));
+      }
+      setLightboxFile((cur) => {
+        if (!cur) return cur;
+        if (cur._id === viewFile._id) return null;
+        if (fileId && (cur._id === fileId || effectiveDriveFileId(cur as AssetImageViewFile) === fileId)) return null;
+        return cur;
+      });
+
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
           images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
         });
-        setPreviewPhotoFolders((prev) =>
+        setPreviewPhotoFoldersFast((prev) =>
           prev.map((r) => (r.sub._id === subProjectId ? { ...r, picAsset: updated } : r)),
         );
+        if (fileId) {
+          void deleteRemoteProjectFile(projectId, fileId);
+        }
       } catch (e) {
         toast({
           variant: "destructive",
           description: e instanceof Error ? e.message : t("assetImages.delete.imageFailed"),
         });
+        void loadPreviewPhotoFolders("revalidate");
       }
     },
-    [previewPhotoFolders, projectId, toast],
+    [loadPreviewPhotoFolders, previewPhotoFolders, projectId, setPreviewPhotoFoldersFast, toast],
   );
 
   const toggleFolderSelection = useCallback(
@@ -3945,7 +4430,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!window.confirm(t("assetImages.delete.imagesConfirm", { count: numberFormatter.format(ids.length) }))) return;
 
       const localIds = ids.filter(isLocalPreviewDriveId);
-      const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id));
+      const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id) && isLikelyMongoObjectId(id));
 
       try {
         setDeleting(true);
@@ -3956,25 +4441,33 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         }
 
         if (remoteIds.length > 0) {
-          for (const id of remoteIds) {
-            const response = await fetch(`/api/mv/projects/${projectId}/files/${id}`, {
-              method: "DELETE",
-              credentials: "include",
-            });
-            if (!response.ok) throw new Error("delete_failed");
-          }
+          const results = await mapPool(remoteIds, 4, (id) => deleteRemoteProjectFile(projectId, id));
+          if (results.some((r) => r === "error")) throw new Error("delete_failed");
+          const removed = new Set(remoteIds);
+          setFiles((prev) => prev.filter((f) => !removed.has(f._id)));
+          setPreviewPhotoFoldersFast((current) =>
+            current.map((row) => {
+              if (!row.picAsset?.images?.length) return row;
+              const nextImages = stripPicAssetImagesByFileIds(row.picAsset.images, removed);
+              if (nextImages.length === row.picAsset.images.length) return row;
+              return {
+                ...row,
+                picAsset: { ...row.picAsset, images: nextImages, updatedAt: new Date().toISOString() },
+              };
+            }),
+          );
           setLightboxFile(null);
-          await loadImages("revalidate");
         }
 
         toast({ description: successMessage });
       } catch {
         toast({ variant: "destructive", description: t("assetImages.delete.selectedFailed") });
+        void loadImages("revalidate");
       } finally {
         setDeleting(false);
       }
     },
-    [loadImages, projectId, revokeOptimisticUrls, toast],
+    [loadImages, projectId, revokeOptimisticUrls, setPreviewPhotoFoldersFast, toast],
   );
 
   const deleteFileIdsFast = useCallback(
@@ -3987,30 +4480,44 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!window.confirm(t("assetImages.delete.imagesConfirm", { count: numberFormatter.format(ids.length) }))) return;
 
       const localIds = ids.filter(isLocalPreviewDriveId);
-      const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id));
+      const remoteIds = ids.filter((id) => !isLocalPreviewDriveId(id) && isLikelyMongoObjectId(id));
+      const removedRemote = new Set(remoteIds);
       if (localIds.length > 0) revokeOptimisticUrls(localIds);
-      setFiles((prev) => prev.filter((file) => !ids.includes(file._id)));
-      setLightboxFile((cur) => (cur && ids.includes(cur._id) ? null : cur));
+      setFiles((prev) => prev.filter((file) => !ids.includes(file._id) && !removedRemote.has(file._id)));
+      if (removedRemote.size > 0) {
+        setPreviewPhotoFoldersFast((current) =>
+          current.map((row) => {
+            if (!row.picAsset?.images?.length) return row;
+            const nextImages = stripPicAssetImagesByFileIds(row.picAsset.images, removedRemote);
+            if (nextImages.length === row.picAsset.images.length) return row;
+            return {
+              ...row,
+              picAsset: { ...row.picAsset, images: nextImages, updatedAt: new Date().toISOString() },
+            };
+          }),
+        );
+      }
+      setLightboxFile((cur) => {
+        if (!cur) return cur;
+        if (ids.includes(cur._id)) return null;
+        const effective = effectiveDriveFileId(cur as AssetImageViewFile);
+        if (effective && removedRemote.has(effective)) return null;
+        return cur;
+      });
       toast({ description: successMessage });
 
       if (remoteIds.length === 0) return;
 
       void (async () => {
-        try {
-          for (const id of remoteIds) {
-            const response = await fetch(`/api/mv/projects/${projectId}/files/${id}`, {
-              method: "DELETE",
-              credentials: "include",
-            });
-            if (!response.ok) throw new Error("delete_failed");
-          }
-        } catch {
+        const results = await mapPool(remoteIds, 4, (id) => deleteRemoteProjectFile(projectId, id));
+        const hardFailures = results.filter((r) => r === "error").length;
+        if (hardFailures > 0) {
           toast({ variant: "destructive", description: t("errors.generic.partialDeleteResync") });
-          void loadImages("revalidate");
+          void Promise.all([loadImages("revalidate"), loadPreviewPhotoFolders("revalidate")]);
         }
       })();
     },
-    [loadImages, projectId, revokeOptimisticUrls, toast],
+    [loadImages, loadPreviewPhotoFolders, projectId, revokeOptimisticUrls, setPreviewPhotoFoldersFast, toast],
   );
 
   const deleteSingleImage = useCallback(
@@ -4023,19 +4530,50 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const deleteFolderImages = useCallback(
     (folder: ImageFolderNode) => {
-      const fileIds = collectFolderImages(folder)
-        .filter((file) => !isDisplayOnlyPicAssetImage(file))
-        .map((file) => file._id);
-      if (fileIds.length === 0) {
+      const folderFiles = collectFolderImages(folder);
+      if (folderFiles.length === 0) {
         toast({ variant: "destructive", description: t("assetImages.delete.noDeletableInFolder") });
         return;
       }
-      deleteFileIdsFast(
-        fileIds,
-        t("assetImages.toast.folderImagesDeleted"),
-      );
+      const driveIds = folderFiles
+        .filter((file) => !isDisplayOnlyPicAssetImage(file))
+        .map((file) => file._id)
+        .filter((id) => isLikelyMongoObjectId(id) || isLocalPreviewDriveId(id));
+      const displayOnly = folderFiles.filter((file) => isDisplayOnlyPicAssetImage(file));
+      const effectiveFromDisplay = displayOnly
+        .map((file) => effectiveDriveFileId(file))
+        .filter((id): id is string => Boolean(id && isLikelyMongoObjectId(id)));
+      const urlOnlyDisplay = displayOnly.filter((file) => !effectiveDriveFileId(file));
+
+      if (driveIds.length === 0 && effectiveFromDisplay.length === 0 && urlOnlyDisplay.length === 0) {
+        toast({ variant: "destructive", description: t("assetImages.delete.noDeletableInFolder") });
+        return;
+      }
+
+      if (driveIds.length > 0 || effectiveFromDisplay.length > 0) {
+        deleteFileIdsFast(
+          [...driveIds, ...effectiveFromDisplay],
+          t("assetImages.toast.folderImagesDeleted"),
+        );
+      } else if (
+        !window.confirm(
+          t("assetImages.delete.imagesConfirm", {
+            count: numberFormatter.format(urlOnlyDisplay.length),
+          }),
+        )
+      ) {
+        return;
+      }
+
+      // احذف من الأعلى للأدنى حتى لا تنزاح فهارس الصور داخل نفس الأصل
+      const sortedUrlOnly = urlOnlyDisplay
+        .slice()
+        .sort((a, b) => (b.picAssetImageIndex ?? 0) - (a.picAssetImageIndex ?? 0));
+      for (const file of sortedUrlOnly) {
+        void deletePicAssetImage(file, { skipConfirm: true });
+      }
     },
-    [deleteFileIdsFast, toast],
+    [deleteFileIdsFast, deletePicAssetImage, toast],
   );
 
   const deletePreviewFolder = useCallback(
@@ -4066,13 +4604,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         if (!window.confirm(warning)) return;
         try {
           setDeleting(true);
-          for (const child of deletableChildren) {
-            const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${child.path}`, {
-              method: "DELETE",
-              credentials: "include",
-            });
-            if (!response.ok) throw new Error("delete_failed");
-          }
+          const results = await mapPool(deletableChildren, 3, (child) =>
+            deleteRemoteSubproject(projectId, child.path),
+          );
+          if (results.some((r) => r === "error")) throw new Error("delete_failed");
           if (selectedPreviewFolderId && folderContainsPath(folder, selectedPreviewFolderId)) {
             setSelectedPreviewFolderId("__pv_root__");
           }
@@ -4080,6 +4615,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           toast({ description: t("assetImages.toast.groupDeleted") });
         } catch {
           toast({ variant: "destructive", description: t("assetImages.toast.groupDeleteFailed") });
+          void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         } finally {
           setDeleting(false);
         }
@@ -4105,11 +4641,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       try {
         setDeleting(true);
-        const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${folder.path}`, {
-          method: "DELETE",
-          credentials: "include",
-        });
-        if (!response.ok) throw new Error("delete_failed");
+        const result = await deleteRemoteSubproject(projectId, folder.path);
+        if (result === "error") throw new Error("delete_failed");
 
         if (selectedPreviewFolderId && folderContainsPath(folder, selectedPreviewFolderId)) {
           setSelectedPreviewFolderId(nextSelection);
@@ -4118,6 +4651,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleted") : t("assetImages.toast.folderDeleted") });
       } catch {
         toast({ variant: "destructive", description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleteFailed") : t("assetImages.toast.folderDeleteFailed") });
+        void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
       } finally {
         setDeleting(false);
       }
@@ -4192,15 +4726,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       toast({ description: label === t("assetImages.kind.asset") ? t("assetImages.toast.assetDeleted") : t("assetImages.toast.folderDeleted") });
 
       void (async () => {
-        try {
-          for (const root of roots) {
-            const response = await fetch(`/api/mv/projects/${projectId}/subprojects/${root.path}`, {
-              method: "DELETE",
-              credentials: "include",
-            });
-            if (!response.ok) throw new Error("delete_failed");
-          }
-        } catch {
+        const results = await mapPool(roots, 3, (root) => deleteRemoteSubproject(projectId, root.path));
+        const hardFailures = results.filter((r) => r === "error").length;
+        if (hardFailures > 0) {
           toast({ variant: "destructive", description: t("errors.generic.partialDeleteResync") });
           void Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         }
@@ -4655,16 +5183,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       toast({ variant: "destructive", description: t("assetImages.toast.selectFolderToDelete") });
       return;
     }
-    const nodeFiles = selectedPreviewFolderNode.images.filter((file) => !isDisplayOnlyPicAssetImage(file));
-    if (nodeFiles.length === 0) {
-      toast({ variant: "destructive", description: t("assetImages.toast.noDirectDeletableImages") });
-      return;
-    }
-    deleteFileIdsFast(
-      nodeFiles.map((f) => f._id),
-      t("assetImages.toast.previewFolderDeleted"),
-    );
-  }, [deleteFileIdsFast, selectedPreviewFolderNode, toast]);
+    deleteFolderImages(selectedPreviewFolderNode);
+  }, [deleteFolderImages, selectedPreviewFolderNode, toast]);
 
   const renderTreeImage = (file: MvDriveFile, level = 0, scopeFiles: MvDriveFile[] = []) => {
     const selected = isReportImageIncluded(file);
@@ -5031,12 +5551,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             if (reorderSaving || draggingPreview) return;
             onTreeDragOverAsset(e);
           }}
-          onDrop={async (e: DragEvent) => {
+          onDrop={(e: DragEvent) => {
             if (treeMedia === "images" && isFileUploadDrag(e.dataTransfer)) {
               e.preventDefault();
               e.stopPropagation();
-              const picked = await collectDroppedImages(e.dataTransfer);
-              void uploadImagesToActivePreviewLocation(picked, node);
+              const snapshot = snapshotDataTransferForUpload(e.dataTransfer);
+              void ingestDroppedFilesToPreview(snapshot, node);
               return;
             }
             if (reorderSaving || draggingPreview || !node.picAssetId || treeMedia === "videos") return;
@@ -5461,12 +5981,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   setDraggingPreview(true);
                 }}
                 onDragLeave={() => setDraggingPreview(false)}
-                onDrop={async (event) => {
+                onDrop={(event) => {
                   if (!isFileUploadDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDraggingPreview(false);
-                  const picked = await collectDroppedImages(event.dataTransfer);
-                  void uploadImagesToActivePreviewLocation(picked);
+                  const snapshot = snapshotDataTransferForUpload(event.dataTransfer);
+                  void ingestDroppedFilesToPreview(snapshot);
                 }}
               >
                 <div
@@ -5784,12 +6304,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                   if (!folder.picAssetId || reorderSaving || draggingPreview) return;
                                   onTreeDragOverAsset(event);
                                 }}
-                                onDrop={async (event) => {
+                                onDrop={(event) => {
                                   if (isFileUploadDrag(event.dataTransfer)) {
                                     event.preventDefault();
                                     event.stopPropagation();
-                                    const picked = await collectDroppedImages(event.dataTransfer);
-                                    void uploadImagesToActivePreviewLocation(picked, folder);
+                                    const snapshot = snapshotDataTransferForUpload(event.dataTransfer);
+                                    void ingestDroppedFilesToPreview(snapshot, folder);
                                     return;
                                   }
                                   if (!folder.picAssetId || reorderSaving || draggingPreview) return;

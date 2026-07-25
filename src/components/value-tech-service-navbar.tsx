@@ -28,12 +28,7 @@ const copy = {
     brandName: "فاليو تك",
     brandSubtitle: "Value Tech",
     home: "Home",
-    valueTechApp: "Report Upload System",
-    realEstate: "Real Estate Valuation System",
-    machines: "Machines Valuation System",
-    sources: "Information Sources System",
-    assetInventory: "Asset Inventory System",
-    assetInspection: "Asset Inspection System",
+    machines: "Machines & Equipment Valuation System",
     products: "Products",
     language: "Language",
     login: "Login",
@@ -42,12 +37,7 @@ const copy = {
     brandName: "فاليو تك",
     brandSubtitle: "حلول تقييم الأصول",
     home: "الرئيسية",
-    valueTechApp: "نظام رفع التقارير",
-    realEstate: "نظام تقييم العقارات",
-    machines: "نظام تقييم الآلات",
-    sources: "مصادر المعلومات",
-    assetInventory: "تطبيق حصر الأصول",
-    assetInspection: "تطبيق معاينة الأصول",
+    machines: "نظام تقييم الآلات والمعدات",
     products: "المنتجات",
     language: "اللغة",
     login: "تسجيل الدخول",
@@ -159,77 +149,19 @@ function HubNavbar() {
   }, [pathname]);
 
   const isHubHome = pathname === "/value-tech";
-  const isProductsSection =
-    pathname.startsWith("/value-tech-app") ||
-    pathname.startsWith("/evaluation-source") ||
-    pathname.startsWith("/real-estate-valuation") ||
-    pathname.startsWith("/machine-valuation") ||
-    pathname.startsWith("/asset-inventory") ||
-    pathname.startsWith("/asset-inspection");
+  const isProductsSection = pathname.startsWith("/machine-valuation");
 
   const productMenuItems = (close: () => void) => (
-    <>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/value-tech-app");
-        }}
-      >
-        {t.valueTechApp}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/real-estate-valuation");
-        }}
-      >
-        {t.realEstate}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/machine-valuation");
-        }}
-      >
-        {t.machines}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/evaluation-source");
-        }}
-      >
-        {t.sources}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/asset-inventory");
-        }}
-      >
-        {t.assetInventory}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/asset-inspection");
-        }}
-      >
-        {t.assetInspection}
-      </DropdownMenuItem>
-    </>
+    <DropdownMenuItem
+      className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+      onSelect={(e) => {
+        e.preventDefault();
+        close();
+        router.push("/machine-valuation");
+      }}
+    >
+      {t.machines}
+    </DropdownMenuItem>
   );
 
   const hubProductsMenuClass =
@@ -366,11 +298,7 @@ function DefaultNavbar() {
 
   const isValueTechRoute =
     pathname.startsWith("/value-tech") ||
-    pathname.startsWith("/evaluation-source") ||
-    pathname.startsWith("/real-estate-valuation") ||
     pathname.startsWith("/machine-valuation") ||
-    pathname.startsWith("/asset-inventory") ||
-    pathname.startsWith("/asset-inspection") ||
     pathname.startsWith("/clients") ||
     pathname.startsWith("/settings");
 
@@ -394,60 +322,10 @@ function DefaultNavbar() {
         onSelect={(e) => {
           e.preventDefault();
           close();
-          router.push("/value-tech-app");
-        }}
-      >
-        {t.valueTechApp}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/real-estate-valuation");
-        }}
-      >
-        {t.realEstate}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
           router.push("/machine-valuation");
         }}
       >
         {t.machines}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/evaluation-source");
-        }}
-      >
-        {t.sources}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/asset-inventory");
-        }}
-      >
-        {t.assetInventory}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/asset-inspection");
-        }}
-      >
-        {t.assetInspection}
       </DropdownMenuItem>
     </>
   );

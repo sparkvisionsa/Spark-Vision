@@ -4,12 +4,7 @@ import { useContext } from "react";
 import Link from "@/components/prefetch-link";
 import {
   ArrowUpRight,
-  Building2,
-  ClipboardList,
   Cpu,
-  FileText,
-  Library,
-  Search,
   type LucideIcon,
 } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
@@ -37,38 +32,6 @@ const copy = {
         description: "Professional appraisal workflows for industrial assets and equipment.",
         icon: Cpu,
       },
-      {
-        href: "/real-estate-valuation",
-        title: "Real Estate Valuation",
-        description: "Structured property valuation aligned with market standards.",
-        icon: Building2,
-      },
-      {
-        href: "/value-tech-app",
-        title: "Report Upload System",
-        description: "Upload and manage valuation reports with confidence.",
-        icon: FileText,
-      },
-      {
-        href: "/evaluation-source",
-        title: "Information Sources",
-        description: "Centralized references and valuation data sources.",
-        icon: Library,
-      },
-      {
-        href: "/asset-inventory",
-        title: "Asset Inventory",
-        description: "Field-ready workflows for asset counting and verification.",
-        icon: ClipboardList,
-        status: "Coming soon",
-      },
-      {
-        href: "/asset-inspection",
-        title: "Asset Inspection",
-        description: "On-site inspection tools for asset condition review.",
-        icon: Search,
-        status: "Coming soon",
-      },
     ] satisfies ProductCard[],
   },
   ar: {
@@ -82,38 +45,6 @@ const copy = {
         title: "نظام تقييم الآلات والمعدات",
         description: "منصة متكاملة لتقييم الآلات والمعدات الصناعية وفق أعلى المعايير المهنية.",
         icon: Cpu,
-      },
-      {
-        href: "/real-estate-valuation",
-        title: "نظام تقييم العقارات",
-        description: "حلول تقييم عقاري منظمة ومتوافقة مع متطلبات السوق والمعايير المعتمدة.",
-        icon: Building2,
-      },
-      {
-        href: "/value-tech-app",
-        title: "نظام رفع التقارير",
-        description: "رفع وإدارة تقارير التقييم بسهولة وموثوقية عالية.",
-        icon: FileText,
-      },
-      {
-        href: "/evaluation-source",
-        title: "مصادر المعلومات",
-        description: "مرجع موحد لمصادر البيانات والمعلومات الداعمة لعمليات التقييم.",
-        icon: Library,
-      },
-      {
-        href: "/asset-inventory",
-        title: "تطبيق حصر الأصول",
-        description: "أدوات ميدانية لحصر الأصول والتحقق منها بدقة.",
-        icon: ClipboardList,
-        status: "قريبًا",
-      },
-      {
-        href: "/asset-inspection",
-        title: "تطبيق معاينة الأصول",
-        description: "معاينة ميدانية لحالة الأصول وتوثيقها بشكل احترافي.",
-        icon: Search,
-        status: "قريبًا",
       },
     ] satisfies ProductCard[],
   },
