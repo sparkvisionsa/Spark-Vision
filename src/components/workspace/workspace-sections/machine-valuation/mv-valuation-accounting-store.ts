@@ -273,9 +273,22 @@ export function mergeValuationAccountingStores(
   return stripRedundantAccountingDataUrls(sScore >= lScore ? fromServer : local);
 }
 
-/** إزالة ‎dataUrl‎ قبل إرسالها للخادم (تخفيف حجم المستند) */
+/** إزالة كل ‎dataUrl‎ قبل الإرسال للخادم — الصور المحلية بلا ‎fileId‎ تبقى في التخزين المحلي فقط. */
 export function valuationAccountingStoreForApi(store: MvValuationAccountingStore): MvValuationAccountingStore {
-  return stripRedundantAccountingDataUrls(store);
+  return {
+    ...store,
+    version: 1,
+    sources: store.sources.map((s) => {
+      const { dataUrl: _dataUrl, ...rest } = s;
+      return rest;
+    }),
+    images: store.images
+      .filter((im) => Boolean(im.fileId?.trim()))
+      .map((im) => {
+        const { dataUrl: _dataUrl, ...rest } = im;
+        return rest;
+      }),
+  };
 }
 
 export function readValuationAccountingStore(projectId: string): MvValuationAccountingStore {

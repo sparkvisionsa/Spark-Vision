@@ -1316,7 +1316,7 @@ export const mvEn = {
       defaultName: "Word template",
       loadFailed: "Could not load Word template from company settings.",
       preparing: "Preparing data and images…",
-      merging: "Merging bookmarks on the server…",
+      merging: "Merging bookmarks on the server… This can take a few minutes when there are many images.",
       downloading: "Downloading file…",
       readingBookmarks: "Reading bookmarks…",
       preparingFile: "Preparing Word file…",

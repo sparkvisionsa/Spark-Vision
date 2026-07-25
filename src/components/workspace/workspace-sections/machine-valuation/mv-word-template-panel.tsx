@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Download, Images, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -174,10 +174,32 @@ export function MvWordTemplatePanel({
   const hasCompanyTemplate = Boolean(companyWordTemplate?.fileUrl);
   const templateFileName = companyWordTemplate?.fileName?.trim() || t("report.wordTemplate.defaultName");
   const hasTemplate = hasCompanyTemplate;
+  const mergeImageCount =
+    assetImageSources.length + valuationImageSources.length + clientImageSources.length;
+  const mergeStartedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     setClientImagesPerRow(normalizeClientImagesPerRow(reportData.clientDocumentsImagesPerRow));
   }, [reportData.clientDocumentsImagesPerRow]);
+
+  /** أثناء انتظار الخادم (مرحلة ~46%) حرّك الشريط ببطء حتى لا يبدو متجمّداً مع مئات الصور. */
+  useEffect(() => {
+    if (!generating) {
+      mergeStartedAtRef.current = null;
+      return;
+    }
+    mergeStartedAtRef.current = Date.now();
+    const expectedMs = Math.min(12 * 60_000, Math.max(45_000, 30_000 + mergeImageCount * 900));
+    const id = window.setInterval(() => {
+      setMergeProgress((prev) => {
+        if (prev == null || prev < 46 || prev >= 88) return prev;
+        const started = mergeStartedAtRef.current ?? Date.now();
+        const ratio = Math.min(0.97, (Date.now() - started) / expectedMs);
+        return Math.max(prev, Math.min(84, Math.round(46 + ratio * 38)));
+      });
+    }, 800);
+    return () => clearInterval(id);
+  }, [generating, mergeImageCount]);
 
   useEffect(() => {
     let cancelled = false;

@@ -76,7 +76,6 @@ import {
   mergeValuationAccountingStores,
   MV_VALUATION_ACCOUNTING_APPROACHES,
   MV_VALUATION_ACCOUNTING_FILE_KIND_LABEL,
-  parseValuationAccountingStoreFromApi,
   readValuationAccountingStore,
   resolveValuationAccountingImageSrc,
   valuationAccountingStoreForApi,
@@ -2897,59 +2896,122 @@ export default function MvValuationAccountingWorkspace({
 
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAccountingSaveRef = useRef<MvValuationAccountingStore | null>(null);
+  const accountingFlushInFlightRef = useRef(false);
+  const accountingSyncToastAtRef = useRef(0);
 
-  const flushAccountingWorkspaceToServer = useCallback(async () => {
-    const snapshot = pendingAccountingSaveRef.current;
-    pendingAccountingSaveRef.current = null;
-    if (!snapshot) return;
-    try {
-      const res = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          valuationAccountingWorkspace: valuationAccountingStoreForApi(snapshot),
-        }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { project?: MvProject };
-        if (data.project) setProject(data.project);
-      } else {
-        toast({
-          variant: "destructive",
-          description: t("valuation.sync.failed"),
-        });
+  const flushAccountingWorkspaceToServer = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (accountingFlushInFlightRef.current) return;
+      accountingFlushInFlightRef.current = true;
+      const notifyFailure = () => {
+        if (options?.silent) return;
+        const now = Date.now();
+        if (now - accountingSyncToastAtRef.current < 12_000) return;
+        accountingSyncToastAtRef.current = now;
+        toast({ variant: "destructive", description: t("valuation.sync.failed") });
+      };
+      let failed = false;
+      try {
+        while (pendingAccountingSaveRef.current) {
+          const snapshot = pendingAccountingSaveRef.current;
+          pendingAccountingSaveRef.current = null;
+          let saved = false;
+          for (let attempt = 1; attempt <= 2 && !saved; attempt += 1) {
+            try {
+              const res = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  valuationAccountingWorkspace: valuationAccountingStoreForApi(snapshot),
+                }),
+              });
+              if (res.ok) {
+                try {
+                  const data = (await res.json()) as { project?: MvProject };
+                  if (data.project) setProject(data.project);
+                } catch {
+                  /* HTTP 200 = نجاح حتى لو تعذّر قراءة الجسم */
+                }
+                saved = true;
+                break;
+              }
+              const retryable = res.status === 502 || res.status === 503 || res.status === 504;
+              if (retryable && attempt < 2) {
+                await new Promise((r) => setTimeout(r, 600 * attempt));
+                continue;
+              }
+              pendingAccountingSaveRef.current = pendingAccountingSaveRef.current ?? snapshot;
+              notifyFailure();
+              failed = true;
+              break;
+            } catch {
+              if (attempt < 2) {
+                await new Promise((r) => setTimeout(r, 600 * attempt));
+                continue;
+              }
+              pendingAccountingSaveRef.current = pendingAccountingSaveRef.current ?? snapshot;
+              notifyFailure();
+              failed = true;
+            }
+          }
+          if (failed) break;
+        }
+      } finally {
+        accountingFlushInFlightRef.current = false;
+        // إن وصلت تعديلات أثناء الحفظ الناجح بعد خروج الحلقة — أعد الدفع مرة واحدة فقط.
+        if (!failed && pendingAccountingSaveRef.current) {
+          queueMicrotask(() => {
+            void flushAccountingWorkspaceToServer(options);
+          });
+        }
       }
-    } catch {
-      toast({
-        variant: "destructive",
-        description: "تعذر مزامنة إجراءات التقييم مع الخادم. سيتم الإبقاء على النسخة المحلية.",
-      });
-    }
-  }, [projectId, toast]);
+    },
+    [projectId, toast, t],
+  );
 
   const persistStore = useCallback(
-    (updater: (current: MvValuationAccountingStore) => MvValuationAccountingStore) => {
+    (
+      updater: (current: MvValuationAccountingStore) => MvValuationAccountingStore,
+      options?: { sync?: "debounce" | "later" | "now" },
+    ) => {
+      const syncMode = options?.sync ?? "debounce";
       setStore((current) => {
         const next = updater(current);
         const ok = writeValuationAccountingStore(projectId, next);
         if (!ok) {
           toast({
             variant: "destructive",
-            description:
-              t("valuation.sync.localStorageFailed"),
+            description: t("valuation.sync.localStorageFailed"),
           });
         }
         pendingAccountingSaveRef.current = next;
+        if (syncMode === "later") {
+          if (serverSaveTimerRef.current) {
+            clearTimeout(serverSaveTimerRef.current);
+            serverSaveTimerRef.current = null;
+          }
+          return next;
+        }
+        if (syncMode === "now") {
+          if (serverSaveTimerRef.current) {
+            clearTimeout(serverSaveTimerRef.current);
+            serverSaveTimerRef.current = null;
+          }
+          queueMicrotask(() => {
+            void flushAccountingWorkspaceToServer();
+          });
+          return next;
+        }
         if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
         serverSaveTimerRef.current = setTimeout(() => {
           serverSaveTimerRef.current = null;
           void flushAccountingWorkspaceToServer();
-        }, 280);
+        }, 1000);
         return next;
       });
     },
-    [projectId, toast, flushAccountingWorkspaceToServer],
+    [projectId, toast, t, flushAccountingWorkspaceToServer],
   );
 
   const saveEditorModalAndClose = useCallback(async () => {
@@ -3035,14 +3097,9 @@ export default function MvValuationAccountingWorkspace({
     const merged = mergeValuationAccountingStores(project.valuationAccountingWorkspace, local);
     setStore((prev) => (JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged));
     writeValuationAccountingStore(projectId, merged);
-    const fromServer = parseValuationAccountingStoreFromApi(project.valuationAccountingWorkspace);
-    const sTime = fromServer?.updatedAt ? Date.parse(fromServer.updatedAt) : 0;
-    const lTime = local.updatedAt ? Date.parse(local.updatedAt) : 0;
-    if (lTime > sTime) {
-      pendingAccountingSaveRef.current = valuationAccountingStoreForApi(merged);
-      void flushAccountingWorkspaceToServer();
-    }
-  }, [project, projectId, serverWorkspaceKey, flushAccountingWorkspaceToServer]);
+    // لا تُعاد المزامنة تلقائياً عند تحديث ‎project‎ — ذلك كان يطلق التوست بعد ثوانٍ/دقيقة
+    // بلا فعل مباشر من المستخدم (مثل سلوك ملفات العميل).
+  }, [project, projectId, serverWorkspaceKey]);
 
   useEffect(
     () => () => {
@@ -3050,9 +3107,8 @@ export default function MvValuationAccountingWorkspace({
         clearTimeout(serverSaveTimerRef.current);
         serverSaveTimerRef.current = null;
       }
-      const snap = pendingAccountingSaveRef.current ?? readValuationAccountingStore(projectId);
-      pendingAccountingSaveRef.current = snap;
-      void flushAccountingWorkspaceToServer();
+      if (!pendingAccountingSaveRef.current) return;
+      void flushAccountingWorkspaceToServer({ silent: true });
     },
     [flushAccountingWorkspaceToServer, projectId],
   );
@@ -3671,12 +3727,15 @@ export default function MvValuationAccountingWorkspace({
               {
                 shouldStop: () => uploadStopRequestedRef.current,
                 onImage: (image) => {
-                  persistStore((current) => ({
-                    ...current,
-                    images: current.images.some((item) => item.id === image.id)
-                      ? current.images
-                      : [...current.images, image],
-                  }));
+                  persistStore(
+                    (current) => ({
+                      ...current,
+                      images: current.images.some((item) => item.id === image.id)
+                        ? current.images
+                        : [...current.images, image],
+                    }),
+                    { sync: "later" },
+                  );
                 },
               },
             );
@@ -3727,17 +3786,20 @@ export default function MvValuationAccountingWorkspace({
             });
           }
         }
-        persistStore((current) => ({
-          ...current,
-          sources: [
-            ...current.sources,
-            ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
-          ],
-          images: [
-            ...current.images,
-            ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
-          ],
-        }));
+        persistStore(
+          (current) => ({
+            ...current,
+            sources: [
+              ...current.sources,
+              ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
+            ],
+            images: [
+              ...current.images,
+              ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
+            ],
+          }),
+          { sync: "now" },
+        );
         setPreviewImage(null);
         toast({
           description:
@@ -4035,12 +4097,15 @@ export default function MvValuationAccountingWorkspace({
             control: {
               shouldStop: () => uploadStopRequestedRef.current,
               onImage: (image) => {
-                persistStore((current) => ({
-                  ...current,
-                  images: current.images.some((item) => item.id === image.id)
-                    ? current.images
-                    : [...current.images, image],
-                }));
+                persistStore(
+                  (current) => ({
+                    ...current,
+                    images: current.images.some((item) => item.id === image.id)
+                      ? current.images
+                      : [...current.images, image],
+                  }),
+                  { sync: "later" },
+                );
               },
             },
           });
@@ -4074,17 +4139,20 @@ export default function MvValuationAccountingWorkspace({
           setUploadingKind(null);
           return;
         }
-        persistStore((current) => ({
-          ...current,
-          sources: [
-            ...current.sources,
-            ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
-          ],
-          images: [
-            ...current.images,
-            ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
-          ],
-        }));
+        persistStore(
+          (current) => ({
+            ...current,
+            sources: [
+              ...current.sources,
+              ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
+            ],
+            images: [
+              ...current.images,
+              ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
+            ],
+          }),
+          { sync: "now" },
+        );
         toast({
           description: `تم حفظ ${pending.files.length} ملف Excel وتوليد ${generatedImageCount} صورة مباشرة بدون حفظ PDF وسيط.`,
         });
