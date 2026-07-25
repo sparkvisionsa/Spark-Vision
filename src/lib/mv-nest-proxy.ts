@@ -10,7 +10,8 @@ import { mvBackendOriginForProxy } from "@/lib/mv-backend-origin";
  * لا يزال يعالجها فعلياً. نستخدم هنا ‎undici‎ صريحاً (بدل الكائن العام) مع ‎Agent‎ بمهلة
  * أطول بكثير، مخصّص لهذا الوكيل وحده.
  */
-const MV_PROXY_TIMEOUT_MS = 15 * 60_000;
+/** مشاريع بآلاف الصور قد تحتاج دمج Word أطول من ربع ساعة على خوادم صغيرة. */
+const MV_PROXY_TIMEOUT_MS = 45 * 60_000;
 const mvProxyAgent = new Agent({
   headersTimeout: MV_PROXY_TIMEOUT_MS,
   bodyTimeout: MV_PROXY_TIMEOUT_MS,
