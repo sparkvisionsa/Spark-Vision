@@ -421,6 +421,15 @@ export const mvEn = {
         subAssetType: "Asset type",
         quantity: "Quantity",
       },
+      condition: {
+        new: "New",
+        excellent: "Excellent",
+        good: "Good",
+        veryGood: "Very good",
+        acceptable: "Acceptable",
+        poor: "Poor",
+        scrape: "Scrap",
+      },
     },
     pdfExport: {
       preparing:

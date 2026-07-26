@@ -421,6 +421,15 @@ export const mvAr = {
         subAssetType: "نوع الأصل",
         quantity: "الكمية",
       },
+      condition: {
+        new: "جديد",
+        excellent: "ممتاز",
+        good: "جيد",
+        veryGood: "جيد جدًا",
+        acceptable: "مقبول",
+        poor: "ردئ",
+        scrape: "خردة",
+      },
     },
     pdfExport: {
       preparing:

@@ -266,6 +266,7 @@ function buildAssetSearchText(row: AssetTableRow, ctx: TableFormatContext): stri
     pic?.model,
     pic?.code,
     pic?.condition,
+    formatCondition(pic?.condition, ctx),
     pic?.notes,
     pic?.assetType,
     assetTypeLabel(pic?.assetType, ctx.t),
@@ -313,7 +314,7 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
     {
       key: "condition",
       label: c("condition"),
-      text: (r) => formatText(r.picAsset?.condition, ctx.notAvailable),
+      text: (r) => formatCondition(r.picAsset?.condition, ctx),
       minWidth: 140,
     },
     { key: "isPresent", label: c("isPresent"), text: (r) => formatBool(r.picAsset?.isPresent, ctx), minWidth: 72 },
@@ -431,6 +432,45 @@ function formatText(v: string | null | undefined, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const trimmed = v.trim();
   return trimmed ? trimmed : fallback;
+}
+
+const CONDITION_KEYS = [
+  "new",
+  "excellent",
+  "good",
+  "veryGood",
+  "acceptable",
+  "poor",
+  "scrape",
+] as const;
+
+type ConditionKey = (typeof CONDITION_KEYS)[number];
+
+function normalizeConditionKey(value: string): ConditionKey | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const compact = trimmed.replace(/[\s_-]+/g, "").toLowerCase();
+  const aliases: Record<string, ConditionKey> = {
+    new: "new",
+    excellent: "excellent",
+    good: "good",
+    verygood: "veryGood",
+    acceptable: "acceptable",
+    poor: "poor",
+    scrape: "scrape",
+    scrap: "scrape",
+  };
+  return aliases[compact] ?? null;
+}
+
+/** عرض حالة الأصل بالعربية/لغة الواجهة بدل مفتاح الإنجليزية المخزَّن. */
+function formatCondition(value: string | null | undefined, ctx: TableFormatContext): string {
+  if (typeof value !== "string") return ctx.notAvailable;
+  const trimmed = value.trim();
+  if (!trimmed) return ctx.notAvailable;
+  const key = normalizeConditionKey(trimmed);
+  if (!key) return trimmed;
+  return ctx.t(`projects.assetTable.condition.${key}`);
 }
 
 function isExternalVoice(
@@ -997,6 +1037,36 @@ export function MvAssetDataTableModal({
       if (!EDITABLE_COLUMN_KEYS.has(colKey)) return null;
       const field = colKey as EditableAssetField;
       const saving = savingCell === `${row.sub._id}:${field}`;
+
+      if (field === "condition") {
+        const raw = fieldRawValue(row, field);
+        const selected = normalizeConditionKey(raw) ?? "";
+        return (
+          <div className="relative mx-auto max-w-[180px]">
+            <select
+              value={selected}
+              disabled={saving}
+              dir="rtl"
+              onChange={(e) => {
+                const next = e.target.value;
+                void saveAssetField(row, "condition", next);
+              }}
+              className="w-full rounded-md border border-transparent bg-white/80 px-2 py-1 text-[12px] text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+            >
+              <option value="">{tableCtx.notAvailable}</option>
+              {CONDITION_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {t(`projects.assetTable.condition.${key}`)}
+                </option>
+              ))}
+            </select>
+            {saving ? (
+              <Loader2 className="pointer-events-none absolute left-1 top-1.5 h-3.5 w-3.5 animate-spin text-sky-500" />
+            ) : null}
+          </div>
+        );
+      }
+
       const singleLine =
         field === "name" ||
         field === "brand" ||

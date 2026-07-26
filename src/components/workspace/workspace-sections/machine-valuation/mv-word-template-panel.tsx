@@ -34,6 +34,8 @@ const VALUATION_IMAGES_PER_ROW = 1;
 const DEFAULT_ASSET_IMAGES_PER_ROW = 4;
 
 function recommendedAssetImagesPerPage(imagesPerRow: number): number {
+  if (imagesPerRow <= 1) return 2;
+  if (imagesPerRow === 2) return 4;
   return imagesPerRow * (imagesPerRow >= 4 ? 5 : 4);
 }
 
