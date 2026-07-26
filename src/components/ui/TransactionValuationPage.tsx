@@ -4118,9 +4118,10 @@ export function TransactionEvaluationPage({
 
       {/* ── Investment (الاستثمار) ──────────────────────────────────────────────── */}
       <SectionCard
-        title={lang === "ar" ? "الاستثمار" : "Investment"}
-        accentColor="#0e7490"
-        icon={<BarChart2 size={14} />}
+              title={lang === "ar" ? "الاستثمار" : "Investment"}
+              accentColor="#0e7490"
+              icon={<BarChart2 size={14} />}
+              lang={lang}
       >
         {/* Add new capitalization block form */}
         <div
@@ -8156,7 +8157,7 @@ export function TransactionEvaluationPage({
       </SectionCard>
 
       {/* ── Authors ──────────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secAuthors} icon={<Users size={14} />}>
+            <SectionCard title={t.secAuthors} icon={<Users size={14}/>} lang={lang} >
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {[1, 2, 3, 4].map((n) => (
             <div
