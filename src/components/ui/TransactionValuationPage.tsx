@@ -966,10 +966,12 @@ function ReadOnlyItem({
   label,
   value,
   full = false,
+  accent,
 }: {
   label: string;
   value?: string;
   full?: boolean;
+  accent?: string;
 }) {
   return (
     <div style={{ gridColumn: full ? "1 / -1" : undefined }}>
@@ -989,12 +991,15 @@ function ReadOnlyItem({
         style={{
           fontSize: 13,
           color: value ? DS.text : DS.textLight,
-          fontWeight: value ? 500 : 400,
+          fontWeight: value ? 600 : 400,
           lineHeight: 1.5,
-          padding: "7px 10px",
+          padding: "7px 10px 7px 12px",
           background: DS.surfaceAlt,
           borderRadius: DS.radius.md,
+          borderInlineStart: `3px solid ${value ? (accent ?? DS.primary) : DS.border}`,
           border: `1px solid ${DS.border}`,
+          borderInlineStartWidth: 3,
+          borderInlineStartColor: value ? (accent ?? DS.primary) : DS.border,
           minHeight: 34,
         }}
       >
@@ -1004,22 +1009,265 @@ function ReadOnlyItem({
   );
 }
 
-// ─── Section Card ─────────────────────────────────────────────────────────────
+function WizardShell({
+  steps,
+  activeStep,
+  onStepChange,
+  lang,
+  children,
+}: {
+  steps: { key: string; label: string; icon: React.ReactNode; completion?: { requiredTotal: number; requiredFilled: number; isComplete: boolean } }[];
+  activeStep: number;
+  onStepChange: (i: number) => void;
+  lang: "ar" | "en";
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+      {/* Left rail */}
+      <div
+        style={{
+          width: 230,
+          flexShrink: 0,
+          background: DS.surface,
+          border: `1px solid ${DS.border}`,
+          borderRadius: DS.radius.xl,
+          padding: "10px",
+          boxShadow: DS.shadow.sm,
+          position: "sticky",
+          top: 20,
+          maxHeight: "calc(100vh - 40px)",
+          overflowY: "auto",
+        }}
+      >
+        {steps.map((s, i) => {
+          const active = i === activeStep;
+          const visited = i < activeStep;
+          const done = s.completion ? s.completion.isComplete : visited;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onStepChange(i)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                padding: "9px 10px",
+                marginBottom: 2,
+                border: "none",
+                borderRadius: DS.radius.md,
+                background: active ? DS.primaryLight : "transparent",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                textAlign: "inherit" as const,
+              }}
+            >
+              <span
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  background: done ? "#f0fdf4" : active ? DS.primaryMid : DS.surfaceAlt,
+                  color: done ? "#15803d" : active ? DS.primary : DS.textMuted,
+                }}
+              >
+                {done ? <CheckCircle2 size={13} /> : s.icon}
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: active ? DS.primary : DS.text,
+                  fontWeight: active ? 700 : 500,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap" as const,
+                }}
+              >
+                {s.label}
+              </span>
+              {s.completion && !s.completion.isComplete && (
+                <span
+                  style={{
+                    marginInlineStart: "auto",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: DS.textMuted,
+                    flexShrink: 0,
+                  }}
+                >
+                  {s.completion.requiredFilled}/{s.completion.requiredTotal}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
+      {/* Right pane */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {children}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: 8,
+            padding: "12px 4px",
+          }}
+        >
+          <button
+            type="button"
+            disabled={activeStep === 0}
+            onClick={() => onStepChange(Math.max(0, activeStep - 1))}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "9px 16px",
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radius.md,
+              background: DS.surface,
+              color: DS.textMuted,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: activeStep === 0 ? "default" : "pointer",
+              opacity: activeStep === 0 ? 0.4 : 1,
+              fontFamily: "inherit",
+            }}
+          >
+            {lang === "ar" ? <ArrowRight size={14} /> : <ArrowLeft size={14} />}
+            {lang === "ar" ? "السابق" : "Previous"}
+          </button>
+          <button
+            type="button"
+            disabled={activeStep === steps.length - 1}
+            onClick={() => onStepChange(Math.min(steps.length - 1, activeStep + 1))}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "9px 16px",
+              border: "none",
+              borderRadius: DS.radius.md,
+              background: DS.primary,
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: activeStep === steps.length - 1 ? "default" : "pointer",
+              opacity: activeStep === steps.length - 1 ? 0.4 : 1,
+              fontFamily: "inherit",
+              boxShadow: `0 2px 8px ${DS.primary}35`,
+            }}
+          >
+            {steps[Math.min(steps.length - 1, activeStep + 1)]?.label}
+            {lang === "ar" ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({
+  label, value, icon, color = DS.primary,
+}: { label: string; value?: string; icon?: React.ReactNode; color?: string }) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        background: DS.surface,
+        border: `1px solid ${DS.border}`,
+        borderRadius: DS.radius.lg,
+        padding: "14px 16px",
+        boxShadow: DS.shadow.sm,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0, insetInlineEnd: 0,
+          width: 70, height: 70,
+          background: `radial-gradient(circle at top right, ${color}22, transparent 70%)`,
+          pointerEvents: "none" as const,
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 26, height: 26, borderRadius: DS.radius.sm,
+            background: `${color}18`, color, flexShrink: 0,
+          }}
+        >
+          {icon}
+        </span>
+        <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", color: DS.textLight }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ fontSize: 17, fontWeight: 800, color: DS.text, direction: "ltr" as const, position: "relative" as const }}>
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+function DashCard({
+  title, icon, onEdit, lang, children,
+}: { title: string; icon: React.ReactNode; onEdit: () => void; lang: "ar" | "en"; children: React.ReactNode }) {
+  return (
+    <div style={{ background: DS.surface, border: `1px solid ${DS.border}`, borderRadius: DS.radius.lg, boxShadow: DS.shadow.sm, overflow: "hidden", display: "flex", flexDirection: "column" as const }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: DS.surfaceAlt, borderBottom: `1px solid ${DS.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: DS.radius.sm, background: `${DS.primary}15`, color: DS.primary }}>
+            {icon}
+          </span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: DS.text }}>{title}</span>
+        </div>
+        <button type="button" onClick={onEdit} style={{ fontSize: 11, fontWeight: 600, color: DS.primary, background: `${DS.primary}10`, border: `1px solid ${DS.primary}30`, borderRadius: DS.radius.sm, padding: "4px 9px", cursor: "pointer", fontFamily: "inherit" }}>
+          {lang === "ar" ? "تعديل" : "Edit"}
+        </button>
+      </div>
+      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column" as const, gap: 6, flex: 1 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DashRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5 }}>
+      <span style={{ color: DS.textMuted }}>{label}</span>
+      <span style={{ color: value ? DS.text : DS.textLight, fontWeight: value ? 600 : 400, textAlign: "right" as const }}>
+        {value || "—"}
+      </span>
+    </div>
+  );
+}
+
+// ─── Section Card ─────────────────────────────────────────────────────────────
 function SectionCard({
   title,
   children,
-  defaultOpen = false,
   accentColor,
   icon,
+  completion,
+  lang,
 }: {
   title: string;
   children: React.ReactNode;
-  defaultOpen?: boolean;
   accentColor?: string;
   icon?: React.ReactNode;
+  completion?: { requiredTotal: number; requiredFilled: number; isComplete: boolean };
+  lang: "ar" | "en";
+  defaultOpen?: boolean; // kept for prop compatibility, no longer used
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const hasAccent = !!accentColor;
 
   return (
@@ -1031,26 +1279,19 @@ function SectionCard({
         marginBottom: 8,
         overflow: "hidden",
         boxShadow: DS.shadow.sm,
-        transition: "box-shadow 0.2s",
       }}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
+      <div
         style={{
-          width: "100%",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           padding: "13px 18px",
           background: hasAccent ? accentColor : DS.surfaceAlt,
-          border: "none",
-          borderBottom: open ? `1px solid ${DS.border}` : "none",
-          cursor: "pointer",
+          borderBottom: `1px solid ${DS.border}`,
           fontWeight: 600,
           fontSize: 13,
           color: hasAccent ? "#fff" : DS.text,
-          textAlign: "inherit" as const,
           gap: 10,
         }}
       >
@@ -1064,9 +1305,7 @@ function SectionCard({
                 width: 28,
                 height: 28,
                 borderRadius: DS.radius.sm,
-                background: hasAccent
-                  ? "rgba(255,255,255,0.18)"
-                  : `${DS.primary}15`,
+                background: hasAccent ? "rgba(255,255,255,0.18)" : `${DS.primary}15`,
                 color: hasAccent ? "#fff" : DS.primary,
                 flexShrink: 0,
               }}
@@ -1075,30 +1314,48 @@ function SectionCard({
             </span>
           )}
           <span>{title}</span>
+          {completion && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                marginInlineStart: 6,
+                padding: "2px 8px",
+                borderRadius: 999,
+                fontSize: 10,
+                fontWeight: 700,
+                background: completion.isComplete
+                  ? "#f0fdf4"
+                  : hasAccent
+                    ? "rgba(255,255,255,0.18)"
+                    : DS.surfaceAlt,
+                color: completion.isComplete
+                  ? "#15803d"
+                  : hasAccent
+                    ? "#fff"
+                    : DS.textMuted,
+                border: completion.isComplete
+                  ? "1px solid #bbf7d0"
+                  : `1px solid ${hasAccent ? "rgba(255,255,255,0.3)" : DS.border}`,
+              }}
+            >
+              {completion.isComplete ? (
+                <>
+                  <CheckCircle2 size={11} />
+                  {lang === "ar" ? "مكتمل" : "Complete"}
+                </>
+              ) : (
+                `${completion.requiredFilled}/${completion.requiredTotal}`
+              )}
+            </span>
+          )}
         </div>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 22,
-            height: 22,
-            borderRadius: DS.radius.sm,
-            background: hasAccent ? "rgba(255,255,255,0.2)" : DS.border,
-            color: hasAccent ? "#fff" : DS.textMuted,
-            transition: "transform 0.25s",
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            flexShrink: 0,
-          }}
-        >
-          <ChevronDown size={13} />
-        </span>
-      </button>
-      {open && <div style={{ padding: "18px 20px" }}>{children}</div>}
+      </div>
+      <div style={{ padding: "18px 20px" }}>{children}</div>
     </div>
   );
 }
-
 // ─── Grid + Field ─────────────────────────────────────────────────────────────
 
 function GridFields({
@@ -1125,10 +1382,12 @@ function Field({
   label,
   children,
   full = false,
+  required = false
 }: {
   label: string;
   children: React.ReactNode;
-  full?: boolean;
+    full?: boolean;
+    required?: boolean
 }) {
   return (
     <div style={{ gridColumn: full ? "1 / -1" : undefined }}>
@@ -1144,6 +1403,9 @@ function Field({
         }}
       >
         {label}
+        {required && (
+                  <span style={{ color: DS.red, marginInlineStart: 3 }}>*</span>
+                )}
       </label>
       {children}
     </div>
@@ -1560,6 +1822,65 @@ export function TransactionEvaluationPage({
   const isRtl = lang === "ar";
   const t = T[lang];
 
+  // Maps to the `ev` state shape. section = top-level key in ev, field = key within it.
+  const REQUIRED_FIELDS: Record<string, { section: string; field: string }[]> = {
+    secBasic: [
+      { section: "basic", field: "subDivisionRecordNumber" }, // رقم محضر التجزئة
+      { section: "basic", field: "buildingLicense" },          // رخصة البناء (see note above re: "حالة رخصة البناء")
+      { section: "basic", field: "clientName" },                // اسم العميل
+      { section: "basic", field: "authorizedName" },             // اسم المفوض بطلب التقييم
+      { section: "basic", field: "ownerName" },                  // اسم المالك
+      { section: "basic", field: "otherUsers" },                 // المستخدمين الأخرين
+      { section: "basic", field: "deedNumber" },                 // رقم الصك
+      { section: "basic", field: "deedDate" },                   // تاريخ الصك
+      { section: "basic", field: "deedSource" },                 // مصدر الصك
+      { section: "basic", field: "buildingLicenseDate" },        // تاريخ رخصة البناء
+      { section: "basic", field: "parcelNumber" },                // رقم القطعة
+      { section: "basic", field: "planNumber" },                  // رقم المخطط
+      { section: "basic", field: "elevation" },                   // المنسوب
+      { section: "basic", field: "inspectionBoundaries" },       // حدود المعاينة
+    ],
+    secBoundaries: [
+      { section: "boundaries", field: "northBoundary" },
+      { section: "boundaries", field: "northLength" },
+      { section: "boundaries", field: "southBoundary" },
+      { section: "boundaries", field: "southLength" },
+      { section: "boundaries", field: "eastBoundary" },
+      { section: "boundaries", field: "eastLength" },
+      { section: "boundaries", field: "westBoundary" },
+      { section: "boundaries", field: "westLength" },
+    ],
+  };
+
+  const requiredBasicKeys = new Set(
+    REQUIRED_FIELDS.secBasic.map((f) => f.field),
+  );
+
+  function useSectionCompletion(ev: ReturnType<typeof emptyEval>) {
+    return React.useMemo(() => {
+      const result: Record<
+        string,
+        { requiredTotal: number; requiredFilled: number; isComplete: boolean }
+      > = {};
+
+      for (const [sectionKey, fields] of Object.entries(REQUIRED_FIELDS)) {
+        let filled = 0;
+        for (const { section, field } of fields) {
+          const val = (ev as any)[section]?.[field];
+          if (val !== undefined && val !== null && String(val).trim() !== "") {
+            filled += 1;
+          }
+        }
+        result[sectionKey] = {
+          requiredTotal: fields.length,
+          requiredFilled: filled,
+          isComplete: filled === fields.length,
+        };
+      }
+      return result;
+    }, [ev]);
+  }
+
   function computeReplacementDerived(
     lines: typeof ev.replacementLines,
     fields: typeof ev.replacementFields,
@@ -1789,6 +2110,7 @@ export function TransactionEvaluationPage({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [tx, setTx] = useState<any>(null);
+  const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{
@@ -2319,6 +2641,7 @@ export function TransactionEvaluationPage({
     ev.replacementLines,
     ev.replacementFields as any,
   );
+  const completion = useSectionCompletion(ev);
   const investmentTotal = ev.investmentEntries.reduce(
     (sum: number, entry: any) => {
       const capLines = entry.lines ?? [];
@@ -2356,6 +2679,22 @@ export function TransactionEvaluationPage({
     { id: "vm-r", label: t.vmResidual },
     { id: "vm-d", label: t.vmDcf },
     { id: "vm-e", label: t.vmRental },
+  ];
+
+  const STEPS = [
+    { key: "overview",     label: lang === "ar" ? "نظرة عامة" : "Overview",        icon: <ClipboardList size={14} /> },
+    { key: "location",     label: t.secLocation,                                    icon: <MapPin size={14} /> },
+    { key: "basic",        label: t.secBasic,        icon: <Database size={14} />,  completion: completion.secBasic },
+    { key: "boundaries",   label: t.secBoundaries,   icon: <Compass size={14} />,   completion: completion.secBoundaries },
+    { key: "finishing",    label: t.secFinishing,                                   icon: <Layers size={14} /> },
+    { key: "services",     label: t.secServices,                                    icon: <Zap size={14} /> },
+    { key: "map",          label: t.secMap,                                         icon: <Map size={14} /> },
+    { key: "comparison",   label: t.secComparison,                                  icon: <Map size={14} /> },
+    { key: "replacement",  label: t.secReplacement,                                 icon: <Wrench size={14} /> },
+    { key: "investment",   label: lang === "ar" ? "التحليل الاستثماري" : "Investment Analysis", icon: <BarChart2 size={14} /> },
+    { key: "methods",      label: t.secMethods,                                     icon: <BarChart2 size={14} /> },
+    { key: "appraiser",    label: t.secAppraiser,                                   icon: <UserCheck size={14} /> },
+    { key: "report",       label: lang === "ar" ? "التقرير والمعدين" : "Report & Authors", icon: <ScrollText size={14} /> },
   ];
 
   const boundaryFields: { key: keyof typeof ev.boundaries; labelKey: TKeys }[] =
@@ -2464,10 +2803,10 @@ export function TransactionEvaluationPage({
           display: "flex",
           alignItems: "center",
           gap: 12,
-          marginBottom: 18,
+          marginBottom: 10,
           background: DS.surface,
           borderRadius: DS.radius.xl,
-          padding: "12px 16px",
+          padding: "12px 14px",
           border: `1px solid ${DS.border}`,
           boxShadow: DS.shadow.sm,
         }}
@@ -2479,8 +2818,8 @@ export function TransactionEvaluationPage({
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 36,
-            height: 36,
+            width: 30,
+            height: 30,
             background: DS.surfaceAlt,
             border: `1px solid ${DS.border}`,
             borderRadius: DS.radius.md,
@@ -2498,7 +2837,7 @@ export function TransactionEvaluationPage({
         <div style={{ flex: 1 }}>
           <h1
             style={{
-              fontSize: 17,
+              fontSize: 14,
               fontWeight: 700,
               margin: 0,
               color: DS.text,
@@ -2507,7 +2846,7 @@ export function TransactionEvaluationPage({
           >
             {t.pageTitle}
           </h1>
-          <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+          <div style={{ fontSize: 10, color: DS.textMuted, marginTop: 0 }}>
             #{transactionId}
           </div>
         </div>
@@ -2553,321 +2892,331 @@ export function TransactionEvaluationPage({
       </div>
 
       {/* ── Request Information ─────────────────────────────────────────────── */}
-      <SectionCard
-        title={t.secRequest}
-        defaultOpen={true}
-        icon={<ClipboardList size={14} />}
-      >
-        <ReadOnlyGrid>
-          <ReadOnlyItem label={t.refNo} value={transactionId} />
-          <ReadOnlyItem label={t.assignmentNo} value={tx?.assignmentNumber} />
-          <ReadOnlyItem label={t.assignmentDate} value={tx?.assignmentDate} />
-          <ReadOnlyItem
-            label={t.valuationPurpose}
-            value={
-              VALUATION_PURPOSES[lang][tx?.valuationPurpose] ??
-              tx?.valuationPurpose
-            }
-          />
-          <ReadOnlyItem
-            label={t.valuationBasis}
-            value={
-              VALUATION_BASES[lang][tx?.valuationBasis] ?? tx?.valuationBasis
-            }
-          />
-          <ReadOnlyItem
-            label={t.ownershipType}
-            value={
-              OWNERSHIP_TYPES[lang][tx?.ownershipType] ?? tx?.ownershipType
-            }
-          />
-          <ReadOnlyItem
-            label={t.valuationHypothesis}
-            value={
-              VALUATION_HYPOTHESES[lang][tx?.valuationHypothesis] ??
-              tx?.valuationHypothesis
-            }
-          />
-          <ReadOnlyItem label={t.assetCount} value={t.assetCountVal} />
-          <ReadOnlyItem
-            label={t.client}
-            value={tx?.clientName ?? tx?.clientId}
-          />
-          <ReadOnlyItem label={t.template} value={tx?.templateName ?? tx?.templateId} />u
-          <ReadOnlyItem label={t.notes} value={tx?.intendedUse} full />
-        </ReadOnlyGrid>
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            marginTop: 14,
-            paddingTop: 14,
-            borderTop: `1px solid ${DS.border}`,
-            flexWrap: "wrap",
-          }}
-        >
-          {/* Replace the two static badge divs with these */}
-
-          {/* isOpened — still read-only, no change */}
+      <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang}>
+      {activeStep === 0 && (
+        <>
+          {/* ── Hero (enlarged, data-rich) ─────────────────────────────────── */}
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "5px 11px",
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 600,
-              border: `1px solid ${tx?.isOpened ? "#bbf7d0" : DS.border}`,
-              background: tx?.isOpened ? "#f0fdf4" : DS.surfaceAlt,
-              color: tx?.isOpened ? "#15803d" : DS.textMuted,
+              position: "relative",
+              borderRadius: DS.radius.xl,
+              padding: "26px 26px 22px",
+              marginBottom: 12,
+              background: `linear-gradient(135deg, ${DS.primary} 0%, #7c3aed 100%)`,
+              boxShadow: `0 10px 30px -8px ${DS.primary}55`,
+              overflow: "hidden",
+              color: "#fff",
             }}
           >
-            {tx?.isOpened ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-            {lang === "ar"
-              ? tx?.isOpened
-                ? "تم الفتح"
-                : "لم يُفتح"
-              : tx?.isOpened
-                ? "Opened"
-                : "Not opened"}
-          </div>
-
-          {/* isCompleted — now a clickable toggle */}
-          <button
-            type="button"
-            onClick={async () => {
-              const next = !tx?.isCompleted;
-              // Optimistic update
-              setTx((prev: any) => ({ ...prev, isCompleted: next }));
-              try {
-                const res = await fetch(
-                  toApiUrl(`/api/transactions/${transactionId}/completed`),
-                  {
-                    method: "PATCH",
-                    credentials: "include",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ isCompleted: next }),
-                  },
-                );
-                if (!res.ok) throw new Error();
-                const updated = await res.json();
-                setTx(updated);
-                onStatusSaved?.();
-              } catch {
-                // Revert on failure
-                setTx((prev: any) => ({ ...prev, isCompleted: !next }));
-                setStatusMsg({ type: "error", text: t.saveError });
-              }
-            }}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "5px 11px",
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 600,
-              border: `1.5px solid ${tx?.isCompleted ? "#bfdbfe" : DS.border}`,
-              background: tx?.isCompleted ? "#eff6ff" : DS.surfaceAlt,
-              color: tx?.isCompleted ? "#2563eb" : DS.textMuted,
-              cursor: "pointer",
-              fontFamily: "inherit",
-              transition: "all 0.15s",
-            }}
-          >
-            {tx?.isCompleted ? (
-              <CheckCircle2 size={13} />
-            ) : (
-              <XCircle size={13} />
-            )}
-            {lang === "ar"
-              ? tx?.isCompleted
-                ? "مكتملة "
-                : "غير مكتملة"
-              : tx?.isCompleted
-                ? "Completed"
-                : "Not completed"}
-          </button>
-        </div>
-      </SectionCard>
-
-      {/* ── Important Links ─────────────────────────────────────────────────── */}
-      <details
-        style={{
-          background: DS.surface,
-          border: `1px solid ${DS.border}`,
-          borderRadius: DS.radius.xl,
-          marginBottom: 8,
-          overflow: "hidden",
-          boxShadow: DS.shadow.sm,
-        }}
-      >
-        <summary
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "13px 18px",
-            background: DS.surfaceAlt,
-            cursor: "pointer",
-            listStyle: "none",
-            fontWeight: 600,
-            fontSize: 13,
-            color: DS.text,
-            gap: 9,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <span
+            <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 28,
-                height: 28,
-                borderRadius: DS.radius.sm,
-                background: `${DS.primary}15`,
-                color: DS.primary,
+                position: "absolute",
+                top: -40, insetInlineEnd: -40,
+                width: 180, height: 180,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.08)",
               }}
-            >
-              <Map size={14} />
-            </span>
-            {t.secLinks}
-          </div>
-          <ChevronDown
-            size={13}
-            style={{ color: DS.textMuted, flexShrink: 0 }}
-          />
-        </summary>
-        <div style={{ padding: "16px 18px" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
-              gap: "6px 10px",
-            }}
-          >
-            {IMPORTANT_LINKS.map((l) => (
-              <a
-                key={l.href}
-                href={l.href}
-                target="_blank"
-                rel="noopener noreferrer"
+            />
+            <div
+              style={{
+                position: "absolute",
+                bottom: -60, insetInlineStart: -20,
+                width: 160, height: 160,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.06)",
+              }}
+            />
+            <div style={{ position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" as const, marginBottom: 18 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <span
+                      style={{
+                        width: 36, height: 36, borderRadius: DS.radius.md,
+                        background: "rgba(255,255,255,0.16)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      <ClipboardList size={18} />
+                    </span>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.2px" }}>{t.pageTitle}</div>
+                      <div style={{ fontSize: 11, opacity: 0.8 }}>#{transactionId}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>
+                    {t.finalAssetValue}
+                  </div>
+                  <div style={{ fontSize: 32, fontWeight: 800, direction: "ltr" as const, lineHeight: 1.1 }}>
+                    {ev.appraiser.finalAssetValue
+                      ? Number(ev.appraiser.finalAssetValue).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                      : (lang === "ar" ? "لم يُحدد بعد" : "Not yet determined")}
+                  </div>
+                </div>
+
+                {/* Status badge + opened/completed toggles */}
+                <div style={{ display: "flex", flexDirection: "column" as const, alignItems: isRtl ? "flex-start" : "flex-end", gap: 8 }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "5px 12px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: "rgba(255,255,255,0.18)",
+                    }}
+                  >
+                    {WORKFLOW_STATUSES[lang].find((s) => s.value === ev.status)?.label}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: isRtl ? "flex-start" : "flex-end" }}>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: tx?.isOpened ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
+                      }}
+                    >
+                      {tx?.isOpened ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                      {lang === "ar" ? (tx?.isOpened ? "تم الفتح" : "لم يُفتح") : (tx?.isOpened ? "Opened" : "Not opened")}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const next = !tx?.isCompleted;
+                        setTx((prev: any) => ({ ...prev, isCompleted: next }));
+                        try {
+                          const res = await fetch(
+                            toApiUrl(`/api/transactions/${transactionId}/completed`),
+                            {
+                              method: "PATCH",
+                              credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ isCompleted: next }),
+                            },
+                          );
+                          if (!res.ok) throw new Error();
+                          const updated = await res.json();
+                          setTx(updated);
+                          onStatusSaved?.();
+                        } catch {
+                          setTx((prev: any) => ({ ...prev, isCompleted: !next }));
+                          setStatusMsg({ type: "error", text: t.saveError });
+                        }
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        border: "none",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        background: tx?.isCompleted ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
+                        color: "#fff",
+                      }}
+                    >
+                      {tx?.isCompleted ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                      {lang === "ar" ? (tx?.isCompleted ? "مكتملة" : "غير مكتملة") : (tx?.isCompleted ? "Completed" : "Not completed")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data-rich metrics grid (merged from Request + Asset Info) */}
+              <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  padding: "8px 12px",
-                  borderRadius: DS.radius.md,
-                  border: `1px solid ${DS.border}`,
-                  background: DS.surface,
-                  color: DS.primary,
-                  fontSize: 12,
-                  fontWeight: 500,
-                  textDecoration: "none",
-                  transition: "background 0.15s, border-color 0.15s",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+                  gap: "16px 22px",
+                  paddingTop: 16,
+                  borderTop: "1px solid rgba(255,255,255,0.18)",
                 }}
               >
-                <MapPin size={12} style={{ flexShrink: 0, opacity: 0.7 }} />
-                {lang === "ar" ? l.labelAr : l.labelEn}
-              </a>
-            ))}
-          </div>
-        </div>
-      </details>
+                {[
+                  { label: t.propertyArea, value: ev.assetInfo.propertyArea },
+                  { label: t.propertyType, value: ev.assetInfo.propertyType },
+                  { label: t.address, value: ev.assetInfo.address },
+                  { label: t.landUse, value: ev.assetInfo.landUse },
+                  { label: t.region, value: ev.location.regionName || ev.location.cityName },
+                  { label: t.client, value: tx?.clientName ?? tx?.clientId },
+                  {
+                    label: t.valuationPurpose,
+                    value: VALUATION_PURPOSES[lang][tx?.valuationPurpose] ?? tx?.valuationPurpose,
+                  },
+                  { label: t.refNo, value: transactionId },
+                ].map((m, i) => (
+                  <div key={i} style={{ minWidth: 90 }}>
+                    <div style={{ fontSize: 10, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>
+                      {m.label}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35 }}>{m.value || "—"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            </div>
 
-      {/* ── Asset Details toolbar ────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: DS.surface,
-          border: `1px solid ${DS.border}`,
-          borderRadius: DS.radius.xl,
-          marginBottom: 8,
-          padding: "14px 18px",
-          boxShadow: DS.shadow.sm,
-        }}
-      >
-        <p
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: DS.textLight,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            margin: "0 0 10px",
-          }}
-        >
-          {t.secAssetDetails}
-        </p>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <ActionButton
-            icon={<Image size={14} />}
-            label={t.btnImages}
-            accent="#7c3aed"
-            onClick={() => onOpenImages?.(transactionId, requester)}
-          />
-          <ActionButton
-            icon={<Paperclip size={14} />}
-            label={t.btnAttachments}
-            accent="#0891b2"
-            onClick={() => onOpenAttachments?.(transactionId, requester)}
-          />
-          <ActionButton
-            icon={<Pencil size={14} />}
-            label={t.btnEdit}
-            accent="#d97706"
-            onClick={() => onOpenEdit?.(transactionId, requester)}
-          />
-          <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
-          <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
-          <ActionButton
-            icon={<Printer size={14} />}
-            label={t.btnView}
-            onClick={() =>
-              window.open(`/api/transactions/${transactionId}/pdf`, "_blank")
-            }
-          />
-          <ActionButton
-            icon={<FileText size={14} />}
-            label={t.btnPdf}
-            onClick={() => {
-              const a = document.createElement("a");
-              a.href = `/api/transactions/${transactionId}/pdf`;
-              a.download = `valuation-${transactionId}.pdf`;
-              a.click();
+            {/* ── Quick actions ───────────────────────────────────────────────────── */}
+            <div style={{ background: DS.surface, border: `1px solid ${DS.border}`, borderRadius: DS.radius.xl, marginBottom: 12, padding: "14px 18px", boxShadow: DS.shadow.sm }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: DS.textLight, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 10px" }}>
+                {t.secAssetDetails}
+              </p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
+                <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
+                <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
+                <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
+                <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
+                <ActionButton icon={<Printer size={14} />} label={t.btnView} onClick={() => window.open(`/api/transactions/${transactionId}/pdf`, "_blank")} />
+                <ActionButton icon={<FileText size={14} />} label={t.btnPdf} onClick={() => { const a = document.createElement("a"); a.href = `/api/transactions/${transactionId}/pdf`; a.download = `valuation-${transactionId}.pdf`; a.click(); }} />
+                <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
+              </div>
+            </div>
+
+          {/* ── Expanded stat grid (remaining Request + Asset Info data) ─────── */}
+          <div
+            style={{
+              background: DS.surface,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radius.xl,
+              marginBottom: 12,
+              padding: "16px 18px",
+              boxShadow: DS.shadow.sm,
             }}
-          />
-          <ActionButton
-            icon={<MessageSquare size={14} />}
-            label={t.btnMessages}
-            accent="#0891b2"
-            onClick={() => onOpenNotes?.(transactionId, requester)}
-          />
-        </div>
-      </div>
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+              <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentNo} value={tx?.assignmentNumber} />
+              <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentDate} value={tx?.assignmentDate} />
+              <StatCard
+                icon={<Scale size={13} />}
+                color="#0891b2"
+                label={t.valuationBasis}
+                value={VALUATION_BASES[lang][tx?.valuationBasis] ?? tx?.valuationBasis}
+              />
+              <StatCard
+                icon={<Building2 size={13} />}
+                color="#7c3aed"
+                label={t.ownershipType}
+                value={OWNERSHIP_TYPES[lang][tx?.ownershipType] ?? tx?.ownershipType}
+              />
+              <StatCard
+                icon={<Compass size={13} />}
+                color="#2563eb"
+                label={t.valuationHypothesis}
+                value={VALUATION_HYPOTHESES[lang][tx?.valuationHypothesis] ?? tx?.valuationHypothesis}
+              />
+              <StatCard icon={<Layers size={13} />} color="#059669" label={t.assetCount} value={t.assetCountVal} />
+              <StatCard icon={<FileText size={13} />} color="#0e7490" label={t.template} value={tx?.templateName ?? tx?.templateId} />
+              <StatCard icon={<Users size={13} />} color="#7c3aed" label={t.inspector} value={ev.assetInfo.inspector} />
+              <StatCard icon={<MessageSquare size={13} />} color="#2563eb" label={t.contactNo} value={ev.assetInfo.contactNo} />
+              <StatCard icon={<UserCheck size={13} />} color="#d97706" label={t.reviewer} value={ev.assetInfo.reviewer} />
 
-      {/* ── Asset Info ──────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secAssetInfo} icon={<Building2 size={14} />}>
-        <ReadOnlyGrid>
-          <ReadOnlyItem label={t.address} value={ev.assetInfo.address} full />
-          <ReadOnlyItem
-            label={t.propertyType}
-            value={ev.assetInfo.propertyType}
-          />
-          <ReadOnlyItem
-            label={t.propertyArea}
-            value={ev.assetInfo.propertyArea}
-          />
-          <ReadOnlyItem label={t.landUse} value={ev.assetInfo.landUse} />
-          <ReadOnlyItem label={t.inspector} value={ev.assetInfo.inspector} />
-          <ReadOnlyItem label={t.contactNo} value={ev.assetInfo.contactNo} />
-          <ReadOnlyItem label={t.reviewer} value={ev.assetInfo.reviewer} />
-        </ReadOnlyGrid>
-      </SectionCard>
+              {tx?.intendedUse && (
+                <StatCard icon={<ClipboardList size={13} />} color="#64748b" label={t.notes} value={tx?.intendedUse} />
+              )}
+            </div>
+          </div>
 
-      {/* ── Location ────────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secLocation} icon={<MapPin size={14} />}>
+
+
+          {/* ── Important Links ─────────────────────────────────────────────────── */}
+          <details
+            style={{
+              background: DS.surface,
+              border: `1px solid ${DS.border}`,
+              borderRadius: DS.radius.xl,
+              marginTop: 12,
+              marginBottom: 8,
+              overflow: "hidden",
+              boxShadow: DS.shadow.sm,
+            }}
+          >
+            <summary
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "13px 18px",
+                background: `linear-gradient(90deg, ${DS.primary}10, transparent)`,
+                cursor: "pointer",
+                listStyle: "none",
+                fontWeight: 600,
+                fontSize: 13,
+                color: DS.text,
+                gap: 9,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 28,
+                    height: 28,
+                    borderRadius: DS.radius.sm,
+                    background: `${DS.primary}15`,
+                    color: DS.primary,
+                  }}
+                >
+                  <Link2 size={14} />
+                </span>
+                {t.secLinks}
+              </div>
+              <ChevronDown size={13} style={{ color: DS.textMuted, flexShrink: 0 }} />
+            </summary>
+            <div style={{ padding: "16px 18px" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+                  gap: "6px 10px",
+                }}
+              >
+                {IMPORTANT_LINKS.map((l) => (
+                  <a
+                    key={l.href}
+                    href={l.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                      padding: "8px 12px",
+                      borderRadius: DS.radius.md,
+                      border: `1px solid ${DS.border}`,
+                      background: DS.surface,
+                      color: DS.primary,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      textDecoration: "none",
+                      transition: "background 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    <MapPin size={12} style={{ flexShrink: 0, opacity: 0.7 }} />
+                    {lang === "ar" ? l.labelAr : l.labelEn}
+                  </a>
+                ))}
+              </div>
+            </div>
+          </details>
+        </>
+      )}
+      {activeStep === 1 && (
+      <>
+            {/* ── Location ────────────────────────────────────────────────────────── */}
+      <SectionCard title={t.secLocation} icon={<MapPin size={14} />} lang={lang}>
         <GridFields>
           <Field label={t.region}>
             <InlineSelectField
@@ -2999,10 +3348,21 @@ export function TransactionEvaluationPage({
             </InlineSelectField>
           </Field>
         </GridFields>
-      </SectionCard>
+            </SectionCard>
+
+      </>
+      )}
+      {activeStep === 2 && (
+      <>
 
       {/* ── Basic Data ──────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secBasic} icon={<Database size={14} />}>
+      <SectionCard
+        title={t.secBasic}
+        icon={<Database size={14} />}
+        completion={completion.secBasic}
+        lang={lang}
+
+      >
         <GridFields>
           {(
             [
@@ -3022,7 +3382,11 @@ export function TransactionEvaluationPage({
               ["blockNumber", "blockNumber"],
             ] as [keyof typeof ev.basic, TKeys][]
           ).map(([key, labelKey]) => (
-            <Field key={key} label={t[labelKey] as string}>
+            <Field
+              key={key}
+              label={t[labelKey] as string}
+              required={requiredBasicKeys.has(key)}
+            >
               <Input
                 value={(ev.basic as any)[key]}
                 onChange={(e) => setField("basic", key, e.target.value)}
@@ -3038,7 +3402,18 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-          <Field label={t.streetWidth}>
+          <Field label={t.elevation} required={requiredBasicKeys.has("elevation")}>
+            <Select
+              value={ev.basic.elevation}
+              onChange={(e) => setField("basic", "elevation", e.target.value)}
+            >
+              <option value="" disabled>{t.selectValue}</option>
+              <option value="مرتفع">{lang === "ar" ? "مرتفع" : "High"}</option>
+              <option value="مستوي">{lang === "ar" ? "مستوي" : "Level"}</option>
+              <option value="منخفض">{lang === "ar" ? "منخفض" : "Low"}</option>
+            </Select>
+          </Field>
+          <Field label={t.streetWidth} required={requiredBasicKeys.has("streetWidth")}>
             <Input
               type="text"
               value={ev.basic.streetWidth}
@@ -3062,7 +3437,7 @@ export function TransactionEvaluationPage({
               <option value="4">{t.streetFronts4}</option>
             </Select>
           </Field>
-          <Field label={t.inspectionBoundaries} full>
+          <Field label={t.inspectionBoundaries} full required={requiredBasicKeys.has("inspectionBoundaries")}>
             <Select
               value={ev.basic.inspectionBoundaries}
               onChange={(e) =>
@@ -3082,13 +3457,24 @@ export function TransactionEvaluationPage({
             </Select>
           </Field>
         </GridFields>
-      </SectionCard>
+            </SectionCard>
+
+      </>
+      )}
+      {activeStep === 3 && (
+      <>
 
       {/* ── Boundaries ──────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secBoundaries} icon={<Compass size={14} />}>
+      <SectionCard
+        title={t.secBoundaries}
+        icon={<Compass size={14} />}
+        completion={completion.secBoundaries}
+        lang={lang}
+
+      >
         <GridFields>
           {boundaryFields.map(({ key, labelKey }) => (
-            <Field key={key} label={t[labelKey] as string}>
+            <Field key={key} label={t[labelKey] as string} required>
               <Input
                 value={(ev.boundaries as any)[key]}
                 onChange={(e) => setField("boundaries", key, e.target.value)}
@@ -3096,10 +3482,16 @@ export function TransactionEvaluationPage({
             </Field>
           ))}
         </GridFields>
-      </SectionCard>
+            </SectionCard>
+
+      </>
+      )}
+      {activeStep === 4 && (
+      <>
 
       {/* ── Finishing ───────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secFinishing} icon={<Layers size={14} />}>
+      <SectionCard title={t.secFinishing} icon={<Layers size={14} />} lang={lang}
+>
         <GridFields>
           <Field label={t.buildingState}>
             <Select
@@ -3213,10 +3605,16 @@ export function TransactionEvaluationPage({
             </Select>
           </Field>
         </GridFields>
-      </SectionCard>
+            </SectionCard>
+
+      </>
+      )}
+      {activeStep === 5 && (
+      <>
 
       {/* ── Services ────────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secServices} icon={<Zap size={14} />}>
+      <SectionCard title={t.secServices} icon={<Zap size={14} />} lang={lang}
+>
         <GridFields>
           <Field label={t.street} full>
             <Input
@@ -3565,10 +3963,16 @@ export function TransactionEvaluationPage({
             </div>
           </div>
         </div>
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 6 && (
+            <>
 
       {/* ── Map Location ────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secMap} icon={<MapPin size={14} />}>
+      <SectionCard title={t.secMap} icon={<MapPin size={14} />} lang={lang}
+>
         {/* Map picker button */}
         <div style={{ marginBottom: 16 }}>
           <button
@@ -3635,13 +4039,20 @@ export function TransactionEvaluationPage({
             lang={lang}
           />
         )}
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 7 && (
+            <>
 
       {/* ── Comparison ──────────────────────────────────────────────────────── */}
       <SectionCard
         title={t.secComparison}
         accentColor="#0e7490"
         icon={<Map size={14} />}
+        lang={lang}
+
       >
         <SettlementComparison
           useLabel={
@@ -3672,13 +4083,20 @@ export function TransactionEvaluationPage({
           settlementNotes={settlementNotes}
           onSettlementNotesChange={setSettlementNotes}
         />
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 8 && (
+            <>
 
       {/* ── Replacement Cost ─────────────────────────────────────────────────── */}
       <SectionCard
         title={t.secReplacement}
         accentColor="#0e7490"
         icon={<Wrench size={14} />}
+        lang={lang}
+
       >
         <ReplacementCostSection
           lang={lang}
@@ -3691,7 +4109,12 @@ export function TransactionEvaluationPage({
             setEv((p) => ({ ...p, replacementFields: fields }))
           }
         />
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 9 && (
+            <>
 
       {/* ── Investment (الاستثمار) ──────────────────────────────────────────────── */}
       <SectionCard
@@ -4577,6 +5000,8 @@ export function TransactionEvaluationPage({
         title={lang === "ar" ? "القيمة المتبقية" : "Residual Value"}
         accentColor="#0e7490"
         icon={<Scale size={14} />}
+        lang={lang}
+
       >
         {/* Add entry form */}
         <div
@@ -4758,6 +5183,8 @@ export function TransactionEvaluationPage({
         }
         accentColor="#0e7490"
         icon={<BarChart2 size={14} />}
+        lang={lang}
+
       >
         {/* Add entry form */}
         <div
@@ -4937,6 +5364,8 @@ export function TransactionEvaluationPage({
         title={lang === "ar" ? "القيمة الإيجارية" : "Rental Value"}
         accentColor="#0e7490"
         icon={<Building2 size={14} />}
+        lang={lang}
+
       >
         {/* Add entry form */}
         <div
@@ -5782,10 +6211,16 @@ export function TransactionEvaluationPage({
             </div>
           </div>
         ))}
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 10 && (
+            <>
 
       {/* ── Valuation Methods ────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secMethods} icon={<BarChart2 size={14} />}>
+      <SectionCard title={t.secMethods} icon={<BarChart2 size={14} />} lang={lang}
+>
         {/* Tab bar */}
         <div
           style={{
@@ -7624,9 +8059,15 @@ export function TransactionEvaluationPage({
             </GridFields>
           </div>
         )}
-      </SectionCard>
+            </SectionCard>
 
-      <SectionCard title={t.secAppraiser} icon={<UserCheck size={14} />}>
+            </>
+            )}
+            {activeStep === 11 && (
+            <>
+
+      <SectionCard title={t.secAppraiser} icon={<UserCheck size={14} />} lang={lang}
+>
         <AppraiserOpinionSection
           lang={lang}
           methodTotals={{
@@ -7668,10 +8109,16 @@ export function TransactionEvaluationPage({
           data={ev.appraiser}
           onChange={(updated) => setEv((p) => ({ ...p, appraiser: updated }))}
         />
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            {activeStep === 12 && (
+            <>
 
       {/* ── Report Items ─────────────────────────────────────────────────────── */}
-      <SectionCard title={t.secReport} icon={<ScrollText size={14} />}>
+      <SectionCard title={t.secReport} icon={<ScrollText size={14} />} lang={lang}
+>
         <GridFields>
           <Field label={t.standards} full>
             <Textarea
@@ -7772,7 +8219,11 @@ export function TransactionEvaluationPage({
             </div>
           ))}
         </div>
-      </SectionCard>
+            </SectionCard>
+
+            </>
+            )}
+            </WizardShell>
 
       {/* ── Floating Save FAB ────────────────────────────────────────────────── */}
       <div
