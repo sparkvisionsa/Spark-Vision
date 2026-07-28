@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode, Ref } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronsDownUp,
@@ -214,6 +214,7 @@ export function MvReportDataForm({
   onCloneFromProject?: () => void;
 }) {
   const { t, isArabic, dir } = useMvI18n();
+  const [preparersPopoverOpen, setPreparersPopoverOpen] = useState(false);
   const allSectionsOpen = MV_REPORT_COLLAPSIBLE_IDS.every((id) => openSections[id]);
   const SectionToggleIcon = allSectionsOpen ? ChevronsDownUp : ChevronsUpDown;
   const inputClass =
@@ -748,7 +749,7 @@ export function MvReportDataForm({
                   {t("reportData.participants.description")}
                 </p>
               </div>
-              <Popover>
+              <Popover open={preparersPopoverOpen} onOpenChange={setPreparersPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
@@ -827,6 +828,16 @@ export function MvReportDataForm({
                         );
                       })
                     )}
+                  </div>
+                  <div className="border-t border-slate-100 bg-white p-3">
+                    <button
+                      type="button"
+                      onClick={() => setPreparersPopoverOpen(false)}
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 text-[12px] font-extrabold text-white shadow-sm transition hover:bg-sky-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t("reportData.participants.add")}
+                    </button>
                   </div>
                 </PopoverContent>
               </Popover>

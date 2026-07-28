@@ -596,6 +596,7 @@ export const mvAr = {
       loading: "جاري تحميل المقيمين…",
       emptyOptions: "لا يوجد مقيمون متاحون. أضف بياناتهم من الإعدادات العامة ← المقيمون والتوقيعات.",
       emptySelection: "لم يتم اختيار مُعدّي التقرير بعد.",
+      add: "إضافة",
       fixedManager: "مدير الشركة · ثابت",
       appraiserData: "بيانات المقيم",
       appraiserRole: "دور المقيم",

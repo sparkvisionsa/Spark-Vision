@@ -596,6 +596,7 @@ export const mvEn = {
       loading: "Loading appraisers…",
       emptyOptions: "No appraisers are available. Add them under General Settings → Appraisers and signatures.",
       emptySelection: "No report preparers have been selected.",
+      add: "Add",
       fixedManager: "Company manager · fixed",
       appraiserData: "Appraiser details",
       appraiserRole: "Appraiser role",
