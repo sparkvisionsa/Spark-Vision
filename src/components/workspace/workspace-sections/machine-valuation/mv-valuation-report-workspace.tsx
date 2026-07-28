@@ -83,6 +83,7 @@ import {
 } from "./mv-client-documents-store";
 import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-export-menu";
 import { MvWordTemplateModal } from "./mv-word-template-modal";
+import { buildMvWordImageLayout } from "./mv-word-template-settings";
 import {
   downloadWordBlob,
   mergeWordReportTemplateSmart,
@@ -110,6 +111,11 @@ import {
 } from "./mv-valuation-report-narrative-defaults";
 import { MV_REPORT_SCROLL_ANCHOR_ORDER, MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 import { ReportViewportScaleContext } from "./mv-report-viewport-scale";
+import {
+  normalizeReportPreparerOptions,
+  normalizeReportTeam,
+  type MvReportPreparerOption,
+} from "./mv-report-preparers";
 
 function applyMvReportCaptureClone(clonedDoc: Document) {
   const stableCaptureStyle = clonedDoc.createElement("style");
@@ -791,9 +797,11 @@ function isReportNavGroupActive(activeSection: ReportSectionId, activeAnchors: s
 type ReportSignatureRow = {
   id: string;
   name: string;
+  jobTitle: string;
   roleLabel: string;
   membershipNo: string;
   signatureImageDataUrl: string;
+  isCompanyAdmin: boolean;
 };
 
 type PreparerFieldEdits = Record<string, { name: string; roleLabel: string; membershipNo: string }>;
@@ -1696,7 +1704,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
   const [clientDocumentsStore, setClientDocumentsStore] =
     useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
-  const [companySignatories, setCompanySignatories] = useState<ReportSignatureRow[]>([]);
+  const [companySignatories, setCompanySignatories] = useState<MvReportPreparerOption[]>([]);
   const [companyAdminMembershipNo, setCompanyAdminMembershipNo] = useState<string | null>(null);
   const [companyBrand, setCompanyBrand] = useState<{ name: string; logoSrc: string | null }>({
     name: "",
@@ -1718,8 +1726,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [companyDefaultSections, setCompanyDefaultSections] = useState<MvCompanyReportCustomSection[]>([]);
   const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
   const [companyAiTemplates, setCompanyAiTemplates] = useState<MvCompanyAiTemplate[]>([]);
-  const [companyWordTemplateReady, setCompanyWordTemplateReady] = useState(false);
-  const [preparerFieldEdits, setPreparerFieldEdits] = useState<PreparerFieldEdits>(() =>
+  const [preparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
   );
   const [editableSections, setEditableSections] = useState<MvReportEditableSection[]>(() =>
@@ -2138,13 +2145,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     }
   }, [loading, project?._id]);
 
-  useEffect(
-    () => () => {
-      if (reportDataPersistTimerRef.current) window.clearTimeout(reportDataPersistTimerRef.current);
-    },
-    [],
-  );
-
   /**
    * Kick off the company-defaults request immediately on mount — it does not
    * depend on the project payload and running it in parallel with the main
@@ -2164,9 +2164,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           reportSignatoryRows?: Array<{
             id?: string;
             name?: string;
+            jobTitle?: string;
             roleLabel?: string;
             membershipNo?: string;
             signatureImageDataUrl?: string;
+            memberRole?: string;
+            isCompanyAdmin?: boolean;
           }>;
           reportDefaults?: {
             scope?: Record<string, string | undefined>;
@@ -2180,7 +2183,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             }>;
             letterhead?: MvCompanyReportLetterheadTemplate | null;
             aiTemplates?: unknown[];
-            wordTemplate?: { fileUrl?: string | null } | null;
           } | null;
         };
         setCompanyBrand({
@@ -2193,18 +2195,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             : null,
         );
         const rows = Array.isArray(data.reportSignatoryRows) ? data.reportSignatoryRows : [];
-        setCompanySignatories(
-          rows.map((r) => ({
-            id: typeof r.id === "string" && r.id ? r.id : newId(),
-            name: typeof r.name === "string" ? r.name : "",
-            roleLabel: typeof r.roleLabel === "string" ? r.roleLabel : "",
-            membershipNo: typeof r.membershipNo === "string" ? r.membershipNo : "",
-            signatureImageDataUrl:
-              typeof r.signatureImageDataUrl === "string" && r.signatureImageDataUrl.startsWith("data:image/")
-                ? r.signatureImageDataUrl
-                : "",
-          })),
-        );
+        setCompanySignatories(normalizeReportPreparerOptions(rows));
         const pickStrings = (
           source: Record<string, string | undefined> | undefined,
         ): Record<string, string> => {
@@ -2255,13 +2246,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             : null,
         );
         setCompanyAiTemplates(normalizeCompanyAiTemplatesForReport(data.reportDefaults?.aiTemplates, t));
-        const companyWordTemplateUrl = data.reportDefaults?.wordTemplate?.fileUrl;
-        const trimmedUrl =
-          typeof companyWordTemplateUrl === "string" ? companyWordTemplateUrl.trim() : "";
-        setCompanyWordTemplateReady(
-          trimmedUrl.startsWith("/uploads/company-report-templates/") ||
-            (trimmedUrl.startsWith("/files/") && trimmedUrl.toLowerCase().endsWith(".docx")),
-        );
       } catch {
         /* ignore */
       }
@@ -2835,11 +2819,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [clientDocumentImages, projectId],
   );
 
-  const wordTemplateReady = companyWordTemplateReady;
   const isSimpleReport = (project?.reportType ?? "simple") === "simple";
 
   const downloadAsDocxTemplate = useCallback(async () => {
-    if (!companyWordTemplateReady || loading || reportMediaLoading) return;
+    if (loading || reportMediaLoading) return;
     setDownloadingDocxTemplate(true);
     setPdfExportProgress(8);
     setPdfExportLabel(t("report.export.preparingWordData"));
@@ -2857,16 +2840,32 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportLabel(t("report.export.mergingWord"));
       const result = await mergeWordReportTemplateSmart({
         projectId,
-        templateBuffer: new ArrayBuffer(0),
         mergeInput,
         assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
         valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
         clientImageUrls: wordTemplateClientImageSources.map((s) => s.url),
+        imageLayout: buildMvWordImageLayout(reportData),
       });
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       downloadWordBlob(result.blob, `${safeName}-merged-report.docx`);
       setPdfExportProgress(100);
-      toast({ description: t("report.export.wordTemplate") });
+      const mergeStats = result.mergeStats;
+      const hasMergedContent =
+        mergeStats.variablesFilled > 0 ||
+        mergeStats.assetImagesInserted > 0 ||
+        mergeStats.valuationImagesInserted > 0 ||
+        mergeStats.clientImagesInserted > 0;
+      const warningDetail = mergeStats.warnings.join(" ");
+      toast({
+        variant: hasMergedContent ? "default" : "destructive",
+        description: warningDetail
+          ? hasMergedContent
+            ? `${t("report.export.wordTemplate")} ${warningDetail}`
+            : warningDetail
+          : hasMergedContent
+            ? t("report.export.wordTemplate")
+            : t("report.wordTemplate.toastNoData"),
+      });
     } catch (error) {
       toast({
         variant: "destructive",
@@ -2878,7 +2877,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportLabel("");
     }
   }, [
-    companyWordTemplateReady,
     loading,
     project?.displayNumber,
     project?.name,
@@ -2914,31 +2912,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     setImageOrder((current) => current.filter((id) => id !== fileId));
   }, []);
 
-  const updatePreparerField = useCallback(
-    (id: string, field: "name" | "roleLabel" | "membershipNo", value: string) => {
-      setPreparerFieldEdits((prev) => {
-        const row = companySignatories.find((x) => x.id === id);
-        const base = prev[id] ?? {
-          name: row?.name ?? "",
-          roleLabel: row?.roleLabel ?? "",
-          membershipNo: row?.membershipNo ?? "",
-        };
-        return {
-          ...prev,
-          [id]: { ...base, [field]: value },
-        };
-      });
-    },
-    [companySignatories],
-  );
-
   const preparerDisplayRows = useMemo(() => {
-    return companySignatories.map((s) => {
-      const ed = preparerFieldEdits[s.id];
-      if (!ed) return { ...s };
-      return { ...s, name: ed.name, roleLabel: ed.roleLabel, membershipNo: ed.membershipNo };
+    const selected = normalizeReportTeam(reportData.valuationTeam, companySignatories);
+    const optionById = new Map(companySignatories.map((row) => [row.id, row]));
+    return selected.map((member): ReportSignatureRow => {
+      const source = optionById.get(member.id);
+      return {
+        id: member.id,
+        name: source?.name || member.name || "",
+        jobTitle: source?.jobTitle || member.title || "",
+        roleLabel: member.role || "",
+        membershipNo: source?.membershipNo || member.membershipNo || "",
+        signatureImageDataUrl: source?.signatureImageDataUrl || "",
+        isCompanyAdmin: source?.isCompanyAdmin === true,
+      };
     });
-  }, [companySignatories, preparerFieldEdits]);
+  }, [companySignatories, reportData.valuationTeam]);
 
   const reportImageSources = useMemo(() => {
     const sources: string[] = [];
@@ -3064,9 +3053,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   }, [companyBrand.name, user?.phone, user?.username, profile?.email, profile?.phone, project?.createdByName]);
 
   const persistProjectReportData = useCallback(
-    async (nextReportData: MvProjectReportData) => {
+    async (nextReportData: MvProjectReportData): Promise<boolean> => {
       const p = projectRef.current;
-      if (!p?._id) return;
+      if (!p?._id) return false;
       const requestId = ++reportDataPersistRequestRef.current;
       const normalizedReportData = withDraftDefaultReportData(nextReportData);
       try {
@@ -3080,7 +3069,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             reportData: normalizedReportData,
           }),
         });
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const j = (await res.json()) as { project?: MvProject };
         if (j.project && requestId === reportDataPersistRequestRef.current) {
           const savedProject = withDraftDefaultProject(j.project)!;
@@ -3101,8 +3090,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             return nextProject;
           });
         }
+        return true;
       } catch {
-        /* ignore */
+        return false;
       }
     },
     [projectId, sessionKey],
@@ -3117,17 +3107,50 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           draftModeOverrideRef.current = patch.reportPresentationDraft;
         }
         const next = { ...p, reportData: rd };
+        projectRef.current = next;
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, { ...prevBundle, project: next, fetchedAt: Date.now() });
         if (reportDataPersistTimerRef.current) window.clearTimeout(reportDataPersistTimerRef.current);
         reportDataPersistTimerRef.current = window.setTimeout(() => {
           reportDataPersistTimerRef.current = null;
-          void persistProjectReportData(rd);
+          void persistProjectReportData(rd).then((saved) => {
+            if (saved) return;
+            toast({
+              variant: "destructive",
+              description: t("report.settings.saveFailed"),
+            });
+          });
         }, 900);
         return next;
       });
     },
-    [persistProjectReportData, sessionKey],
+    [persistProjectReportData, sessionKey, t, toast],
+  );
+
+  useEffect(
+    () => () => {
+      if (!reportDataPersistTimerRef.current) return;
+      window.clearTimeout(reportDataPersistTimerRef.current);
+      reportDataPersistTimerRef.current = null;
+      const pendingReportData = projectRef.current?.reportData;
+      if (pendingReportData) void persistProjectReportData(pendingReportData);
+    },
+    [persistProjectReportData],
+  );
+
+  const updatePreparerRole = useCallback(
+    (id: string, value: string) => {
+      const currentTeam = normalizeReportTeam(
+        projectRef.current?.reportData?.valuationTeam,
+        companySignatories,
+      );
+      onReportDataPatch({
+        valuationTeam: currentTeam.map((member) =>
+          member.id === id ? { ...member, role: value } : member,
+        ),
+      });
+    },
+    [companySignatories, onReportDataPatch],
   );
 
   const applyReportTemplateById = useCallback((templateId: string) => {
@@ -3191,7 +3214,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       reportPageOrientations,
     });
     try {
-      await persistProjectReportData(rd);
+      const saved = await persistProjectReportData(rd);
+      if (!saved) throw new Error("report settings save failed");
       toast({ description: t("report.settings.saved") });
     } catch {
       toast({
@@ -3444,7 +3468,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     preparerDisplayRows,
     companyAdminMembershipNo,
     currentUserMembershipNo: user?.valuationReportMembershipNo ?? null,
-    updatePreparerField,
+    updatePreparerRole,
     includeAssetImages,
     includeValuationAccountImages,
     orderedImages,
@@ -3797,7 +3821,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 disabled={exportActionsDisabled}
                 exportingFormat={exportingFormat}
                 onExport={handleReportExport}
-                wordTemplateReady={wordTemplateReady}
               />
 
               <Button
@@ -4436,7 +4459,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
               disabled={exportActionsDisabled}
               exportingFormat={exportingFormat}
               onExport={handleReportExport}
-              wordTemplateReady={wordTemplateReady}
               className="self-end sm:self-auto"
             />
           </DialogHeader>

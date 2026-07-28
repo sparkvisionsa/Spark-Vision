@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Download, Images, Loader2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Gauge,
+  Images,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -10,9 +16,16 @@ import {
   mergeWordReportTemplateSmart,
   prepareMvWordMergeInput,
 } from "@/lib/mv-word-template";
-import { resolveImageBookmarkDef, resolveTextBookmarkDef } from "@/lib/mv-word-template/bookmarks";
 import type { MvProjectReportData } from "./types";
 import { useMvI18n } from "./mv-i18n";
+import {
+  MV_WORD_ASSET_IMAGES_PER_ROW_OPTIONS,
+  MV_WORD_IMAGE_QUALITY_OPTIONS,
+  normalizeMvWordAssetImagesPerRow,
+  normalizeMvWordClientImagesPerRow,
+  normalizeMvWordImageQuality,
+  recommendedMvWordAssetImagesPerPage,
+} from "./mv-word-template-settings";
 
 export type MvWordTemplateImageSource = {
   url: string;
@@ -21,57 +34,8 @@ export type MvWordTemplateImageSource = {
 
 export type MvClientDocumentsImagesPerRow = 1 | 2 | 3;
 
-type CompanyWordTemplate = {
-  fileName?: string;
-  fileUrl?: string | null;
-  uploadedAt?: string;
-  sizeBytes?: number;
-  bookmarkNames?: string[];
-};
-
 /** صور حسابات القيمة في Word: صورة واحدة ثابتة في الصف/الصفحة. */
 const VALUATION_IMAGES_PER_ROW = 1;
-const DEFAULT_ASSET_IMAGES_PER_ROW = 4;
-
-function recommendedAssetImagesPerPage(imagesPerRow: number): number {
-  if (imagesPerRow <= 1) return 2;
-  if (imagesPerRow === 2) return 4;
-  return imagesPerRow * (imagesPerRow >= 4 ? 5 : 4);
-}
-
-function normalizeAssetImagesPerRow(value: unknown): number {
-  const n = Math.trunc(Number(value));
-  if (!Number.isFinite(n)) return DEFAULT_ASSET_IMAGES_PER_ROW;
-  return Math.max(1, Math.min(6, n));
-}
-
-function normalizeClientImagesPerRow(value: unknown): MvClientDocumentsImagesPerRow {
-  const n = Math.trunc(Number(value));
-  if (n === 1 || n === 3) return n;
-  return 2;
-}
-
-function normalizeCompanyWordTemplate(value: unknown): CompanyWordTemplate | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const data = value as CompanyWordTemplate;
-  const fileUrl = typeof data.fileUrl === "string" ? data.fileUrl.trim() : "";
-  if (
-    !fileUrl ||
-    !(
-      fileUrl.startsWith("/uploads/company-report-templates/") ||
-      (fileUrl.startsWith("/files/") && fileUrl.toLowerCase().endsWith(".docx"))
-    )
-  ) {
-    return null;
-  }
-  return {
-    fileName: typeof data.fileName === "string" && data.fileName.trim() ? data.fileName.trim() : undefined,
-    fileUrl,
-    uploadedAt: typeof data.uploadedAt === "string" ? data.uploadedAt : undefined,
-    sizeBytes: typeof data.sizeBytes === "number" ? data.sizeBytes : undefined,
-    bookmarkNames: Array.isArray(data.bookmarkNames) ? data.bookmarkNames.map(String).filter(Boolean) : [],
-  };
-}
 
 export interface MvWordTemplatePanelProps {
   projectId: string;
@@ -100,7 +64,7 @@ function ImageStatRow({
   count: number;
   perRow: number;
   editable?: boolean;
-  options?: number[];
+  options?: readonly number[];
   disabled?: boolean;
   onChange?: (value: number) => void;
   hint?: string;
@@ -148,6 +112,54 @@ function ImageStatRow({
   );
 }
 
+function WordImageQualityRow({
+  label,
+  value,
+  disabled,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-slate-800">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+            <Gauge className="h-4 w-4" />
+          </span>
+          <p className="min-w-0 flex-1 truncate text-[11px] font-black text-slate-900">
+            {label}
+          </p>
+        </div>
+        <select
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="h-9 min-w-[5.5rem] rounded-lg border border-slate-200 bg-white px-2 text-center text-xs font-black text-slate-900 shadow-none outline-none focus:border-sky-300 focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+          aria-label={label}
+          dir="ltr"
+        >
+          {MV_WORD_IMAGE_QUALITY_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option}%
+            </option>
+          ))}
+        </select>
+      </div>
+      {hint ? (
+        <p className="mt-1.5 text-[9.5px] font-semibold leading-4 text-slate-400">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function MvWordTemplatePanel({
   projectId,
   projectName,
@@ -165,24 +177,36 @@ export function MvWordTemplatePanel({
   const [generating, setGenerating] = useState(false);
   const [mergeStage, setMergeStage] = useState("");
   const [mergeProgress, setMergeProgress] = useState<number | null>(null);
-  const [companyWordTemplate, setCompanyWordTemplate] = useState<CompanyWordTemplate | null>(null);
-  const [assetImagesPerRow, setAssetImagesPerRow] = useState(DEFAULT_ASSET_IMAGES_PER_ROW);
+  const [assetImagesPerRow, setAssetImagesPerRow] = useState(() =>
+    normalizeMvWordAssetImagesPerRow(reportData.wordAssetImagesPerRow),
+  );
+  const [wordImageQuality, setWordImageQuality] = useState(() =>
+    normalizeMvWordImageQuality(reportData.wordImageQuality),
+  );
   const [clientImagesPerRow, setClientImagesPerRow] = useState<MvClientDocumentsImagesPerRow>(() =>
-    normalizeClientImagesPerRow(reportData.clientDocumentsImagesPerRow),
+    normalizeMvWordClientImagesPerRow(reportData.clientDocumentsImagesPerRow),
   );
 
-  const assetImagesPerPage = recommendedAssetImagesPerPage(assetImagesPerRow);
+  const assetImagesPerPage = recommendedMvWordAssetImagesPerPage(assetImagesPerRow);
   const clientImagesPerPage = clientImagesPerRow * clientImagesPerRow;
-  const hasCompanyTemplate = Boolean(companyWordTemplate?.fileUrl);
-  const templateFileName = companyWordTemplate?.fileName?.trim() || t("report.wordTemplate.defaultName");
-  const hasTemplate = hasCompanyTemplate;
+  const templateFileName = t("report.wordTemplate.defaultName");
   const mergeImageCount =
     assetImageSources.length + valuationImageSources.length + clientImageSources.length;
   const mergeStartedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setClientImagesPerRow(normalizeClientImagesPerRow(reportData.clientDocumentsImagesPerRow));
-  }, [reportData.clientDocumentsImagesPerRow]);
+    setAssetImagesPerRow(
+      normalizeMvWordAssetImagesPerRow(reportData.wordAssetImagesPerRow),
+    );
+    setWordImageQuality(normalizeMvWordImageQuality(reportData.wordImageQuality));
+    setClientImagesPerRow(
+      normalizeMvWordClientImagesPerRow(reportData.clientDocumentsImagesPerRow),
+    );
+  }, [
+    reportData.clientDocumentsImagesPerRow,
+    reportData.wordAssetImagesPerRow,
+    reportData.wordImageQuality,
+  ]);
 
   /** أثناء انتظار الخادم (مرحلة ~46%) حرّك الشريط ببطء حتى لا يبدو متجمّداً مع مئات الصور. */
   useEffect(() => {
@@ -203,31 +227,29 @@ export function MvWordTemplatePanel({
     return () => clearInterval(id);
   }, [generating, mergeImageCount]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch("/api/company/report-defaults", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!response.ok || cancelled) return;
-        const payload = (await response.json()) as { reportDefaults?: { wordTemplate?: unknown } | null };
-        if (!cancelled) setCompanyWordTemplate(normalizeCompanyWordTemplate(payload.reportDefaults?.wordTemplate));
-      } catch {
-        if (!cancelled) setCompanyWordTemplate(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const updateClientImagesPerRow = useCallback(
     (value: number) => {
-      const next = normalizeClientImagesPerRow(value);
+      const next = normalizeMvWordClientImagesPerRow(value);
       setClientImagesPerRow(next);
       onReportDataPatch({ clientDocumentsImagesPerRow: next });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateAssetImagesPerRow = useCallback(
+    (value: number) => {
+      const next = normalizeMvWordAssetImagesPerRow(value);
+      setAssetImagesPerRow(next);
+      onReportDataPatch({ wordAssetImagesPerRow: next });
+    },
+    [onReportDataPatch],
+  );
+
+  const updateWordImageQuality = useCallback(
+    (value: number) => {
+      const next = normalizeMvWordImageQuality(value);
+      setWordImageQuality(next);
+      onReportDataPatch({ wordImageQuality: next });
     },
     [onReportDataPatch],
   );
@@ -238,8 +260,15 @@ export function MvWordTemplatePanel({
       imagesPerPage: assetImagesPerPage,
       clientImagesPerRow,
       clientImagesPerPage,
+      imageQuality: wordImageQuality,
     }),
-    [assetImagesPerPage, assetImagesPerRow, clientImagesPerPage, clientImagesPerRow],
+    [
+      assetImagesPerPage,
+      assetImagesPerRow,
+      clientImagesPerPage,
+      clientImagesPerRow,
+      wordImageQuality,
+    ],
   );
 
   const runMergeAndDownload = useCallback(
@@ -260,9 +289,8 @@ export function MvWordTemplatePanel({
 
         setMergeProgress(46);
         setMergeStage(t("report.wordTemplate.merging"));
-        const { blob, bookmarkStats, mergeSource } = await mergeWordReportTemplateSmart({
+        const { blob, mergeStats } = await mergeWordReportTemplateSmart({
           projectId,
-          templateBuffer: new ArrayBuffer(0),
           mergeInput,
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
@@ -277,38 +305,33 @@ export function MvWordTemplatePanel({
         downloadWordBlob(blob, filename);
         setMergeProgress(100);
 
-        const knownFound = bookmarkStats.bookmarksFound.filter(
-          (name) => resolveTextBookmarkDef(name) || resolveImageBookmarkDef(name),
-        );
+        const hasMergedContent =
+          mergeStats.variablesFilled > 0 ||
+          mergeStats.assetImagesInserted > 0 ||
+          mergeStats.valuationImagesInserted > 0 ||
+          mergeStats.clientImagesInserted > 0;
 
-        if (bookmarkStats.imageErrors.length > 0) {
+        if (mergeStats.warnings.length > 0) {
+          const warningDetail = mergeStats.warnings.join(" ");
           toast({
-            variant: bookmarkStats.textBookmarksFilled > 0 ? "default" : "destructive",
+            variant: hasMergedContent ? "default" : "destructive",
             description:
-              bookmarkStats.textBookmarksFilled > 0
-                ? t("report.wordTemplate.toastTextUpdated", {
-                    count: bookmarkStats.textBookmarksFilled,
-                    detail: bookmarkStats.imageErrors[0] ?? "",
+              hasMergedContent
+                ? t("report.wordTemplate.toastVariablesUpdated", {
+                    count: mergeStats.variablesFilled,
+                    detail: warningDetail,
                   })
-                : bookmarkStats.imageErrors[0],
+                : warningDetail,
           });
         } else if (
-          knownFound.length === 0 &&
-          bookmarkStats.textBookmarksFilled === 0 &&
-          bookmarkStats.assetImagesInserted === 0 &&
-          bookmarkStats.valuationImagesInserted === 0 &&
-          (bookmarkStats.clientImagesInserted ?? 0) === 0
+          mergeStats.variablesFound.length === 0 &&
+          !hasMergedContent
         ) {
           toast({
             variant: "destructive",
-            description: t("report.wordTemplate.toastNoBookmarks"),
+            description: t("report.wordTemplate.toastNoVariables"),
           });
-        } else if (
-          bookmarkStats.textBookmarksFilled === 0 &&
-          bookmarkStats.assetImagesInserted === 0 &&
-          bookmarkStats.valuationImagesInserted === 0 &&
-          (bookmarkStats.clientImagesInserted ?? 0) === 0
-        ) {
+        } else if (!hasMergedContent) {
           toast({
             variant: "destructive",
             description: t("report.wordTemplate.toastNoData"),
@@ -316,23 +339,19 @@ export function MvWordTemplatePanel({
         } else {
           toast({
             description: [
-              mergeSource === "server"
-                ? t("report.wordTemplate.toastUpdatedServer")
-                : t("report.wordTemplate.toastUpdatedBrowser"),
-              bookmarkStats.textBookmarksFilled > 0
-                ? t("report.wordTemplate.toastTextCount", { count: bookmarkStats.textBookmarksFilled })
-                : mergeSource === "server"
-                  ? t("report.wordTemplate.toastMergedData")
-                  : "",
-              bookmarkStats.assetImagesInserted > 0
-                ? t("report.wordTemplate.toastAssetImages", { count: bookmarkStats.assetImagesInserted })
+              t("report.wordTemplate.toastUpdatedServer"),
+              mergeStats.variablesFilled > 0
+                ? t("report.wordTemplate.toastVariableCount", { count: mergeStats.variablesFilled })
+                : t("report.wordTemplate.toastMergedData"),
+              mergeStats.assetImagesInserted > 0
+                ? t("report.wordTemplate.toastAssetImages", { count: mergeStats.assetImagesInserted })
                 : "",
-              bookmarkStats.valuationImagesInserted > 0
-                ? t("report.wordTemplate.toastValuationImages", { count: bookmarkStats.valuationImagesInserted })
+              mergeStats.valuationImagesInserted > 0
+                ? t("report.wordTemplate.toastValuationImages", { count: mergeStats.valuationImagesInserted })
                 : "",
-              (bookmarkStats.clientImagesInserted ?? 0) > 0
+              mergeStats.clientImagesInserted > 0
                 ? t("report.wordTemplate.toastClientImages", {
-                    count: bookmarkStats.clientImagesInserted,
+                    count: mergeStats.clientImagesInserted,
                   })
                 : "",
             ]
@@ -367,32 +386,23 @@ export function MvWordTemplatePanel({
   );
 
   const generateMergedReport = useCallback(async () => {
-    if (!hasTemplate) return;
     try {
       await runMergeAndDownload();
     } catch {
       /* toast in runMergeAndDownload */
     }
-  }, [hasTemplate, runMergeAndDownload]);
+  }, [runMergeAndDownload]);
 
   const busy = disabled || generating;
 
   return (
     <div className={cn(layout === "modal" ? "p-1" : "space-y-2.5")} dir={dir}>
-      {!hasTemplate ? (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-right">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-          <p className="text-[11px] font-bold leading-5 text-amber-900">
-            {t("report.wordTemplate.uploadFirst")}
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-emerald-50/60 px-4 py-3">
             <div className="min-w-0 text-right">
               <p className="truncate text-[11px] font-black text-slate-900">{templateFileName}</p>
               <p className="mt-0.5 text-[9px] font-semibold text-emerald-700">
-                {t("report.wordTemplate.activeFromCompany")}
+                {t("report.wordTemplate.activeBundled")}
               </p>
             </div>
             <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
@@ -408,9 +418,9 @@ export function MvWordTemplatePanel({
                 count={assetImageSources.length}
                 perRow={assetImagesPerRow}
                 editable
-                options={[1, 2, 3, 4, 5, 6]}
+                options={MV_WORD_ASSET_IMAGES_PER_ROW_OPTIONS}
                 disabled={busy}
-                onChange={(value) => setAssetImagesPerRow(normalizeAssetImagesPerRow(value))}
+                onChange={updateAssetImagesPerRow}
                 hint={t("report.wordTemplate.assetPerRowHint", {
                   perRow: String(assetImagesPerRow),
                   perPage: String(assetImagesPerPage),
@@ -433,6 +443,15 @@ export function MvWordTemplatePanel({
                 hint={t("report.wordTemplate.clientPerRowHint", {
                   perRow: String(clientImagesPerRow),
                   perPage: String(clientImagesPerPage),
+                })}
+              />
+              <WordImageQualityRow
+                label={t("report.wordTemplate.imageQualityLabel")}
+                value={wordImageQuality}
+                disabled={busy}
+                onChange={updateWordImageQuality}
+                hint={t("report.wordTemplate.imageQualityHint", {
+                  quality: String(wordImageQuality),
                 })}
               />
             </div>
@@ -463,7 +482,6 @@ export function MvWordTemplatePanel({
             </Button>
           </div>
         </div>
-      )}
     </div>
   );
 }

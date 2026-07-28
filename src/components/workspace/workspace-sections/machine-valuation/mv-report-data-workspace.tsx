@@ -21,11 +21,19 @@ import {
   MvReportDataForm,
   type MvReportCollapsibleSectionId,
 } from "./mv-report-data-form";
+import {
+  normalizeReportPreparerOptions,
+  normalizeReportTeam,
+  reportTeamEquals,
+  type MvReportPreparerOption,
+} from "./mv-report-preparers";
+import { MvCloneReportDataDialog } from "./mv-clone-report-data-dialog";
+import { MvUnsavedSaveCoach } from "./mv-unsaved-save-coach";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
-import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { invalidateMvApiCache, mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import { useMvI18n } from "./mv-i18n";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 
@@ -35,14 +43,40 @@ const reportFont = Tajawal({
   display: "swap",
 });
 
+const DEFAULT_ASSET_SINGULAR_PLURAL = "أصل/أصول";
+const DEFAULT_ASSET_SUBJECT_DESCRIPTION = "الات ومعدات واجهزة متنوعه";
+const DEFAULT_VALUATION_BASIS_DEFINITION =
+  "الأساس المناسب سيكون قيمة التصفية بافتراض فرضية التقييم خارج الموقع والتي يتم تعريفها على النحو التالي:المبلغ الناتج عن بيع أصل أو مجموعة من الأصول بغرض التصفية مع اجبار البائع على البيع اعتبارا من تاريخ محدد. (-1أ60. IVS2025 102 أسس القيمة).";
+const DEFAULT_VALUE_PREMISE_DEFINITION =
+  "البيع القسري هـي قيمـة يسـتخدم مصطلـح «البيـع القـسري» غالبًـا في الظـروف التـي يكـون فيهـا البائـع تحـت الإجبـار للقيـام بالبيـع،ً ونتيجـة لذلـك تصبـح فـرة التسـويق غـر كافيـة، ويمكـن ألا يسـتطيع المشـرون القيـام بأعـمال الفحـص النـافي للجهالـة.ويعتمـد السـعر الـذي يمكـن الحصـول عليـه في هـذه الظـروف عـلى طبيعـة الضغـوط عـى البائـع وأسـباب عـدم إمكانيـةالقيـام بالتسـويق المناسـب. كـا يمكـن أن يبيـن هـذا السـعر تبعـات عـدم تمكـن البائـع مـن البيـع في الفتـرة المتاحـة. ولايمكـن تقديـر السـعر المحقـق مـن البيـع القـسري بصـورة معقولـة مـا لم تتضـح طبيعـة القيـود المفروضـة عـى البائـع وسـببها. ويبـن السـعر الـذي يقبـل بـه البائـع في عمليـة البيـع القـسري ظروفـه الخاصـة أكثـر مـن ظـروف بائـع راغـبً افـتـراضي . (120.1 IVS2025 102 أسس القيمة).";
+
+const LEGACY_ARABIC_VALUATION_PURPOSES: Record<string, string> = {
+  بيع: "البيع",
+  شراء: "الشراء",
+  محاسبة: "المحاسبة",
+  رهن: "الرهن",
+  إفلاس: "الإفلاس",
+  تمويل: "التمويل",
+  تأمين: "التأمين",
+  "نزاعات و تقاضي": "النزاعات والتقاضي",
+  أخرى: "الأخرى",
+};
+
+function normalizeValuationPurpose(value: string | undefined): string {
+  const normalized = value?.trim() ?? "";
+  return LEGACY_ARABIC_VALUATION_PURPOSES[normalized] ?? normalized;
+}
+
 const EMPTY_REPORT_DATA: MvProjectReportData = {
   reportReference: "",
   reportTitle: "",
+  assetSingularPlural: DEFAULT_ASSET_SINGULAR_PLURAL,
   valuationMethod: "",
   valuationPurpose: "",
   valuePremise: "",
+  valuePremiseDefinition: DEFAULT_VALUE_PREMISE_DEFINITION,
   valuationBasis: "",
-  valuationBasisDefinition: "",
+  valuationBasisDefinition: DEFAULT_VALUATION_BASIS_DEFINITION,
   includeAssetImages: true,
   includeValuationAccountImages: true,
   reportIssueDate: "",
@@ -72,7 +106,7 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   externalSpecialistUse: "",
   esgConsiderations: "",
   informationSources: "",
-  assetSubjectDescription: "",
+  assetSubjectDescription: DEFAULT_ASSET_SUBJECT_DESCRIPTION,
   assetDetailedDescription: "",
   inspectionLocation: "",
   inspectionMapUrl: "",
@@ -86,6 +120,8 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   finalValueWords: "",
   reportPresentationDraft: true,
   receivedClientDocumentsHtml: "",
+  wordAssetImagesPerRow: 4,
+  wordImageQuality: 90,
   sceRegistrationCertificateHtml: "",
 };
 
@@ -95,6 +131,15 @@ function normalizeReportData(data: MvProjectReportData | undefined | null): MvPr
   return {
     ...EMPTY_REPORT_DATA,
     ...(data ?? {}),
+    assetSingularPlural:
+      data?.assetSingularPlural?.trim() || DEFAULT_ASSET_SINGULAR_PLURAL,
+    assetSubjectDescription:
+      data?.assetSubjectDescription?.trim() || DEFAULT_ASSET_SUBJECT_DESCRIPTION,
+    valuationBasisDefinition:
+      data?.valuationBasisDefinition?.trim() || DEFAULT_VALUATION_BASIS_DEFINITION,
+    valuePremiseDefinition:
+      data?.valuePremiseDefinition?.trim() || DEFAULT_VALUE_PREMISE_DEFINITION,
+    valuationPurpose: normalizeValuationPurpose(data?.valuationPurpose),
     includeAssetImages: data?.includeAssetImages !== false,
     includeValuationAccountImages: data?.includeValuationAccountImages !== false,
     reportPresentationDraft: data?.reportPresentationDraft !== false,
@@ -150,7 +195,7 @@ function writeCachedReportState(projectId: string, data: {
 
 export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspaceProps) {
   const { t, dir } = useMvI18n();
-  const { navigate } = useMvInPageNavigation();
+  const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const { toast } = useToast();
   const initialCached = readCachedReportState(projectId);
   const [project, setProject] = useState<MvProject | null>(initialCached?.project ?? null);
@@ -160,6 +205,11 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [saving, setSaving] = useState(false);
   const reportDataDirtyRef = useRef(false);
   const projectNameDirtyRef = useRef(false);
+  const isDirtyRef = useRef(false);
+  const saveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [saveButtonEl, setSaveButtonEl] = useState<HTMLElement | null>(null);
+  const [showUnsavedCoach, setShowUnsavedCoach] = useState(false);
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const [visitedSteps, setVisitedSteps] = useState<Set<MvSimpleReportStepId>>(
     () => new Set(["report-data"]),
   );
@@ -168,9 +218,52 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   );
   const [editableProjectName, setEditableProjectName] = useState(() => initialCached?.project.name ?? "");
   const [machineClients, setMachineClients] = useState<MachineClient[]>([]);
+  const [preparerOptions, setPreparerOptions] = useState<MvReportPreparerOption[]>([]);
+  const [preparersLoading, setPreparersLoading] = useState(true);
+  const [preparersLoaded, setPreparersLoaded] = useState(false);
   const [openSections, setOpenSections] = useState<Record<MvReportCollapsibleSectionId, boolean>>(() =>
     createMvReportCollapsibleState(false),
   );
+
+  const markClean = useCallback(() => {
+    reportDataDirtyRef.current = false;
+    projectNameDirtyRef.current = false;
+    isDirtyRef.current = false;
+  }, []);
+
+  const markDirty = useCallback(() => {
+    isDirtyRef.current = true;
+  }, []);
+
+  const revealUnsavedCoach = useCallback(() => {
+    setSaveButtonEl(saveButtonRef.current);
+    setShowUnsavedCoach(true);
+  }, []);
+
+  useEffect(() => {
+    return registerNavigationBlocker(({ nextPath, currentPath }) => {
+      if (!isDirtyRef.current) return true;
+      const next = nextPath.split("?")[0]?.replace(/\/+$/, "") ?? nextPath;
+      const current = currentPath.split("?")[0]?.replace(/\/+$/, "") ?? currentPath;
+      if (next === current) return true;
+      // Same report-data route variants
+      const reportDataBase = `/machine-valuation/${projectId}/workflow/report-data`;
+      const reportDataShort = `/machine-valuation/${projectId}`;
+      if (next === reportDataBase || next === reportDataShort) return true;
+      revealUnsavedCoach();
+      return false;
+    });
+  }, [projectId, registerNavigationBlocker, revealUnsavedCoach]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const cached = readCachedReportState(projectId);
@@ -261,6 +354,47 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setPreparersLoading(true);
+    setPreparersLoaded(false);
+    void mvFetchJson<{ reportSignatoryRows?: unknown[] }>(
+      "/api/company/report-defaults",
+      {},
+      {
+        cacheKey: "machine-valuation:report-preparers",
+        cacheTtlMs: 30_000,
+        retries: 1,
+        timeoutMs: 12_000,
+        trackLoading: false,
+      },
+    )
+      .then((data) => {
+        if (cancelled) return;
+        setPreparerOptions(normalizeReportPreparerOptions(data.reportSignatoryRows));
+      })
+      .catch(() => {
+        if (!cancelled) setPreparerOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreparersLoading(false);
+          setPreparersLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!preparersLoaded) return;
+    const nextTeam = normalizeReportTeam(reportData.valuationTeam, preparerOptions);
+    if (reportTeamEquals(reportData.valuationTeam, nextTeam)) return;
+    reportDataDirtyRef.current = true;
+    setReportData((current) => ({ ...current, valuationTeam: nextTeam }));
+  }, [preparerOptions, preparersLoaded, reportData.valuationTeam]);
+
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
 
   const completedSteps = useMemo(() => {
@@ -301,6 +435,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       return;
     }
 
+    setShowUnsavedCoach(false);
+
     const normalizedData = normalizeReportData({
       ...reportData,
       finalValueWords:
@@ -330,8 +466,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       setProject(updated);
       setEditableProjectName(updated.name);
       setReportData(normalizeReportData(updated.reportData));
-      projectNameDirtyRef.current = false;
-      reportDataDirtyRef.current = false;
+      markClean();
       writeCachedReportState(projectId, { project: updated, subProjects });
       markVisited("report-data");
       toast({ description: t("reportData.saved") });
@@ -344,24 +479,49 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const onStepSelect = useCallback(
     (stepId: MvSimpleReportStepId) => {
+      if (isDirtyRef.current) {
+        revealUnsavedCoach();
+        return;
+      }
       markVisited(stepId);
       const href = mvSimpleReportStepHref(projectId, stepId);
       startTransition(() => {
         navigate(href);
       });
     },
-    [markVisited, navigate, projectId],
+    [markVisited, navigate, projectId, revealUnsavedCoach],
   );
 
-  const handleProjectNameChange = useCallback((value: string) => {
-    projectNameDirtyRef.current = true;
-    setEditableProjectName(value);
-  }, []);
+  const handleProjectNameChange = useCallback(
+    (value: string) => {
+      projectNameDirtyRef.current = true;
+      markDirty();
+      setEditableProjectName(value);
+    },
+    [markDirty],
+  );
 
-  const handleReportDataChange = useCallback((patch: Partial<MvProjectReportData>) => {
-    reportDataDirtyRef.current = true;
-    setReportData((current) => ({ ...current, ...patch }));
-  }, []);
+  const handleReportDataChange = useCallback(
+    (patch: Partial<MvProjectReportData>) => {
+      reportDataDirtyRef.current = true;
+      markDirty();
+      setReportData((current) => ({ ...current, ...patch }));
+    },
+    [markDirty],
+  );
+
+  const handleReportDataCloned = useCallback(
+    (updated: MvProject) => {
+      setProject(updated);
+      setReportData(normalizeReportData(updated.reportData));
+      markClean();
+      writeCachedReportState(projectId, { project: updated, subProjects });
+      invalidateMvApiCache("projects:");
+      invalidateMvApiCache(`project-summary:${projectId}`);
+      toast({ description: t("reportData.clone.success") });
+    },
+    [markClean, projectId, subProjects, t, toast],
+  );
 
   if (!project) {
     return (
@@ -405,8 +565,12 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
             editableProjectName={editableProjectName}
             reportData={reportData}
             clientOptions={machineClients}
+            preparerOptions={preparerOptions}
+            preparersLoading={preparersLoading}
             saving={saving}
             openSections={openSections}
+            saveButtonRef={saveButtonRef}
+            highlightSave={showUnsavedCoach}
             onProjectNameChange={handleProjectNameChange}
             onReportDataChange={handleReportDataChange}
             onSectionOpenChange={(id, open) => setOpenSections((c) => ({ ...c, [id]: open }))}
@@ -417,9 +581,23 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
               })
             }
             onSave={handleSaveReportData}
+            onCloneFromProject={() => setCloneDialogOpen(true)}
           />
         </main>
       </MvWorkflowPageScrollBody>
+
+      <MvCloneReportDataDialog
+        open={cloneDialogOpen}
+        onOpenChange={setCloneDialogOpen}
+        currentProjectId={projectId}
+        onCloned={handleReportDataCloned}
+      />
+
+      <MvUnsavedSaveCoach
+        open={showUnsavedCoach}
+        saveButtonEl={saveButtonEl}
+        onDismiss={() => setShowUnsavedCoach(false)}
+      />
     </MvWorkflowPageFrame>
   );
 }

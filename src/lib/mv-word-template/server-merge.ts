@@ -1,12 +1,9 @@
 import type { MvWordMergeInput } from "./build-context";
-import { buildBookmarkTextValues } from "./build-context";
-import { MV_WORD_TEXT_BOOKMARKS } from "./bookmarks";
-import type { MvWordBookmarkMergeStats } from "./docx-bookmark-shared";
+import { buildTemplateVariableValues } from "./build-context";
 import type { MvWordMergeResult } from "./merge";
 
 export type ServerWordMergeParams = {
   projectId: string;
-  templateFileId?: string;
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
@@ -16,6 +13,7 @@ export type ServerWordMergeParams = {
     imagesPerPage: number;
     clientImagesPerRow?: number;
     clientImagesPerPage?: number;
+    imageQuality?: number;
   };
 };
 
@@ -29,31 +27,12 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function buildTextByBookmarkName(textValues: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const def of MV_WORD_TEXT_BOOKMARKS) {
-    const value = textValues[def.field] ?? "";
-    if (!value.trim()) continue;
-    for (const name of def.names) {
-      out[name] = value;
-    }
-  }
-  return out;
-}
-
-function compactTextValues(textValues: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(textValues)) {
-    const trimmed = value.trim();
-    if (trimmed) out[key] = trimmed;
-  }
-  return out;
-}
-
 export async function mergeWordReportTemplateViaServer(
   params: ServerWordMergeParams,
 ): Promise<MvWordMergeResult> {
-  const textValues = buildBookmarkTextValues(params.mergeInput);
+  // أرسل الحالة الحالية كاملة، بما في ذلك الفراغ الصريح، حتى ينعكس مسح الحقل
+  // فوراً في التنزيل حتى لو لم يكتمل الحفظ التلقائي بعد.
+  const textValues = buildTemplateVariableValues(params.mergeInput);
 
   const response = await fetch(
     `/api/mv/projects/${encodeURIComponent(params.projectId)}/word-template/merge`,
@@ -62,9 +41,7 @@ export async function mergeWordReportTemplateViaServer(
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        templateFileId: params.templateFileId,
-        textValues: compactTextValues(textValues),
-        textByBookmarkName: buildTextByBookmarkName(textValues),
+        textValues,
         assetImageUrls: params.assetImageUrls,
         valuationImageUrls: params.valuationImageUrls,
         clientImageUrls: params.clientImageUrls ?? [],
@@ -95,17 +72,32 @@ export async function mergeWordReportTemplateViaServer(
 
   const statsHeader = response.headers.get("X-Word-Merge-Stats");
   let serverStats = {
-    textFilled: 0,
-    assetImagesInserted: params.mergeInput.assetImages.length,
-    valuationImagesInserted: params.mergeInput.valuationImages.length,
-    clientImagesInserted: params.mergeInput.clientImages.length,
-    bookmarksFound: [] as string[],
+    variablesFilled: 0,
+    assetImagesInserted: Math.max(
+      params.assetImageUrls.length,
+      params.mergeInput.assetImages.length,
+    ),
+    valuationImagesInserted: Math.max(
+      params.valuationImageUrls.length,
+      params.mergeInput.valuationImages.length,
+    ),
+    clientImagesInserted: Math.max(
+      params.clientImageUrls?.length ?? 0,
+      params.mergeInput.clientImages.length,
+    ),
+    variablesFound: [] as string[],
   };
   if (statsHeader) {
     try {
-      const parsed = JSON.parse(decodeURIComponent(statsHeader)) as typeof serverStats;
+      const parsed = JSON.parse(decodeURIComponent(statsHeader)) as {
+        variablesFilled?: unknown;
+        variablesFound?: unknown;
+        assetImagesInserted?: unknown;
+        valuationImagesInserted?: unknown;
+        clientImagesInserted?: unknown;
+      };
       serverStats = {
-        textFilled: Number(parsed.textFilled ?? 0),
+        variablesFilled: Number(parsed.variablesFilled ?? 0),
         assetImagesInserted: Number(parsed.assetImagesInserted ?? serverStats.assetImagesInserted),
         valuationImagesInserted: Number(
           parsed.valuationImagesInserted ?? serverStats.valuationImagesInserted,
@@ -113,8 +105,8 @@ export async function mergeWordReportTemplateViaServer(
         clientImagesInserted: Number(
           parsed.clientImagesInserted ?? serverStats.clientImagesInserted,
         ),
-        bookmarksFound: Array.isArray(parsed.bookmarksFound)
-          ? parsed.bookmarksFound.map(String)
+        variablesFound: Array.isArray(parsed.variablesFound)
+          ? parsed.variablesFound.map(String)
           : [],
       };
     } catch {
@@ -122,26 +114,31 @@ export async function mergeWordReportTemplateViaServer(
     }
   }
 
+  const warnings: string[] = [];
+  const warningsHeader = response.headers.get("X-Word-Merge-Warnings");
+  if (warningsHeader) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(warningsHeader)) as unknown;
+      if (Array.isArray(parsed)) {
+        warnings.push(...parsed.map(String).filter(Boolean));
+      }
+    } catch {
+      warnings.push("اكتمل ملف Word مع تحذير غير معروف أثناء الدمج.");
+    }
+  }
+
   const blob = await response.blob();
-  const bookmarkStats: MvWordBookmarkMergeStats = {
-    textBookmarksFilled: serverStats.textFilled,
-    textBookmarksSkipped: 0,
-    assetImagesInserted: serverStats.assetImagesInserted,
-    valuationImagesInserted: serverStats.valuationImagesInserted,
-    clientImagesInserted: serverStats.clientImagesInserted,
-    bookmarksFound: serverStats.bookmarksFound,
-    imageErrors: [],
-  };
 
   return {
     blob,
-    imageStats: {
-      assetReplaced: 0,
-      valuationReplaced: 0,
-      assetInserted: serverStats.assetImagesInserted,
-      valuationInserted: serverStats.valuationImagesInserted,
+    mergeSource: "server",
+    mergeStats: {
+      variablesFilled: serverStats.variablesFilled,
+      variablesFound: serverStats.variablesFound,
+      assetImagesInserted: serverStats.assetImagesInserted,
+      valuationImagesInserted: serverStats.valuationImagesInserted,
+      clientImagesInserted: serverStats.clientImagesInserted,
+      warnings,
     },
-    textStats: { paragraphsUpdated: 0, tableCellsUpdated: 0 },
-    bookmarkStats,
   };
 }

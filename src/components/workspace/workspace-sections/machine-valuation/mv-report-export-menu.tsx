@@ -21,8 +21,6 @@ export interface MvReportExportMenuProps {
   onExport: (format: MvReportExportFormat) => void;
   variant?: "toolbar" | "preview";
   className?: string;
-  /** يظهر خيار «Word — قالب الشركة» عند رفع قالب .docx */
-  wordTemplateReady?: boolean;
 }
 
 export function MvReportExportMenu({
@@ -31,7 +29,6 @@ export function MvReportExportMenu({
   onExport,
   variant = "toolbar",
   className,
-  wordTemplateReady = false,
 }: MvReportExportMenuProps) {
   const { t } = useMvI18n();
   const exporting = exportingFormat != null;
@@ -42,7 +39,6 @@ export function MvReportExportMenu({
     hint: string;
     icon: typeof FileText;
     iconClass: string;
-    requiresWordTemplate?: boolean;
   }> = [
     {
       id: "pdf",
@@ -71,12 +67,10 @@ export function MvReportExportMenu({
       hint: t("report.exportMenu.docxTemplateHint"),
       icon: FileText,
       iconClass: "text-emerald-700",
-      requiresWordTemplate: true,
     },
   ];
 
   const activeOption = formatOptions.find((opt) => opt.id === exportingFormat);
-  const visibleOptions = formatOptions.filter((opt) => !opt.requiresWordTemplate || wordTemplateReady);
 
   return (
     <DropdownMenu modal={false}>
@@ -110,7 +104,7 @@ export function MvReportExportMenu({
           {t("report.exportMenu.chooseFormat")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {visibleOptions.map((opt) => {
+        {formatOptions.map((opt) => {
           const Icon = opt.icon;
           const isActive = exportingFormat === opt.id;
           return (

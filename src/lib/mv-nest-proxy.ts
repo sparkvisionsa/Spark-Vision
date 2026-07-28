@@ -74,6 +74,7 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "x-asset-folder-count",
       "x-asset-image-count",
       "x-word-merge-stats",
+      "x-word-merge-warnings",
     ] as const;
     for (const name of passthrough) {
       const v = upstream.headers.get(name);

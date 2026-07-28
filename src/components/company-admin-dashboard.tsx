@@ -59,7 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { downloadPptxFromPngSlides } from "@/lib/pptx-export";
-import { scanDocxBookmarks } from "@/lib/mv-word-template";
+import { scanDocxTemplateVariables } from "@/lib/mv-word-template/template-variables";
 import {
   Building2,
   CheckCircle2,
@@ -103,6 +103,7 @@ type CompanyUserRow = {
   productIds?: string[];
   email?: string | null;
   phone?: string | null;
+  valuationReportDisplayName?: string | null;
   valuationReportJobTitle?: string | null;
   valuationReportMembershipNo?: string | null;
   createdAt: string;
@@ -825,6 +826,22 @@ function userDisplayName(user: Pick<CompanyUserRow, "username" | "phone">): stri
   return user.phone?.trim() || user.username;
 }
 
+function isSafeValuationReportName(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length > 0 &&
+    !/[0-9\u0660-\u0669\u06f0-\u06f9]/.test(normalized) &&
+    /[A-Za-z\u00c0-\u024f\u0600-\u06ff]/.test(normalized)
+  );
+}
+
+function valuationReportDisplayName(
+  user: Pick<CompanyUserRow, "valuationReportDisplayName">,
+): string {
+  const configured = user.valuationReportDisplayName?.trim() ?? "";
+  return isSafeValuationReportName(configured) ? configured : "لم يُحدد الاسم";
+}
+
 async function apiJson<T>(url: string, csrfToken: string, init?: RequestInit): Promise<T> {
   const response = await fetch(toApiUrl(url), {
     ...init,
@@ -1442,6 +1459,7 @@ export default function CompanyAdminDashboard({
   const [newRole, setNewRole] = useState<"valuer" | "data_entry" | "reviewer" | "inspector">("valuer");
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
+  const [newReportDisplayName, setNewReportDisplayName] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
   const [newMembershipNo, setNewMembershipNo] = useState("");
 
@@ -1450,6 +1468,7 @@ export default function CompanyAdminDashboard({
   const [editRole, setEditRole] = useState<MemberRoleOption>("valuer");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editReportDisplayName, setEditReportDisplayName] = useState("");
   const [editJobTitle, setEditJobTitle] = useState("");
   const [editMembershipNo, setEditMembershipNo] = useState("");
   const [editNewPassword, setEditNewPassword] = useState("");
@@ -2021,7 +2040,7 @@ export default function CompanyAdminDashboard({
       setStatus(null);
       try {
         const buffer = await file.arrayBuffer();
-        const bookmarkNames = scanDocxBookmarks(buffer);
+        const templateVariables = scanDocxTemplateVariables(buffer);
         const next: CompanyReportDefaultsForm = {
           ...reportDefaults,
           wordTemplate: {
@@ -2030,7 +2049,7 @@ export default function CompanyAdminDashboard({
             fileUrl: null,
             uploadedAt: new Date().toISOString(),
             sizeBytes: file.size,
-            bookmarkNames,
+            bookmarkNames: templateVariables,
           },
         };
         setReportDefaults(next);
@@ -2146,6 +2165,11 @@ export default function CompanyAdminDashboard({
   );
 
   const onAddUser = async () => {
+    const reportDisplayName = newReportDisplayName.trim();
+    if (reportDisplayName && !isSafeValuationReportName(reportDisplayName)) {
+      setSubmitError("الاسم الذي يظهر في التقرير يجب أن يكون اسماً نصياً ولا يمكن أن يكون رقم هاتف.");
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     setStatus(null);
@@ -2160,6 +2184,7 @@ export default function CompanyAdminDashboard({
           role: newRole,
           ...productPayload,
           ...(em ? { email: em } : {}),
+          valuationReportDisplayName: reportDisplayName,
           valuationReportJobTitle: newJobTitle.trim(),
           valuationReportMembershipNo: newMembershipNo.trim(),
           phone: ph,
@@ -2169,6 +2194,7 @@ export default function CompanyAdminDashboard({
       setNewPassword("");
       setNewEmail("");
       setNewPhone("");
+      setNewReportDisplayName("");
       setNewJobTitle("");
       setNewMembershipNo("");
       setAddOpen(false);
@@ -2185,6 +2211,7 @@ export default function CompanyAdminDashboard({
     setEditRole(rowRoleToSelectValue(u.role));
     setEditEmail(u.email ?? "");
     setEditPhone(u.phone ?? "");
+    setEditReportDisplayName(u.valuationReportDisplayName ?? "");
     setEditJobTitle(u.valuationReportJobTitle ?? "");
     setEditMembershipNo(u.valuationReportMembershipNo ?? "");
     setEditNewPassword("");
@@ -2195,9 +2222,15 @@ export default function CompanyAdminDashboard({
 
   const onSaveEditedUser = async () => {
     if (!editTarget) return;
+    const reportDisplayName = editReportDisplayName.trim();
+    if (reportDisplayName && !isSafeValuationReportName(reportDisplayName)) {
+      setSubmitError("الاسم الذي يظهر في التقرير يجب أن يكون اسماً نصياً ولا يمكن أن يكون رقم هاتف.");
+      return;
+    }
     const body: Record<string, unknown> = {};
     const origEmail = editTarget.email ?? "";
     const origPhone = editTarget.phone ?? "";
+    const origReportDisplayName = editTarget.valuationReportDisplayName ?? "";
     const origJobTitle = editTarget.valuationReportJobTitle ?? "";
     const origMembershipNo = editTarget.valuationReportMembershipNo ?? "";
     if (editEmail.trim() !== origEmail.trim()) {
@@ -2212,6 +2245,9 @@ export default function CompanyAdminDashboard({
     }
     if (editTarget.role !== "company_admin" && editRole !== rowRoleToSelectValue(editTarget.role)) {
       body.role = editRole;
+    }
+    if (reportDisplayName !== origReportDisplayName.trim()) {
+      body.valuationReportDisplayName = reportDisplayName;
     }
     if (editJobTitle.trim() !== origJobTitle.trim()) {
       body.valuationReportJobTitle = editJobTitle.trim();
@@ -2705,45 +2741,67 @@ export default function CompanyAdminDashboard({
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-100 hover:bg-transparent">
-                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">رقم الهاتف</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">الاسم في التقرير</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">الدور</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">آخر دخول</TableHead>
                         <TableHead className="min-w-[200px] text-right text-[12px] font-semibold text-slate-500">
                           التوقيع (PNG)
                         </TableHead>
+                        <TableHead className="w-[92px] text-center text-[12px] font-semibold text-slate-500">
+                          إجراءات
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {data.users.map((u) => (
-                        <TableRow key={u.id} className="border-slate-100">
-                          <TableCell className="font-medium text-slate-900">
-                            <div className="grid gap-0.5">
-                              <span dir="ltr">{userDisplayName(u)}</span>
-                              {u.valuationReportJobTitle ? (
-                                <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
-                                  {u.valuationReportJobTitle}
-                                </span>
-                              ) : null}
-                              {u.valuationReportMembershipNo ? (
-                                <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
-                                  رقم العضوية: {u.valuationReportMembershipNo}
-                                </span>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
-                          <TableCell className="text-[12px] text-slate-500">
-                            {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
-                          </TableCell>
-                          <TableCell className="p-0 align-top">
-                            <MemberSignatureCell
-                              savedUrl={u.valuationReportSignatureDataUrl ?? null}
-                              busy={signatureBusyUserId === u.id}
-                              onPersist={(url) => persistMemberSignature(u.id, url)}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {data.users.map((u) => {
+                        const canEdit = canManageCompanyUserRow(u, user?.id);
+                        return (
+                          <TableRow key={u.id} className="border-slate-100">
+                            <TableCell className="font-medium text-slate-900">
+                              <div className="grid gap-0.5">
+                                <span dir="rtl">{valuationReportDisplayName(u)}</span>
+                                {u.valuationReportJobTitle ? (
+                                  <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
+                                    {u.valuationReportJobTitle}
+                                  </span>
+                                ) : null}
+                                {u.valuationReportMembershipNo ? (
+                                  <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
+                                    رقم العضوية: {u.valuationReportMembershipNo}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
+                            <TableCell className="text-[12px] text-slate-500">
+                              {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
+                            </TableCell>
+                            <TableCell className="p-0 align-top">
+                              <MemberSignatureCell
+                                savedUrl={u.valuationReportSignatureDataUrl ?? null}
+                                busy={signatureBusyUserId === u.id}
+                                onPersist={(url) => persistMemberSignature(u.id, url)}
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {canEdit ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 rounded-lg px-2 text-[11px]"
+                                  disabled={userActionBusy}
+                                  onClick={() => openEditUser(u)}
+                                >
+                                  تعديل البيانات
+                                </Button>
+                              ) : (
+                                <span className="text-[11px] text-slate-300">—</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 )}
@@ -3219,7 +3277,7 @@ export default function CompanyAdminDashboard({
                         </div>
                         <div className="flex flex-wrap justify-end gap-1.5">
                           <Badge className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-800">
-                            {reportDefaults.wordTemplate.bookmarkNames.length} Bookmark
+                            {reportDefaults.wordTemplate.bookmarkNames.length} متغير
                           </Badge>
                           {reportDefaults.wordTemplate.fileUrl ? (
                             <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
@@ -3799,6 +3857,17 @@ export default function CompanyAdminDashboard({
               />
             </div>
             <div className="grid gap-1.5">
+              <Label className="text-[12px] text-slate-600">الاسم الذي يظهر في التقرير</Label>
+              <Input
+                value={newReportDisplayName}
+                onChange={(e) => setNewReportDisplayName(e.target.value)}
+                placeholder="الاسم الكامل للمقيم"
+                className="rounded-xl"
+                dir="rtl"
+              />
+              <p className="text-[10.5px] text-slate-400">رقم الهاتف مخصص للدخول ولا يظهر في التقرير.</p>
+            </div>
+            <div className="grid gap-1.5">
               <Label className="text-[12px] text-slate-600">الوظيفة</Label>
               <Input
                 value={newJobTitle}
@@ -3848,7 +3917,7 @@ export default function CompanyAdminDashboard({
             <div className="grid gap-3 pt-2">
               {editTarget.role === "company_admin" ? (
                 <p className="text-[12px] leading-relaxed text-slate-500">
-                  كمدير شركة يمكنك تحديث بريدك وهاتفك وكلمة المرور فقط. تغيير الدور غير متاح من هنا.
+                  كمدير شركة يمكنك تحديث بيانات الحساب وبيانات ظهورك في التقرير. تغيير الدور غير متاح من هنا.
                 </p>
               ) : (
                 <div className="grid gap-1.5">
@@ -3878,6 +3947,17 @@ export default function CompanyAdminDashboard({
               <div className="grid gap-1.5">
                 <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
                 <PhoneNumberInput value={editPhone} onChange={setEditPhone} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] text-slate-600">الاسم الذي يظهر في التقرير</Label>
+                <Input
+                  value={editReportDisplayName}
+                  onChange={(e) => setEditReportDisplayName(e.target.value)}
+                  placeholder="الاسم الكامل للمقيم"
+                  className="rounded-xl"
+                  dir="rtl"
+                />
+                <p className="text-[10.5px] text-slate-400">رقم الهاتف مخصص للدخول ولا يظهر في التقرير.</p>
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-[12px] text-slate-600">الوظيفة</Label>

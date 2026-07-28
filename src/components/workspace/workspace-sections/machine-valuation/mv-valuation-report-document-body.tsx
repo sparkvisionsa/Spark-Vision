@@ -62,9 +62,11 @@ import { MvReportTocPages } from "./mv-report-toc-pages";
 type ReportSignatureRow = {
   id: string;
   name: string;
+  jobTitle: string;
   roleLabel: string;
   membershipNo: string;
   signatureImageDataUrl: string;
+  isCompanyAdmin: boolean;
 };
 
 function newReportBlockId() {
@@ -559,7 +561,7 @@ function textValue(value: string | number | null | undefined, fallback = "غير
  * يُستخرج رقم عضوية المقيم المعتمد للغلاف من:
  * 1) بيانات المشروع ‎leadValuerMembershipNo‎
  * 2) صف المقيم المطابق لاسمه في «المقيمون والتوقيعات» (‎valuationReportMembershipNo‎ لكل مستخدم)
- * 3) مدير الشركة (‎roleLabel‎ = مدير الشركة)
+ * 3) مدير الشركة المحدد صراحةً في إعدادات الشركة
  * 4) المقيم الرئيسي / أي مقيم له رقم / المستخدم الحالي
  */
 function resolveLeadValuerMembershipNo(args: {
@@ -588,9 +590,7 @@ function resolveLeadValuerMembershipNo(args: {
   }
 
   const companyManager = args.preparerRows.find(
-    (row) =>
-      (row.roleLabel?.trim() === "مدير الشركة" || row.roleLabel?.includes("مدير")) &&
-      row.membershipNo?.trim(),
+    (row) => row.isCompanyAdmin && row.membershipNo?.trim(),
   );
   if (companyManager?.membershipNo?.trim()) return companyManager.membershipNo.trim();
 
@@ -1153,7 +1153,7 @@ export interface MvValuationReportDocumentBodyProps {
   companyAdminMembershipNo?: string | null;
   /** رقم العضوية من ملف المستخدم الحالي (‎valuationReportMembershipNo‎) */
   currentUserMembershipNo?: string | null;
-  updatePreparerField: (id: string, field: "name" | "roleLabel" | "membershipNo", value: string) => void;
+  updatePreparerRole: (id: string, value: string) => void;
   includeAssetImages: boolean;
   includeValuationAccountImages: boolean;
   orderedImages: MvDriveFile[];
@@ -1244,7 +1244,7 @@ export function MvValuationReportDocumentBody({
   preparerDisplayRows,
   companyAdminMembershipNo,
   currentUserMembershipNo,
-  updatePreparerField,
+  updatePreparerRole,
   includeAssetImages,
   includeValuationAccountImages,
   orderedImages,
@@ -2254,7 +2254,8 @@ export function MvValuationReportDocumentBody({
           {editableHeading("mv-toc-12", "13.0 فرضية القيمة")}
           {narrativeBlock(
             "valuePremise",
-            reportData.valuePremise?.trim() ||
+            reportData.valuePremiseDefinition?.trim() ||
+              reportData.valuePremise?.trim() ||
               companyDefault("scope", "valuePremiseDefinition") ||
               "غير محدد.",
           )}
@@ -2439,59 +2440,59 @@ export function MvValuationReportDocumentBody({
                 لا صفوف من لوحة الشركة — أضف مقيّمين وتوقيعات من لوحة إدارة الشركة.
               </p>
             ) : (
-              <div className="mx-auto max-w-[560px] space-y-4">
+              <div className="mx-auto max-w-[620px]" dir="rtl">
+                <div className="grid grid-cols-[minmax(210px,1.35fr)_minmax(180px,1fr)_minmax(105px,0.7fr)] items-center gap-x-5 border-b border-slate-200 pb-2 text-center text-[11.5px] font-bold text-slate-950">
+                  <EditableBlock
+                    value={labelText("preparer.details", "بيانات المقيم")}
+                    onChange={(value) => setTextOverride("label.preparer.details", value)}
+                    className="min-h-[1.25rem] text-center"
+                    multiline={false}
+                  />
+                  <EditableBlock
+                    value={labelText("preparer.role", "دور المقيم")}
+                    onChange={(value) => setTextOverride("label.preparer.role", value)}
+                    className="min-h-[1.25rem] text-center"
+                    multiline={false}
+                  />
+                  <EditableBlock
+                    value={labelText("preparer.signature", "التوقيع")}
+                    onChange={(value) => setTextOverride("label.preparer.signature", value)}
+                    className="min-h-[1.25rem] text-center"
+                    multiline={false}
+                  />
+                </div>
                 {preparerDisplayRows.map((row) => (
                   <div
                     key={row.id}
-                    dir="ltr"
-                    className="grid grid-cols-[minmax(120px,0.85fr)_minmax(190px,1.15fr)] items-center gap-x-10 gap-y-2"
+                    className="grid min-h-[88px] grid-cols-[minmax(210px,1.35fr)_minmax(180px,1fr)_minmax(105px,0.7fr)] items-center gap-x-5 border-b border-slate-100 py-2 last:border-b-0"
                   >
-                    <div dir="rtl" className="flex min-h-[76px] flex-col items-center justify-start">
-                      <EditableBlock
-                        value={labelText("preparer.signature", "التوقيع")}
-                        onChange={(value) => setTextOverride("label.preparer.signature", value)}
-                        className="mb-1 min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
-                        multiline={false}
-                      />
-                      <div className="flex min-h-[48px] items-center justify-center">
-                        {!sheetDraft && row.signatureImageDataUrl ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={row.signatureImageDataUrl}
-                            alt=""
-                            className="max-h-[58px] max-w-[150px] object-contain"
-                          />
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </div>
+                    <div className="space-y-0.5 text-center text-slate-950">
+                      <p className="text-[12px] font-bold leading-6">{row.name || "—"}</p>
+                      <p className="text-[11px] font-semibold leading-5">{row.jobTitle || "—"}</p>
+                      <p className="text-[10.5px] font-bold leading-5 tabular-nums">
+                        {row.membershipNo ? `عضوية رقم: ${row.membershipNo}` : "عضوية رقم: —"}
+                      </p>
                     </div>
-                    <div dir="rtl" className="space-y-0.5 text-right text-slate-950">
-                      <EditableBlock
-                        dir="rtl"
-                        value={row.name}
-                        onChange={(value) => updatePreparerField(row.id, "name", value)}
-                        className="mv-report-preparer-field min-h-6 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[12px] font-bold leading-6 outline-none focus:border-sky-300 print:border-0"
-                        multiline={false}
-                      />
+                    <div className="flex min-h-[58px] items-center justify-center">
                       <EditableBlock
                         dir="rtl"
                         value={row.roleLabel}
-                        onChange={(value) => updatePreparerField(row.id, "roleLabel", value)}
-                        className="mv-report-preparer-field min-h-5 w-full rounded border border-transparent bg-transparent px-1 py-0 text-[11.5px] font-semibold leading-5 outline-none focus:border-sky-300 print:border-0"
-                        multiline={false}
+                        onChange={(value) => updatePreparerRole(row.id, value)}
+                        className="mv-report-preparer-field min-h-10 w-full rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11.5px] font-semibold leading-5 outline-none focus:border-sky-300 print:border-0"
+                        multiline
                       />
-                      <div className="flex items-center justify-start gap-1 text-[11px] font-bold leading-5">
-                        <span>رقم:</span>
-                        <EditableBlock
-                          dir="ltr"
-                          value={row.membershipNo}
-                          onChange={(value) => updatePreparerField(row.id, "membershipNo", value)}
-                          className="mv-report-preparer-field min-h-5 min-w-[90px] rounded border border-transparent bg-transparent px-1 py-0 text-right tabular-nums outline-none focus:border-sky-300 print:border-0"
-                          multiline={false}
-                          placeholder="رقم العضوية"
+                    </div>
+                    <div className="flex min-h-[58px] items-center justify-center">
+                      {!sheetDraft && row.signatureImageDataUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={row.signatureImageDataUrl}
+                          alt=""
+                          className="max-h-[58px] max-w-[105px] object-contain"
                         />
-                      </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
   FileSpreadsheet,
   FilterX,
   FolderOpen,
@@ -85,6 +86,9 @@ import {
 } from "./mv-location-multi-select";
 import { MvEmptyState, MvErrorState, MvTopBar } from "./mv-ui";
 import { MvApiError, invalidateMvApiCache, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { duplicateMvProject } from "./mv-report-data-clone";
+import { MvBusyPercentOverlay } from "./mv-busy-percent-overlay";
+import { useMvBusyPercent } from "./use-mv-busy-percent";
 import {
   MvProjectWorkflowStatusSelect,
   type MvProjectWorkflowStatusOption,
@@ -209,6 +213,8 @@ function ProjectActionsMenu({
   onOpenLocations,
   onDownloadFinalReport,
   downloadingFinalReport,
+  onDuplicate,
+  duplicating,
   onDelete,
 }: {
   project: MvProject;
@@ -216,6 +222,8 @@ function ProjectActionsMenu({
   onOpenLocations: (project: MvProject) => void;
   onDownloadFinalReport: (project: MvProject) => void;
   downloadingFinalReport?: boolean;
+  onDuplicate: (project: MvProject) => void;
+  duplicating?: boolean;
   onDelete: (projectId: string) => void;
 }) {
   const { t, isArabic } = useMvI18n();
@@ -302,6 +310,18 @@ function ProjectActionsMenu({
             <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
           )}
           {t("projects.actions.downloadFinalReport")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={duplicating}
+          onSelect={() => onDuplicate(project)}
+        >
+          {duplicating ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-sky-700" />
+          ) : (
+            <Copy className="h-4 w-4 shrink-0 text-sky-700" />
+          )}
+          {t("projects.actions.duplicateProject")}
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] text-red-600 focus:text-red-600"
@@ -1157,6 +1177,7 @@ export default function MvProjectsDashboard() {
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const { user, csrfToken, loading: authLoading } = useAuthTracking();
+  const duplicateBusy = useMvBusyPercent();
   const [projects, setProjects] = useState<MvProject[]>(() => readMvProjectsSessionCache() ?? []);
   const [loading, setLoading] = useState(() => readMvProjectsSessionCache() == null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1190,6 +1211,7 @@ export default function MvProjectsDashboard() {
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
   const [downloadingFinalReportId, setDownloadingFinalReportId] = useState<string | null>(null);
+  const [duplicatingProjectId, setDuplicatingProjectId] = useState<string | null>(null);
   const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
     getWorkflowStatusOptions(),
   );
@@ -1761,6 +1783,39 @@ export default function MvProjectsDashboard() {
     }
   };
 
+  const handleDuplicateProject = async (project: MvProject) => {
+    if (duplicatingProjectId) return;
+    setDuplicatingProjectId(project._id);
+    duplicateBusy.start();
+    try {
+      const created = await duplicateMvProject({
+        sourceProjectId: project._id,
+        isArabic,
+        companyId:
+          user?.role === "super_admin"
+            ? project.companyId ?? selectedCompanyId ?? null
+            : null,
+      });
+      if (!created?._id) throw new Error();
+      invalidateMvApiCache("projects:");
+      setProjects((prev) => {
+        const next = [created, ...prev.filter((row) => row._id !== created._id)];
+        writeMvProjectsSessionCache(next);
+        return next;
+      });
+      await duplicateBusy.finish();
+      toast({ description: t("projects.toast.duplicated") });
+    } catch (error) {
+      duplicateBusy.fail();
+      toast({
+        variant: "destructive",
+        description: mvErrorMessage(error, t("projects.toast.duplicateFailed")),
+      });
+    } finally {
+      setDuplicatingProjectId(null);
+    }
+  };
+
   const resetFilters = () => {
     setProjectQuery("");
     setStatusFilter("all");
@@ -2051,6 +2106,8 @@ export default function MvProjectsDashboard() {
                                 onOpenLocations={openContactDataModal}
                                 onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
                                 downloadingFinalReport={downloadingFinalReportId === project._id}
+                                onDuplicate={(p) => void handleDuplicateProject(p)}
+                                duplicating={duplicatingProjectId === project._id}
                                 onDelete={(id) => void handleDeleteProject(id)}
                               />
                             </div>
@@ -2111,6 +2168,8 @@ export default function MvProjectsDashboard() {
                           onOpenLocations={openContactDataModal}
                           onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
                           downloadingFinalReport={downloadingFinalReportId === project._id}
+                          onDuplicate={(p) => void handleDuplicateProject(p)}
+                          duplicating={duplicatingProjectId === project._id}
                           onDelete={(id) => void handleDeleteProject(id)}
                         />
                       </div>
@@ -2397,6 +2456,13 @@ export default function MvProjectsDashboard() {
           setContactDataProject(null);
         }}
         onSaveAndContinue={finishAssetFoldersAndContinue}
+      />
+
+      <MvBusyPercentOverlay
+        open={duplicateBusy.open}
+        percent={duplicateBusy.percent}
+        label={t("projects.toast.duplicating")}
+        dir={dir}
       />
     </div>
   );

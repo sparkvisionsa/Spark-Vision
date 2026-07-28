@@ -120,14 +120,3 @@ export async function prepareMvWordMergeInput(params: {
     clientImages,
   };
 }
-
-export async function fetchWordTemplateBuffer(projectId: string, fileId: string): Promise<ArrayBuffer> {
-  const response = await fetch(
-    `/api/mv/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}/download`,
-    { credentials: "include" },
-  );
-  if (!response.ok) {
-    throw new Error("تعذر تحميل قالب Word من التخزين.");
-  }
-  return response.arrayBuffer();
-}

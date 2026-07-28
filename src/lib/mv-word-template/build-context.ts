@@ -1,5 +1,4 @@
 import type { MvProjectReportData } from "@/components/workspace/workspace-sections/machine-valuation/types";
-import type { MvWordBookmarkTextField } from "./bookmarks";
 
 export type MvWordMergeImageItem = {
   image: ArrayBuffer;
@@ -17,12 +16,7 @@ export type MvWordMergeInput = {
   clientImages: MvWordMergeImageItem[];
 };
 
-function hasMergeValue(value: unknown): value is string | number {
-  if (value == null) return false;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value === "string") return value.trim().length > 0;
-  return false;
-}
+export type MvWordTemplateVariableValues = Record<string, string>;
 
 function formatDateAr(value?: unknown) {
   if (value == null) return "";
@@ -57,12 +51,23 @@ function coerceFiniteNumber(value: unknown): number | null {
 function formatFinalValueAmount(value: unknown): string {
   const amount = coerceFiniteNumber(value);
   if (amount == null) return "";
-  return new Intl.NumberFormat("ar-SA", { maximumFractionDigits: 0 }).format(amount);
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+    useGrouping: true,
+  }).format(amount);
 }
 
-function formatFinalValue(value: unknown, _currency?: string | null) {
-  // القالب يحتوي عادة على «ر.س.» بجانب إشارة «قيمة» — نملأ الرقم فقط لتفادي التكرار
+function formatFinalValue(value: unknown) {
   return formatFinalValueAmount(value);
+}
+
+function formatFinalValueOpinion(reportData: MvProjectReportData): string {
+  const amount = formatFinalValueAmount(reportData.finalValue);
+  const words = reportData.finalValueWords?.trim() ?? "";
+  if (!amount) return words;
+
+  const numericValue = `(${amount} ر.س)`;
+  return words ? `${numericValue}${words}` : numericValue;
 }
 
 function buildClientIdentity(reportData: MvProjectReportData): string {
@@ -75,33 +80,79 @@ function buildClientIdentity(reportData: MvProjectReportData): string {
   return parts.join(" — ");
 }
 
-/** قيم الحقول النصية المرتبطة بالإشارات المرجعية */
-export function buildBookmarkTextValues(input: MvWordMergeInput): Record<MvWordBookmarkTextField, string> {
-  const { reportData, projectName } = input;
+/** القيم الحالية التي يستبدل بها الخادم متغيرات « » أو << >> داخل القالب المضمّن. */
+export function buildTemplateVariableValues(
+  input: MvWordMergeInput,
+): MvWordTemplateVariableValues {
+  const { reportData, projectName, displayNumber } = input;
+  const text = (value: unknown): string =>
+    typeof value === "string" ? value.trim() : "";
 
-  const values: Record<MvWordBookmarkTextField, string> = {
+  const values: MvWordTemplateVariableValues = {
+    projectName: projectName.trim(),
+    displayNumber:
+      typeof displayNumber === "number" && Number.isFinite(displayNumber)
+        ? String(displayNumber)
+        : "",
     reportTitle: reportData.reportTitle?.trim() || projectName?.trim() || "",
+    reportReference:
+      reportData.reportReference?.trim() ||
+      (typeof displayNumber === "number" && Number.isFinite(displayNumber)
+        ? String(displayNumber)
+        : ""),
     clientName: reportData.clientName?.trim() || "",
+    clientId: text(reportData.clientId),
+    clientEmail: text(reportData.clientEmail),
+    clientPhone: text(reportData.clientPhone),
+    clientLegalType: text(reportData.clientLegalType),
     clientIdentity: buildClientIdentity(reportData),
+    clientActivity: reportData.clientActivity?.trim() || "",
+    clientRepresentativeName: reportData.clientRepresentativeName?.trim() || "",
+    clientRepresentativeRole: reportData.clientRepresentativeRole?.trim() || "",
+    intendedUsers: reportData.intendedUsers?.trim() || "",
+    intendedUse: text(reportData.intendedUse),
+    assetSingularPlural: reportData.assetSingularPlural?.trim() || "",
+    assetSubjectDescription: reportData.assetSubjectDescription?.trim() || "",
+    assetDetailedDescription: text(reportData.assetDetailedDescription),
+    valuationMethod: reportData.valuationMethod?.trim() ?? "",
     valuationBasis: reportData.valuationBasis?.trim() ?? "",
+    valuationBasisDefinition: reportData.valuationBasisDefinition?.trim() ?? "",
     valuationPurpose: reportData.valuationPurpose?.trim() ?? "",
+    reportTypeLabel: text(reportData.reportTypeLabel),
+    standardsVersion: text(reportData.standardsVersion),
+    currencyLabel: text(reportData.currencyLabel),
     agreementDate: formatDateAr(reportData.agreementDate),
     reportIssueDate: formatDateAr(reportData.reportIssueDate),
     valuationDate: formatDateAr(reportData.valuationDate),
     inspectionDate: formatDateAr(reportData.inspectionDate),
     valuePremise: reportData.valuePremise?.trim() ?? "",
-    finalValue: formatFinalValue(reportData.finalValue, reportData.currencyLabel),
+    valuePremiseDefinition: reportData.valuePremiseDefinition?.trim() ?? "",
+    finalValue: formatFinalValue(reportData.finalValue),
     finalValueAmount: formatFinalValueAmount(reportData.finalValue),
     finalValueWords: reportData.finalValueWords?.trim() ?? "",
+    finalValueOpinion: formatFinalValueOpinion(reportData),
     inspectionLocation: reportData.inspectionLocation?.trim() ?? "",
     inspectionMapUrl: reportData.inspectionMapUrl?.trim() ?? "",
+    valuationFirmName: text(reportData.valuationFirmName),
+    valuationFirmLicense: text(reportData.valuationFirmLicense),
+    valuationFirmAddress: text(reportData.valuationFirmAddress),
+    leadValuerName: text(reportData.leadValuerName),
+    leadValuerTitle: text(reportData.leadValuerTitle),
+    leadValuerMembershipNo: text(reportData.leadValuerMembershipNo),
+    scopeOfWorkDetails: text(reportData.scopeOfWorkDetails),
+    useRestriction: text(reportData.useRestriction),
+    externalSpecialistUse: text(reportData.externalSpecialistUse),
+    esgConsiderations: text(reportData.esgConsiderations),
+    informationSources: text(reportData.informationSources),
+    methodologyRationale: text(reportData.methodologyRationale),
+    costApproachDetails: text(reportData.costApproachDetails),
+    importantAssumptions: text(reportData.importantAssumptions),
+    generalAssumptions: text(reportData.generalAssumptions),
+    specialAssumptions: text(reportData.specialAssumptions),
   };
 
   for (const [key, value] of Object.entries(reportData.reportTextOverrides ?? {})) {
-    if (!value?.trim()) continue;
-    if (key in values) {
-      (values as Record<string, string>)[key] = value.trim();
-    }
+    values[key] = typeof value === "string" ? value.trim() : "";
   }
 
   return values;
@@ -116,7 +167,7 @@ export function buildImageLoopData(images: MvWordMergeImageItem[]) {
   }));
 }
 
-/** @deprecated استخدم buildBookmarkTextValues */
+/** @deprecated استخدم buildTemplateVariableValues */
 export function buildScalarMergeValues(input: MvWordMergeInput): Record<string, string> {
-  return buildBookmarkTextValues(input) as unknown as Record<string, string>;
+  return buildTemplateVariableValues(input);
 }

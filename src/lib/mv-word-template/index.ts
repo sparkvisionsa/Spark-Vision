@@ -1,31 +1,16 @@
-export {
-  MV_WORD_TEXT_BOOKMARKS,
-  MV_WORD_IMAGE_BOOKMARKS,
-  MV_WORD_ALL_BOOKMARKS,
-  listKnownBookmarkNames,
-  normalizeBookmarkName,
-  resolveTextBookmarkDef,
-  resolveImageBookmarkDef,
-} from "./bookmarks";
+export { buildTemplateVariableValues } from "./build-context";
 export type {
-  MvWordBookmarkTextField,
-  MvWordBookmarkImageField,
-  MvWordBookmarkDef,
-  MvWordTextBookmarkDef,
-  MvWordImageBookmarkDef,
-} from "./bookmarks";
-export { buildBookmarkTextValues, buildScalarMergeValues, buildImageLoopData } from "./build-context";
-export type { MvWordMergeImageItem, MvWordMergeInput } from "./build-context";
-export { mergeWordHybrid as mergeWordBookmarks, scanDocxBookmarks } from "./docx-hybrid-merge";
-export type { MvWordBookmarkMergeStats } from "./docx-bookmark-shared";
+  MvWordMergeImageItem,
+  MvWordMergeInput,
+  MvWordTemplateVariableValues,
+} from "./build-context";
 export {
-  mergeWordReportTemplate,
   mergeWordReportTemplateSmart,
   downloadWordBlob,
   fetchImageAsArrayBuffer,
 } from "./merge";
 export { mergeWordReportTemplateViaServer } from "./server-merge";
-export type { MvWordMergeResult } from "./merge";
+export type { MvWordMergeResult, MvWordMergeStats } from "./merge";
 export { downloadBlob } from "./docx-to-pdf";
-export { prepareMvWordMergeInput, fetchWordTemplateBuffer, loadWordMergeImages } from "./prepare-merge";
+export { prepareMvWordMergeInput, loadWordMergeImages } from "./prepare-merge";
 export type { MvWordImageSource } from "./prepare-merge";

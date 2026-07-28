@@ -1,42 +1,26 @@
-import type { DocxImageMergeStats } from "./docx-image-merge";
-import { mergeWordHybrid, scanDocxBookmarks } from "./docx-hybrid-merge";
-import type { MvWordBookmarkMergeStats } from "./docx-bookmark-shared";
 import { mergeWordReportTemplateViaServer } from "./server-merge";
-import { yieldToMain } from "./docx-yield";
 import type { MvWordMergeInput } from "./build-context";
+
+export type MvWordMergeStats = {
+  variablesFilled: number;
+  variablesFound: string[];
+  assetImagesInserted: number;
+  valuationImagesInserted: number;
+  clientImagesInserted: number;
+  warnings: string[];
+};
 
 export type MvWordMergeResult = {
   blob: Blob;
-  imageStats: DocxImageMergeStats;
-  textStats: { paragraphsUpdated: number; tableCellsUpdated: number };
-  bookmarkStats: MvWordBookmarkMergeStats;
-  mergeSource?: "server" | "client";
+  mergeStats: MvWordMergeStats;
+  mergeSource: "server";
 };
-function bookmarkStatsToLegacy(stats: MvWordBookmarkMergeStats): {
-  imageStats: DocxImageMergeStats;
-  textStats: { paragraphsUpdated: number; tableCellsUpdated: number };
-} {
-  return {
-    imageStats: {
-      assetReplaced: 0,
-      valuationReplaced: 0,
-      assetInserted: stats.assetImagesInserted,
-      valuationInserted: stats.valuationImagesInserted,
-    },
-    textStats: {
-      paragraphsUpdated: stats.textBookmarksFilled,
-      tableCellsUpdated: 0,
-    },
-  };
-}
 
 /**
  * دمج عبر الخادم (Python + lxml) — بدون رجوع للمتصفح (كان يسبب أخطاء XML).
  */
 export async function mergeWordReportTemplateSmart(params: {
   projectId: string;
-  templateFileId?: string;
-  templateBuffer: ArrayBuffer;
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
@@ -46,11 +30,11 @@ export async function mergeWordReportTemplateSmart(params: {
     imagesPerPage: number;
     clientImagesPerRow?: number;
     clientImagesPerPage?: number;
+    imageQuality?: number;
   };
 }): Promise<MvWordMergeResult> {
   const serverResult = await mergeWordReportTemplateViaServer({
     projectId: params.projectId,
-    templateFileId: params.templateFileId,
     mergeInput: params.mergeInput,
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
@@ -58,28 +42,6 @@ export async function mergeWordReportTemplateSmart(params: {
     imageLayout: params.imageLayout,
   });
   return { ...serverResult, mergeSource: "server" };
-}
-
-/**
- * دمج تقرير Word عبر الإشارات المرجعية (Bookmarks) — في المتصفح.
- */
-export async function mergeWordReportTemplate(  templateBuffer: ArrayBuffer,
-  input: MvWordMergeInput,
-): Promise<MvWordMergeResult> {
-  await yieldToMain();
-
-  const { buffer, stats } = await mergeWordHybrid(templateBuffer, input);
-  const legacy = bookmarkStatsToLegacy(stats);
-
-  await yieldToMain();
-
-  return {
-    blob: new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    }),
-    ...legacy,
-    bookmarkStats: stats,
-  };
 }
 
 export function downloadWordBlob(blob: Blob, filename: string) {
