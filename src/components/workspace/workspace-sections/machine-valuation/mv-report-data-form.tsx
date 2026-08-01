@@ -12,6 +12,7 @@ import {
   Hash,
   Loader2,
   Plus,
+  RotateCcw,
   Save,
   Scale,
   ShieldCheck,
@@ -194,6 +195,7 @@ export function MvReportDataForm({
   onSectionOpenChange,
   onToggleAllSections,
   onSave,
+  onReset,
   onCloneFromProject,
 }: {
   project: MvProject;
@@ -211,6 +213,7 @@ export function MvReportDataForm({
   onSectionOpenChange: (id: MvReportCollapsibleSectionId, open: boolean) => void;
   onToggleAllSections: () => void;
   onSave: () => void;
+  onReset?: () => void;
   onCloneFromProject?: () => void;
 }) {
   const { t, isArabic, dir } = useMvI18n();
@@ -763,10 +766,13 @@ export function MvReportDataForm({
                 </PopoverTrigger>
                 <PopoverContent
                   align="end"
-                  className="z-[500] w-[min(92vw,34rem)] overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
+                  side="bottom"
+                  sideOffset={8}
+                  collisionPadding={16}
+                  className="z-[500] flex w-[min(92vw,34rem)] max-h-[min(72dvh,36rem)] flex-col overflow-hidden rounded-xl border-slate-200 p-0 shadow-xl"
                   dir={dir}
                 >
-                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+                  <div className="shrink-0 border-b border-slate-100 bg-slate-50 px-4 py-3">
                     <p className="text-[12px] font-extrabold text-slate-900">
                       {t("reportData.participants.dropdownTitle")}
                     </p>
@@ -774,7 +780,7 @@ export function MvReportDataForm({
                       {t("reportData.participants.dropdownHint")}
                     </p>
                   </div>
-                  <div className="max-h-80 overflow-y-auto p-2">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
                     {preparersLoading ? (
                       <div className="flex items-center justify-center gap-2 py-8 text-[12px] text-slate-500">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -815,6 +821,10 @@ export function MvReportDataForm({
                                     <ShieldCheck className="h-3 w-3" />
                                     {t("reportData.participants.fixedManager")}
                                   </span>
+                                ) : option.isReportOnly ? (
+                                  <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-extrabold text-violet-800">
+                                    {t("reportData.participants.reportOnlyBadge")}
+                                  </span>
                                 ) : null}
                               </span>
                               <span className="mt-0.5 block text-[10.5px] font-semibold text-slate-500">
@@ -829,7 +839,7 @@ export function MvReportDataForm({
                       })
                     )}
                   </div>
-                  <div className="border-t border-slate-100 bg-white p-3">
+                  <div className="shrink-0 border-t border-slate-100 bg-white p-3">
                     <button
                       type="button"
                       onClick={() => setPreparersPopoverOpen(false)}
@@ -954,26 +964,26 @@ export function MvReportDataForm({
           highlightSave && "z-[130]",
         )}
       >
-        <div className="pointer-events-auto flex flex-col items-end gap-2.5">
+        <div className="pointer-events-auto flex flex-col items-end gap-2">
           <button
             type="button"
             onClick={onToggleAllSections}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-300/70 bg-gradient-to-br from-white via-sky-50 to-cyan-100 text-sky-800 shadow-[0_10px_24px_-8px_rgba(14,165,233,0.55),0_0_0_1px_rgba(14,165,233,0.12)] transition hover:-translate-y-0.5 hover:border-sky-400 hover:from-sky-50 hover:to-cyan-200 hover:shadow-[0_14px_28px_-8px_rgba(14,165,233,0.65)]"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300/90 bg-white text-slate-700 shadow-[0_8px_20px_-10px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900"
             title={allSectionsOpen ? t("reportData.sections.collapseAll") : t("reportData.sections.expandAll")}
             aria-label={allSectionsOpen ? t("reportData.sections.collapseAll") : t("reportData.sections.expandAll")}
           >
-            <SectionToggleIcon className="h-[18px] w-[18px]" strokeWidth={2.4} />
+            <SectionToggleIcon className="h-[18px] w-[18px]" strokeWidth={2.25} />
           </button>
 
           <button
             type="button"
             onClick={onCloneFromProject}
             disabled={!onCloneFromProject || saving}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-indigo-300/70 bg-gradient-to-br from-indigo-500 via-sky-500 to-cyan-400 text-white shadow-[0_10px_24px_-8px_rgba(79,70,229,0.6),0_0_0_1px_rgba(99,102,241,0.2)] transition hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_14px_28px_-8px_rgba(79,70,229,0.7)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300/90 bg-white text-slate-700 shadow-[0_8px_20px_-10px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
             title={t("reportData.clone.button")}
             aria-label={t("reportData.clone.button")}
           >
-            <Copy className="h-[18px] w-[18px]" strokeWidth={2.4} />
+            <Copy className="h-[18px] w-[18px]" strokeWidth={2.25} />
           </button>
 
           <button
@@ -982,17 +992,28 @@ export function MvReportDataForm({
             onClick={onSave}
             disabled={saving || !editableProjectName.trim()}
             className={cn(
-              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-400/50 bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-600 text-white shadow-[0_10px_24px_-8px_rgba(16,185,129,0.65),0_0_0_1px_rgba(16,185,129,0.25)] transition hover:-translate-y-0.5 hover:brightness-110 hover:shadow-[0_14px_28px_-8px_rgba(16,185,129,0.75)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0",
-              highlightSave && "mv-save-coach-target",
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-900 bg-slate-900 text-white shadow-[0_10px_24px_-10px_rgba(15,23,42,0.7)] transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0",
+              highlightSave && "mv-save-coach-target ring-2 ring-white/80 ring-offset-2 ring-offset-slate-900",
             )}
             title={saving ? t("reportData.saveCard.saving") : t("reportData.saveCard.save")}
             aria-label={saving ? t("reportData.saveCard.saving") : t("reportData.saveCard.save")}
           >
             {saving ? (
-              <Loader2 className="h-[18px] w-[18px] animate-spin" strokeWidth={2.4} />
+              <Loader2 className="h-[18px] w-[18px] animate-spin" strokeWidth={2.25} />
             ) : (
-              <Save className="h-[18px] w-[18px]" strokeWidth={2.4} />
+              <Save className="h-[18px] w-[18px]" strokeWidth={2.25} />
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onReset}
+            disabled={!onReset || saving}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-300/80 bg-white/95 text-slate-500 shadow-[0_6px_16px_-10px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+            title={t("reportData.reset.button")}
+            aria-label={t("reportData.reset.button")}
+          >
+            <RotateCcw className="h-4 w-4" strokeWidth={2.25} />
           </button>
         </div>
       </aside>

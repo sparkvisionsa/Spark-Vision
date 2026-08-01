@@ -33,12 +33,18 @@ type MvFetchOptions = {
   retryBaseMs?: number;
   trackLoading?: boolean;
   loadingLabel?: string;
+  /** Allow retries for POST/PATCH/PUT/DELETE on timeout / 5xx (idempotent ops only). */
+  retryMutations?: boolean;
 };
 
 type JsonCacheRow = {
   /** null أثناء التنفيذ حتى يبقى الطلب البطيء single-flight مهما طال. */
   expiresAt: number | null;
+  /** بعد انتهاء freshness يبقى الناتج صالحًا كـ stale حتى هذا الوقت. */
+  staleExpiresAt: number;
   promise: Promise<unknown>;
+  resolved?: unknown;
+  hasResolved: boolean;
 };
 
 const jsonRequestCache = new Map<string, JsonCacheRow>();
@@ -82,14 +88,36 @@ function retryAfterMs(response: Response, attempt: number, baseMs: number) {
   return Math.min(8000, baseMs * (2 ** attempt) + jitter);
 }
 
-function canRetry(method: string, status?: number) {
-  if (method !== "GET" && method !== "HEAD") return false;
+function canRetry(
+  method: string,
+  status: number | undefined,
+  options: Pick<MvFetchOptions, "retryMutations">,
+) {
+  const isRead = method === "GET" || method === "HEAD";
+  if (!isRead && !options.retryMutations) return false;
   if (status == null) return true;
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 export function isMvAbortError(error: unknown) {
   return error instanceof Error && error.name === "AbortError";
+}
+
+export function isMvTimeoutError(error: unknown) {
+  return error instanceof MvApiError && error.kind === "timeout";
+}
+
+export function isMvTransientError(error: unknown) {
+  if (!(error instanceof MvApiError)) return false;
+  return (
+    error.kind === "timeout" ||
+    error.kind === "network" ||
+    error.kind === "server" ||
+    error.status === 408 ||
+    error.status === 425 ||
+    error.status === 429 ||
+    (typeof error.status === "number" && error.status >= 500)
+  );
 }
 
 function signalAbortReason(signal: AbortSignal) {
@@ -151,8 +179,14 @@ export async function mvFetch(
   }
 
   const method = (init.method ?? "GET").toUpperCase();
-  const retries = Math.max(0, options.retries ?? (method === "GET" || method === "HEAD" ? 1 : 0));
-  const timeoutMs = Math.max(1000, options.timeoutMs ?? 15_000);
+  const retries = Math.max(
+    0,
+    options.retries ?? (method === "GET" || method === "HEAD" ? 2 : 0),
+  );
+  const timeoutMs = Math.max(
+    1000,
+    options.timeoutMs ?? (method === "GET" || method === "HEAD" ? 25_000 : 45_000),
+  );
   const retryBaseMs = Math.max(100, options.retryBaseMs ?? 450);
   // شاشة الشعار مخصّصة للبيانات الأولية فقط. طلبات الخلفية opt-in حتى لا تحجب الواجهة.
   const finishLoading = options.trackLoading === true && (method === "GET" || method === "HEAD")
@@ -179,7 +213,7 @@ export async function mvFetch(
         });
         if (response.ok) return response;
 
-        if (attempt < retries && canRetry(method, response.status)) {
+        if (attempt < retries && canRetry(method, response.status, options)) {
           await delayWithSignal(retryAfterMs(response, attempt, retryBaseMs), init.signal);
           continue;
         }
@@ -190,7 +224,7 @@ export async function mvFetch(
       } catch (error) {
         if (init.signal?.aborted) throw error;
         if (timedOut) {
-          if (attempt < retries && canRetry(method)) {
+          if (attempt < retries && canRetry(method, undefined, options)) {
             await delayWithSignal(retryBaseMs * (attempt + 1), init.signal);
             continue;
           }
@@ -198,7 +232,7 @@ export async function mvFetch(
         }
         if (error instanceof MvApiError) throw error;
         if (isMvAbortError(error)) throw error;
-        if (attempt < retries && canRetry(method)) {
+        if (attempt < retries && canRetry(method, undefined, options)) {
           await delayWithSignal(retryBaseMs * (attempt + 1), init.signal);
           continue;
         }
@@ -220,21 +254,57 @@ export async function mvFetch(
 export async function mvFetchJson<T>(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  options: MvFetchOptions & { cacheKey?: string; cacheTtlMs?: number; forceRefresh?: boolean } = {},
+  options: MvFetchOptions & {
+    cacheKey?: string;
+    cacheTtlMs?: number;
+    /** How long a successful response stays usable after freshness expires (SWR). */
+    staleTtlMs?: number;
+    forceRefresh?: boolean;
+  } = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const cacheKey = method === "GET" ? options.cacheKey : undefined;
+  const freshTtl = Math.max(0, options.cacheTtlMs ?? 45_000);
+  const staleTtl = Math.max(freshTtl, options.staleTtlMs ?? Math.max(freshTtl * 8, 5 * 60_000));
+  const now = Date.now();
+
   if (cacheKey) {
     if (options.forceRefresh) jsonRequestCache.delete(cacheKey);
     const cached = jsonRequestCache.get(cacheKey);
-    if (cached && (cached.expiresAt === null || cached.expiresAt > Date.now())) {
-      return waitWithSignal(cached.promise as Promise<T>, init.signal);
+    if (cached) {
+      // In-flight single-flight
+      if (cached.expiresAt === null) {
+        return waitWithSignal(cached.promise as Promise<T>, init.signal);
+      }
+      // Fresh hit
+      if (cached.expiresAt > now) {
+        if (cached.hasResolved) {
+          return waitWithSignal(Promise.resolve(cached.resolved as T), init.signal);
+        }
+        return waitWithSignal(cached.promise as Promise<T>, init.signal);
+      }
+      // Stale-while-revalidate: serve stale immediately and refresh in background
+      if (cached.hasResolved && cached.staleExpiresAt > now) {
+        void refreshJsonCache<T>(input, init, options, cacheKey, freshTtl, staleTtl);
+        return waitWithSignal(Promise.resolve(cached.resolved as T), init.signal);
+      }
+      jsonRequestCache.delete(cacheKey);
     }
-    if (cached) jsonRequestCache.delete(cacheKey);
   }
 
   if (init.signal?.aborted) throw signalAbortReason(init.signal);
 
+  return startJsonRequest<T>(input, init, options, cacheKey, freshTtl, staleTtl);
+}
+
+async function startJsonRequest<T>(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  options: MvFetchOptions,
+  cacheKey: string | undefined,
+  freshTtl: number,
+  staleTtl: number,
+): Promise<T> {
   // A shared cached request must outlive the tab/component that created it.
   // Each caller cancels only its own wait through waitWithSignal below.
   const requestInit = cacheKey && init.signal ? { ...init, signal: undefined } : init;
@@ -252,22 +322,100 @@ export async function mvFetchJson<T>(
   if (cacheKey) {
     const row: JsonCacheRow = {
       expiresAt: null,
+      staleExpiresAt: Date.now() + staleTtl,
       promise,
+      hasResolved: false,
     };
     jsonRequestCache.set(cacheKey, row);
     void promise.then(
+      (value) => {
+        if (jsonRequestCache.get(cacheKey) !== row) return;
+        row.resolved = value;
+        row.hasResolved = true;
+        row.expiresAt = Date.now() + freshTtl;
+        row.staleExpiresAt = Date.now() + staleTtl;
+      },
       () => {
-        if (jsonRequestCache.get(cacheKey) === row) {
-          row.expiresAt = Date.now() + Math.max(0, options.cacheTtlMs ?? 12_000);
+        if (jsonRequestCache.get(cacheKey) === row && !row.hasResolved) {
+          jsonRequestCache.delete(cacheKey);
         }
       },
-      () => undefined,
     );
-    void promise.catch(() => {
-      if (jsonRequestCache.get(cacheKey) === row) jsonRequestCache.delete(cacheKey);
-    });
   }
   return waitWithSignal(promise, init.signal);
+}
+
+function refreshJsonCache<T>(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  options: MvFetchOptions,
+  cacheKey: string,
+  freshTtl: number,
+  staleTtl: number,
+) {
+  const existing = jsonRequestCache.get(cacheKey);
+  // Already refreshing
+  if (existing && existing.expiresAt === null) return;
+
+  const staleResolved = existing?.hasResolved ? existing.resolved : undefined;
+  const requestInit = { ...init, signal: undefined };
+  const promise = mvFetch(input, requestInit, options).then(async (response) => {
+    try {
+      return await response.json() as T;
+    } catch {
+      throw new MvApiError(mvT()("errors.api.serverInvalidResponse"), {
+        status: response.status,
+        kind: "server",
+      });
+    }
+  });
+
+  const row: JsonCacheRow = {
+    expiresAt: null,
+    staleExpiresAt: existing?.staleExpiresAt ?? Date.now() + staleTtl,
+    promise,
+    resolved: staleResolved,
+    hasResolved: existing?.hasResolved ?? false,
+  };
+  jsonRequestCache.set(cacheKey, row);
+  void promise.then(
+    (value) => {
+      if (jsonRequestCache.get(cacheKey) !== row) return;
+      row.resolved = value;
+      row.hasResolved = true;
+      row.expiresAt = Date.now() + freshTtl;
+      row.staleExpiresAt = Date.now() + staleTtl;
+    },
+    () => {
+      // Keep serving previous stale value on background failure
+      if (jsonRequestCache.get(cacheKey) !== row) return;
+      if (row.hasResolved) {
+        row.expiresAt = Date.now() + Math.min(12_000, freshTtl);
+        return;
+      }
+      jsonRequestCache.delete(cacheKey);
+    },
+  );
+}
+
+export function peekMvApiCache<T>(cacheKey: string): T | null {
+  const cached = jsonRequestCache.get(cacheKey);
+  if (!cached?.hasResolved) return null;
+  if (cached.staleExpiresAt <= Date.now()) return null;
+  return cached.resolved as T;
+}
+
+export function seedMvApiCache<T>(cacheKey: string, value: T, ttlMs = 45_000, staleTtlMs?: number) {
+  const freshTtl = Math.max(0, ttlMs);
+  const staleTtl = Math.max(freshTtl, staleTtlMs ?? Math.max(freshTtl * 8, 5 * 60_000));
+  const now = Date.now();
+  jsonRequestCache.set(cacheKey, {
+    expiresAt: now + freshTtl,
+    staleExpiresAt: now + staleTtl,
+    promise: Promise.resolve(value),
+    resolved: value,
+    hasResolved: true,
+  });
 }
 
 export function invalidateMvApiCache(prefix?: string) {

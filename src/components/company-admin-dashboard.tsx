@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PDFPageProxy } from "pdfjs-dist";
 import Link from "@/components/prefetch-link";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -80,6 +80,7 @@ import {
   Stamp,
   Trash2,
   Upload,
+  UserPlus,
   Users,
   Wand2,
 } from "lucide-react";
@@ -109,6 +110,18 @@ type CompanyUserRow = {
   createdAt: string;
   lastLoginAt?: string | null;
   valuationReportSignatureDataUrl?: string | null;
+};
+
+/** معدّ تقرير بدون حساب دخول — يظهر في المقيمون والتوقيعات فقط. */
+type ReportOnlySignatoryRow = {
+  id: string;
+  name: string;
+  jobTitle: string;
+  membershipNo: string;
+  signatureImageDataUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isReportOnly: true;
 };
 
 type CompanyReportCustomSectionForm = {
@@ -1385,6 +1398,78 @@ function MemberSignatureCell({
   );
 }
 
+function ProfessionalModalShell({
+  icon,
+  title,
+  description,
+  accent = "sky",
+  children,
+  footer,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  accent?: "sky" | "violet" | "emerald";
+  children: ReactNode;
+  footer: ReactNode;
+}) {
+  const accentClasses =
+    accent === "violet"
+      ? {
+          glow: "from-violet-500/15 via-fuchsia-400/10 to-transparent",
+          badge: "bg-violet-600 text-white shadow-violet-600/25",
+        }
+      : accent === "emerald"
+        ? {
+            glow: "from-emerald-500/15 via-teal-400/10 to-transparent",
+            badge: "bg-emerald-600 text-white shadow-emerald-600/25",
+          }
+        : {
+            glow: "from-sky-500/15 via-cyan-400/10 to-transparent",
+            badge: "bg-[#0C447C] text-white shadow-[#0C447C]/25",
+          };
+
+  return (
+    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <div className="relative shrink-0 overflow-hidden border-b border-slate-100">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 bg-gradient-to-bl",
+            accentClasses.glow,
+          )}
+        />
+        <div className="relative flex items-start gap-3 px-5 pb-3.5 pt-5 sm:px-6 sm:pb-4 sm:pt-6">
+          <span
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl shadow-lg ring-4 ring-white sm:h-11 sm:w-11",
+              accentClasses.badge,
+            )}
+          >
+            {icon}
+          </span>
+          <DialogHeader className="min-w-0 flex-1 space-y-1 pe-8 pt-0.5 text-right">
+            <DialogTitle className="text-[16px] font-black tracking-tight text-slate-950 sm:text-[17px]">
+              {title}
+            </DialogTitle>
+            <DialogDescription className="text-[11.5px] font-medium leading-5 text-slate-500 sm:text-[12px] sm:leading-6">
+              {description}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+        <div className="grid gap-4">{children}</div>
+      </div>
+      <DialogFooter className="shrink-0 gap-2 border-t border-slate-100 bg-slate-50/90 px-5 py-3.5 sm:justify-start sm:space-x-0 sm:px-6 sm:py-4">
+        {footer}
+      </DialogFooter>
+    </div>
+  );
+}
+
+const PROFESSIONAL_DIALOG_CONTENT_CLASS =
+  "flex max-h-[min(92dvh,920px)] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden rounded-3xl border-slate-200 p-0 shadow-2xl sm:rounded-3xl";
+
 function ReportDefaultsCard({
   title,
   description,
@@ -1445,6 +1530,7 @@ export default function CompanyAdminDashboard({
   const [data, setData] = useState<{
     company: CompanyInfo | null;
     users: CompanyUserRow[];
+    reportOnlySignatories: ReportOnlySignatoryRow[];
   } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -1462,6 +1548,18 @@ export default function CompanyAdminDashboard({
   const [newReportDisplayName, setNewReportDisplayName] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
   const [newMembershipNo, setNewMembershipNo] = useState("");
+
+  const [addReportOnlyOpen, setAddReportOnlyOpen] = useState(false);
+  const [reportOnlyName, setReportOnlyName] = useState("");
+  const [reportOnlyJobTitle, setReportOnlyJobTitle] = useState("");
+  const [reportOnlyMembershipNo, setReportOnlyMembershipNo] = useState("");
+  const [editReportOnlyOpen, setEditReportOnlyOpen] = useState(false);
+  const [editReportOnlyTarget, setEditReportOnlyTarget] = useState<ReportOnlySignatoryRow | null>(null);
+  const [editReportOnlyName, setEditReportOnlyName] = useState("");
+  const [editReportOnlyJobTitle, setEditReportOnlyJobTitle] = useState("");
+  const [editReportOnlyMembershipNo, setEditReportOnlyMembershipNo] = useState("");
+  const [deleteReportOnlyTarget, setDeleteReportOnlyTarget] = useState<ReportOnlySignatoryRow | null>(null);
+  const [reportOnlyBusy, setReportOnlyBusy] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CompanyUserRow | null>(null);
@@ -1518,8 +1616,22 @@ export default function CompanyAdminDashboard({
       const payload = await apiJson<{
         company: CompanyInfo | null;
         users: CompanyUserRow[];
+        reportOnlySignatories?: ReportOnlySignatoryRow[];
       }>(`/api/company/users${productQuery}`, csrfToken);
-      setData({ company: payload.company, users: payload.users ?? [] });
+      setData({
+        company: payload.company,
+        users: payload.users ?? [],
+        reportOnlySignatories: (payload.reportOnlySignatories ?? []).map((row) => ({
+          id: row.id,
+          name: row.name ?? "",
+          jobTitle: row.jobTitle ?? "",
+          membershipNo: row.membershipNo ?? "",
+          signatureImageDataUrl: row.signatureImageDataUrl ?? null,
+          createdAt: row.createdAt ?? "",
+          updatedAt: row.updatedAt ?? "",
+          isReportOnly: true,
+        })),
+      });
       setLogoDraft(payload.company?.logoDataUrl ?? null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "تعذر التحميل.");
@@ -2164,6 +2276,126 @@ export default function CompanyAdminDashboard({
     [csrfToken, load],
   );
 
+  const persistReportOnlySignature = useCallback(
+    async (signatoryId: string, url: string | null) => {
+      setSignatureBusyUserId(signatoryId);
+      setSubmitError(null);
+      setStatus(null);
+      try {
+        await apiJson(
+          `/api/company/report-signatories/${encodeURIComponent(signatoryId)}/signature`,
+          csrfToken,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ signatureImageDataUrl: url }),
+          },
+        );
+        setStatus("تم حفظ توقيع معدّ التقرير.");
+        await load();
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : "فشل حفظ التوقيع.");
+      } finally {
+        setSignatureBusyUserId(null);
+      }
+    },
+    [csrfToken, load],
+  );
+
+  const onAddReportOnlySignatory = async () => {
+    const name = reportOnlyName.trim();
+    if (!name || !isSafeValuationReportName(name)) {
+      setSubmitError("أدخل اسماً نصياً صالحاً يظهر في التقرير (وليس رقم هاتف).");
+      return;
+    }
+    setReportOnlyBusy(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      await apiJson("/api/company/report-signatories", csrfToken, {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          jobTitle: reportOnlyJobTitle.trim(),
+          membershipNo: reportOnlyMembershipNo.trim(),
+        }),
+      });
+      setStatus("تم إضافة معدّ التقرير.");
+      setReportOnlyName("");
+      setReportOnlyJobTitle("");
+      setReportOnlyMembershipNo("");
+      setAddReportOnlyOpen(false);
+      await load();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل إضافة معدّ التقرير.");
+    } finally {
+      setReportOnlyBusy(false);
+    }
+  };
+
+  const openEditReportOnly = useCallback((row: ReportOnlySignatoryRow) => {
+    setEditReportOnlyTarget(row);
+    setEditReportOnlyName(row.name);
+    setEditReportOnlyJobTitle(row.jobTitle);
+    setEditReportOnlyMembershipNo(row.membershipNo);
+    setEditReportOnlyOpen(true);
+    setSubmitError(null);
+  }, []);
+
+  const onSaveReportOnlySignatory = async () => {
+    if (!editReportOnlyTarget) return;
+    const name = editReportOnlyName.trim();
+    if (!name || !isSafeValuationReportName(name)) {
+      setSubmitError("أدخل اسماً نصياً صالحاً يظهر في التقرير (وليس رقم هاتف).");
+      return;
+    }
+    setReportOnlyBusy(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      await apiJson(
+        `/api/company/report-signatories/${encodeURIComponent(editReportOnlyTarget.id)}`,
+        csrfToken,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            name,
+            jobTitle: editReportOnlyJobTitle.trim(),
+            membershipNo: editReportOnlyMembershipNo.trim(),
+          }),
+        },
+      );
+      setStatus("تم تحديث بيانات معدّ التقرير.");
+      setEditReportOnlyOpen(false);
+      setEditReportOnlyTarget(null);
+      await load();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل تحديث معدّ التقرير.");
+    } finally {
+      setReportOnlyBusy(false);
+    }
+  };
+
+  const onDeleteReportOnlySignatory = async () => {
+    if (!deleteReportOnlyTarget) return;
+    setReportOnlyBusy(true);
+    setSubmitError(null);
+    setStatus(null);
+    try {
+      await apiJson(
+        `/api/company/report-signatories/${encodeURIComponent(deleteReportOnlyTarget.id)}`,
+        csrfToken,
+        { method: "DELETE" },
+      );
+      setStatus("تم حذف معدّ التقرير.");
+      setDeleteReportOnlyTarget(null);
+      await load();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل حذف معدّ التقرير.");
+    } finally {
+      setReportOnlyBusy(false);
+    }
+  };
+
   const onAddUser = async () => {
     const reportDisplayName = newReportDisplayName.trim();
     if (reportDisplayName && !isSafeValuationReportName(reportDisplayName)) {
@@ -2726,11 +2958,30 @@ export default function CompanyAdminDashboard({
           <TabsContent value="signatories" className="mt-0 outline-none">
             <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 md:px-6">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <PenLine className="h-4 w-4 text-violet-600" />
-                  <span className="text-[13px] font-semibold">المقيمون والتوقيعات</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <PenLine className="h-4 w-4 text-violet-600" />
+                    <span className="text-[13px] font-semibold">المقيمون والتوقيعات</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    مستخدمو الشركة يظهرون تلقائياً. يمكنك أيضاً إضافة معدّي تقرير للتقارير فقط بدون حساب دخول.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500">نفس مستخدمي الشركة — التوقيع يُحفظ لكل مستخدم في قاعدة البيانات.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-700"
+                  onClick={() => {
+                    setReportOnlyName("");
+                    setReportOnlyJobTitle("");
+                    setReportOnlyMembershipNo("");
+                    setSubmitError(null);
+                    setAddReportOnlyOpen(true);
+                  }}
+                >
+                  <UserPlus className="h-4 w-4" />
+                  إضافة معدّ تقرير
+                </Button>
               </div>
               <div className="overflow-x-auto p-2 md:p-4">
                 {!data ? (
@@ -2742,12 +2993,12 @@ export default function CompanyAdminDashboard({
                     <TableHeader>
                       <TableRow className="border-slate-100 hover:bg-transparent">
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">الاسم في التقرير</TableHead>
-                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">الدور</TableHead>
-                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">آخر دخول</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">النوع</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">ملاحظة</TableHead>
                         <TableHead className="min-w-[200px] text-right text-[12px] font-semibold text-slate-500">
                           التوقيع (PNG)
                         </TableHead>
-                        <TableHead className="w-[92px] text-center text-[12px] font-semibold text-slate-500">
+                        <TableHead className="w-[120px] text-center text-[12px] font-semibold text-slate-500">
                           إجراءات
                         </TableHead>
                       </TableRow>
@@ -2772,9 +3023,16 @@ export default function CompanyAdminDashboard({
                                 ) : null}
                               </div>
                             </TableCell>
-                            <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
+                            <TableCell className="text-slate-700">
+                              <Badge variant="secondary" className="rounded-lg bg-sky-50 text-[10px] font-bold text-sky-800">
+                                مستخدم الشركة
+                              </Badge>
+                              <p className="mt-1 text-[11px] text-slate-500">{ROLE_LABELS[u.role] ?? u.role}</p>
+                            </TableCell>
                             <TableCell className="text-[12px] text-slate-500">
-                              {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
+                              {u.lastLoginAt
+                                ? `آخر دخول: ${new Date(u.lastLoginAt).toLocaleString("ar")}`
+                                : "حساب دخول للنظام"}
                             </TableCell>
                             <TableCell className="p-0 align-top">
                               <MemberSignatureCell
@@ -2802,6 +3060,71 @@ export default function CompanyAdminDashboard({
                           </TableRow>
                         );
                       })}
+                      {data.reportOnlySignatories.map((row) => (
+                        <TableRow key={row.id} className="border-slate-100 bg-violet-50/20">
+                          <TableCell className="font-medium text-slate-900">
+                            <div className="grid gap-0.5">
+                              <span dir="rtl">{row.name || "—"}</span>
+                              {row.jobTitle ? (
+                                <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
+                                  {row.jobTitle}
+                                </span>
+                              ) : null}
+                              {row.membershipNo ? (
+                                <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
+                                  رقم العضوية: {row.membershipNo}
+                                </span>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className="rounded-lg bg-violet-100 text-[10px] font-bold text-violet-800 hover:bg-violet-100">
+                              للتقرير فقط
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-[12px] text-slate-500">
+                            بدون هاتف أو كلمة مرور — يظهر في اختيار معدّي التقرير
+                          </TableCell>
+                          <TableCell className="p-0 align-top">
+                            <MemberSignatureCell
+                              savedUrl={row.signatureImageDataUrl}
+                              busy={signatureBusyUserId === row.id}
+                              onPersist={(url) => persistReportOnlySignature(row.id, url)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-lg px-2 text-[11px]"
+                                disabled={reportOnlyBusy}
+                                onClick={() => openEditReportOnly(row)}
+                              >
+                                تعديل
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 rounded-lg px-2 text-[11px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                disabled={reportOnlyBusy}
+                                onClick={() => setDeleteReportOnlyTarget(row)}
+                              >
+                                حذف
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {data.users.length === 0 && data.reportOnlySignatories.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="py-10 text-center text-[12px] text-slate-500">
+                            لا يوجد مقيمون بعد. أضف مستخدماً من تبويب مستخدمو الشركة أو معدّ تقرير من هنا.
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
                     </TableBody>
                   </Table>
                 )}
@@ -3814,89 +4137,254 @@ export default function CompanyAdminDashboard({
       </Dialog>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-200" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">مستخدم جديد</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 pt-2">
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
-              <PhoneNumberInput value={newPhone} onChange={setNewPhone} />
+        <DialogContent className={PROFESSIONAL_DIALOG_CONTENT_CLASS} dir="rtl">
+          <ProfessionalModalShell
+            accent="sky"
+            icon={<UserPlus className="h-5 w-5" />}
+            title="مستخدم جديد"
+            description="إنشاء حساب دخول للشركة مع بيانات الظهور في تقارير التقييم."
+            footer={
+              <>
+                <Button
+                  type="button"
+                  className="min-w-[8rem] rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
+                  disabled={submitting || !newPhone.trim() || newPassword.length < 8}
+                  onClick={() => void onAddUser()}
+                >
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  إنشاء المستخدم
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={submitting}
+                  onClick={() => setAddOpen(false)}
+                >
+                  إلغاء
+                </Button>
+              </>
+            }
+          >
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-sky-900">
+              رقم الهاتف وكلمة المرور للدخول فقط. الاسم والوظيفة ورقم العضوية هي ما يظهر في التقرير.
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label className="text-[12px] font-bold text-slate-700">رقم الهاتف</Label>
+                <PhoneNumberInput value={newPhone} onChange={setNewPhone} />
+              </div>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label className="text-[12px] font-bold text-slate-700">كلمة المرور</Label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                  className="h-11 rounded-xl border-slate-200"
+                  placeholder="8 أحرف على الأقل"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">الدور</Label>
+                <Select value={newRole} onValueChange={(v) => setNewRole(v as typeof newRole)}>
+                  <SelectTrigger className="h-11 rounded-xl border-slate-200">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[960]">
+                    <SelectItem value="valuer">مقيم</SelectItem>
+                    <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
+                    <SelectItem value="data_entry">مدخل بيانات</SelectItem>
+                    <SelectItem value="reviewer">مراجع</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">البريد (اختياري)</Label>
+                <Input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="h-11 rounded-xl border-slate-200"
+                />
+              </div>
+            </div>
+            <div className="h-px bg-gradient-to-l from-transparent via-slate-200 to-transparent" />
+            <div className="grid gap-3">
+              <p className="text-[11px] font-extrabold tracking-wide text-slate-400">بيانات التقرير</p>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">الاسم الذي يظهر في التقرير</Label>
+                <Input
+                  value={newReportDisplayName}
+                  onChange={(e) => setNewReportDisplayName(e.target.value)}
+                  placeholder="الاسم الكامل للمقيم"
+                  className="h-11 rounded-xl border-slate-200"
+                  dir="rtl"
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label className="text-[12px] font-bold text-slate-700">الوظيفة</Label>
+                  <Input
+                    value={newJobTitle}
+                    onChange={(e) => setNewJobTitle(e.target.value)}
+                    placeholder="مقيم منتسب آلات ومعدات"
+                    className="h-11 rounded-xl border-slate-200"
+                    dir="rtl"
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-[12px] font-bold text-slate-700">رقم العضوية</Label>
+                  <Input
+                    value={newMembershipNo}
+                    onChange={(e) => setNewMembershipNo(e.target.value)}
+                    placeholder="421000000"
+                    className="h-11 rounded-xl border-slate-200"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+            </div>
+          </ProfessionalModalShell>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addReportOnlyOpen} onOpenChange={setAddReportOnlyOpen}>
+        <DialogContent className={PROFESSIONAL_DIALOG_CONTENT_CLASS} dir="rtl">
+          <ProfessionalModalShell
+            accent="violet"
+            icon={<PenLine className="h-5 w-5" />}
+            title="إضافة معدّ تقرير"
+            description="يظهر في المقيمون والتوقيعات واختيار معدّي التقرير فقط، بدون حساب دخول للنظام."
+            footer={
+              <>
+                <Button
+                  type="button"
+                  className="min-w-[8rem] rounded-xl bg-violet-600 hover:bg-violet-700"
+                  disabled={reportOnlyBusy || reportOnlyName.trim().length < 2}
+                  onClick={() => void onAddReportOnlySignatory()}
+                >
+                  {reportOnlyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  حفظ المعدّ
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={reportOnlyBusy}
+                  onClick={() => setAddReportOnlyOpen(false)}
+                >
+                  إلغاء
+                </Button>
+              </>
+            }
+          >
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/80 px-3 py-2.5 text-[11px] font-medium leading-5 text-violet-950">
+              لا يلزم رقم هاتف أو إيميل أو كلمة مرور. بعد الحفظ يمكنك رفع التوقيع من جدول المقيمون والتوقيعات.
             </div>
             <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">كلمة المرور</Label>
+              <Label className="text-[12px] font-bold text-slate-700">الاسم الذي يظهر في التقرير</Label>
               <Input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-                className="rounded-xl"
+                value={reportOnlyName}
+                onChange={(e) => setReportOnlyName(e.target.value)}
+                placeholder="الاسم الكامل"
+                className="h-11 rounded-xl border-slate-200"
+                dir="rtl"
+                autoFocus
               />
             </div>
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">الدور</Label>
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as typeof newRole)}>
-                <SelectTrigger className="rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="z-[960]">
-                  <SelectItem value="valuer">مقيم</SelectItem>
-                  <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
-                  <SelectItem value="data_entry">مدخل بيانات</SelectItem>
-                  <SelectItem value="reviewer">مراجع</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">الوظيفة</Label>
+                <Input
+                  value={reportOnlyJobTitle}
+                  onChange={(e) => setReportOnlyJobTitle(e.target.value)}
+                  placeholder="مقيم منتسب آلات ومعدات"
+                  className="h-11 rounded-xl border-slate-200"
+                  dir="rtl"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">رقم العضوية</Label>
+                <Input
+                  value={reportOnlyMembershipNo}
+                  onChange={(e) => setReportOnlyMembershipNo(e.target.value)}
+                  placeholder="421000000"
+                  className="h-11 rounded-xl border-slate-200"
+                  dir="ltr"
+                />
+              </div>
             </div>
+          </ProfessionalModalShell>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editReportOnlyOpen}
+        onOpenChange={(open) => {
+          setEditReportOnlyOpen(open);
+          if (!open) setEditReportOnlyTarget(null);
+        }}
+      >
+        <DialogContent className={PROFESSIONAL_DIALOG_CONTENT_CLASS} dir="rtl">
+          <ProfessionalModalShell
+            accent="violet"
+            icon={<PenLine className="h-5 w-5" />}
+            title="تعديل معدّ التقرير"
+            description="تحديث بيانات الظهور في التقارير دون إنشاء حساب مستخدم."
+            footer={
+              <>
+                <Button
+                  type="button"
+                  className="min-w-[8rem] rounded-xl bg-violet-600 hover:bg-violet-700"
+                  disabled={reportOnlyBusy || editReportOnlyName.trim().length < 2}
+                  onClick={() => void onSaveReportOnlySignatory()}
+                >
+                  {reportOnlyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  حفظ التعديلات
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={reportOnlyBusy}
+                  onClick={() => setEditReportOnlyOpen(false)}
+                >
+                  إلغاء
+                </Button>
+              </>
+            }
+          >
             <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">البريد (اختياري)</Label>
+              <Label className="text-[12px] font-bold text-slate-700">الاسم الذي يظهر في التقرير</Label>
               <Input
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                className="rounded-xl"
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">الاسم الذي يظهر في التقرير</Label>
-              <Input
-                value={newReportDisplayName}
-                onChange={(e) => setNewReportDisplayName(e.target.value)}
-                placeholder="الاسم الكامل للمقيم"
-                className="rounded-xl"
+                value={editReportOnlyName}
+                onChange={(e) => setEditReportOnlyName(e.target.value)}
+                className="h-11 rounded-xl border-slate-200"
                 dir="rtl"
               />
-              <p className="text-[10.5px] text-slate-400">رقم الهاتف مخصص للدخول ولا يظهر في التقرير.</p>
             </div>
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">الوظيفة</Label>
-              <Input
-                value={newJobTitle}
-                onChange={(e) => setNewJobTitle(e.target.value)}
-                placeholder="مقيم منتسب آلات ومعدات"
-                className="rounded-xl"
-                dir="rtl"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">الوظيفة</Label>
+                <Input
+                  value={editReportOnlyJobTitle}
+                  onChange={(e) => setEditReportOnlyJobTitle(e.target.value)}
+                  className="h-11 rounded-xl border-slate-200"
+                  dir="rtl"
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[12px] font-bold text-slate-700">رقم العضوية</Label>
+                <Input
+                  value={editReportOnlyMembershipNo}
+                  onChange={(e) => setEditReportOnlyMembershipNo(e.target.value)}
+                  className="h-11 rounded-xl border-slate-200"
+                  dir="ltr"
+                />
+              </div>
             </div>
-            <div className="grid gap-1.5">
-              <Label className="text-[12px] text-slate-600">رقم العضوية</Label>
-              <Input
-                value={newMembershipNo}
-                onChange={(e) => setNewMembershipNo(e.target.value)}
-                placeholder="421000000"
-                className="rounded-xl"
-                dir="ltr"
-              />
-            </div>
-            <Button
-              type="button"
-              className="mt-2 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
-              disabled={submitting || !newPhone.trim() || newPassword.length < 8}
-              onClick={() => void onAddUser()}
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              إنشاء
-            </Button>
-          </div>
+          </ProfessionalModalShell>
         </DialogContent>
       </Dialog>
 
@@ -3907,90 +4395,98 @@ export default function CompanyAdminDashboard({
           if (!open) setEditTarget(null);
         }}
       >
-        <DialogContent className="max-w-md rounded-2xl border-slate-200" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">
-              تعديل مستخدم{editTarget ? ` — ${userDisplayName(editTarget)}` : ""}
-            </DialogTitle>
-          </DialogHeader>
-          {editTarget ? (
-            <div className="grid gap-3 pt-2">
-              {editTarget.role === "company_admin" ? (
-                <p className="text-[12px] leading-relaxed text-slate-500">
-                  كمدير شركة يمكنك تحديث بيانات الحساب وبيانات ظهورك في التقرير. تغيير الدور غير متاح من هنا.
-                </p>
-              ) : (
-                <div className="grid gap-1.5">
-                  <Label className="text-[12px] text-slate-600">الدور</Label>
-                  <Select value={editRole} onValueChange={(v) => setEditRole(v as MemberRoleOption)}>
-                    <SelectTrigger className="rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="z-[960]">
-                      <SelectItem value="valuer">مقيم</SelectItem>
-                      <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
-                      <SelectItem value="data_entry">مدخل بيانات</SelectItem>
-                      <SelectItem value="reviewer">مراجع</SelectItem>
-                    </SelectContent>
-                  </Select>
+        <DialogContent
+          className="flex max-h-[min(92dvh,920px)] w-[min(96vw,28rem)] max-w-[min(96vw,28rem)] flex-col gap-0 overflow-hidden rounded-3xl border-slate-200 p-0 shadow-2xl"
+          dir="rtl"
+        >
+          <div className="flex min-h-0 flex-1 flex-col">
+            <DialogHeader className="shrink-0 space-y-1 border-b border-slate-100 px-5 py-4 pe-12 text-right sm:px-6">
+              <DialogTitle className="text-base font-bold">
+                تعديل مستخدم{editTarget ? ` — ${userDisplayName(editTarget)}` : ""}
+              </DialogTitle>
+            </DialogHeader>
+            {editTarget ? (
+              <>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
+                <div className="grid gap-3">
+                  {editTarget.role === "company_admin" ? (
+                    <p className="text-[12px] leading-relaxed text-slate-500">
+                      كمدير شركة يمكنك تحديث بيانات الحساب وبيانات ظهورك في التقرير. تغيير الدور غير متاح من هنا.
+                    </p>
+                  ) : (
+                    <div className="grid gap-1.5">
+                      <Label className="text-[12px] text-slate-600">الدور</Label>
+                      <Select value={editRole} onValueChange={(v) => setEditRole(v as MemberRoleOption)}>
+                        <SelectTrigger className="rounded-xl">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="z-[960]">
+                          <SelectItem value="valuer">مقيم</SelectItem>
+                          <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
+                          <SelectItem value="data_entry">مدخل بيانات</SelectItem>
+                          <SelectItem value="reviewer">مراجع</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">البريد (اختياري)</Label>
+                    <Input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      className="rounded-xl"
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
+                    <PhoneNumberInput value={editPhone} onChange={setEditPhone} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">الاسم الذي يظهر في التقرير</Label>
+                    <Input
+                      value={editReportDisplayName}
+                      onChange={(e) => setEditReportDisplayName(e.target.value)}
+                      placeholder="الاسم الكامل للمقيم"
+                      className="rounded-xl"
+                      dir="rtl"
+                    />
+                    <p className="text-[10.5px] text-slate-400">رقم الهاتف مخصص للدخول ولا يظهر في التقرير.</p>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">الوظيفة</Label>
+                    <Input
+                      value={editJobTitle}
+                      onChange={(e) => setEditJobTitle(e.target.value)}
+                      placeholder="مقيم منتسب آلات ومعدات"
+                      className="rounded-xl"
+                      dir="rtl"
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">رقم العضوية</Label>
+                    <Input
+                      value={editMembershipNo}
+                      onChange={(e) => setEditMembershipNo(e.target.value)}
+                      placeholder="421000000"
+                      className="rounded-xl"
+                      dir="ltr"
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[12px] text-slate-600">كلمة مرور جديدة (اختياري)</Label>
+                    <Input
+                      type="password"
+                      value={editNewPassword}
+                      onChange={(e) => setEditNewPassword(e.target.value)}
+                      autoComplete="new-password"
+                      placeholder="اتركه فارغاً إن لم تتغيّر"
+                      className="rounded-xl"
+                    />
+                  </div>
                 </div>
-              )}
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">البريد (اختياري)</Label>
-                <Input
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="rounded-xl"
-                />
               </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">رقم الهاتف</Label>
-                <PhoneNumberInput value={editPhone} onChange={setEditPhone} />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">الاسم الذي يظهر في التقرير</Label>
-                <Input
-                  value={editReportDisplayName}
-                  onChange={(e) => setEditReportDisplayName(e.target.value)}
-                  placeholder="الاسم الكامل للمقيم"
-                  className="rounded-xl"
-                  dir="rtl"
-                />
-                <p className="text-[10.5px] text-slate-400">رقم الهاتف مخصص للدخول ولا يظهر في التقرير.</p>
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">الوظيفة</Label>
-                <Input
-                  value={editJobTitle}
-                  onChange={(e) => setEditJobTitle(e.target.value)}
-                  placeholder="مقيم منتسب آلات ومعدات"
-                  className="rounded-xl"
-                  dir="rtl"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">رقم العضوية</Label>
-                <Input
-                  value={editMembershipNo}
-                  onChange={(e) => setEditMembershipNo(e.target.value)}
-                  placeholder="421000000"
-                  className="rounded-xl"
-                  dir="ltr"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[12px] text-slate-600">كلمة مرور جديدة (اختياري)</Label>
-                <Input
-                  type="password"
-                  value={editNewPassword}
-                  onChange={(e) => setEditNewPassword(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="اتركه فارغاً إن لم تتغيّر"
-                  className="rounded-xl"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex shrink-0 flex-wrap gap-2 border-t border-slate-100 bg-slate-50/90 px-5 py-3.5 sm:px-6">
                 <Button
                   type="button"
                   variant="outline"
@@ -4010,8 +4506,9 @@ export default function CompanyAdminDashboard({
                   حفظ التغييرات
                 </Button>
               </div>
-            </div>
-          ) : null}
+              </>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -4043,6 +4540,40 @@ export default function CompanyAdminDashboard({
               }}
             >
               {userActionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              حذف
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteReportOnlyTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteReportOnlyTarget(null);
+        }}
+      >
+        <AlertDialogContent className="z-[960] max-w-md rounded-2xl" dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف معدّ التقرير؟</AlertDialogTitle>
+            <AlertDialogDescription className="text-right">
+              {deleteReportOnlyTarget
+                ? `سيتم حذف «${deleteReportOnlyTarget.name}» من المقيمون والتوقيعات. لن يظهر لاحقاً في اختيار معدّي التقرير.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:justify-start">
+            <AlertDialogCancel className="rounded-xl" disabled={reportOnlyBusy}>
+              إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              disabled={reportOnlyBusy}
+              onClick={(e) => {
+                e.preventDefault();
+                void onDeleteReportOnlySignatory();
+              }}
+            >
+              {reportOnlyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               حذف
             </AlertDialogAction>
           </AlertDialogFooter>

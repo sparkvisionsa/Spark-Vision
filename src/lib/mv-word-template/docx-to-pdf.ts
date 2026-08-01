@@ -3,8 +3,9 @@ import { jsPDF } from "jspdf";
 
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
-const JPEG_QUALITY = 0.93;
-const CAPTURE_SCALE = 2.25;
+/** جودة عالية كاحتياطي متصفح عندما يفشل تحويل الخادم (مستندات صغيرة فقط). */
+const JPEG_QUALITY = 0.95;
+const CAPTURE_SCALE = 2;
 
 const PREVIEW_SESSION_KEY = "mv-word-report-preview-docx";
 
@@ -24,7 +25,7 @@ async function waitForImages(root: HTMLElement) {
     images.map(
       (img) =>
         new Promise<void>((resolve) => {
-          if (img.complete) {
+          if (img.complete && img.naturalWidth > 0) {
             resolve();
             return;
           }
@@ -45,7 +46,53 @@ function collectDocxPreviewPages(bodyContainer: HTMLElement): HTMLElement[] {
   return [wrapper];
 }
 
-async function captureElementToPdfPage(pdf: jsPDF, element: HTMLElement, pageIndex: number) {
+/** يقسّم لقطة طويلة إلى صفحات A4 بدلاً من ضغط كل المحتوى في صفحة واحدة. */
+function addCanvasSlicesToPdf(pdf: jsPDF, canvas: HTMLCanvasElement, startPageIndex: number): number {
+  const pageWidthPx = canvas.width;
+  const pageHeightPx = Math.max(1, Math.round((A4_HEIGHT_PT / A4_WIDTH_PT) * pageWidthPx));
+  let pageIndex = startPageIndex;
+  let offsetY = 0;
+
+  while (offsetY < canvas.height) {
+    const sliceHeight = Math.min(pageHeightPx, canvas.height - offsetY);
+    const slice = document.createElement("canvas");
+    slice.width = pageWidthPx;
+    slice.height = sliceHeight;
+    const ctx = slice.getContext("2d");
+    if (!ctx) break;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, slice.width, slice.height);
+    ctx.drawImage(
+      canvas,
+      0,
+      offsetY,
+      pageWidthPx,
+      sliceHeight,
+      0,
+      0,
+      pageWidthPx,
+      sliceHeight,
+    );
+
+    const imgData = slice.toDataURL("image/jpeg", JPEG_QUALITY);
+    if (pageIndex > 0) pdf.addPage("a4", "portrait");
+    const drawH = (sliceHeight * A4_WIDTH_PT) / pageWidthPx;
+    pdf.addImage(imgData, "JPEG", 0, 0, A4_WIDTH_PT, drawH, undefined, "FAST");
+
+    offsetY += sliceHeight;
+    pageIndex += 1;
+  }
+
+  return pageIndex;
+}
+
+async function captureElementToPdfPages(pdf: jsPDF, element: HTMLElement, startPageIndex: number) {
+  const width = Math.max(element.scrollWidth, element.offsetWidth, 800);
+  const height = Math.max(element.scrollHeight, element.offsetHeight, 200);
+  element.style.width = `${width}px`;
+  element.style.minHeight = `${height}px`;
+  element.style.background = "#ffffff";
+
   const canvas = await html2canvas(element, {
     scale: CAPTURE_SCALE,
     useCORS: true,
@@ -53,18 +100,17 @@ async function captureElementToPdfPage(pdf: jsPDF, element: HTMLElement, pageInd
     backgroundColor: "#ffffff",
     scrollX: 0,
     scrollY: 0,
+    width,
+    height,
+    windowWidth: width,
+    windowHeight: height,
   });
 
-  const imgData = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-  const imgW = A4_WIDTH_PT;
-  const imgH = (canvas.height * imgW) / canvas.width;
-  const finalH = Math.min(imgH, A4_HEIGHT_PT);
-
-  if (pageIndex > 0) {
-    pdf.addPage("a4", "portrait");
+  if (canvas.width < 8 || canvas.height < 8) {
+    throw new Error("تعذر التقاط صفحة من مستند Word للتحويل إلى PDF.");
   }
 
-  pdf.addImage(imgData, "JPEG", 0, 0, imgW, finalH, undefined, "FAST");
+  return addCanvasSlicesToPdf(pdf, canvas, startPageIndex);
 }
 
 async function renderDocxToHost(docxBlob: Blob) {
@@ -73,12 +119,22 @@ async function renderDocxToHost(docxBlob: Blob) {
   const host = document.createElement("div");
   host.setAttribute("aria-hidden", "true");
   host.dir = "rtl";
-  host.style.cssText =
-    "position:fixed;left:-14000px;top:0;z-index:-1;opacity:0;pointer-events:none;background:#fff;";
+  host.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    "z-index:-1",
+    "pointer-events:none",
+    "background:#fff",
+    "width:210mm",
+    "max-height:0",
+    "overflow:hidden",
+  ].join(";");
 
   const styleContainer = document.createElement("div");
   const bodyContainer = document.createElement("div");
   bodyContainer.dir = "rtl";
+  bodyContainer.style.cssText = "background:#fff;width:210mm;";
   host.appendChild(styleContainer);
   host.appendChild(bodyContainer);
   document.body.appendChild(host);
@@ -97,23 +153,27 @@ async function renderDocxToHost(docxBlob: Blob) {
 
   await waitForNextFrame();
   await waitForImages(bodyContainer);
-  await wait(350);
+  await wait(500);
 
   return { host, bodyContainer };
 }
 
 /**
- * يحوّل ملف Word (.docx) إلى PDF في المتصفح.
+ * يحوّل ملف Word (.docx) إلى PDF في المتصفح (احتياطي فقط للمستندات الصغيرة).
  */
 export async function convertDocxBlobToPdfBlob(docxBlob: Blob): Promise<Blob> {
   const { host, bodyContainer } = await renderDocxToHost(docxBlob);
 
   try {
     const pages = collectDocxPreviewPages(bodyContainer);
+    if (pages.length === 0) {
+      throw new Error("تعذر تحويل المستند إلى PDF — لا توجد صفحات للعرض.");
+    }
     const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    let nextPageIndex = 0;
 
-    for (let i = 0; i < pages.length; i += 1) {
-      await captureElementToPdfPage(pdf, pages[i]!, i);
+    for (const page of pages) {
+      nextPageIndex = await captureElementToPdfPages(pdf, page, nextPageIndex);
     }
 
     if (pdf.getNumberOfPages() === 0) {

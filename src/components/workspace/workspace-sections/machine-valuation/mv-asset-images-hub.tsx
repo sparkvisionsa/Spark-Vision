@@ -351,10 +351,9 @@ function previewFolderParentNameKey(parentId: string, name: string) {
 
 /**
  * يحدّد لكل مقطع في دفعة الرفع إن كان مجلداً عادياً أم أصلاً:
- * - أي مسار له أبناء أعمق (سوبر أب) → مجلد عادي
- * - المسارات الورقية (الأب المباشر للصور) → أصل في كوليكشن assets
+ * - أي مسار له أبناء أعمق → مجلد عادي
+ * - المسارات الورقية (الأب المباشر للصور) → مجلد أصول
  * - صور سائبة داخل مجلد له أبناء → أصل فرعي «صور مباشرة»
- * - لا تُرفع صور في الجذر بدون مجلد/أصل
  */
 function buildFolderUploadPathPlan(allFolderParts: string[][]) {
   const hasChildren = new Set<string>();
@@ -1362,6 +1361,12 @@ async function collectDroppedImages(dataTransfer: DataTransfer): Promise<PickedI
   }
 }
 
+function defaultLooseImagesAssetFolderName(isArabic: boolean) {
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}.${String(d.getMinutes()).padStart(2, "0")}`;
+  return isArabic ? `صور ${stamp}` : `Photos ${stamp}`;
+}
+
 function selectedAncestors(path: string) {
   const parts = path.split("/").filter(Boolean);
   const out = [""];
@@ -1600,7 +1605,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     if (typeof window === "undefined") return true;
     return readMvWorkflowSessionJson(MV_WORKFLOW_SESSION.previewPhotoFolders(projectId)) == null;
   });
-  const [selectedPreviewFolderId, setSelectedPreviewFolderId] = useState<string | null>(null);
+  const [selectedPreviewFolderId, setSelectedPreviewFolderId] = useState<string | null>("__pv_root__");
   const previewFoldersLoadIdRef = useRef(0);
   const previewHydrateCancelRef = useRef<(() => void) | null>(null);
   const selectedPreviewFolderIdRef = useRef<string | null>(null);
@@ -1839,9 +1844,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }>(cacheKey);
     let blockPreviewSpinner = false;
     if (mode === "full") {
-      if (cached?.entries && Array.isArray(cached.entries)) {
-        setPhotosRootId(cached.photosRootId ?? null);
-        setPreviewPhotoFolders(cached.entries);
+      const hasWarmFolders =
+        Boolean(cached?.photosRootId) && Array.isArray(cached?.entries) && cached.entries.length > 0;
+      if (hasWarmFolders) {
+        setPhotosRootId(cached!.photosRootId ?? null);
+        setPreviewPhotoFolders(cached!.entries);
         setSelectedPreviewFolderId((prev) => {
           if (prev === "__pv_root__" || (prev && cached!.entries!.some((e) => e.sub._id === prev))) return prev;
           return "__pv_root__";
@@ -1857,24 +1864,39 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       }
     }
     try {
-      const data = await mvFetchJson<{ subProjects?: MvSubProject[] }>(
-        `/api/mv/projects/${projectId}?picAssetMode=summary`,
-        {},
-        {
-          cacheKey: mode === "full" ? `project-summary:${projectId}` : undefined,
-          cacheTtlMs: 12_000,
-          retries: 1,
-          timeoutMs: 15_000,
-          trackLoading: false,
-        },
-      );
+      const folderCacheKey = `project-pic-folders:${projectId}`;
+      const fetchFolders = (forceRefresh: boolean) =>
+        mvFetchJson<{ subProjects?: MvSubProject[] }>(
+          `/api/mv/projects/${projectId}?picAssetMode=summary`,
+          {},
+          {
+            // مفتاح مستقل عن project-summary حتى لا يتلوّث بوضع بيانات التقرير (subProjects: [])
+            cacheKey: mode === "full" && !forceRefresh ? folderCacheKey : undefined,
+            cacheTtlMs: 12_000,
+            forceRefresh,
+            retries: 1,
+            timeoutMs: 15_000,
+            trackLoading: false,
+          },
+        );
+
+      let data = await fetchFolders(mode === "revalidate");
       if (previewFoldersLoadIdRef.current !== myLoadId) return;
-      const { previewRoot, entries: baseEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []);
+      let { previewRoot, entries: baseEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []);
+      // كاش مشترك قديم فارغ → أعد الجلب من الشبكة مرة واحدة
+      if (!previewRoot && mode === "full") {
+        data = await fetchFolders(true);
+        if (previewFoldersLoadIdRef.current !== myLoadId) return;
+        ({ previewRoot, entries: baseEntries } = buildPhotosRootAssetEntries(data.subProjects ?? []));
+      }
       if (!previewRoot) {
         setPhotosRootId(null);
-        setPreviewPhotoFolders([]);
-        setSelectedPreviewFolderId(null);
-        writeMvWorkflowSessionJson(cacheKey, { photosRootId: null, entries: [] });
+        // لا تمسح شجرة جلسة سابقة صالحة عند نتيجة شبكة فارغة مؤقتاً
+        if (!(cached?.entries && cached.entries.length > 0)) {
+          setPreviewPhotoFolders([]);
+          setSelectedPreviewFolderId("__pv_root__");
+          writeMvWorkflowSessionJson(cacheKey, { photosRootId: null, entries: [] });
+        }
         return;
       }
       setPhotosRootId(previewRoot._id);
@@ -2034,6 +2056,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     return () => {
       window.clearTimeout(imageLoadTimer);
       assetFilesLoadIdRef.current += 1;
+      previewFoldersLoadIdRef.current += 1;
       assetFilesAbortRef.current?.abort();
       assetFilesAbortRef.current = null;
       assetFilesLoadingRef.current = false;
@@ -3109,30 +3132,66 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return;
       }
 
-      const targetFolderId = targetNode?.path ?? selectedPreviewFolderId;
-      const isRootSelected = targetFolderId === "__pv_root__";
+      const isFolderBatchUpload = imageFiles.some((item) => folderPartsFromPickedImage(item).length > 0);
+
+      // إن رُفعت مجلدات فوق أصل محدد → ارفع تحت الأب (أو الجذر) بدل المنع
+      let effectiveNode = targetNode ?? null;
+      if (effectiveNode && isAssetFolderNode(effectiveNode) && isFolderBatchUpload) {
+        const row = previewPhotoFolders.find((entry) => entry.sub._id === effectiveNode!.path);
+        const parentId = row?.sub.parent?.trim() || "";
+        if (parentId && parentId === photosRootId) {
+          effectiveNode = previewFoldersById.get("__pv_root__") ?? null;
+        } else if (parentId && previewFoldersById.has(parentId)) {
+          effectiveNode = previewFoldersById.get(parentId) ?? null;
+        } else {
+          effectiveNode = previewFoldersById.get("__pv_root__") ?? null;
+        }
+      }
+
       const regularFolderParentId =
-        targetNode && !targetNode.isSynthetic && targetNode.path !== "__pv_root__" ? targetNode.path : null;
-      const baseParentId = targetNode?.picAssetId ?? regularFolderParentId ?? (isRootSelected ? photosRootId : null);
+        effectiveNode &&
+        !effectiveNode.isSynthetic &&
+        effectiveNode.path !== "__pv_root__" &&
+        !isAssetFolderNode(effectiveNode)
+          ? effectiveNode.path
+          : null;
+
+      let baseParentId =
+        regularFolderParentId ??
+        photosRootId ??
+        null;
+
+      // لا نطلب اختيار مجلد مسبقاً — الجذر كافٍ دائماً
+      if (!baseParentId) {
+        await loadPreviewPhotoFolders("revalidate");
+        const cached = readMvWorkflowSessionJson<{ photosRootId: string | null }>(
+          MV_WORKFLOW_SESSION.previewPhotoFolders(projectId),
+        );
+        baseParentId = cached?.photosRootId ?? photosRootId;
+      }
       if (!baseParentId) {
         toast({
           variant: "destructive",
-          description: t("assetImages.upload.selectFolderFirst"),
+          description: t("assetImages.upload.photosRootNotFound"),
         });
         return;
       }
 
       const totalImages = imageFiles.length;
-      const isFolderBatchUpload = imageFiles.some((item) => folderPartsFromPickedImage(item).length > 0);
-      if (targetNode && isAssetFolderNode(targetNode) && isFolderBatchUpload) {
-        toast({
-          variant: "destructive",
-          description: t("assetImages.upload.noDirectInAsset"),
-        });
-        return;
-      }
       const firstFolderParts = imageFiles.map(folderPartsFromPickedImage).find((parts) => parts.length > 0);
-      const rootFolderLabel = firstFolderParts?.[0] ?? targetNode?.name ?? t("assetImages.rootLabel");
+      const rootFolderLabel = firstFolderParts?.[0] ?? effectiveNode?.name ?? t("assetImages.rootLabel");
+      const uploadingIntoSelectedAsset =
+        Boolean(effectiveNode?.picAssetId) &&
+        isAssetFolderNode(effectiveNode!) &&
+        !isFolderBatchUpload;
+
+      // إن كنا داخل أصل ونرفع صوراً مباشرة — الأب للإنشاء يبقى الجذر/المجلد العادي أعلاه
+      const selectionBaseId =
+        uploadingIntoSelectedAsset
+          ? effectiveNode!.path
+          : effectiveNode && !effectiveNode.isSynthetic && effectiveNode.path !== "__pv_root__"
+            ? effectiveNode.path
+            : baseParentId;
 
       const jobId = startAssetUploadJob({
         kind: isFolderBatchUpload ? "folder" : "images",
@@ -3141,7 +3200,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           : t("assetImages.upload.imageCountLabel", { count: numberFormatter.format(totalImages) }),
         total: totalImages,
         phase: isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.phase.uploading"),
-        folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+        folderName: isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
       });
 
       let serverUploadedCount = 0;
@@ -3166,7 +3225,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       pushGlobalProgress(
         isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.prepareUpload"),
-        isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+        isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
         0,
       );
 
@@ -3183,7 +3242,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         string,
         { uploadFolderId: string; selectionFolderId: string; folderName: string }
       >();
-      let skippedRootFiles = 0;
 
       const rawFolderPartsList = imageFiles.map(folderPartsFromPickedImage);
       const pathPlan = buildFolderUploadPathPlan(rawFolderPartsList);
@@ -3237,9 +3295,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           const cacheKey = parts.join("\u0000");
           if (folderTargetCache.has(cacheKey)) return;
           const target = await ensurePreviewFolderPath(
-            baseParentId,
+            baseParentId!,
             parts,
-            targetNode?.path ?? baseParentId,
+            selectionBaseId,
             {
               known: sharedKnown,
               kindForPartsPrefix: pathPlan.kindForPartsPrefix,
@@ -3247,6 +3305,36 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           );
           folderTargetCache.set(cacheKey, target);
         });
+      }
+
+      // صور بلا مسار مجلد: داخل أصل محدد أو مجلد أصول تلقائي تحت الجذر/المجلد العادي
+      let looseImagesTarget: {
+        uploadFolderId: string;
+        selectionFolderId: string;
+        folderName: string;
+      } | null = null;
+      if (uploadingIntoSelectedAsset && effectiveNode?.picAssetId) {
+        looseImagesTarget = {
+          uploadFolderId: effectiveNode.picAssetId,
+          selectionFolderId: effectiveNode.path,
+          folderName: effectiveNode.name,
+        };
+      } else if (imageFiles.some((item) => folderPartsFromPickedImage(item).length === 0)) {
+        const autoName = defaultLooseImagesAssetFolderName(isArabic);
+        pushGlobalProgress(
+          t("assetImages.upload.creatingFolder", { name: autoName }),
+          autoName,
+          serverUploadedCount,
+        );
+        looseImagesTarget = await ensurePreviewFolderPath(
+          baseParentId,
+          [autoName],
+          selectionBaseId,
+          {
+            known: sharedKnown,
+            kindForPartsPrefix: () => "asset",
+          },
+        );
       }
 
       for (const item of imageFiles) {
@@ -3266,7 +3354,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             target = await ensurePreviewFolderPath(
               baseParentId,
               folderParts,
-              targetNode?.path ?? baseParentId,
+              selectionBaseId,
               {
                 known: sharedKnown,
                 kindForPartsPrefix: pathPlan.kindForPartsPrefix,
@@ -3274,16 +3362,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             );
             folderTargetCache.set(cacheKey, target);
           }
-        } else if (targetNode?.picAssetId) {
-          target = {
-            uploadFolderId: targetNode.picAssetId,
-            selectionFolderId: targetNode.path,
-            folderName: targetNode.name,
-          };
         } else {
-          skippedRootFiles += 1;
-          continue;
+          target = looseImagesTarget;
         }
+
+        if (!target) continue;
 
         const key = target.uploadFolderId;
         const group = groups.get(key) ?? {
@@ -3297,13 +3380,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           relativePath: fileName,
         });
         groups.set(key, group);
-      }
-
-      if (skippedRootFiles > 0) {
-        toast({
-          variant: "destructive",
-          description: t("assetImages.upload.noDirectInRoot"),
-        });
       }
 
       const uploadGroups = Array.from(groups.values());
@@ -3391,7 +3467,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 : t("assetImages.upload.imagesUploadComplete"),
           current: uploadedOk,
           total: totalImages,
-          folderName: isFolderBatchUpload ? rootFolderLabel : targetNode?.name,
+          folderName: isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
         });
         toast({
           variant: failedCount > 0 ? "destructive" : "default",
@@ -3431,14 +3507,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     },
     [
       ensurePreviewFolderPath,
+      isArabic,
       loadImages,
       loadPreviewPhotoFolders,
       photosRootId,
+      previewFoldersById,
       previewPhotoFolders,
+      projectId,
       removeAssetUploadJobLater,
-      selectedPreviewFolderId,
       selectedPreviewFolderNode,
       startAssetUploadJob,
+      t,
       toast,
       updateAssetUploadJob,
       uploadImagesToPicFolder,
@@ -3539,37 +3618,48 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     toast,
   ]);
 
-  const activeCreateParentId =
-    selectedPreviewFolderId === "__pv_root__"
-      ? photosRootId
-      : selectedPreviewFolderNode &&
-          !isAssetFolderNode(selectedPreviewFolderNode) &&
-          !selectedPreviewFolderNode.isSynthetic &&
-          selectedPreviewFolderNode.path !== "__pv_root__"
-        ? selectedPreviewFolderNode.path
-        : null;
+  const activeCreateParentId = (() => {
+    if (!selectedPreviewFolderId || selectedPreviewFolderId === "__pv_root__") {
+      return photosRootId;
+    }
+    if (
+      selectedPreviewFolderNode &&
+      !isAssetFolderNode(selectedPreviewFolderNode) &&
+      !selectedPreviewFolderNode.isSynthetic &&
+      selectedPreviewFolderNode.path !== "__pv_root__"
+    ) {
+      return selectedPreviewFolderNode.path;
+    }
+    // داخل مجلد أصول: أنشئ كأخ تحت الأب / الجذر
+    if (selectedPreviewFolderNode && isAssetFolderNode(selectedPreviewFolderNode)) {
+      const row = previewPhotoFolders.find((entry) => entry.sub._id === selectedPreviewFolderNode.path);
+      const parentId = row?.sub.parent?.trim() || "";
+      return parentId || photosRootId;
+    }
+    return photosRootId;
+  })();
 
   const createFolderInActiveLocation = useCallback(() => {
     if (!activeCreateParentId) {
       toast({
         variant: "destructive",
-        description: t("assetImages.upload.selectFolderOrRootForFolder"),
+        description: t("assetImages.upload.photosRootNotFound"),
       });
       return;
     }
     void createPreviewFolder(activeCreateParentId, "folder");
-  }, [activeCreateParentId, createPreviewFolder, toast]);
+  }, [activeCreateParentId, createPreviewFolder, toast, t]);
 
   const createAssetInActiveLocation = useCallback(() => {
     if (!activeCreateParentId) {
       toast({
         variant: "destructive",
-        description: t("assetImages.upload.selectFolderOrRootForAsset"),
+        description: t("assetImages.upload.photosRootNotFound"),
       });
       return;
     }
     void createPreviewFolder(activeCreateParentId, "asset");
-  }, [activeCreateParentId, createPreviewFolder, toast]);
+  }, [activeCreateParentId, createPreviewFolder, toast, t]);
 
   const patchPreviewFolderMeta = useCallback(
     async (folderId: string, payload: { name?: string; targetParentId?: string }) => {
@@ -6065,7 +6155,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             className="h-9 shrink-0 rounded-lg bg-[#0C447C] px-3 text-[12px] font-extrabold text-white hover:bg-[#0a3a66] sm:px-4"
                           >
                             <Upload className="me-2 h-3.5 w-3.5 shrink-0" />
-                            {activeLocationIsAssetFolder ? t("assetImages.actions.uploadImages") : t("assetImages.actions.uploadImagesOrFolders")}
+                            {t("assetImages.actions.uploadImagesOrFolders")}
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 text-right">
@@ -6078,17 +6168,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             </span>
                             {t("assetImages.actions.uploadImages")}
                           </DropdownMenuItem>
-                          {!activeLocationIsAssetFolder ? (
-                            <DropdownMenuItem
-                              onSelect={() => folderPickInputRef.current?.click()}
-                              className="cursor-pointer text-[12px]"
-                            >
-                              <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-amber-50 text-amber-700">
-                                <FolderUp className="h-4 w-4" />
-                              </span>
-                              {t("assetImages.actions.uploadFolder")}
-                            </DropdownMenuItem>
-                          ) : null}
+                          <DropdownMenuItem
+                            onSelect={() => folderPickInputRef.current?.click()}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-amber-50 text-amber-700">
+                              <FolderUp className="h-4 w-4" />
+                            </span>
+                            {t("assetImages.actions.uploadFolders")}
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
 

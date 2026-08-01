@@ -85,7 +85,7 @@ import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-expor
 import { MvWordTemplateModal } from "./mv-word-template-modal";
 import { buildMvWordImageLayout } from "./mv-word-template-settings";
 import {
-  downloadWordBlob,
+  downloadMergedReportFiles,
   mergeWordReportTemplateSmart,
   prepareMvWordMergeInput,
 } from "@/lib/mv-word-template";
@@ -2837,17 +2837,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         loadImages: false,
       });
       setPdfExportProgress(55);
-      setPdfExportLabel(t("report.export.mergingWord"));
+      setPdfExportLabel(t("report.export.mergingWordPdf"));
       const result = await mergeWordReportTemplateSmart({
         projectId,
         mergeInput,
         assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
         valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
         clientImageUrls: wordTemplateClientImageSources.map((s) => s.url),
+        alsoPdf: true,
         imageLayout: buildMvWordImageLayout(reportData),
       });
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
-      downloadWordBlob(result.blob, `${safeName}-merged-report.docx`);
+      downloadMergedReportFiles({
+        docxBlob: result.blob,
+        pdfBlob: result.pdfBlob,
+        baseName: safeName,
+      });
       setPdfExportProgress(100);
       const mergeStats = result.mergeStats;
       const hasMergedContent =
@@ -2855,15 +2860,27 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         mergeStats.assetImagesInserted > 0 ||
         mergeStats.valuationImagesInserted > 0 ||
         mergeStats.clientImagesInserted > 0;
-      const warningDetail = mergeStats.warnings.join(" ");
+      const warningDetail = [
+        ...mergeStats.warnings,
+        result.pdfBlob
+          ? null
+          : result.pdfError
+            ? result.pdfError
+            : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const successLabel = result.pdfBlob
+        ? t("report.export.wordTemplatePdf")
+        : t("report.export.wordTemplate");
       toast({
         variant: hasMergedContent ? "default" : "destructive",
         description: warningDetail
           ? hasMergedContent
-            ? `${t("report.export.wordTemplate")} ${warningDetail}`
+            ? `${successLabel} ${warningDetail}`
             : warningDetail
           : hasMergedContent
-            ? t("report.export.wordTemplate")
+            ? successLabel
             : t("report.wordTemplate.toastNoData"),
       });
     } catch (error) {

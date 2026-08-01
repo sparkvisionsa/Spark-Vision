@@ -7,6 +7,7 @@ export type {
 export {
   mergeWordReportTemplateSmart,
   downloadWordBlob,
+  downloadMergedReportFiles,
   fetchImageAsArrayBuffer,
 } from "./merge";
 export { mergeWordReportTemplateViaServer } from "./server-merge";

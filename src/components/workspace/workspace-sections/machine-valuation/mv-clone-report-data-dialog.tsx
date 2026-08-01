@@ -43,7 +43,17 @@ export function MvCloneReportDataDialog({
     setQuery("");
     void (async () => {
       try {
-        const rows = await mvFetchJson<ProjectListRow[]>("/api/mv/projects");
+        const rows = await mvFetchJson<ProjectListRow[]>(
+          "/api/mv/projects",
+          {},
+          {
+            cacheKey: "projects:list",
+            cacheTtlMs: 30_000,
+            staleTtlMs: 5 * 60_000,
+            retries: 2,
+            timeoutMs: 45_000,
+          },
+        );
         if (cancelled) return;
         setProjects(Array.isArray(rows) ? rows.filter((row) => row._id !== currentProjectId) : []);
       } catch (err) {
@@ -96,7 +106,9 @@ export function MvCloneReportDataDialog({
       onOpenChange(false);
     } catch (err) {
       busy.fail();
-      setError(mvErrorMessage(err, t("reportData.clone.failed")));
+      const message = mvErrorMessage(err, t("reportData.clone.failed"));
+      // رسالة واحدةحدة فقط داخل الحوار — بدون تكرار في Toast
+      setError(message);
     } finally {
       setCloningId(null);
     }

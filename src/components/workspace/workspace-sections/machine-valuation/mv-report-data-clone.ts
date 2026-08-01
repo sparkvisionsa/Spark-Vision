@@ -1,5 +1,13 @@
 import { hasMeaningfulSimpleReportData } from "./mv-simple-project-progress";
-import { MvApiError, mvFetchJson } from "./mv-api-client";
+import {
+  invalidateMvApiCache,
+  isMvTransientError,
+  MvApiError,
+  mvFetchJson,
+} from "./mv-api-client";
+import {
+  writeProjectSummaryCache,
+} from "./mv-project-summary-loader";
 import type { MvProject, MvProjectReportData } from "./types";
 
 /** Windows-style: `Name - نسخة` / `Name - Copy`, then `(2)`, `(3)`, … */
@@ -28,35 +36,25 @@ function isNotFoundError(error: unknown): boolean {
   return error instanceof MvApiError && error.status === 404;
 }
 
-/**
- * Clone reportData from source into target.
- * Prefers dedicated Nest endpoint; falls back to GET + PATCH if unavailable.
- */
-export async function cloneReportDataFromProject(args: {
+function shouldFallbackClone(error: unknown): boolean {
+  return isNotFoundError(error) || isMvTransientError(error);
+}
+
+async function cloneReportDataViaGetPatch(args: {
   targetProjectId: string;
   sourceProjectId: string;
 }): Promise<{ empty: boolean; project: MvProject | null }> {
   const { targetProjectId, sourceProjectId } = args;
-  try {
-    const result = await mvFetchJson<{
-      ok?: boolean;
-      empty?: boolean;
-      project?: MvProject | null;
-    }>(`/api/mv/projects/${encodeURIComponent(targetProjectId)}/clone-report-data`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceProjectId }),
-    });
-    if (result.empty || !result.project) {
-      return { empty: true, project: null };
-    }
-    return { empty: false, project: result.project };
-  } catch (error) {
-    if (!isNotFoundError(error)) throw error;
-  }
-
   const sourcePayload = await mvFetchJson<{ project?: MvProject }>(
-    `/api/mv/projects/${encodeURIComponent(sourceProjectId)}?picAssetMode=summary`,
+    `/api/mv/projects/${encodeURIComponent(sourceProjectId)}?picAssetMode=report`,
+    {},
+    {
+      cacheKey: `project-report:${sourceProjectId}`,
+      cacheTtlMs: 60_000,
+      staleTtlMs: 10 * 60_000,
+      retries: 2,
+      timeoutMs: 45_000,
+    },
   );
   const reportData = sourcePayload.project?.reportData as MvProjectReportData | undefined;
   if (!hasMeaningfulSimpleReportData(reportData)) {
@@ -70,8 +68,65 @@ export async function cloneReportDataFromProject(args: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reportData }),
     },
+    {
+      timeoutMs: 60_000,
+      retries: 1,
+      retryMutations: true,
+    },
   );
   return { empty: false, project: patched.project ?? null };
+}
+
+/**
+ * Clone reportData from source into target.
+ * Prefers dedicated Nest endpoint; falls back to GET + PATCH on missing route or transient failures.
+ */
+export async function cloneReportDataFromProject(args: {
+  targetProjectId: string;
+  sourceProjectId: string;
+}): Promise<{ empty: boolean; project: MvProject | null }> {
+  const { targetProjectId, sourceProjectId } = args;
+  let result: { empty: boolean; project: MvProject | null };
+
+  try {
+    const remote = await mvFetchJson<{
+      ok?: boolean;
+      empty?: boolean;
+      project?: MvProject | null;
+    }>(
+      `/api/mv/projects/${encodeURIComponent(targetProjectId)}/clone-report-data`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceProjectId }),
+      },
+      {
+        timeoutMs: 90_000,
+        retries: 1,
+        retryMutations: true,
+        retryBaseMs: 700,
+      },
+    );
+    if (remote.empty || !remote.project) {
+      result = { empty: true, project: null };
+    } else {
+      result = { empty: false, project: remote.project };
+    }
+  } catch (error) {
+    if (!shouldFallbackClone(error)) throw error;
+    result = await cloneReportDataViaGetPatch(args);
+  }
+
+  if (result.project?._id) {
+    writeProjectSummaryCache(
+      targetProjectId,
+      { project: result.project, subProjects: [] },
+      "report",
+    );
+    invalidateMvApiCache("projects:");
+  }
+
+  return result;
 }
 
 /**
@@ -92,17 +147,37 @@ export async function duplicateMvProject(args: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale: isArabic ? "ar" : "en" }),
       },
+      {
+        timeoutMs: 90_000,
+        retries: 1,
+        retryMutations: true,
+      },
     );
-    if (result.project?._id) return result.project;
+    if (result.project?._id) {
+      invalidateMvApiCache("projects:");
+      return result.project;
+    }
   } catch (error) {
-    if (!isNotFoundError(error)) throw error;
+    if (!isNotFoundError(error) && !isMvTransientError(error)) throw error;
   }
 
   const [sourcePayload, list] = await Promise.all([
     mvFetchJson<{ project?: MvProject }>(
-      `/api/mv/projects/${encodeURIComponent(sourceProjectId)}?picAssetMode=summary`,
+      `/api/mv/projects/${encodeURIComponent(sourceProjectId)}?picAssetMode=report`,
+      {},
+      {
+        cacheKey: `project-report:${sourceProjectId}`,
+        cacheTtlMs: 60_000,
+        retries: 2,
+        timeoutMs: 45_000,
+      },
     ),
-    mvFetchJson<Array<Pick<MvProject, "_id" | "name">>>("/api/mv/projects"),
+    mvFetchJson<Array<Pick<MvProject, "_id" | "name">>>("/api/mv/projects", {}, {
+      cacheKey: "projects:list",
+      cacheTtlMs: 20_000,
+      retries: 2,
+      timeoutMs: 45_000,
+    }),
   ]);
   const source = sourcePayload.project;
   if (!source?._id) throw new Error("Source project not found");
@@ -121,14 +196,19 @@ export async function duplicateMvProject(args: {
   };
   if (companyId?.trim()) createBody.companyId = companyId.trim();
 
-  const created = await mvFetchJson<MvProject>("/api/mv/projects", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(createBody),
-  });
+  const created = await mvFetchJson<MvProject>(
+    "/api/mv/projects",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createBody),
+    },
+    { timeoutMs: 60_000, retries: 1, retryMutations: true },
+  );
 
   const reportData = source.reportData;
   if (!reportData || !hasMeaningfulSimpleReportData(reportData)) {
+    invalidateMvApiCache("projects:");
     return created;
   }
 
@@ -139,6 +219,8 @@ export async function duplicateMvProject(args: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reportData }),
     },
+    { timeoutMs: 60_000, retries: 1, retryMutations: true },
   );
+  invalidateMvApiCache("projects:");
   return patched.project ?? created;
 }

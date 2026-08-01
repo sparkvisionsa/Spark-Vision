@@ -155,6 +155,11 @@ export function mergeClientDocumentsStores(
 ): MvClientDocumentsStore {
   const fromServer = parseClientDocumentsStoreFromApi(serverRaw);
   if (!fromServer) return stripRedundantDataUrls(local);
+  // لا تغلّب مخزناً محلياً فارغاً على صور محفوظة في الخادم
+  if (fromServer.images.length > 0 && local.images.length === 0) return fromServer;
+  if (local.images.length > 0 && fromServer.images.length === 0) {
+    return stripRedundantDataUrls(local);
+  }
   const sTime = fromServer.updatedAt ? Date.parse(fromServer.updatedAt) : 0;
   const lTime = local.updatedAt ? Date.parse(local.updatedAt) : 0;
   if (sTime > lTime) return fromServer;

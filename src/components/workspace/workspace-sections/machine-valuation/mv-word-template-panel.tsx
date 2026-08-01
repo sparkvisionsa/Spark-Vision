@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  downloadWordBlob,
+  downloadMergedReportFiles,
   mergeWordReportTemplateSmart,
   prepareMvWordMergeInput,
 } from "@/lib/mv-word-template";
@@ -289,21 +289,28 @@ export function MvWordTemplatePanel({
 
         setMergeProgress(46);
         setMergeStage(t("report.wordTemplate.merging"));
-        const { blob, mergeStats } = await mergeWordReportTemplateSmart({
+        const { blob, pdfBlob, pdfError, mergeStats } = await mergeWordReportTemplateSmart({
           projectId,
           mergeInput,
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
           clientImageUrls: clientImageSources.map((s) => s.url),
+          alsoPdf: true,
           imageLayout,
         });
         const safeName = (projectName || "report").replace(/[\\/:*?"<>|]+/g, "-");
-        const filename = `${safeName}-updated-report.docx`;
 
         setMergeProgress(88);
         setMergeStage(t("report.wordTemplate.downloading"));
-        downloadWordBlob(blob, filename);
+        downloadMergedReportFiles({
+          docxBlob: blob,
+          pdfBlob,
+          baseName: safeName,
+        });
         setMergeProgress(100);
+        if (!pdfBlob && pdfError) {
+          mergeStats.warnings.push(pdfError);
+        }
 
         const hasMergedContent =
           mergeStats.variablesFilled > 0 ||

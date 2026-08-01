@@ -31,9 +31,13 @@ import { MvCloneReportDataDialog } from "./mv-clone-report-data-dialog";
 import { MvUnsavedSaveCoach } from "./mv-unsaved-save-coach";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { MV_WORKFLOW_SESSION, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
-import { invalidateMvApiCache, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { invalidateMvApiCache, isMvAbortError, mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import {
+  loadProjectSummarySafe,
+  readProjectSummaryCache,
+  writeProjectSummaryCache,
+} from "./mv-project-summary-loader";
 import { useMvI18n } from "./mv-i18n";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 
@@ -155,49 +159,25 @@ interface MvReportDataWorkspaceProps {
   projectId: string;
 }
 
-const REPORT_DATA_CACHE_KEY = (projectId: string) => `sv:mv:report-data:${projectId}`;
-
-function readCachedReportState(projectId: string): {
-  project: MvProject;
-  subProjects: MvSubProject[];
-} | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(REPORT_DATA_CACHE_KEY(projectId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { project?: MvProject; subProjects?: MvSubProject[] };
-    if (!parsed?.project?._id) return null;
-    return {
-      project: parsed.project,
-      subProjects: Array.isArray(parsed.subProjects) ? parsed.subProjects : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedReportState(projectId: string, data: {
-  project: MvProject;
-  subProjects: MvSubProject[];
-}) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(REPORT_DATA_CACHE_KEY(projectId), JSON.stringify(data));
-    writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
-      project: data.project,
-      subProjects: data.subProjects,
-      fetchedAt: Date.now(),
-    });
-  } catch {
-    // best effort cache
-  }
+function reportDataLooksFilled(data: MvProjectReportData): boolean {
+  return Boolean(
+    data.reportTitle?.trim() ||
+      data.reportReference?.trim() ||
+      data.clientName?.trim() ||
+      data.clientId?.trim() ||
+      data.valuationMethod?.trim() ||
+      data.valuationPurpose?.trim() ||
+      data.reportIssueDate?.trim() ||
+      data.finalValue != null ||
+      (Array.isArray(data.valuationTeam) && data.valuationTeam.length > 0),
+  );
 }
 
 export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspaceProps) {
   const { t, dir } = useMvI18n();
   const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const { toast } = useToast();
-  const initialCached = readCachedReportState(projectId);
+  const initialCached = readProjectSummaryCache(projectId, "report");
   const [project, setProject] = useState<MvProject | null>(initialCached?.project ?? null);
   const [subProjects, setSubProjects] = useState<MvSubProject[]>(initialCached?.subProjects ?? []);
   const [loading, setLoading] = useState(() => initialCached?.project == null);
@@ -207,6 +187,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const projectNameDirtyRef = useRef(false);
   const isDirtyRef = useRef(false);
   const saveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const pendingNavigationRef = useRef<string | null>(null);
+  const tRef = useRef(t);
+  tRef.current = t;
   const [saveButtonEl, setSaveButtonEl] = useState<HTMLElement | null>(null);
   const [showUnsavedCoach, setShowUnsavedCoach] = useState(false);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
@@ -222,7 +205,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [preparersLoading, setPreparersLoading] = useState(true);
   const [preparersLoaded, setPreparersLoaded] = useState(false);
   const [openSections, setOpenSections] = useState<Record<MvReportCollapsibleSectionId, boolean>>(() =>
-    createMvReportCollapsibleState(false),
+    createMvReportCollapsibleState(
+      reportDataLooksFilled(normalizeReportData(initialCached?.project.reportData)),
+    ),
   );
 
   const markClean = useCallback(() => {
@@ -235,10 +220,28 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     isDirtyRef.current = true;
   }, []);
 
-  const revealUnsavedCoach = useCallback(() => {
+  const revealUnsavedCoach = useCallback((nextPath?: string | null) => {
+    pendingNavigationRef.current = nextPath ?? null;
     setSaveButtonEl(saveButtonRef.current);
     setShowUnsavedCoach(true);
   }, []);
+
+  const dismissUnsavedCoach = useCallback(() => {
+    pendingNavigationRef.current = null;
+    setShowUnsavedCoach(false);
+  }, []);
+
+  const ignoreUnsavedAndLeave = useCallback(() => {
+    const nextPath = pendingNavigationRef.current;
+    pendingNavigationRef.current = null;
+    markClean();
+    setShowUnsavedCoach(false);
+    if (nextPath) {
+      startTransition(() => {
+        navigate(nextPath);
+      });
+    }
+  }, [markClean, navigate]);
 
   useEffect(() => {
     return registerNavigationBlocker(({ nextPath, currentPath }) => {
@@ -250,7 +253,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       const reportDataBase = `/machine-valuation/${projectId}/workflow/report-data`;
       const reportDataShort = `/machine-valuation/${projectId}`;
       if (next === reportDataBase || next === reportDataShort) return true;
-      revealUnsavedCoach();
+      revealUnsavedCoach(nextPath);
       return false;
     });
   }, [projectId, registerNavigationBlocker, revealUnsavedCoach]);
@@ -266,47 +269,78 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   }, []);
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    const cached = readCachedReportState(projectId);
-    const blockUi = cached?.project == null;
-    if (blockUi) setLoading(true);
+    const cached = readProjectSummaryCache(projectId, "report");
+    const hasUsableCache = cached?.project?._id === projectId;
+    if (!hasUsableCache) setLoading(true);
     setLoadError(null);
     try {
-      const data = await mvFetchJson<{
-        project: MvProject;
-        subProjects: MvSubProject[];
-      }>(
-        `/api/mv/projects/${projectId}?picAssetMode=summary`,
-        { signal },
-        {
-          cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 90_000,
-        },
+      const { payload, error } = await loadProjectSummarySafe(projectId, {
+        mode: "report",
+        signal,
+        timeoutMs: 30_000,
+      });
+      if (signal?.aborted) return;
+      if (!payload?.project) {
+        setLoadError(
+          mvErrorMessage(error, tRef.current("reportData.loadFailedTitle")),
+        );
+        setProject((current) => (current?._id === projectId ? current : null));
+        return;
+      }
+      setProject(payload.project);
+      setSubProjects(payload.subProjects ?? []);
+      writeProjectSummaryCache(
+        projectId,
+        { project: payload.project, subProjects: payload.subProjects ?? [] },
+        "report",
       );
-      if (signal?.aborted) return;
-      setProject(data.project);
-      setSubProjects(data.subProjects ?? []);
-      writeCachedReportState(projectId, { project: data.project, subProjects: data.subProjects ?? [] });
-      if (!projectNameDirtyRef.current) setEditableProjectName(data.project.name ?? "");
-      if (!reportDataDirtyRef.current) setReportData(normalizeReportData(data.project.reportData));
+      if (!projectNameDirtyRef.current) setEditableProjectName(payload.project.name ?? "");
+      if (!reportDataDirtyRef.current) {
+        const nextReportData = normalizeReportData(payload.project.reportData);
+        setReportData(nextReportData);
+        if (reportDataLooksFilled(nextReportData)) {
+          setOpenSections(createMvReportCollapsibleState(true));
+        }
+      }
+      setLoadError(null);
     } catch (error) {
-      if (signal?.aborted) return;
-      setLoadError(mvErrorMessage(error, t("reportData.loadFailedTitle")));
+      if (signal?.aborted || isMvAbortError(error)) return;
+      setLoadError(mvErrorMessage(error, tRef.current("reportData.loadFailedTitle")));
+      setProject((current) => (current?._id === projectId ? current : null));
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [projectId, t]);
+  }, [projectId]);
 
   useEffect(() => {
-    const cached = readCachedReportState(projectId);
+    const cached = readProjectSummaryCache(projectId, "report");
     projectNameDirtyRef.current = false;
     reportDataDirtyRef.current = false;
-    setProject(cached?.project ?? null);
-    setSubProjects(cached?.subProjects ?? []);
-    setEditableProjectName(cached?.project.name ?? "");
-    setReportData(normalizeReportData(cached?.project.reportData));
-    setLoading(cached?.project == null);
+    isDirtyRef.current = false;
+    pendingNavigationRef.current = null;
+    setShowUnsavedCoach(false);
+    setProject((current) => {
+      if (cached?.project?._id === projectId) return cached.project;
+      if (current?._id === projectId) return current;
+      return null;
+    });
+    setSubProjects(cached?.project?._id === projectId ? cached.subProjects : []);
+    if (cached?.project?._id === projectId) {
+      setEditableProjectName(cached.project.name ?? "");
+      setReportData(normalizeReportData(cached.project.reportData));
+      setOpenSections(
+        createMvReportCollapsibleState(
+          reportDataLooksFilled(normalizeReportData(cached.project.reportData)),
+        ),
+      );
+    } else {
+      setEditableProjectName("");
+      setReportData(normalizeReportData(null));
+      setOpenSections(createMvReportCollapsibleState(false));
+    }
+    setLoading(cached?.project?._id !== projectId);
+    setLoadError(null);
     setVisitedSteps(new Set(readVisitedSimpleReportSteps(projectId)));
-    setOpenSections(createMvReportCollapsibleState(false));
     const controller = new AbortController();
     void load(controller.signal);
     return () => controller.abort();
@@ -389,10 +423,12 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   useEffect(() => {
     if (!preparersLoaded) return;
-    const nextTeam = normalizeReportTeam(reportData.valuationTeam, preparerOptions);
-    if (reportTeamEquals(reportData.valuationTeam, nextTeam)) return;
-    reportDataDirtyRef.current = true;
-    setReportData((current) => ({ ...current, valuationTeam: nextTeam }));
+    // مزامنة صامتة — لا تعلّم النموذج متسخًا حتى لا تُحجب بيانات المشروع القادمة من الخادم.
+    setReportData((current) => {
+      const nextTeam = normalizeReportTeam(current.valuationTeam, preparerOptions);
+      if (reportTeamEquals(current.valuationTeam, nextTeam)) return current;
+      return { ...current, valuationTeam: nextTeam };
+    });
   }, [preparerOptions, preparersLoaded, reportData.valuationTeam]);
 
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
@@ -436,6 +472,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     }
 
     setShowUnsavedCoach(false);
+    pendingNavigationRef.current = null;
 
     const normalizedData = normalizeReportData({
       ...reportData,
@@ -467,7 +504,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       setEditableProjectName(updated.name);
       setReportData(normalizeReportData(updated.reportData));
       markClean();
-      writeCachedReportState(projectId, { project: updated, subProjects });
+      writeProjectSummaryCache(projectId, { project: updated, subProjects }, "report");
       markVisited("report-data");
       toast({ description: t("reportData.saved") });
     } catch {
@@ -479,18 +516,27 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const onStepSelect = useCallback(
     (stepId: MvSimpleReportStepId) => {
+      const href = mvSimpleReportStepHref(projectId, stepId);
       if (isDirtyRef.current) {
-        revealUnsavedCoach();
+        revealUnsavedCoach(href);
         return;
       }
       markVisited(stepId);
-      const href = mvSimpleReportStepHref(projectId, stepId);
       startTransition(() => {
         navigate(href);
       });
     },
     [markVisited, navigate, projectId, revealUnsavedCoach],
   );
+
+  const handleResetReportData = useCallback(() => {
+    if (!window.confirm(t("reportData.reset.confirm"))) return;
+    reportDataDirtyRef.current = true;
+    markDirty();
+    setReportData(normalizeReportData(null));
+    setOpenSections(createMvReportCollapsibleState(true));
+    toast({ description: t("reportData.reset.done") });
+  }, [markDirty, t, toast]);
 
   const handleProjectNameChange = useCallback(
     (value: string) => {
@@ -512,12 +558,37 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const handleReportDataCloned = useCallback(
     (updated: MvProject) => {
-      setProject(updated);
+      setProject((current) => {
+        const merged: MvProject = {
+          ...(current ?? updated),
+          ...updated,
+          reportData: updated.reportData,
+          // احتفظ بالمساحات/العدّادات المحلية إن كان رد الاستنساخ خفيفًا
+          valuationAccountingWorkspace:
+            updated.valuationAccountingWorkspace ?? current?.valuationAccountingWorkspace,
+          clientDocumentsWorkspace:
+            updated.clientDocumentsWorkspace ?? current?.clientDocumentsWorkspace,
+          assetImageCount: updated.assetImageCount ?? current?.assetImageCount,
+          valuationAccountImageCount:
+            updated.valuationAccountImageCount ?? current?.valuationAccountImageCount,
+          clientDocumentImageCount:
+            updated.clientDocumentImageCount ?? current?.clientDocumentImageCount,
+          inspectorFiles: updated.inspectorFiles?.length
+            ? updated.inspectorFiles
+            : current?.inspectorFiles,
+        };
+        writeProjectSummaryCache(
+          projectId,
+          { project: merged, subProjects },
+          "report",
+        );
+        return merged;
+      });
       setReportData(normalizeReportData(updated.reportData));
       markClean();
-      writeCachedReportState(projectId, { project: updated, subProjects });
       invalidateMvApiCache("projects:");
       invalidateMvApiCache(`project-summary:${projectId}`);
+      invalidateMvApiCache(`project-report:${projectId}`);
       toast({ description: t("reportData.clone.success") });
     },
     [markClean, projectId, subProjects, t, toast],
@@ -581,6 +652,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
               })
             }
             onSave={handleSaveReportData}
+            onReset={handleResetReportData}
             onCloneFromProject={() => setCloneDialogOpen(true)}
           />
         </main>
@@ -596,7 +668,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       <MvUnsavedSaveCoach
         open={showUnsavedCoach}
         saveButtonEl={saveButtonEl}
-        onDismiss={() => setShowUnsavedCoach(false)}
+        onDismiss={dismissUnsavedCoach}
+        onIgnore={ignoreUnsavedAndLeave}
       />
     </MvWorkflowPageFrame>
   );

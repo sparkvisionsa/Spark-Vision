@@ -15,10 +15,12 @@ export function MvUnsavedSaveCoach({
   open,
   saveButtonEl,
   onDismiss,
+  onIgnore,
 }: {
   open: boolean;
   saveButtonEl: HTMLElement | null;
   onDismiss: () => void;
+  onIgnore: () => void;
 }) {
   const { t, dir } = useMvI18n();
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
@@ -80,7 +82,7 @@ export function MvUnsavedSaveCoach({
 
       {anchor ? (
         <div
-          className="pointer-events-none absolute z-[1] rounded-xl ring-4 ring-emerald-400/90"
+          className="pointer-events-none absolute z-[1] rounded-xl ring-4 ring-slate-900/80"
           style={{
             top: anchor.top - 6,
             left: anchor.left - 6,
@@ -93,34 +95,52 @@ export function MvUnsavedSaveCoach({
 
       <div
         className={cn(
-          "pointer-events-none absolute z-[2] flex items-center gap-1.5",
+          "pointer-events-none absolute z-[2] flex items-center gap-2",
           tipFromLeft ? "flex-row-reverse" : "flex-row",
         )}
         style={
           tipFromLeft
             ? {
-                top: buttonCenterY - 14,
+                top: Math.max(12, buttonCenterY - 36),
                 left: anchor
-                  ? Math.max(8, anchor.left + anchor.width + 8)
+                  ? Math.max(8, anchor.left + anchor.width + 10)
                   : 24,
               }
             : {
-                top: buttonCenterY - 14,
+                top: Math.max(12, buttonCenterY - 36),
                 right: anchor
-                  ? Math.max(8, window.innerWidth - anchor.left + 8)
+                  ? Math.max(8, window.innerWidth - anchor.left + 10)
                   : 24,
               }
         }
       >
-        <p
-          id="mv-unsaved-coach-title"
-          className="max-w-[min(14rem,68vw)] rounded-full border border-emerald-300/50 bg-white/95 px-2.5 py-1.5 text-center text-[11px] font-bold leading-snug text-slate-800 shadow-lg shadow-slate-950/20"
-        >
-          {t("reportData.unsaved.tip")}
-        </p>
+        <div className="pointer-events-auto flex max-w-[min(16.5rem,72vw)] flex-col items-stretch gap-2 rounded-2xl border border-slate-200/90 bg-white/97 px-3 py-2.5 shadow-xl shadow-slate-950/20">
+          <p
+            id="mv-unsaved-coach-title"
+            className="text-center text-[12px] font-bold leading-snug text-slate-800"
+          >
+            {t("reportData.unsaved.tip")}
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={onIgnore}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              {t("reportData.unsaved.ignore")}
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-slate-800"
+            >
+              {t("reportData.unsaved.stay")}
+            </button>
+          </div>
+        </div>
         <div
           className={cn(
-            "mv-unsaved-arrow shrink-0 text-emerald-400",
+            "mv-unsaved-arrow pointer-events-none shrink-0 text-slate-800",
             tipFromLeft && "mv-unsaved-arrow--rtl",
           )}
           aria-hidden

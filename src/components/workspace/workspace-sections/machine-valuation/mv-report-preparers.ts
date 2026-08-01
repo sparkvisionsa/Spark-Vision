@@ -13,6 +13,7 @@ export type MvReportPreparerOption = {
   signatureImageDataUrl: string;
   memberRole: string;
   isCompanyAdmin: boolean;
+  isReportOnly?: boolean;
 };
 
 function clean(value: unknown, maxLength = 500): string {
@@ -42,6 +43,7 @@ export function normalizeReportPreparerOptions(input: unknown): MvReportPreparer
           : "",
       memberRole,
       isCompanyAdmin: row.isCompanyAdmin === true || memberRole === "company_admin",
+      isReportOnly: row.isReportOnly === true || memberRole === "report_only",
     });
   }
   return rows.sort((a, b) => Number(b.isCompanyAdmin) - Number(a.isCompanyAdmin));

@@ -10,9 +10,13 @@ import { MvDialogContent } from "./mv-dialog";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { useMvI18n } from "./mv-i18n";
-import { mvErrorMessage, mvFetchJson, isMvAbortError } from "./mv-api-client";
+import { mvErrorMessage, isMvAbortError } from "./mv-api-client";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
-import { MV_WORKFLOW_SESSION, readMvWorkflowSessionJson, writeMvWorkflowSessionJson } from "./mv-workflow-session-cache";
+import {
+  loadProjectSummarySafe,
+  readProjectSummaryCache,
+  writeProjectSummaryCache,
+} from "./mv-project-summary-loader";
 import { uploadProjectFileAndReturnId } from "./mv-project-gridfs-upload";
 import {
   convertPdfFileToPageImages,
@@ -56,13 +60,10 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
   const stopFlagRef = useRef(false);
 
   const [project, setProject] = useState<MvProject | null>(() =>
-    readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))
-      ?.project ?? null,
+    readProjectSummaryCache(projectId, "summary")?.project ?? null,
   );
   const [loadingProject, setLoadingProject] = useState(
-    () =>
-      readMvWorkflowSessionJson<{ project?: MvProject }>(MV_WORKFLOW_SESSION.projectSummary(projectId))
-        ?.project == null,
+    () => readProjectSummaryCache(projectId, "summary")?.project == null,
   );
   const [projectError, setProjectError] = useState<string | null>(null);
   const [store, setStore] = useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
@@ -88,30 +89,30 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
 
   const loadProject = useCallback(
     async (signal?: AbortSignal) => {
-      setLoadingProject(true);
+      const hasCached = Boolean(readProjectSummaryCache(projectId, "summary")?.project);
+      if (!hasCached) setLoadingProject(true);
       setProjectError(null);
       try {
-        const data = await mvFetchJson<{ project: MvProject }>(
-          `/api/mv/projects/${projectId}?picAssetMode=summary`,
-          { signal },
-          {
-            cacheKey: `project-summary:${projectId}`,
-            cacheTtlMs: 90_000,
-            retries: 1,
-            timeoutMs: 15_000,
-            loadingLabel: t("workflow.loading.projectData"),
-          },
-        );
-        if (signal?.aborted) return;
-        setProject(data.project);
-        const cachedSummary = readMvWorkflowSessionJson<Record<string, unknown>>(
-          MV_WORKFLOW_SESSION.projectSummary(projectId),
-        );
-        writeMvWorkflowSessionJson(MV_WORKFLOW_SESSION.projectSummary(projectId), {
-          ...(cachedSummary ?? {}),
-          project: data.project,
-          fetchedAt: Date.now(),
+        const { payload, error } = await loadProjectSummarySafe(projectId, {
+          mode: "summary",
+          signal,
+          timeoutMs: 30_000,
         });
+        if (signal?.aborted) return;
+        if (!payload?.project) {
+          setProject((current) => (current?._id === projectId ? current : null));
+          if (!hasCached) {
+            setProjectError(mvErrorMessage(error, t("workflow.error.loadProjectData")));
+          }
+          return;
+        }
+        setProject(payload.project);
+        writeProjectSummaryCache(
+          projectId,
+          { project: payload.project, subProjects: payload.subProjects },
+          "summary",
+        );
+        setProjectError(null);
       } catch (error) {
         if (signal?.aborted || isMvAbortError(error)) return;
         setProject((current) => (current?._id === projectId ? current : null));

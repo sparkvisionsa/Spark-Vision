@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { writeProjectSummaryCache } from "./mv-project-summary-loader";
 import {
   Select,
   SelectContent,
@@ -95,7 +96,7 @@ import {
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { downloadWordBlob } from "@/lib/mv-word-template";
+import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
@@ -153,19 +154,31 @@ function projectRecentTimestamp(project: MvProject): number {
 }
 
 function ProjectWorkspaceLink({
-  projectId,
+  project,
   title,
   nameClassName,
   compact,
 }: {
-  projectId: string;
+  project: MvProject;
   title: string;
   nameClassName?: string;
   compact?: boolean;
 }) {
+  const projectId = project._id;
   return (
     <Link
       href={projectWorkspaceHref(projectId)}
+      onClick={() => {
+        try {
+          writeProjectSummaryCache(
+            projectId,
+            { project, subProjects: [] },
+            "report",
+          );
+        } catch {
+          // best effort seed before navigation
+        }
+      }}
       className={cn(
         "group inline-flex max-w-full items-center gap-2 rounded-lg text-start outline-none transition-colors",
         "text-slate-950 hover:text-cyan-700",
@@ -1683,32 +1696,45 @@ export default function MvProjectsDashboard() {
         description: t("projects.wordExport.preparing", { name: projectName }),
       });
       try {
-        // الخادم يحمّل القالب + بيانات التقرير + صور الأصول المحددة للتقرير
-        const response = await fetch(
-          `/api/mv/projects/${encodeURIComponent(projectId)}/word-template/merge`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-          },
+        const { mergeWordReportTemplateViaServer } = await import(
+          "@/lib/mv-word-template/server-merge"
         );
-        if (!response.ok) {
-          let message = t("errors.projects.wordDownloadFailed");
-          try {
-            const json = (await response.json()) as { message?: string | string[] };
-            const m = json.message;
-            if (typeof m === "string" && m.trim()) message = m.trim();
-            else if (Array.isArray(m) && typeof m[0] === "string" && m[0].trim()) message = m[0].trim();
-          } catch {
-            /* keep default */
-          }
-          throw new Error(message);
-        }
-        const blob = await response.blob();
+        const { prepareMvWordMergeInput } = await import("@/lib/mv-word-template/prepare-merge");
+        const mergeInput = await prepareMvWordMergeInput({
+          projectName,
+          displayNumber: project.displayNumber,
+          reportData: project.reportData ?? {},
+          assetImageSources: [],
+          valuationImageSources: [],
+          clientImageSources: [],
+          loadImages: false,
+        });
+        // بدون قوائم صور → الخادم يحمّل الأصول/الحسابات/ملفات العميل من قاعدة البيانات
+        const result = await mergeWordReportTemplateViaServer({
+          projectId,
+          mergeInput,
+          assetImageUrls: [],
+          valuationImageUrls: [],
+          alsoPdf: true,
+        });
         const safeName = projectName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
-        downloadWordBlob(blob, `${safeName}-merged-report.docx`);
-        toast({ description: t("report.export.wordTemplate") });
+        downloadMergedReportFiles({
+          docxBlob: result.blob,
+          pdfBlob: result.pdfBlob,
+          baseName: safeName,
+        });
+        const warningDetail = result.mergeStats.warnings.join(" ");
+        toast({
+          description: result.pdfBlob
+            ? warningDetail
+              ? `${t("projects.wordExport.doneWordPdf")} ${warningDetail}`
+              : t("projects.wordExport.doneWordPdf")
+            : result.pdfError
+              ? `${t("projects.wordExport.doneWordOnly")} ${result.pdfError}`
+              : warningDetail
+                ? `${t("projects.wordExport.doneWordOnly")} ${warningDetail}`
+                : t("projects.wordExport.doneWordOnly"),
+        });
       } catch (error) {
         toast({
           variant: "destructive",
@@ -2035,7 +2061,7 @@ export default function MvProjectsDashboard() {
                           </td>
                           <td className="px-3 py-4 align-middle">
                             <ProjectWorkspaceLink
-                              projectId={project._id}
+                              project={project}
                               title={project.name || notAvailable}
                               compact
                               nameClassName="text-[13px] font-black"
@@ -2143,7 +2169,7 @@ export default function MvProjectsDashboard() {
                             </span>
                           </div>
                           <ProjectWorkspaceLink
-                            projectId={project._id}
+                            project={project}
                             title={project.name || notAvailable}
                             compact
                             nameClassName="text-[13px] font-black"

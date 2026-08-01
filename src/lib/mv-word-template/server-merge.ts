@@ -1,6 +1,7 @@
 import type { MvWordMergeInput } from "./build-context";
 import { buildTemplateVariableValues } from "./build-context";
-import type { MvWordMergeResult } from "./merge";
+import type { MvWordMergeResult, MvWordMergeStats } from "./merge";
+import { convertDocxBlobToPdfBlob, downloadBlob } from "./docx-to-pdf";
 
 export type ServerWordMergeParams = {
   projectId: string;
@@ -8,6 +9,8 @@ export type ServerWordMergeParams = {
   assetImageUrls: string[];
   valuationImageUrls: string[];
   clientImageUrls?: string[];
+  /** اطلب Word + PDF محوّل من نفس الملف (تنزيلان منفصلان، بدون ZIP) */
+  alsoPdf?: boolean;
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
@@ -16,6 +19,8 @@ export type ServerWordMergeParams = {
     imageQuality?: number;
   };
 };
+
+export type MvWordMergeDownloadResult = MvWordMergeResult;
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -27,51 +32,12 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-export async function mergeWordReportTemplateViaServer(
-  params: ServerWordMergeParams,
-): Promise<MvWordMergeResult> {
-  // أرسل الحالة الحالية كاملة، بما في ذلك الفراغ الصريح، حتى ينعكس مسح الحقل
-  // فوراً في التنزيل حتى لو لم يكتمل الحفظ التلقائي بعد.
-  const textValues = buildTemplateVariableValues(params.mergeInput);
-
-  const response = await fetch(
-    `/api/mv/projects/${encodeURIComponent(params.projectId)}/word-template/merge`,
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        textValues,
-        assetImageUrls: params.assetImageUrls,
-        valuationImageUrls: params.valuationImageUrls,
-        clientImageUrls: params.clientImageUrls ?? [],
-        imageLayout: params.imageLayout,
-        assetImagesBase64: [],
-        valuationImagesBase64: params.mergeInput.valuationImages.map((item) =>
-          arrayBufferToBase64(item.image),
-        ),
-        clientImagesBase64: params.mergeInput.clientImages.map((item) =>
-          arrayBufferToBase64(item.image),
-        ),
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    let message = `تعذر دمج Word على الخادم (${response.status})`;
-    try {
-      const json = (await response.json()) as { message?: string | string[] };
-      const m = json.message;
-      if (typeof m === "string") message = m;
-      else if (Array.isArray(m) && m[0]) message = m[0];
-    } catch {
-      /* ignore */
-    }
-    throw new Error(message);
-  }
-
+function parseMergeStats(response: Response, params: ServerWordMergeParams): {
+  serverStats: Omit<MvWordMergeStats, "warnings">;
+  warnings: string[];
+} {
   const statsHeader = response.headers.get("X-Word-Merge-Stats");
-  let serverStats = {
+  let serverStats: Omit<MvWordMergeStats, "warnings"> = {
     variablesFilled: 0,
     assetImagesInserted: Math.max(
       params.assetImageUrls.length,
@@ -85,7 +51,7 @@ export async function mergeWordReportTemplateViaServer(
       params.clientImageUrls?.length ?? 0,
       params.mergeInput.clientImages.length,
     ),
-    variablesFound: [] as string[],
+    variablesFound: [],
   };
   if (statsHeader) {
     try {
@@ -127,10 +93,142 @@ export async function mergeWordReportTemplateViaServer(
     }
   }
 
-  const blob = await response.blob();
+  return { serverStats, warnings };
+}
+
+function compactUrlList(urls: string[] | undefined): string[] {
+  return (urls ?? []).map((u) => u.trim()).filter(Boolean);
+}
+
+async function fetchMergedPdfByToken(projectId: string, token: string): Promise<Blob> {
+  const response = await fetch(
+    `/api/mv/projects/${encodeURIComponent(projectId)}/word-template/pdf/${encodeURIComponent(token)}`,
+    { method: "GET", credentials: "include" },
+  );
+  if (!response.ok) {
+    let message = `تعذر تنزيل ملف PDF (${response.status})`;
+    try {
+      const json = (await response.json()) as { message?: string | string[] };
+      const m = json.message;
+      if (typeof m === "string" && m.trim()) message = m.trim();
+      else if (Array.isArray(m) && typeof m[0] === "string" && m[0].trim()) message = m[0].trim();
+    } catch {
+      /* keep default */
+    }
+    throw new Error(message);
+  }
+  return response.blob();
+}
+
+export async function mergeWordReportTemplateViaServer(
+  params: ServerWordMergeParams,
+): Promise<MvWordMergeDownloadResult> {
+  // أرسل الحالة الحالية كاملة، بما في ذلك الفراغ الصريح، حتى ينعكس مسح الحقل
+  // فوراً في التنزيل حتى لو لم يكتمل الحفظ التلقائي بعد.
+  const textValues = buildTemplateVariableValues(params.mergeInput);
+  const assetImageUrls = compactUrlList(params.assetImageUrls);
+  const valuationImageUrls = compactUrlList(params.valuationImageUrls);
+  const clientImageUrls = compactUrlList(params.clientImageUrls);
+  const valuationImagesBase64 = params.mergeInput.valuationImages.map((item) =>
+    arrayBufferToBase64(item.image),
+  );
+  const clientImagesBase64 = params.mergeInput.clientImages.map((item) =>
+    arrayBufferToBase64(item.image),
+  );
+
+  const body: Record<string, unknown> = {
+    textValues,
+    imageLayout: params.imageLayout,
+    assetImagesBase64: [],
+    valuationImagesBase64,
+    alsoPdf: params.alsoPdf === true,
+  };
+  // لا ترسل قوائم صور فارغة — كانت تُفسَّر كـ «بدون صور» وتمنع احتياطي الخادم
+  if (assetImageUrls.length > 0) body.assetImageUrls = assetImageUrls;
+  if (valuationImageUrls.length > 0) body.valuationImageUrls = valuationImageUrls;
+  if (clientImageUrls.length > 0) body.clientImageUrls = clientImageUrls;
+  if (clientImagesBase64.length > 0) body.clientImagesBase64 = clientImagesBase64;
+
+  const response = await fetch(
+    `/api/mv/projects/${encodeURIComponent(params.projectId)}/word-template/merge`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!response.ok) {
+    let message = `تعذر دمج Word على الخادم (${response.status})`;
+    try {
+      const json = (await response.json()) as { message?: string | string[] };
+      const m = json.message;
+      if (typeof m === "string") message = m;
+      else if (Array.isArray(m) && m[0]) message = m[0];
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message);
+  }
+
+  const { serverStats, warnings } = parseMergeStats(response, params);
+  const pdfToken = response.headers.get("X-Word-Merge-Pdf-Token")?.trim() || "";
+  const pdfErrorHeader = response.headers.get("X-Word-Merge-Pdf-Error");
+  const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+  const docxBlob = await response.blob();
+
+  // رفض أي استجابة ZIP قديمة — ننزّل Word/PDF كملفين منفصلين فقط
+  if (contentType.includes("application/zip")) {
+    throw new Error("الخادم أعاد ZIP. حدّث الخادم ثم أعد المحاولة لتنزيل Word وPDF منفصلين.");
+  }
+
+  let pdfBlob: Blob | undefined;
+  let pdfSource: "server" | "browser" | undefined;
+  let pdfError: string | undefined;
+
+  if (pdfErrorHeader) {
+    try {
+      pdfError = decodeURIComponent(pdfErrorHeader);
+    } catch {
+      pdfError = pdfErrorHeader;
+    }
+  }
+
+  if (params.alsoPdf && pdfToken) {
+    try {
+      pdfBlob = await fetchMergedPdfByToken(params.projectId, pdfToken);
+      pdfSource = "server";
+    } catch (err) {
+      pdfError =
+        (err instanceof Error && err.message.trim()) ||
+        pdfError ||
+        "تعذر تنزيل ملف PDF من الخادم.";
+    }
+  }
+
+  // تحويل المتصفح يضغط المستند في صفحة واحدة للمستندات الكبيرة — لا يُستخدم إلا كاحتياطي صغير
+  if (params.alsoPdf && !pdfBlob && docxBlob.size > 0 && docxBlob.size < 2_500_000) {
+    try {
+      pdfBlob = await convertDocxBlobToPdfBlob(docxBlob);
+      pdfSource = "browser";
+    } catch (err) {
+      pdfError =
+        (err instanceof Error && err.message.trim()) ||
+        pdfError ||
+        "تعذر تحويل ملف Word إلى PDF.";
+    }
+  } else if (params.alsoPdf && !pdfBlob) {
+    pdfError =
+      pdfError ||
+      "تعذر إنشاء PDF متعدد الصفحات على الخادم. تأكد من توفر Microsoft Word أو LibreOffice.";
+  }
 
   return {
-    blob,
+    blob: docxBlob,
+    pdfBlob,
+    pdfSource,
+    pdfError,
     mergeSource: "server",
     mergeStats: {
       variablesFilled: serverStats.variablesFilled,
@@ -141,4 +239,19 @@ export async function mergeWordReportTemplateViaServer(
       warnings,
     },
   };
+}
+
+/** ينزّل Word، وإن وُجد PDF ينزّله مباشرة بعده كملف منفصل. */
+export function downloadMergedReportFiles(opts: {
+  docxBlob: Blob;
+  pdfBlob?: Blob;
+  baseName: string;
+}) {
+  const safe = opts.baseName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
+  downloadBlob(opts.docxBlob, `${safe}-merged-report.docx`);
+  if (opts.pdfBlob) {
+    window.setTimeout(() => {
+      downloadBlob(opts.pdfBlob!, `${safe}-merged-report.pdf`);
+    }, 400);
+  }
 }

@@ -1,4 +1,7 @@
-import { mergeWordReportTemplateViaServer } from "./server-merge";
+import {
+  downloadMergedReportFiles,
+  mergeWordReportTemplateViaServer,
+} from "./server-merge";
 import type { MvWordMergeInput } from "./build-context";
 
 export type MvWordMergeStats = {
@@ -14,6 +17,9 @@ export type MvWordMergeResult = {
   blob: Blob;
   mergeStats: MvWordMergeStats;
   mergeSource: "server";
+  pdfBlob?: Blob;
+  pdfSource?: "server" | "browser";
+  pdfError?: string;
 };
 
 /**
@@ -25,6 +31,7 @@ export async function mergeWordReportTemplateSmart(params: {
   assetImageUrls: string[];
   valuationImageUrls: string[];
   clientImageUrls?: string[];
+  alsoPdf?: boolean;
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
@@ -39,10 +46,13 @@ export async function mergeWordReportTemplateSmart(params: {
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
     clientImageUrls: params.clientImageUrls,
+    alsoPdf: params.alsoPdf,
     imageLayout: params.imageLayout,
   });
   return { ...serverResult, mergeSource: "server" };
 }
+
+export { downloadMergedReportFiles };
 
 export function downloadWordBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
