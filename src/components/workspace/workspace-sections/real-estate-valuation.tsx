@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
-import { ValuationStatusStrip } from "@/components/ui/realEstateStatusCards";
+import { ValuationStatusPairBoard } from "@/components/ui/realEstateStatusCards";
 import { RealEstateSearch } from "@/components/ui/real-estate-search";
 import {
   NewTransactionButton,
@@ -72,6 +72,7 @@ const RealEstateValuationSection = () => {
 
   // Active status card filter (null = show all)
   const [activeStatusCard, setActiveStatusCard] = useState<string | null>(null);
+  const [filteredCount, setFilteredCount] = useState(0);
 
   const handleSearch = useCallback((values: RealEstateSearchValues) => {
     setSearchValues(values);
@@ -281,88 +282,107 @@ const RealEstateValuationSection = () => {
   }
 
   // ── List view ──────────────────────────────────────────────────────────────
-  return (
-    <>
-      <div className="rounded-3xl border border-slate-200/80 bg-white/80 p-4 shadow-sm sm:p-6">
-        <RealEstateSearch onSearch={handleSearch} className="mb-6" />
-        <ValuationStatusStrip
-          counts={statusCounts}
-          activeStatus={activeStatusCard}
-          onStatusClick={handleStatusCardClick}
-          className="mb-4"
-        />
-        <div className="mb-6 flex flex-wrap gap-3">
-          <NewTransactionButton onClick={goNew} />
-          <NewTransactionLawyerButton onClick={goNewLawyer} />
+    return (
+      <>
+        <div className="w-full min-w-0">
+          {/* Hero — title + primary actions, full width, no card wrapper */}
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 sm:text-[26px]">
+                {isRtl ? "لوحة المعاملات" : "Transactions Dashboard"}
+              </h1>
+              <p className="mt-1 text-[13px] text-slate-500">
+                {isRtl
+                  ? "نظرة موحدة على مراحل العمل، الأداء، وحالة كل معاملة."
+                  : "A unified view of workflow stages, performance, and status for every transaction."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2.5">
+              <NewTransactionButton onClick={goNew} />
+              <NewTransactionLawyerButton onClick={goNewLawyer} />
+            </div>
+          </div>
+
+          {/* Status overview — its own card, full width */}
+          <ValuationStatusPairBoard
+            counts={statusCounts}
+            activeStatus={activeStatusCard}
+            onStatusClick={handleStatusCardClick}
+            className="mb-4 w-full"
+          />
+
+          {/* Search sits directly above the table, no extra bubble around either */}
+          <div className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_7px_22px_rgba(32,55,95,0.045)]">
+            <RealEstateSearch onSearch={handleSearch} embedded resultCount={filteredCount} />
+            <ValuationTable
+              embedded
+              onFilteredCountChange={setFilteredCount}
+              onOpenTransaction={goEvaluation}
+              filterValues={mergedFilterValues}
+              onOpenAttachments={openAttachments}
+              onOpenNotes={openNotes}
+              onOpenImages={openImages}
+              onOpenEdit={openEdit}
+              onTransactionMutated={fetchTransactions}
+            />
+          </div>
         </div>
-      </div>
 
-      <ValuationTable
-        className="mt-4"
-        onOpenTransaction={goEvaluation}
-        filterValues={mergedFilterValues}
-        onOpenAttachments={openAttachments}
-        onOpenNotes={openNotes}
-        onOpenImages={openImages}
-        onOpenEdit={openEdit}
-        onTransactionMutated={fetchTransactions}
-      />
+        {attachmentsTarget && (
+          <AttachmentsModal
+            transactionId={attachmentsTarget.transactionId}
+            requester={attachmentsTarget.requester}
+            onClose={() => setAttachmentsTarget(null)}
+            onCountChange={(count) =>
+              setAttachmentCounts((p) => ({
+                ...p,
+                [attachmentsTarget.transactionId]: count,
+              }))
+            }
+            t={t}
+            isRtl={isRtl}
+          />
+        )}
+        {notesTarget && (
+          <NotesModal
+            transactionId={notesTarget.transactionId}
+            requester={notesTarget.requester}
+            onClose={() => setNotesTarget(null)}
+            t={t}
+            isRtl={isRtl}
+          />
+        )}
+        {imagesTarget && (
+          <ImagesModal
+            transactionId={imagesTarget.transactionId}
+            requester={imagesTarget.requester}
+            onClose={() => setImagesTarget(null)}
+            onCountChange={(count) =>
+              setImageCounts((p) => ({
+                ...p,
+                [imagesTarget.transactionId]: count,
+              }))
+            }
+            t={t}
+            isRtl={isRtl}
+          />
+        )}
+        {editTarget && (
+          <EditTransactionModal
+            transactionId={editTarget.transactionId}
+            requester={editTarget.requester}
+            onClose={() => setEditTarget(null)}
+            onSaved={(updated) => {
+              if (editTarget.onSaved) editTarget.onSaved(updated);
+              fetchTransactions();
+              setEditTarget(null);
+            }}
+            t={t}
+            isRtl={isRtl}
+          />
+        )}
+      </>
+    );
+  };
 
-      {attachmentsTarget && (
-        <AttachmentsModal
-          transactionId={attachmentsTarget.transactionId}
-          requester={attachmentsTarget.requester}
-          onClose={() => setAttachmentsTarget(null)}
-          onCountChange={(count) =>
-            setAttachmentCounts((p) => ({
-              ...p,
-              [attachmentsTarget.transactionId]: count,
-            }))
-          }
-          t={t}
-          isRtl={isRtl}
-        />
-      )}
-      {notesTarget && (
-        <NotesModal
-          transactionId={notesTarget.transactionId}
-          requester={notesTarget.requester}
-          onClose={() => setNotesTarget(null)}
-          t={t}
-          isRtl={isRtl}
-        />
-      )}
-      {imagesTarget && (
-        <ImagesModal
-          transactionId={imagesTarget.transactionId}
-          requester={imagesTarget.requester}
-          onClose={() => setImagesTarget(null)}
-          onCountChange={(count) =>
-            setImageCounts((p) => ({
-              ...p,
-              [imagesTarget.transactionId]: count,
-            }))
-          }
-          t={t}
-          isRtl={isRtl}
-        />
-      )}
-      {editTarget && (
-        <EditTransactionModal
-          transactionId={editTarget.transactionId}
-          requester={editTarget.requester}
-          onClose={() => setEditTarget(null)}
-          onSaved={(updated) => {
-            if (editTarget.onSaved) editTarget.onSaved(updated);
-            fetchTransactions();
-            setEditTarget(null);
-          }}
-          t={t}
-          isRtl={isRtl}
-        />
-      )}
-    </>
-  );
-};
-
-export default RealEstateValuationSection;
+  export default RealEstateValuationSection;

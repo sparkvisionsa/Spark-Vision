@@ -158,19 +158,27 @@ const PRODUCT_ROUTES: ProductRoute[] = [
   },
 ];
 
+/**
+ * Dark, floating sidebar theme (matches machine-valuation-shell) — used only
+ * when `dark` is true (i.e. on /real-estate-valuation). Other product pages
+ * keep the existing light sidebar look untouched.
+ */
 function ValueTechSidebarAccount({
   isArabic,
   t,
+  dark = false,
 }: {
   isArabic: boolean;
   t: ValueTechCopy;
+  dark?: boolean;
 }) {
   const { user, profile, loading } = useAuthTracking();
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
 
-  const ringFocus =
-    "outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent";
+  const ringFocus = dark
+    ? "outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+    : "outline-none focus-visible:ring-2 focus-visible:ring-slate-900/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent";
 
   if (loading) {
     return (
@@ -179,11 +187,26 @@ function ValueTechSidebarAccount({
         aria-busy="true"
         aria-label="Loading account"
       >
-        <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-slate-900/20" />
+        <div
+          className={cn(
+            "h-10 w-10 shrink-0 animate-pulse rounded-full",
+            dark ? "bg-white/10" : "bg-slate-900/20",
+          )}
+        />
         {!collapsed ? (
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3.5 w-28 max-w-full animate-pulse rounded bg-slate-900/20" />
-            <div className="h-2.5 w-full max-w-[11rem] animate-pulse rounded bg-slate-900/15" />
+            <div
+              className={cn(
+                "h-3.5 w-28 max-w-full animate-pulse rounded",
+                dark ? "bg-white/10" : "bg-slate-900/20",
+              )}
+            />
+            <div
+              className={cn(
+                "h-2.5 w-full max-w-[11rem] animate-pulse rounded",
+                dark ? "bg-white/5" : "bg-slate-900/15",
+              )}
+            />
           </div>
         ) : null}
       </div>
@@ -199,8 +222,10 @@ function ValueTechSidebarAccount({
       <div
         className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-          "bg-slate-900/15 text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
           "text-sm font-semibold tracking-tight",
+          dark
+            ? "bg-white/10 text-white"
+            : "bg-slate-900/15 text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]",
         )}
         aria-hidden
       >
@@ -214,7 +239,10 @@ function ValueTechSidebarAccount({
           href="/profile"
           title={`${displayName} — ${t.sidebarOpenProfile}`}
           className={cn(
-            "flex justify-center rounded-lg p-0.5 transition hover:bg-slate-900/12 active:bg-slate-900/18",
+            "flex justify-center rounded-lg p-0.5 transition",
+            dark
+              ? "hover:bg-white/10 active:bg-white/15"
+              : "hover:bg-slate-900/12 active:bg-slate-900/18",
             ringFocus,
           )}
         >
@@ -228,7 +256,9 @@ function ValueTechSidebarAccount({
         href="/profile"
         className={cn(
           "group/account flex items-center gap-3 rounded-lg px-1 py-0.5 -mx-1 transition",
-          "hover:bg-slate-900/12 active:bg-slate-900/18",
+          dark
+            ? "hover:bg-white/10 active:bg-white/15"
+            : "hover:bg-slate-900/12 active:bg-slate-900/18",
           ringFocus,
         )}
       >
@@ -239,13 +269,30 @@ function ValueTechSidebarAccount({
             isArabic ? "text-right" : "text-left",
           )}
         >
-          <p className="text-sm font-semibold leading-tight text-slate-900 truncate">
+          <p
+            className={cn(
+              "text-sm font-semibold leading-tight truncate",
+              dark ? "text-white" : "text-slate-900",
+            )}
+          >
             {displayName}
           </p>
-          <p className="mt-0.5 text-[11px] leading-snug text-slate-900/75 truncate">
+          <p
+            className={cn(
+              "mt-0.5 text-[11px] leading-snug truncate",
+              dark ? "text-slate-400" : "text-slate-900/75",
+            )}
+          >
             {emailHint}
           </p>
-          <p className="mt-1 text-[10px] font-medium text-slate-900/50 group-hover/account:text-slate-900/70">
+          <p
+            className={cn(
+              "mt-1 text-[10px] font-medium",
+              dark
+                ? "text-cyan-200/80 group-hover/account:text-white"
+                : "text-slate-900/50 group-hover/account:text-slate-900/70",
+            )}
+          >
             {t.sidebarOpenProfile}
           </p>
         </div>
@@ -256,8 +303,8 @@ function ValueTechSidebarAccount({
   const guestAvatar = (
     <div
       className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-        "bg-slate-900/12 text-slate-900 font-semibold",
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-semibold",
+        dark ? "bg-white/10 text-slate-200" : "bg-slate-900/12 text-slate-900",
       )}
       aria-hidden
     >
@@ -273,7 +320,9 @@ function ValueTechSidebarAccount({
         title={`${t.sidebarSignIn} · ${t.sidebarUserGuest}`}
         className={cn(
           "flex w-full justify-center rounded-lg p-0.5 transition",
-          "hover:bg-slate-900/12 active:bg-slate-900/18",
+          dark
+            ? "hover:bg-white/10 active:bg-white/15"
+            : "hover:bg-slate-900/12 active:bg-slate-900/18",
           ringFocus,
         )}
       >
@@ -288,10 +337,20 @@ function ValueTechSidebarAccount({
       <div
         className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}
       >
-        <p className="text-sm font-semibold text-slate-900">
+        <p
+          className={cn(
+            "text-sm font-semibold",
+            dark ? "text-white" : "text-slate-900",
+          )}
+        >
           {t.sidebarUserGuest}
         </p>
-        <p className="mt-0.5 text-[11px] leading-snug text-slate-900/80">
+        <p
+          className={cn(
+            "mt-0.5 text-[11px] leading-snug",
+            dark ? "text-slate-400" : "text-slate-900/80",
+          )}
+        >
           {t.sidebarUserSubtitle}
         </p>
         <div
@@ -304,8 +363,8 @@ function ValueTechSidebarAccount({
             type="button"
             onClick={() => openAuthModal()}
             className={cn(
-              "rounded px-0 py-0.5 text-slate-900 underline-offset-2 transition",
-              "hover:underline",
+              "rounded px-0 py-0.5 underline-offset-2 transition hover:underline",
+              dark ? "text-cyan-200/90 hover:text-white" : "text-slate-900",
               ringFocus,
             )}
           >
@@ -319,8 +378,10 @@ function ValueTechSidebarAccount({
 
 function ValueTechSidebarWorkspace({
   children,
+  fullWidth,
 }: {
   children: React.ReactNode;
+  fullWidth?: boolean;
 }) {
   const { state, isMobile } = useSidebar();
   const sidebarCollapsed = !isMobile && state === "collapsed";
@@ -335,7 +396,7 @@ function ValueTechSidebarWorkspace({
       <main
         className={cn(
           "mx-auto flex w-full min-w-0 flex-col gap-4 md:gap-5 min-h-[60vh] overflow-x-hidden",
-          sidebarCollapsed ? "max-w-none" : "max-w-6xl",
+          sidebarCollapsed || fullWidth ? "max-w-none" : "max-w-6xl",
         )}
       >
         <div className="mb-2 flex items-center justify-between md:hidden">
@@ -401,6 +462,10 @@ export default function ValueTechShell({
   const router = useRouter();
   const pathname = usePathname() || "/";
 
+  const isRealEstateValuationPage =
+    pathname === "/real-estate-valuation" ||
+    pathname.startsWith("/real-estate-valuation/");
+
   useEffect(() => {
     const timeouts: number[] = [];
     const gap = process.env.NODE_ENV === "development" ? 75 : 120;
@@ -445,9 +510,23 @@ export default function ValueTechShell({
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
 
-  const activeClass =
-    "bg-slate-900/5 text-black font-semibold shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]";
-  const idleClass = "text-slate-800 hover:text-black hover:bg-slate-900/5";
+  // Dark theme only applies to the real-estate-valuation route; every other
+  // product page keeps the existing light sidebar styling.
+  const dark = isRealEstateValuationPage;
+
+  const activeClass = dark
+    ? "bg-white text-slate-950 shadow-[0_10px_24px_rgba(8,47,73,0.22)] font-semibold"
+    : "bg-slate-900/5 text-black font-semibold shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]";
+  const idleClass = dark
+    ? "text-slate-300 hover:bg-white/10 hover:text-white"
+    : "text-slate-800 hover:text-black hover:bg-slate-900/5";
+  const backLinkClass = dark
+    ? "text-slate-300 hover:bg-white/10 hover:text-white"
+    : "text-slate-700 hover:text-black hover:bg-slate-900/5";
+  const groupLabelClass = dark
+    ? "text-xs font-semibold uppercase tracking-wide text-slate-500"
+    : "text-xs font-semibold uppercase tracking-wide text-slate-500";
+  const separatorClass = dark ? "bg-white/10" : "bg-slate-200";
 
   if (isHubPage) {
     return (
@@ -468,18 +547,47 @@ export default function ValueTechShell({
   }
 
   return (
-    <div className="min-h-screen min-w-0 overflow-x-hidden bg-gradient-to-br from-slate-50 via-sky-50/40 to-emerald-50 text-slate-900 flex flex-col pt-14">
+    <div
+      className={cn(
+        "min-h-screen min-w-0 overflow-x-hidden flex flex-col pt-14",
+        dark
+          ? "bg-[linear-gradient(135deg,#eef4f8_0%,#f8fafc_48%,#eef7f2_100%)] text-slate-900"
+          : "bg-gradient-to-br from-slate-50 via-sky-50/40 to-emerald-50 text-slate-900",
+      )}
+    >
       <ValueTechServiceNavbar />
 
-      <SidebarProvider className="flex-1">
+      <SidebarProvider
+        className={cn(
+          "flex-1",
+          dark &&
+            cn(
+              "[--sidebar-background:217_45%_11%] [--sidebar-foreground:210_40%_96%]",
+              "[--sidebar-accent:215_28%_18%] [--sidebar-accent-foreground:210_40%_98%]",
+              "[--sidebar-border:214_32%_22%] [--sidebar-ring:188_86%_53%]",
+            ),
+        )}
+      >
         <Sidebar
           side={isArabic ? "right" : "left"}
           variant="floating"
           collapsible="icon"
-          className="bg-white text-black border border-slate-200/80 shadow-2xl shadow-slate-900/5 top-14"
+          className={cn(
+            "top-14",
+            dark
+              ? "z-20 border-0 bg-transparent text-slate-100 shadow-none"
+              : "bg-white text-black border border-slate-200/80 shadow-2xl shadow-slate-900/5",
+          )}
         >
-          <SidebarHeader className="border-b border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 text-slate-900 rounded-lg m-2 px-3 py-3">
-            <ValueTechSidebarAccount isArabic={isArabic} t={t} />
+          <SidebarHeader
+            className={cn(
+              "rounded-lg m-2 px-3 py-2.5",
+              dark
+                ? "border border-white/10 bg-slate-950"
+                : "border-b border-slate-200 bg-gradient-to-r from-sky-500 via-cyan-400 to-emerald-400 py-3",
+            )}
+          >
+            <ValueTechSidebarAccount isArabic={isArabic} t={t} dark={dark} />
           </SidebarHeader>
 
           <SidebarContent className="pt-1">
@@ -488,17 +596,15 @@ export default function ValueTechShell({
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      className="text-slate-700 hover:text-black hover:bg-slate-900/5"
-                    >
+                    <SidebarMenuButton asChild className={backLinkClass}>
                       <Link
                         href="/value-tech#products"
                         className="flex items-center gap-2"
                       >
                         <ArrowLeft
                           className={cn(
-                            "h-4 w-4 text-cyan-600",
+                            "h-4 w-4",
+                            dark ? "text-cyan-300" : "text-cyan-600",
                             isArabic && "rotate-180",
                           )}
                         />
@@ -512,11 +618,11 @@ export default function ValueTechShell({
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarSeparator className="bg-slate-200" />
+            <SidebarSeparator className={separatorClass} />
 
             {/* Current product */}
             <SidebarGroup>
-              <SidebarGroupLabel className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <SidebarGroupLabel className={groupLabelClass}>
                 {t.sidebarSectionTitle}
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -535,7 +641,7 @@ export default function ValueTechShell({
                           <currentProduct.icon
                             className={cn("h-4 w-4", currentProduct.iconColor)}
                           />
-                          <span className="text-black">
+                          <span className={dark ? undefined : "text-black"}>
                             {t[currentProduct.labelKey]}
                           </span>
                         </Link>
@@ -543,7 +649,7 @@ export default function ValueTechShell({
                     </SidebarMenuItem>
                   )}
 
-                  <SidebarSeparator className="my-2 bg-slate-200" />
+                  <SidebarSeparator className={cn("my-2", separatorClass)} />
 
                   <SidebarMenuItem>
                     <SidebarMenuButton
@@ -553,7 +659,9 @@ export default function ValueTechShell({
                     >
                       <Link href="/clients" className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-fuchsia-600" />
-                        <span className="text-black">{t.sidebarClients}</span>
+                        <span className={dark ? undefined : "text-black"}>
+                          {t.sidebarClients}
+                        </span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -571,7 +679,9 @@ export default function ValueTechShell({
                         className="flex items-center gap-2"
                       >
                         <Settings className="h-4 w-4 text-slate-600" />
-                        <span className="text-black">{t.sidebarSettings}</span>
+                        <span className={dark ? undefined : "text-black"}>
+                          {t.sidebarSettings}
+                        </span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -585,7 +695,9 @@ export default function ValueTechShell({
                     >
                       <Link href="/company" className="flex items-center gap-2">
                         <Building className="h-4 w-4 text-blue-600" />
-                        <span className="text-black">{t.sidebarCompany}</span>
+                        <span className={dark ? undefined : "text-black"}>
+                          {t.sidebarCompany}
+                        </span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -597,7 +709,9 @@ export default function ValueTechShell({
 
         <SidebarToggleArrow isArabic={isArabic} />
 
-        <ValueTechSidebarWorkspace>{children}</ValueTechSidebarWorkspace>
+        <ValueTechSidebarWorkspace fullWidth={isRealEstateValuationPage}>
+          {children}
+        </ValueTechSidebarWorkspace>
       </SidebarProvider>
       <ValueTechServiceFooter />
     </div>

@@ -539,11 +539,12 @@ export function NewTransactionLawyerButton({
     <div dir={isArabic ? "rtl" : "ltr"} className={cn("flex", className)}>
       <button
         onClick={onClick}
-        className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2.5 text-xs font-medium text-white transition hover:bg-violet-700 active:scale-[0.98]"
+        className="flex items-center gap-1.5 rounded-lg bg-[#2f66f6] px-3 py-2.5 text-xs font-medium text-white transition hover:bg-[#2554d1] active:scale-[0.98]"
+
       >
         <Plus className="h-3.5 w-3.5" />
         {isArabic ? "معاملة جديدة" : "New Transaction"}
-        <span className="rounded bg-violet-500 px-1.5 py-px text-[10px] font-medium">
+        <span className="rounded bg-[#2554d1] px-1.5 py-px text-[10px] font-medium">
           {isArabic ? "محامي" : "Legal"}
         </span>
       </button>
@@ -566,7 +567,8 @@ export function NewTransactionButton({ onClick, className }: ButtonProps) {
     <div dir={isArabic ? "rtl" : "ltr"} className={cn("flex", className)}>
       <button
         onClick={onClick}
-        className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-2.5 text-xs font-medium text-white transition hover:bg-cyan-700 active:scale-[0.98]"
+        className="flex items-center gap-1.5 rounded-lg bg-[#2f66f6] px-3 py-2.5 text-xs font-medium text-white transition hover:bg-[#2554d1] active:scale-[0.98]"
+
       >
         <Plus className="h-3.5 w-3.5" />
         {t.newTransaction}

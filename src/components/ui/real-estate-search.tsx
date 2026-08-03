@@ -253,11 +253,13 @@ function SelectField({
   onChange,
   children,
   dir,
+  compact,
 }: {
   value: string;
   onChange: (v: string) => void;
   children: React.ReactNode;
   dir?: "ltr" | "rtl";
+  compact?: boolean;
 }) {
   return (
     <div className="relative">
@@ -265,11 +267,23 @@ function SelectField({
         dir={dir}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm text-slate-700 shadow-sm transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100 rtl:pl-8 rtl:pr-3"
+        className={cn(
+          "appearance-none rounded-lg border text-slate-700 transition focus:border-[#2f66f6] focus:outline-none focus:ring-2 focus:ring-blue-100",
+          compact
+            ? "h-[30px] w-[112px] border-[#e6ebf2] bg-[#f8fafd] pl-2 pr-6 text-xs rtl:pl-6 rtl:pr-2"
+            : "w-full border-slate-200 bg-white py-2 pl-3 pr-8 text-sm shadow-sm rtl:pl-8 rtl:pr-3",
+        )}
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 rtl:left-2.5 rtl:right-auto" />
+      <ChevronDown
+        className={cn(
+          "pointer-events-none absolute top-1/2 -translate-y-1/2 text-slate-400",
+          compact
+            ? "right-2 h-3 w-3 rtl:left-2 rtl:right-auto"
+            : "right-2.5 h-3.5 w-3.5 rtl:left-2.5 rtl:right-auto",
+        )}
+      />
     </div>
   );
 }
@@ -289,7 +303,7 @@ function TextField({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm placeholder:text-slate-300 transition focus:border-[#2f66f6] focus:outline-none focus:ring-2 focus:ring-blue-100"
     />
   );
 }
@@ -299,9 +313,16 @@ function TextField({
 type Props = {
   onSearch?: (values: RealEstateSearchValues) => void;
   className?: string;
+  embedded?: boolean;
+  resultCount?: number;
 };
 
-export function RealEstateSearch({ onSearch, className }: Props) {
+export function RealEstateSearch({
+  onSearch,
+  className,
+  embedded,
+  resultCount,
+}: Props) {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "en";
   const isArabic = language === "ar";
@@ -322,56 +343,126 @@ export function RealEstateSearch({ onSearch, className }: Props) {
     <div
       dir={isArabic ? "rtl" : "ltr"}
       className={cn(
-        "w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm",
+        "w-full overflow-hidden bg-white",
+        embedded
+          ? "border-b border-[#e6ebf2]"
+          : "rounded-2xl border border-[#e6ebf2] shadow-[0_7px_22px_rgba(32,55,95,0.045)]",
         className,
       )}
     >
-      {/* SEARCH BAR */}
-      <div className="flex items-center gap-2 px-4 py-3">
-        <Search className="h-4 w-4 shrink-0 text-slate-400" />
+      {/* QUICK BAR — workspace-head style when embedded, original search bar otherwise */}
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-800">
+              {isArabic ? "المعاملات" : "Transactions"}
+            </h2>
+            {typeof resultCount === "number" && (
+              <span className="rounded-full bg-[#edf2ff] px-2 py-0.5 text-[11px] font-semibold text-[#2f66f6]">
+                {resultCount}
+              </span>
+            )}
+          </div>
 
-        <input
-          type="text"
-          value={values.query}
-          onChange={(e) => set("query", e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder={t.searchPlaceholder}
-          className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-300 focus:outline-none"
-        />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={values.query}
+                onChange={(e) => set("query", e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                placeholder={t.searchPlaceholder}
+                className="h-[30px] w-[160px] rounded-lg border border-[#e6ebf2] bg-[#f8fafd] ps-8 pe-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-[#2f66f6] focus:outline-none focus:ring-1 focus:ring-blue-100 sm:w-[200px]"
+              />
+            </div>
 
-        {values.query && (
-          <button
-            onClick={() => set("query", "")}
-            className="rounded-md p-1 text-slate-300 hover:text-slate-500"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
+            <SelectField
+              value={values.status}
+              onChange={(v) => set("status", v)}
+              dir={isArabic ? "rtl" : "ltr"}
+              compact
+            >
+              <option value="-2">{t.allActive}</option>
+              <option value="-1">{t.all}</option>
+              <option value="1">{t.new}</option>
+              <option value="2">{t.inspection}</option>
+              <option value="3">{t.review}</option>
+              <option value="4">{t.audit}</option>
+              <option value="5">{t.approved}</option>
+              <option value="6">{t.sent}</option>
+              <option value="7">{t.cancelled}</option>
+              <option value="8">{t.pending}</option>
+            </SelectField>
 
-        <div className="mx-2 h-5 w-px bg-slate-200" />
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className={cn(
+                "flex h-[30px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition",
+                expanded
+                  ? "bg-[#2f66f6] text-white"
+                  : "border border-[#e6ebf2] bg-[#f8fafd] text-slate-600 hover:bg-slate-100",
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {expanded ? t.hideAdvanced : t.advancedSearch}
+            </button>
 
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition",
-            expanded
-              ? "bg-cyan-600 text-white"
-              : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+            <button
+              onClick={handleSearch}
+              className="h-[30px] rounded-lg bg-[#2f66f6] px-4 text-xs font-semibold text-white hover:bg-[#2554d1]"
+            >
+              {t.search}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-4 py-3">
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+
+          <input
+            type="text"
+            value={values.query}
+            onChange={(e) => set("query", e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder={t.searchPlaceholder}
+            className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-300 focus:outline-none"
+          />
+
+          {values.query && (
+            <button
+              onClick={() => set("query", "")}
+              className="rounded-md p-1 text-slate-300 hover:text-slate-500"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-          {expanded ? t.hideAdvanced : t.advancedSearch}
-        </button>
 
-        <button
-          onClick={handleSearch}
-          className="rounded-lg bg-cyan-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700"
-        >
-          {t.search}
-        </button>
-      </div>
+          <div className="mx-2 h-5 w-px bg-slate-200" />
 
-      {/* ADVANCED PANEL */}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+              expanded
+                ? "bg-[#2f66f6] text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+            )}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            {expanded ? t.hideAdvanced : t.advancedSearch}
+          </button>
+
+          <button
+            onClick={handleSearch}
+            className="rounded-lg bg-[#2f66f6] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#2554d1]"
+          >
+            {t.search}
+          </button>
+        </div>
+      )}
+
+      {/* ADVANCED PANEL — fully restored, logic untouched */}
       <div
         className={cn(
           "grid transition-all duration-300 ease-in-out",
@@ -392,7 +483,7 @@ export function RealEstateSearch({ onSearch, className }: Props) {
                         type="radio"
                         checked={values.dateType === "created"}
                         onChange={() => set("dateType", "created")}
-                        className="h-4 w-4 accent-cyan-600"
+                        className="h-4 w-4 accent-[#2f66f6]"
                       />
                       {t.assignmentDate}
                     </label>
@@ -402,7 +493,7 @@ export function RealEstateSearch({ onSearch, className }: Props) {
                         type="radio"
                         checked={values.dateType === "complete"}
                         onChange={() => set("dateType", "complete")}
-                        className="h-4 w-4 accent-cyan-600"
+                        className="h-4 w-4 accent-[#2f66f6]"
                       />
                       {t.approvalDate}
                     </label>
@@ -413,14 +504,14 @@ export function RealEstateSearch({ onSearch, className }: Props) {
                       type="date"
                       value={values.dateFrom}
                       onChange={(e) => set("dateFrom", e.target.value)}
-                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[#2f66f6] focus:outline-none focus:ring-2 focus:ring-blue-100"
                     />
                     <span className="text-sm text-slate-400">–</span>
                     <input
                       type="date"
                       value={values.dateTo}
                       onChange={(e) => set("dateTo", e.target.value)}
-                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-100"
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm focus:border-[#2f66f6] focus:outline-none focus:ring-2 focus:ring-blue-100"
                     />
                   </div>
                 </div>
@@ -610,7 +701,7 @@ export function RealEstateSearch({ onSearch, className }: Props) {
 
               <button
                 onClick={handleSearch}
-                className="rounded-lg bg-cyan-600 px-5 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700"
+                className="rounded-lg bg-[#2f66f6] px-5 py-1.5 text-xs font-semibold text-white hover:bg-[#2554d1]"
               >
                 {t.search}
               </button>

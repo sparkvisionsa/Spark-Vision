@@ -354,7 +354,7 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
       .filter(Boolean)
       .join(" - ") ||
     bl["العنوان"] ||
-    "—";
+    "N/A";
   return {
     id: tx.id,
     isDraft: false,
@@ -372,8 +372,8 @@ function mapToRow(tx: ApiTransaction): ValuationRow {
       deedNumber: ed.deedNumber ?? tx.deedNumber ?? bl["رقم الصك"] ?? undefined,
       plotNumber: bl["رقم القطعة"] ?? undefined,
       clientName: ed.clientName ?? tx.clientName ?? bl["اسم العميل"] ?? "—",
-      ownerName: ed.ownerName ?? tx.ownerName ?? bl["اسم المالك"] ?? "—",
-      propertyType: bl["نوع الأصل"] ?? "—",
+      ownerName: ed.ownerName ?? tx.ownerName ?? bl["اسم المالك"] ?? "N/A",
+      propertyType: bl["نوع الأصل"] ?? "N/A",
       address,
       contactNumber: bl["رقم التواصل"] ?? undefined,
     },
@@ -614,6 +614,8 @@ async function duplicateTransaction(
 const copy = {
   en: {
     assignment: "Assignment",
+    property: "Property",
+
     details: "Details",
     assignInspectors: "Assign Inspectors",
     inspectorsModal: "Assign Inspectors",
@@ -723,6 +725,7 @@ const copy = {
   },
   ar: {
     assignment: "التكليف",
+    property: "العقار",
     details: "التفاصيل",
     value: "القيمة",
     status: "الحالة",
@@ -844,18 +847,14 @@ const STATUS_CONFIG: Record<
   ValuationStatus,
   { bg: string; text: string; dot: string }
 > = {
-  new: { bg: "bg-slate-100", text: "text-slate-700", dot: "bg-slate-400" },
-  inspection: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
-  review: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
-  audit: { bg: "bg-teal-50", text: "text-teal-700", dot: "bg-teal-500" },
-  approved: {
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    dot: "bg-emerald-500",
-  },
-  sent: { bg: "bg-cyan-50", text: "text-cyan-700", dot: "bg-cyan-500" },
-  cancelled: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-400" },
-  pending: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-400" },
+  new: { bg: "bg-[#fff3e6]", text: "text-[#d87816]", dot: "bg-[#d87816]" },
+  inspection: { bg: "bg-[#eaf0ff]", text: "text-[#2f66f6]", dot: "bg-[#2f66f6]" },
+  review: { bg: "bg-[#f1ecff]", text: "text-[#7a56d8]", dot: "bg-[#7a56d8]" },
+  audit: { bg: "bg-[#e9f9fc]", text: "text-[#0e8fa8]", dot: "bg-[#0e8fa8]" },
+  approved: { bg: "bg-[#eaf9f1]", text: "text-[#158a52]", dot: "bg-[#158a52]" },
+  sent: { bg: "bg-[#f4ecdd]", text: "text-[#c8873d]", dot: "bg-[#c8873d]" },
+  cancelled: { bg: "bg-[#fff0f2]", text: "text-[#c62e41]", dot: "bg-[#c62e41]" },
+  pending: { bg: "bg-[#eef1f5]", text: "text-[#6f7f95]", dot: "bg-[#6f7f95]" },
 };
 
 // ─── dummy note data ──────────────────────────────────────────────────────────
@@ -3642,8 +3641,7 @@ function ActionButton({
         <button
           onClick={onClick}
           className={cn(
-            "relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-all duration-150 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
-            className,
+            "relative inline-flex h-[26px] w-[26px] items-center justify-center rounded-lg border border-[#e6ebf2] bg-white text-[#6f7f95] transition-all duration-150 hover:border-[#bcd0ff] hover:bg-[#f4f7ff] hover:text-[#2f66f6] hover:-translate-y-px focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",            className,
           )}
         >
           {children}
@@ -3708,228 +3706,203 @@ function ValuationTableRow({
   onOpen: (id: string) => void;
   onOpenAttachments: (row: ValuationRow) => void;
   onOpenNotes: (row: ValuationRow) => void;
-  onAssignInspectors: (row: ValuationRow) => void; // ← new
-
+  onAssignInspectors: (row: ValuationRow) => void;
   onOpenImages: (row: ValuationRow) => void;
   onEditTransaction: (row: ValuationRow) => void;
   onDuplicate: (row: ValuationRow) => void;
   t: Copy;
 }) {
+  const initials = row.assignment.requester
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("");
+  const inspectorInitials = row.inspector
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("");
+
   return (
     <div
-      className={cn(
-        "group border-b border-slate-100 transition-colors last:border-b-0 hover:bg-cyan-50/30 cursor-pointer",
-        isSelected && "bg-cyan-50/40",
-      )}
+      className="group cursor-pointer border-b border-[#edf1f6] transition-colors last:border-b-0 hover:bg-[#f4f7ff]"
       onClick={() => onOpen(row.id)}
     >
-      <div className="flex items-center gap-3 px-4 py-3">
-        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-3 px-4 py-3.5">
+        {/* Logo stacked over checkbox */}
+        <div
+          className="flex w-8 shrink-0 flex-col items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#ecf2ff] text-[10px] font-black text-[#2f66f6]">
+            {row.clientLogo ? (
+              <img src={row.clientLogo} alt="" className="h-full w-full rounded-[9px] object-cover" />
+            ) : (
+              initials || "—"
+            )}
+          </div>
           <Checkbox
             checked={isSelected}
             onCheckedChange={onToggleSelect}
-            className="h-4 w-4"
+            className="h-3.5 w-3.5"
           />
         </div>
-        <div className="flex w-14 shrink-0 flex-col items-center gap-1.5">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white">
-            {row.clientLogo ? (
-              <img
-                src={row.clientLogo}
-                alt=""
-                className="h-full w-full object-contain"
-              />
-            ) : (
-              <Building2 className="h-5 w-5 text-slate-300" />
-            )}
-          </div>
-          <PriorityBadge priority={row.priority} t={t} />
-        </div>
-        <div className="w-44 min-w-0 shrink-0">
-          <span className="truncate text-sm font-semibold text-slate-800">
+
+        {/* Client + assignment reference */}
+        <div className="w-36 min-w-0 shrink-0">
+          <strong className="block truncate text-[14px] leading-tight text-slate-800">
             {row.assignment.requester}
-          </span>
-          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
-            <span className="font-mono">#{row.assignment.referenceNumber}</span>
-            <span>·</span>
+          </strong>
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[#6f7f95]">
+            <span className="font-mono font-extrabold text-[#2f66f6]">
+              #{row.assignment.referenceNumber}
+            </span>
+            <span className="h-[3px] w-[3px] shrink-0 rounded-full bg-[#6f7f95]" />
             <span className="truncate">{row.assignment.template}</span>
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
-            <Calendar className="h-3 w-3 shrink-0" />
-            <span>{row.assignment.assignmentDate}</span>
-          </div>
-          {row.assignment.assignmentNumber !== "—" && (
-            <div className="mt-0.5 text-[11px] text-slate-400">
-              <span className="font-medium">{t.assignmentNo}:</span>{" "}
-              {row.assignment.assignmentNumber}
-            </div>
-          )}
         </div>
-        <div className="w-48 min-w-0 shrink-0 space-y-0.5">
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
-            <User className="h-3 w-3 shrink-0 text-slate-400" />
-            <span className="truncate">{row.details.ownerName}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
-            <Building2 className="h-3 w-3 shrink-0 text-slate-400" />
-            <span className="truncate">{row.details.propertyType}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <MapPin className="h-3 w-3 shrink-0 text-slate-400" />
-            <span className="truncate">{row.details.address}</span>
-          </div>
-          {row.details.deedNumber && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <Hash className="h-3 w-3 shrink-0" />
-              <span className="truncate">
-                {t.deedNo}: {row.details.deedNumber}
-              </span>
-            </div>
-          )}
-        </div>
-        <div className="w-32 shrink-0 space-y-1">
-          <div className="flex items-center gap-1.5 text-xs text-slate-600">
-            <User className="h-3 w-3 shrink-0 text-slate-400" />
-            <span className="truncate">{row.inspector}</span>
-          </div>
-          <div className="flex items-center gap-1 text-[11px]">
-            <Clock
-              className={cn(
-                "h-3 w-3 shrink-0",
-                row.isOverdue ? "text-red-400" : "text-slate-400",
-              )}
-            />
-            <span
-              className={cn(
-                "font-mono tabular-nums",
-                row.isOverdue ? "text-red-500" : "text-slate-500",
-              )}
-            >
-              {row.timerValue}
+
+        {/* Assignment detail block */}
+        <div className="w-40 min-w-0 shrink-0 text-[12.5px]">
+          <strong className="block truncate text-[14px] text-slate-800">
+            {row.assignment.assignmentNumber !== "—"
+              ? row.assignment.assignmentNumber
+              : row.assignment.requester}
+          </strong>
+          <span className="mt-0.5 block text-[#6f7f95]">
+            {t.assignmentNo}: ASG-{row.assignment.referenceNumber}
+          </span>
+          {row.assignment.authorizationNumber && (
+            <span className="block text-[#6f7f95]">
+              {t.authNo}: {row.assignment.authorizationNumber}
             </span>
-          </div>
-          <span className="block text-[10px] text-slate-400">
-            {row.elapsedLabel}
+          )}
+          <span className="block text-[#6f7f95]">
+            {row.assignment.assignmentDate}
           </span>
         </div>
-        <div className="w-28 shrink-0 text-center">
-          <div
+
+        {/* Status */}
+        <div className="w-24 shrink-0 text-center">
+          <StatusBadge status={row.status} t={t} />
+        </div>
+
+        {/* Property detail block */}
+                <div className="w-40 min-w-0 shrink-0 text-[12.5px]">
+                  <strong className="block truncate text-[14px] text-slate-800">
+                    {row.details.propertyType || "N/A"}
+                  </strong>
+                  {row.details.deedNumber && (
+                    <span className="mt-0.5 block truncate text-[#6f7f95]">
+                      {row.details.deedNumber}
+                    </span>
+                  )}
+                  <span className="block truncate text-[#6f7f95]">
+                    {row.details.address || "N/A"}
+                  </span>
+                  <span className="block truncate text-[#6f7f95]">
+                    {row.details.ownerName || "N/A"}
+                  </span>
+                </div>
+
+        {/* Value block */}
+        <div className="w-28 shrink-0 text-[12.5px]">
+          <strong
             className={cn(
-              "text-sm font-bold tabular-nums",
+              "block whitespace-nowrap text-[14px] font-black tabular-nums",
               row.value > 0 ? "text-slate-800" : "text-slate-400",
             )}
           >
-            {formatCurrency(row.value)}
-          </div>
-          <div className="text-[10px] text-slate-400">{t.sar}</div>
+            {formatCurrency(row.value)} {t.sar}
+          </strong>
+          <span className="mt-0.5 block text-[#6f7f95]">
+            {row.priority === "urgent" ? t.urgent : t.normal}
+          </span>
+          <span className="block text-[#6f7f95]">
+            {t.lastUpdate}: {row.elapsedLabel}
+          </span>
         </div>
-        <div className="flex w-24 shrink-0 items-center justify-center">
-          <StatusBadge status={row.status} t={t} />
-        </div>
-        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-          <div className="grid grid-cols-4 gap-0.5">
-            {/* Open transaction */}
-            <ActionButton
-              tooltip={t.openTransaction}
-              onClick={() => onOpen(row.id)}
-            >
-              <Eye className="h-4 w-4" />
-            </ActionButton>
 
-            {/* View Report — opens in new tab */}
-            <ActionButton
-              tooltip={t.viewReport}
-              onClick={() => viewPdf(row.id)}
-            >
-              <Printer className="h-4 w-4" />
-            </ActionButton>
+        {/* Inspector */}
+               <div className="ms-2 w-24 min-w-0 shrink-0">
+                 <strong className="block truncate text-[12.5px] text-slate-800">
+                   {row.inspector}
+                 </strong>
+                 <span className="text-[10.5px] text-[#6f7f95]">{t.inspector}</span>
+               </div>
 
-            {/* Download PDF — triggers browser download */}
-            <ActionButton
-              tooltip={t.downloadPdf}
-              onClick={() => downloadPdf(row.id)}
-            >
-              <FileDown className="h-4 w-4" />
-            </ActionButton>
-
-            {/* Attachments */}
-            <ActionButton
-              tooltip={`${t.attachments} (${row.attachmentsCount})`}
-              className="relative"
-              onClick={() => onOpenAttachments(row)}
-            >
-              <Paperclip className="h-4 w-4" />
-              {row.attachmentsCount > 0 && (
-                <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-cyan-600 px-1 text-[9px] font-bold text-white">
-                  {row.attachmentsCount}
-                </span>
-              )}
-            </ActionButton>
-
-            {/* Notes */}
-            <ActionButton
-              tooltip={t.followUpNotes}
-              className="relative"
-              onClick={() => onOpenNotes(row)}
-            >
-              <MessageCircle className="h-4 w-4" />
-              {row.hasUnreadNotes && (
-                <span className="absolute end-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
-              )}
-            </ActionButton>
-
-            {/* Images */}
-            <ActionButton
-              tooltip={`${t.images} (${row.imagesCount})`}
-              className="relative"
-              onClick={() => onOpenImages(row)}
-            >
-              <ImageIcon className="h-4 w-4" />
-              {row.imagesCount > 0 && (
-                <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white">
-                  {row.imagesCount}
-                </span>
-              )}
-            </ActionButton>
-
-            {/* Edit */}
-            {/* Edit */}
-            <ActionButton
-              tooltip={t.editTransaction}
-              onClick={() => onEditTransaction(row)}
-            >
-              <Pencil className="h-4 w-4" />
-            </ActionButton>
-
-            {/* More */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-                  <MoreVertical className="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem
-                  className="gap-2 text-sm"
-                  onClick={() => onAssignInspectors(row)}
-                >
-                  <UserCheck className="h-4 w-4" />
-                  {(t as any).assignInspectors ?? "Assign Inspectors"}
-                </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2 text-sm">
-                  <History className="h-4 w-4" />
-                  {t.editLog}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="gap-2 text-sm"
-                  onClick={() => onDuplicate(row)}
-                >
-                  <Copy className="h-4 w-4" />
-                  {t.duplicate}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+        {/* Actions — 4-col icon grid, matches HTML .r-actions */}
+        <div
+          className="ms-auto grid w-fit shrink-0 grid-cols-4 gap-[3px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ActionButton tooltip={t.openTransaction} onClick={() => onOpen(row.id)}>
+            <Eye className="h-3.5 w-3.5" />
+          </ActionButton>
+          <ActionButton tooltip={t.viewReport} onClick={() => viewPdf(row.id)}>
+            <Printer className="h-3.5 w-3.5" />
+          </ActionButton>
+          <ActionButton tooltip={t.downloadPdf} onClick={() => downloadPdf(row.id)}>
+            <FileDown className="h-3.5 w-3.5" />
+          </ActionButton>
+          <ActionButton
+            tooltip={`${t.attachments} (${row.attachmentsCount})`}
+            className="relative"
+            onClick={() => onOpenAttachments(row)}
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+            {row.attachmentsCount > 0 && (
+              <span className="absolute -top-1 -end-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#2f66f6] px-1 text-[9px] font-black text-white">
+                {row.attachmentsCount}
+              </span>
+            )}
+          </ActionButton>
+          <ActionButton
+            tooltip={t.followUpNotes}
+            className="relative"
+            onClick={() => onOpenNotes(row)}
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            {row.hasUnreadNotes && (
+              <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
+            )}
+          </ActionButton>
+          <ActionButton
+            tooltip={`${t.images} (${row.imagesCount})`}
+            className="relative"
+            onClick={() => onOpenImages(row)}
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            {row.imagesCount > 0 && (
+              <span className="absolute -top-1 -end-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#7a56d8] px-1 text-[9px] font-black text-white">
+                {row.imagesCount}
+              </span>
+            )}
+          </ActionButton>
+          <ActionButton tooltip={t.editTransaction} onClick={() => onEditTransaction(row)}>
+            <Pencil className="h-3.5 w-3.5" />
+          </ActionButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border border-[#e6ebf2] bg-white text-slate-600 transition-all hover:border-[#bcd0ff] hover:bg-[#f4f7ff] hover:text-[#2f66f6]">
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem className="gap-2 text-sm" onClick={() => onAssignInspectors(row)}>
+                <UserCheck className="h-3.5 w-3.5" />
+                {(t as any).assignInspectors ?? "Assign Inspectors"}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 text-sm">
+                <History className="h-3.5 w-3.5" />
+                {t.editLog}
+              </DropdownMenuItem>
+              <DropdownMenuItem className="gap-2 text-sm" onClick={() => onDuplicate(row)}>
+                <Copy className="h-3.5 w-3.5" />
+                {t.duplicate}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>
@@ -4067,8 +4040,11 @@ function ColumnHeader({
 
 type ValuationTableProps = {
   className?: string;
+  embedded?: boolean;   // ← new
+
   filterValues?: RealEstateSearchValues | null; // ← add
   onOpenTransaction?: (id: string) => void;
+  onFilteredCountChange?: (count: number) => void;
   onTransactionMutated?: () => void;
   onOpenAttachments?: (transactionId: string, requester: string) => void;
   onOpenNotes?: (transactionId: string, requester: string) => void;
@@ -4082,6 +4058,8 @@ type ValuationTableProps = {
 
 export function ValuationTable({
   className,
+  embedded,
+onFilteredCountChange,
   onOpenTransaction,
   filterValues,
   onTransactionMutated,
@@ -4233,10 +4211,16 @@ export function ValuationTable({
       .finally(() => setLoading(false));
   }, []);
 
+
   const filteredRows = useMemo(
     () => applyFilters(rows, filterValues),
     [rows, filterValues],
   );
+
+  // Report the filtered count up to the parent, if it wants it
+  useEffect(() => {
+    onFilteredCountChange?.(filteredRows.length);
+  }, [filteredRows.length, onFilteredCountChange]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -4340,7 +4324,8 @@ export function ValuationTable({
       <div
         dir={isArabic ? "rtl" : "ltr"}
         className={cn(
-          "overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm",
+          "overflow-hidden bg-white",
+          embedded ? "" : "rounded-2xl border border-slate-200 shadow-[0_7px_22px_rgba(32,55,95,0.045)]",
           className,
         )}
       >
@@ -4372,44 +4357,43 @@ export function ValuationTable({
         )}
 
         <div className="overflow-x-auto">
-          <div className="min-w-[1100px]">
+          <div className="min-w-[980px]">
             {/* Header */}
-            <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
-              <div className="shrink-0">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={toggleSelectAll}
-                  className="h-4 w-4"
-                />
-              </div>
-              <div className="w-14 shrink-0" />
-              <div className="w-44 shrink-0">
-                <ColumnHeader label={t.assignment} sortable />
-              </div>
-              <div className="w-48 shrink-0">
-                <ColumnHeader label={t.details} />
-              </div>
-              <div className="w-32 shrink-0">
-                <ColumnHeader label={t.inspector} />
-              </div>
-              <div className="w-28 shrink-0 text-center">
-                <ColumnHeader
-                  label={t.value}
-                  sortable
-                  className="justify-center"
-                />
-              </div>
-              <div className="w-24 shrink-0 text-center">
-                <ColumnHeader
-                  label={t.status}
-                  sortable
-                  className="justify-center"
-                />
-              </div>
-              <div className="shrink-0">
-                <ColumnHeader label={t.actions} />
-              </div>
-            </div>
+            <div className="flex items-center gap-3 border-b border-[#e6ebf2] bg-[#f8fafd] px-4 py-3.5">
+                          <div className="flex w-8 shrink-0 flex-col items-center gap-1">
+                            <div className="h-6 w-6" />
+                            <Checkbox
+                              checked={allSelected}
+                              onCheckedChange={toggleSelectAll}
+                              className="h-3.5 w-3.5"
+                            />
+                          </div>
+                          <div className="w-36 shrink-0">
+                            <ColumnHeader label={t.assignment} sortable />
+                          </div>
+                          <div className="w-40 shrink-0">
+                            <ColumnHeader label={t.details} />
+                          </div>
+                          <div className="ms-2 w-24 shrink-0">
+                            <ColumnHeader
+                              label={t.status}
+                              sortable
+                              className="justify-center"
+                            />
+                          </div>
+                          <div className="w-40 shrink-0">
+                            <ColumnHeader label={t.property} />
+                          </div>
+                          <div className="w-28 shrink-0">
+                            <ColumnHeader label={t.value} sortable />
+                          </div>
+                          <div className="w-24 shrink-0">
+                            <ColumnHeader label={t.inspector} />
+                          </div>
+                          <div className="ms-auto shrink-0">
+                            <ColumnHeader label={t.actions} />
+                          </div>
+                        </div>
 
             {/* Rows */}
             {loading ? (

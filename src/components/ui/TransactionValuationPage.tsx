@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useContext } from "react";
 import { toApiUrl } from "@/lib/api-url";
+import { useSidebar } from "@/components/ui/sidebar";
 import { SettlementRow } from "./SettlementComparison";
 import { SettlementComparison } from "./SettlementComparison";
 import {
@@ -1032,14 +1033,17 @@ function WizardShell({
           background: DS.surface,
           border: `1px solid ${DS.border}`,
           borderRadius: DS.radius.xl,
-          padding: "10px",
           boxShadow: DS.shadow.sm,
           position: "sticky",
-          top: 20,
-          maxHeight: "calc(100vh - 40px)",
-          overflowY: "auto",
+          top: 12,
+          alignSelf: "flex-start",          // ensures sticky works reliably in the flex row
+          maxHeight: "calc(100vh - 24px)",  // cap instead of forcing exact height
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",               // outer card clips corners
         }}
       >
+         <div style={{ padding: "10px", overflowY: "auto", flex: 1 }}>
         {steps.map((s, i) => {
           const active = i === activeStep;
           const visited = i < activeStep;
@@ -1073,11 +1077,11 @@ function WizardShell({
                   alignItems: "center",
                   justifyContent: "center",
                   flexShrink: 0,
-                  background: done ? "#f0fdf4" : active ? DS.primaryMid : DS.surfaceAlt,
-                  color: done ? "#15803d" : active ? DS.primary : DS.textMuted,
+                  background: active ? DS.primaryMid : DS.surfaceAlt,
+                  color: active ? DS.primary : DS.textMuted,
                 }}
               >
-                {done ? <CheckCircle2 size={13} /> : s.icon}
+                {s.icon}
               </span>
               <span
                 style={{
@@ -1107,6 +1111,7 @@ function WizardShell({
             </button>
           );
         })}
+      </div>
       </div>
 
       {/* Right pane */}
@@ -1174,8 +1179,9 @@ function WizardShell({
 }
 
 function StatCard({
-  label, value, icon, color = DS.primary,
-}: { label: string; value?: string; icon?: React.ReactNode; color?: string }) {
+  label, value, icon, color = DS.primary, isRtl = false,
+}: { label: string; value?: string; icon?: React.ReactNode; color?: string; isRtl?: boolean }) {
+
   return (
     <div
       style={{
@@ -1193,7 +1199,7 @@ function StatCard({
           position: "absolute",
           top: 0, insetInlineEnd: 0,
           width: 70, height: 70,
-          background: `radial-gradient(circle at top right, ${color}22, transparent 70%)`,
+          background: `radial-gradient(circle at top ${isRtl ? "left" : "right"}, ${color}22, transparent 70%)`,
           pointerEvents: "none" as const,
         }}
       />
@@ -2582,6 +2588,14 @@ export function TransactionEvaluationPage({
     });
   }, [tx]);
 
+  const { setOpen } = useSidebar()
+
+  // Collapse the app sidebar whenever this page is active, restore on leave.
+  useEffect(() => {
+    setOpen(false);
+    return () => setOpen(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSave = async () => {
     setSaving(true);
     setStatusMsg({ type: "info", text: t.saving });
@@ -2791,7 +2805,7 @@ export function TransactionEvaluationPage({
         color: DS.text,
         background: "#f1f5f9",
         minHeight: "100vh",
-        padding: "20px 20px 100px",
+        padding: "12px 16px 80px",
         position: "relative",
         width: "100%",
         boxSizing: "border-box",
@@ -3095,34 +3109,34 @@ export function TransactionEvaluationPage({
             }}
           >
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
-              <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentNo} value={tx?.assignmentNumber} />
-              <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentDate} value={tx?.assignmentDate} />
+                <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentNo} value={tx?.assignmentNumber} isRtl={isRtl} />
+                <StatCard icon={<ScrollText size={13} />} color="#d97706" label={t.assignmentDate} value={tx?.assignmentDate}  isRtl={isRtl} />
               <StatCard
                 icon={<Scale size={13} />}
                 color="#0891b2"
                 label={t.valuationBasis}
-                value={VALUATION_BASES[lang][tx?.valuationBasis] ?? tx?.valuationBasis}
+                value={VALUATION_BASES[lang][tx?.valuationBasis] ?? tx?.valuationBasis} isRtl={isRtl}
               />
               <StatCard
                 icon={<Building2 size={13} />}
                 color="#7c3aed"
                 label={t.ownershipType}
-                value={OWNERSHIP_TYPES[lang][tx?.ownershipType] ?? tx?.ownershipType}
+                value={OWNERSHIP_TYPES[lang][tx?.ownershipType] ?? tx?.ownershipType} isRtl={isRtl}
               />
               <StatCard
                 icon={<Compass size={13} />}
                 color="#2563eb"
                 label={t.valuationHypothesis}
-                value={VALUATION_HYPOTHESES[lang][tx?.valuationHypothesis] ?? tx?.valuationHypothesis}
+                value={VALUATION_HYPOTHESES[lang][tx?.valuationHypothesis] ?? tx?.valuationHypothesis} isRtl={isRtl}
               />
-              <StatCard icon={<Layers size={13} />} color="#059669" label={t.assetCount} value={t.assetCountVal} />
-              <StatCard icon={<FileText size={13} />} color="#0e7490" label={t.template} value={tx?.templateName ?? tx?.templateId} />
-              <StatCard icon={<Users size={13} />} color="#7c3aed" label={t.inspector} value={ev.assetInfo.inspector} />
-              <StatCard icon={<MessageSquare size={13} />} color="#2563eb" label={t.contactNo} value={ev.assetInfo.contactNo} />
-              <StatCard icon={<UserCheck size={13} />} color="#d97706" label={t.reviewer} value={ev.assetInfo.reviewer} />
+                <StatCard icon={<Layers size={13} />} color="#059669" label={t.assetCount} value={t.assetCountVal} isRtl={isRtl} />
+                <StatCard icon={<FileText size={13} />} color="#0e7490" label={t.template} value={tx?.templateName ?? tx?.templateId}  isRtl={isRtl}/>
+                <StatCard icon={<Users size={13} />} color="#7c3aed" label={t.inspector} value={ev.assetInfo.inspector}  isRtl={isRtl}/>
+              <StatCard icon={<MessageSquare size={13} />} color="#2563eb" label={t.contactNo} value={ev.assetInfo.contactNo} isRtl={isRtl} / >
+              <StatCard icon={<UserCheck size={13} />} color="#d97706" label={t.reviewer} value={ev.assetInfo.reviewer} isRtl={isRtl} />
 
               {tx?.intendedUse && (
-                <StatCard icon={<ClipboardList size={13} />} color="#64748b" label={t.notes} value={tx?.intendedUse} />
+                <StatCard icon={<ClipboardList size={13} />} color="#64748b" label={t.notes} value={tx?.intendedUse} isRtl={isRtl}/>
               )}
             </div>
           </div>

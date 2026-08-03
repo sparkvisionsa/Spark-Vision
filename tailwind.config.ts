@@ -23,6 +23,13 @@ export default {
         code: ['monospace'],
       },
       colors: {
+        jadeer: {
+                primary: "#2f66f6",
+                primary2: "#5c84ff",
+                line: "#e6ebf2",
+                muted: "#6f7f95",
+              },
+
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
