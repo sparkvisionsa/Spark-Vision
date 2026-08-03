@@ -2,7 +2,18 @@
 
 import { Tajawal } from "next/font/google";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { Client as MachineClient } from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
@@ -48,6 +59,8 @@ const reportFont = Tajawal({
 });
 
 const DEFAULT_ASSET_SINGULAR_PLURAL = "أصل/أصول";
+const DEFAULT_STANDARDS_VERSION = "معايير التقييم الدولية IVS 2025";
+const DEFAULT_CURRENCY_LABEL = "الريال السعودي (ر.س)";
 const DEFAULT_ASSET_SUBJECT_DESCRIPTION = "الات ومعدات واجهزة متنوعه";
 const DEFAULT_VALUATION_BASIS_DEFINITION =
   "الأساس المناسب سيكون قيمة التصفية بافتراض فرضية التقييم خارج الموقع والتي يتم تعريفها على النحو التالي:المبلغ الناتج عن بيع أصل أو مجموعة من الأصول بغرض التصفية مع اجبار البائع على البيع اعتبارا من تاريخ محدد. (-1أ60. IVS2025 102 أسس القيمة).";
@@ -104,7 +117,7 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   leadValuerTitle: "",
   leadValuerMembershipNo: "",
   reportTypeLabel: "",
-  standardsVersion: "",
+  standardsVersion: DEFAULT_STANDARDS_VERSION,
   scopeOfWorkDetails: "",
   useRestriction: "",
   externalSpecialistUse: "",
@@ -114,7 +127,7 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   assetDetailedDescription: "",
   inspectionLocation: "",
   inspectionMapUrl: "",
-  currencyLabel: "",
+  currencyLabel: DEFAULT_CURRENCY_LABEL,
   methodologyRationale: "",
   costApproachDetails: "",
   importantAssumptions: "",
@@ -125,7 +138,7 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   reportPresentationDraft: true,
   receivedClientDocumentsHtml: "",
   wordAssetImagesPerRow: 4,
-  wordImageQuality: 90,
+  wordImageQuality: 100,
   sceRegistrationCertificateHtml: "",
 };
 
@@ -143,6 +156,10 @@ function normalizeReportData(data: MvProjectReportData | undefined | null): MvPr
       data?.valuationBasisDefinition?.trim() || DEFAULT_VALUATION_BASIS_DEFINITION,
     valuePremiseDefinition:
       data?.valuePremiseDefinition?.trim() || DEFAULT_VALUE_PREMISE_DEFINITION,
+    standardsVersion:
+      data?.standardsVersion?.trim() || DEFAULT_STANDARDS_VERSION,
+    currencyLabel:
+      data?.currencyLabel?.trim() || DEFAULT_CURRENCY_LABEL,
     valuationPurpose: normalizeValuationPurpose(data?.valuationPurpose),
     includeAssetImages: data?.includeAssetImages !== false,
     includeValuationAccountImages: data?.includeValuationAccountImages !== false,
@@ -193,6 +210,11 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [saveButtonEl, setSaveButtonEl] = useState<HTMLElement | null>(null);
   const [showUnsavedCoach, setShowUnsavedCoach] = useState(false);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [incompleteWarningOpen, setIncompleteWarningOpen] = useState(false);
+  const [missingFieldLabels, setMissingFieldLabels] = useState<string[]>([]);
+  const [invalidFieldKeys, setInvalidFieldKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [visitedSteps, setVisitedSteps] = useState<Set<MvSimpleReportStepId>>(
     () => new Set(["report-data"]),
   );
@@ -463,7 +485,86 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     visitedSteps,
   ]);
 
-  const handleSaveReportData = async () => {
+  const reportFieldChecks = useMemo(() => {
+    const textMissing = (value: unknown) =>
+      typeof value !== "string" || value.trim().length === 0;
+    const checks: Array<{
+      key: string;
+      label: string;
+      section: MvReportCollapsibleSectionId;
+      missing: boolean;
+    }> = [
+      { key: "projectName", label: t("reportData.fields.projectName"), section: "basic", missing: textMissing(editableProjectName) },
+      { key: "reportTitle", label: t("reportData.fields.coverTitle"), section: "basic", missing: textMissing(reportData.reportTitle) },
+      { key: "reportReference", label: t("reportData.fields.reference"), section: "basic", missing: textMissing(reportData.reportReference) },
+      { key: "valuationMethod", label: t("reportData.fields.valuationMethod"), section: "basic", missing: textMissing(reportData.valuationMethod) },
+      { key: "valuationPurpose", label: t("reportData.fields.valuationPurpose"), section: "basic", missing: textMissing(reportData.valuationPurpose) },
+      { key: "valuePremise", label: t("reportData.fields.valuePremise"), section: "basic", missing: textMissing(reportData.valuePremise) },
+      { key: "valuationBasis", label: t("reportData.fields.valuationBasis"), section: "basic", missing: textMissing(reportData.valuationBasis) },
+      { key: "reportTypeLabel", label: t("reportData.fields.professionalReportType"), section: "basic", missing: textMissing(reportData.reportTypeLabel) },
+      { key: "standardsVersion", label: t("reportData.fields.standards"), section: "basic", missing: textMissing(reportData.standardsVersion) },
+      { key: "currencyLabel", label: t("reportData.fields.currency"), section: "basic", missing: textMissing(reportData.currencyLabel) },
+      { key: "reportIssueDate", label: t("reportData.fields.issueDate"), section: "basic", missing: textMissing(reportData.reportIssueDate) },
+      { key: "inspectionDate", label: t("reportData.fields.inspectionDate"), section: "basic", missing: textMissing(reportData.inspectionDate) },
+      { key: "valuationDate", label: t("reportData.fields.valuationDate"), section: "basic", missing: textMissing(reportData.valuationDate) },
+      { key: "agreementDate", label: t("reportData.fields.agreementDate"), section: "basic", missing: textMissing(reportData.agreementDate) },
+      { key: "inspectionLocation", label: t("reportData.fields.inspectionLocation"), section: "basic", missing: textMissing(reportData.inspectionLocation) },
+      { key: "clientName", label: t("reportData.client.name"), section: "client", missing: textMissing(reportData.clientName) },
+      { key: "clientActivity", label: t("reportData.client.activity"), section: "client", missing: textMissing(reportData.clientActivity) },
+      { key: "clientRepresentativeName", label: t("reportData.client.representative"), section: "client", missing: textMissing(reportData.clientRepresentativeName) },
+      { key: "clientRepresentativeRole", label: t("reportData.client.representativeRole"), section: "client", missing: textMissing(reportData.clientRepresentativeRole) },
+      { key: "intendedUsers", label: t("reportData.client.intendedUsers"), section: "client", missing: textMissing(reportData.intendedUsers) },
+      { key: "intendedUse", label: t("reportData.client.intendedUse"), section: "client", missing: textMissing(reportData.intendedUse) },
+      { key: "finalValue", label: t("reportData.finalValue.amount"), section: "finalValue", missing: reportData.finalValue == null },
+      { key: "assetSubjectDescription", label: t("reportData.basisPremise.assetSubjectDescription"), section: "basisPremise", missing: textMissing(reportData.assetSubjectDescription) },
+      { key: "valuationBasisDefinition", label: t("reportData.basisPremise.valuationBasisDefinition"), section: "basisPremise", missing: textMissing(reportData.valuationBasisDefinition) },
+      { key: "valuePremiseDefinition", label: t("reportData.basisPremise.valuePremiseDefinition"), section: "basisPremise", missing: textMissing(reportData.valuePremiseDefinition) },
+      {
+        key: "valuationTeam",
+        label: t("reportData.sections.participants"),
+        section: "participants",
+        missing: !Array.isArray(reportData.valuationTeam) || reportData.valuationTeam.length === 0,
+      },
+    ];
+
+    if (Array.isArray(reportData.valuationTeam)) {
+      reportData.valuationTeam.forEach((member) => {
+        checks.push({
+          key: `valuationTeamRole:${member.id}`,
+          label: `${t("reportData.participants.roleField")}: ${member.name || t("reportData.participants.nameMissing")}`,
+          section: "participants",
+          missing: textMissing(member.role),
+        });
+      });
+    }
+    return checks;
+  }, [editableProjectName, reportData, t]);
+
+  const sectionCompletion = useMemo(
+    () =>
+      MV_REPORT_COLLAPSIBLE_IDS.reduce(
+        (result, section) => {
+          const checks = reportFieldChecks.filter((check) => check.section === section);
+          const complete = checks.filter((check) => !check.missing).length;
+          result[section] = checks.length === 0 ? 100 : Math.round((complete / checks.length) * 100);
+          return result;
+        },
+        {} as Record<MvReportCollapsibleSectionId, number>,
+      ),
+    [reportFieldChecks],
+  );
+
+  const displayedInvalidFieldKeys = useMemo(
+    () =>
+      new Set(
+        reportFieldChecks
+          .filter((check) => check.missing && invalidFieldKeys.has(check.key))
+          .map((check) => check.key),
+      ),
+    [invalidFieldKeys, reportFieldChecks],
+  );
+
+  const persistReportData = async () => {
     if (!project) return;
     const name = editableProjectName.trim();
     if (!name) {
@@ -503,6 +604,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       setProject(updated);
       setEditableProjectName(updated.name);
       setReportData(normalizeReportData(updated.reportData));
+      setInvalidFieldKeys(new Set());
+      setMissingFieldLabels([]);
       markClean();
       writeProjectSummaryCache(projectId, { project: updated, subProjects }, "report");
       markVisited("report-data");
@@ -512,6 +615,18 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveReportData = async () => {
+    const missing = reportFieldChecks.filter((check) => check.missing);
+    if (missing.length > 0) {
+      setMissingFieldLabels(missing.map((item) => item.label));
+      setInvalidFieldKeys(new Set(missing.map((item) => item.key)));
+      setOpenSections(createMvReportCollapsibleState(true));
+      setIncompleteWarningOpen(true);
+      return;
+    }
+    await persistReportData();
   };
 
   const onStepSelect = useCallback(
@@ -642,6 +757,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
             openSections={openSections}
             saveButtonRef={saveButtonRef}
             highlightSave={showUnsavedCoach}
+            invalidFieldKeys={displayedInvalidFieldKeys}
+            sectionCompletion={sectionCompletion}
             onProjectNameChange={handleProjectNameChange}
             onReportDataChange={handleReportDataChange}
             onSectionOpenChange={(id, open) => setOpenSections((c) => ({ ...c, [id]: open }))}
@@ -664,6 +781,60 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         currentProjectId={projectId}
         onCloned={handleReportDataCloned}
       />
+
+      <AlertDialog open={incompleteWarningOpen} onOpenChange={setIncompleteWarningOpen}>
+        <AlertDialogContent
+          overlayClassName="bg-slate-950/35 backdrop-blur-md"
+          className="w-[calc(100%-2rem)] max-w-[26rem] gap-0 overflow-hidden rounded-3xl border border-white/80 bg-white/95 p-0 text-start shadow-[0_24px_80px_-20px_rgba(15,23,42,0.45)] backdrop-blur-xl sm:rounded-3xl"
+          dir={dir}
+        >
+          <div className="h-1 bg-gradient-to-r from-rose-500 via-red-500 to-orange-400" />
+          <div className="p-5 sm:p-6">
+            <AlertDialogHeader className="space-y-1.5 text-center sm:text-center">
+              <div className="mx-auto mb-1 flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-red-50 to-rose-100 text-red-600 ring-1 ring-red-100 shadow-sm">
+                <AlertTriangle className="h-5 w-5" aria-hidden />
+              </div>
+              <AlertDialogTitle className="text-center text-[17px] font-black text-slate-950">
+                {t("reportData.incomplete.title")}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-center text-xs font-semibold leading-5 text-slate-500">
+                {t("reportData.incomplete.description", { count: missingFieldLabels.length })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="mt-4 rounded-2xl bg-slate-50/90 p-3 ring-1 ring-inset ring-slate-200/80">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-[11px] font-extrabold text-slate-600">
+                  {t("reportData.incomplete.listTitle")}
+                </p>
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-100 px-2 text-[10px] font-black tabular-nums text-red-700">
+                  {missingFieldLabels.length}
+                </span>
+              </div>
+              <ul className="max-h-28 space-y-1 overflow-y-auto pe-1 text-[11px] font-bold text-slate-700">
+                {missingFieldLabels.map((label) => (
+                  <li key={label} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-100">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
+                    <span className="truncate">{label}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <AlertDialogFooter className="mt-4 grid grid-cols-2 gap-2 sm:grid sm:space-x-0">
+              <AlertDialogCancel className="mt-0 h-10 rounded-xl border-slate-200 text-xs font-extrabold text-slate-700 shadow-none hover:bg-slate-50">
+                {t("reportData.incomplete.fillFields")}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="h-10 rounded-xl bg-slate-950 text-xs font-extrabold shadow-lg shadow-slate-900/15 hover:bg-slate-800"
+                onClick={() => void persistReportData()}
+              >
+                {t("reportData.incomplete.saveAnyway")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MvUnsavedSaveCoach
         open={showUnsavedCoach}

@@ -6,7 +6,7 @@ export const MV_WORD_IMAGE_QUALITY_OPTIONS = [60, 70, 80, 90, 95, 100] as const;
 export type MvWordImageQuality = (typeof MV_WORD_IMAGE_QUALITY_OPTIONS)[number];
 
 export const DEFAULT_MV_WORD_ASSET_IMAGES_PER_ROW: MvWordAssetImagesPerRow = 4;
-export const DEFAULT_MV_WORD_IMAGE_QUALITY: MvWordImageQuality = 90;
+export const DEFAULT_MV_WORD_IMAGE_QUALITY: MvWordImageQuality = 100;
 
 export type MvWordImageLayout = {
   imagesPerRow: MvWordAssetImagesPerRow;

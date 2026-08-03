@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   ArrowUp,
+  AlertTriangle,
   Box,
   CheckSquare,
   Clock,
@@ -29,6 +30,16 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -73,6 +84,7 @@ import {
   mergePicAssetPreferFull,
 } from "./mv-pic-asset-progressive-load";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
+import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson } from "./mv-api-client";
@@ -1518,6 +1530,7 @@ function fileNameFromPathSafe(file: AssetImageViewFile): string {
 
 export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImagesHubProps) {
   const { t, dir, isArabic } = useMvI18n();
+  const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const numberFormatter = useMemo(
     () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
     [isArabic],
@@ -1579,6 +1592,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
   const reportSelectionPendingRef = useRef(0);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
+  const [emptyReportSelectionWarningOpen, setEmptyReportSelectionWarningOpen] = useState(false);
+  const pendingNavigationPathRef = useRef<string | null>(null);
+  const allowNextNavigationRef = useRef(false);
   const [deleting, setDeleting] = useState(false);
   const [lightboxFile, setLightboxFile] = useState<MvDriveFile | null>(null);
   const dragReorderFromIdx = useRef<number | null>(null);
@@ -2478,6 +2494,58 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       ),
     [reportSelectSections],
   );
+
+  const reportSelectTotalCount = useMemo(
+    () =>
+      reportSelectSections.reduce(
+        (sum, section) => sum + section.images.filter((image) => !image.disabled).length,
+        0,
+      ),
+    [reportSelectSections],
+  );
+  const shouldWarnAboutEmptyReportSelection =
+    !loading && !loadingPreviewFolders && reportSelectTotalCount > 0 && reportSelectSelectedCount === 0;
+  const shouldWarnAboutEmptyReportSelectionRef = useRef(shouldWarnAboutEmptyReportSelection);
+  shouldWarnAboutEmptyReportSelectionRef.current = shouldWarnAboutEmptyReportSelection;
+
+  useEffect(
+    () =>
+      registerNavigationBlocker(({ nextPath }) => {
+        if (allowNextNavigationRef.current || !shouldWarnAboutEmptyReportSelectionRef.current) {
+          return true;
+        }
+        pendingNavigationPathRef.current = nextPath;
+        setEmptyReportSelectionWarningOpen(true);
+        return false;
+      }),
+    [registerNavigationBlocker],
+  );
+
+  useEffect(() => {
+    if (!shouldWarnAboutEmptyReportSelection) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [shouldWarnAboutEmptyReportSelection]);
+
+  const continueWithoutReportImages = useCallback(() => {
+    const nextPath = pendingNavigationPathRef.current;
+    pendingNavigationPathRef.current = null;
+    setEmptyReportSelectionWarningOpen(false);
+    if (!nextPath) return;
+    allowNextNavigationRef.current = true;
+    navigate(nextPath);
+    allowNextNavigationRef.current = false;
+  }, [navigate]);
+
+  const returnToReportImageSelection = useCallback(() => {
+    pendingNavigationPathRef.current = null;
+    setEmptyReportSelectionWarningOpen(false);
+    setReportImagesSelectOpen(true);
+  }, []);
 
   const selectedPreviewNodeFiles = useMemo(() => {
     if (!selectedPreviewFolderNode) return [];
@@ -6749,6 +6817,49 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }
         />
       ) : null}
+
+      <AlertDialog
+        open={emptyReportSelectionWarningOpen}
+        onOpenChange={setEmptyReportSelectionWarningOpen}
+      >
+        <AlertDialogContent
+          overlayClassName="bg-slate-950/35 backdrop-blur-md"
+          className="w-[calc(100%-2rem)] max-w-[25rem] gap-0 overflow-hidden rounded-3xl border border-white/80 bg-white/95 p-0 shadow-[0_24px_80px_-20px_rgba(15,23,42,0.45)] backdrop-blur-xl sm:rounded-3xl"
+          dir={dir}
+        >
+          <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-rose-500" />
+          <div className="p-5 sm:p-6">
+            <AlertDialogHeader className="space-y-2 text-center sm:text-center">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 text-orange-600 ring-1 ring-orange-100 shadow-sm">
+                <AlertTriangle className="h-5 w-5" aria-hidden />
+              </div>
+              <AlertDialogTitle className="text-[17px] font-black text-slate-950">
+                {t("assetImages.report.emptySelectionWarningTitle")}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-xs font-semibold leading-6 text-slate-500">
+                {t("assetImages.report.emptySelectionWarningDescription", {
+                  count: numberFormatter.format(reportSelectTotalCount),
+                })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <AlertDialogFooter className="mt-5 grid grid-cols-2 gap-2 sm:grid sm:space-x-0">
+              <AlertDialogAction
+                className="h-10 rounded-xl border border-slate-200 bg-white text-xs font-extrabold text-slate-600 shadow-none hover:bg-slate-50"
+                onClick={continueWithoutReportImages}
+              >
+                {t("assetImages.report.continueWithoutImages")}
+              </AlertDialogAction>
+              <AlertDialogCancel
+                className="mt-0 h-10 rounded-xl border-transparent bg-orange-500 text-xs font-extrabold text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600 hover:text-white"
+                onClick={returnToReportImageSelection}
+              >
+                {t("assetImages.report.selectImagesNow")}
+              </AlertDialogCancel>
+            </AlertDialogFooter>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MvReportImagesSelectModal
         open={reportImagesSelectOpen}

@@ -81,7 +81,9 @@ export default function ValueTechAccessGate({ sectionKey, children }: ValueTechA
               password,
               rememberMe,
             });
-            router.replace("/value-tech");
+            // ابقَ على الصفحة الحالية بعد تجديد جلسة منتهية حتى يستطيع
+            // المستخدم إعادة العملية التي توقفت بدلاً من فقد سياق العمل.
+            router.refresh();
           } catch (err) {
             setError(err instanceof Error ? err.message : "فشل تسجيل الدخول.");
           } finally {

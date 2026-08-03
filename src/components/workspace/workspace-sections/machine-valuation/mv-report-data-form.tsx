@@ -94,6 +94,7 @@ function ReportSelect({
   placeholder,
   onChange,
   dir,
+  invalid = false,
 }: {
   label: string;
   value: string;
@@ -101,12 +102,19 @@ function ReportSelect({
   placeholder: string;
   onChange: (value: string) => void;
   dir: "rtl" | "ltr";
+  invalid?: boolean;
 }) {
   return (
     <label className="grid gap-2 text-start">
       <span className="text-[11px] font-bold text-slate-500">{label}</span>
       <Select value={value || undefined} onValueChange={onChange} dir={dir}>
-        <SelectTrigger className="h-11 rounded-lg border-slate-300/80 bg-white px-3 text-[13px] font-bold text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus:border-sky-500 focus:ring-2 focus:ring-sky-100">
+        <SelectTrigger
+          aria-invalid={invalid || undefined}
+          className={cn(
+            "h-11 rounded-lg border-slate-300/80 bg-white px-3 text-[13px] font-bold text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus:border-sky-500 focus:ring-2 focus:ring-sky-100",
+            invalid && "border-red-500 ring-2 ring-red-100 focus:border-red-500 focus:ring-red-100",
+          )}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -121,11 +129,32 @@ function ReportSelect({
   );
 }
 
-function ReportField({ label, children }: { label: string; children: ReactNode }) {
+function ReportField({
+  label,
+  children,
+  invalid = false,
+}: {
+  label: string;
+  children: ReactNode;
+  invalid?: boolean;
+}) {
   return (
     <label className="grid gap-2 text-start">
-      <span className="text-[11px] font-bold text-slate-500">{label}</span>
-      {children}
+      <span className={cn("text-[11px] font-bold text-slate-500", invalid && "text-red-700")}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          "contents",
+          invalid &&
+            "[&>*]:border-red-500 [&>*]:ring-2 [&>*]:ring-red-100 [&>*:focus]:border-red-500 [&>*:focus]:ring-red-100",
+        )}
+      >
+        {children}
+      </span>
+      {invalid ? (
+        <span className="-mt-1 text-[10px] font-bold text-red-600">هذا الحقل مطلوب للتقرير النهائي</span>
+      ) : null}
     </label>
   );
 }
@@ -137,6 +166,7 @@ function ReportSection({
   open,
   onOpenChange,
   children,
+  completion = 0,
 }: {
   id: MvReportCollapsibleSectionId;
   title: string;
@@ -144,7 +174,25 @@ function ReportSection({
   open: boolean;
   onOpenChange: (id: MvReportCollapsibleSectionId, open: boolean) => void;
   children: ReactNode;
+  completion?: number;
 }) {
+  const safeCompletion = Math.max(0, Math.min(100, Math.round(completion)));
+  const progressTone =
+    safeCompletion === 100
+      ? "bg-emerald-500"
+      : safeCompletion >= 80
+        ? "bg-orange-500"
+        : safeCompletion >= 50
+          ? "bg-amber-400"
+          : "bg-red-500";
+  const progressTextTone =
+    safeCompletion === 100
+      ? "text-emerald-700"
+      : safeCompletion >= 80
+        ? "text-orange-700"
+        : safeCompletion >= 50
+          ? "text-amber-700"
+          : "text-red-700";
   return (
     <Collapsible open={open} onOpenChange={(next) => onOpenChange(id, next)}>
       <section
@@ -163,8 +211,19 @@ function ReportSection({
             >
               {icon}
             </span>
-            <span className="min-w-0">
-              <span className="block text-[14px] font-extrabold text-slate-950">{title}</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span className="truncate text-[14px] font-extrabold text-slate-950">{title}</span>
+                <span className={cn("shrink-0 text-[11px] font-black tabular-nums", progressTextTone)}>
+                  {safeCompletion}%
+                </span>
+              </span>
+              <span className="mt-1.5 block h-1.5 w-full min-w-28 overflow-hidden rounded-full bg-slate-200">
+                <span
+                  className={cn("block h-full rounded-full transition-[width,background-color] duration-500", progressTone)}
+                  style={{ width: `${safeCompletion}%` }}
+                />
+              </span>
             </span>
           </div>
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition group-hover:border-sky-200 group-hover:text-sky-800">
@@ -190,6 +249,8 @@ export function MvReportDataForm({
   openSections,
   saveButtonRef,
   highlightSave = false,
+  invalidFieldKeys,
+  sectionCompletion,
   onProjectNameChange,
   onReportDataChange,
   onSectionOpenChange,
@@ -208,6 +269,8 @@ export function MvReportDataForm({
   openSections: Record<MvReportCollapsibleSectionId, boolean>;
   saveButtonRef?: Ref<HTMLButtonElement>;
   highlightSave?: boolean;
+  invalidFieldKeys?: ReadonlySet<string>;
+  sectionCompletion?: Partial<Record<MvReportCollapsibleSectionId, number>>;
   onProjectNameChange: (value: string) => void;
   onReportDataChange: (patch: Partial<MvProjectReportData>) => void;
   onSectionOpenChange: (id: MvReportCollapsibleSectionId, open: boolean) => void;
@@ -219,6 +282,7 @@ export function MvReportDataForm({
   const { t, isArabic, dir } = useMvI18n();
   const [preparersPopoverOpen, setPreparersPopoverOpen] = useState(false);
   const allSectionsOpen = MV_REPORT_COLLAPSIBLE_IDS.every((id) => openSections[id]);
+  const fieldInvalid = (key: string) => invalidFieldKeys?.has(key) === true;
   const SectionToggleIcon = allSectionsOpen ? ChevronsDownUp : ChevronsUpDown;
   const inputClass =
     "h-11 rounded-lg border-slate-300/80 bg-white px-3 text-[13px] font-bold text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100";
@@ -362,6 +426,7 @@ export function MvReportDataForm({
           icon={<ClipboardList className="h-5 w-5" />}
           open={openSections.basic}
           onOpenChange={onSectionOpenChange}
+          completion={sectionCompletion?.basic}
         >
           <div className="grid gap-3 md:grid-cols-2">
             <ReportField label={t("reportData.fields.displayNumber")}>
@@ -387,7 +452,7 @@ export function MvReportDataForm({
                 />
               </div>
             </ReportField>
-            <ReportField label={t("reportData.fields.projectName")}>
+            <ReportField label={t("reportData.fields.projectName")} invalid={fieldInvalid("projectName")}>
               <Input
                 value={editableProjectName}
                 onChange={(event) => onProjectNameChange(event.target.value)}
@@ -395,7 +460,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.coverTitle")}>
+            <ReportField label={t("reportData.fields.coverTitle")} invalid={fieldInvalid("reportTitle")}>
               <Input
                 value={reportData.reportTitle ?? ""}
                 onChange={(event) => onReportDataChange({ reportTitle: event.target.value })}
@@ -404,13 +469,12 @@ export function MvReportDataForm({
                 placeholder={t("reportData.fields.coverTitlePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.reference")}>
+            <ReportField label={t("reportData.fields.reference")} invalid={fieldInvalid("reportReference")}>
               <Input
                 value={reportData.reportReference ?? ""}
                 onChange={(event) => onReportDataChange({ reportReference: event.target.value })}
                 className={cn(inputClass, "text-left")}
                 dir="ltr"
-                placeholder="2600050001"
               />
             </ReportField>
             <ReportField label={t("reportData.fields.reportType")}>
@@ -441,6 +505,7 @@ export function MvReportDataForm({
               placeholder={t("reportData.placeholders.selectMethod")}
               onChange={(value) => onReportDataChange({ valuationMethod: value })}
               dir={dir}
+              invalid={fieldInvalid("valuationMethod")}
             />
             <ReportSelect
               label={t("reportData.fields.valuationPurpose")}
@@ -449,6 +514,7 @@ export function MvReportDataForm({
               placeholder={t("reportData.placeholders.selectPurpose")}
               onChange={(value) => onReportDataChange({ valuationPurpose: value })}
               dir={dir}
+              invalid={fieldInvalid("valuationPurpose")}
             />
             <ReportSelect
               label={t("reportData.fields.valuePremise")}
@@ -457,6 +523,7 @@ export function MvReportDataForm({
               placeholder={t("reportData.placeholders.selectPremise")}
               onChange={(value) => onReportDataChange({ valuePremise: value })}
               dir={dir}
+              invalid={fieldInvalid("valuePremise")}
             />
             <ReportSelect
               label={t("reportData.fields.valuationBasis")}
@@ -465,6 +532,7 @@ export function MvReportDataForm({
               placeholder={t("reportData.placeholders.selectBasis")}
               onChange={(value) => onReportDataChange({ valuationBasis: value })}
               dir={dir}
+              invalid={fieldInvalid("valuationBasis")}
             />
             <ReportSelect
               label={t("reportData.fields.professionalReportType")}
@@ -473,26 +541,25 @@ export function MvReportDataForm({
               placeholder={t("reportData.placeholders.selectProfessionalType")}
               onChange={(value) => onReportDataChange({ reportTypeLabel: value })}
               dir={dir}
+              invalid={fieldInvalid("reportTypeLabel")}
             />
-            <ReportField label={t("reportData.fields.standards")}>
+            <ReportField label={t("reportData.fields.standards")} invalid={fieldInvalid("standardsVersion")}>
               <Input
                 value={reportData.standardsVersion ?? ""}
                 onChange={(event) => onReportDataChange({ standardsVersion: event.target.value })}
                 className={inputClass}
                 dir="auto"
-                placeholder={t("reportData.fields.standardsPlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.currency")}>
+            <ReportField label={t("reportData.fields.currency")} invalid={fieldInvalid("currencyLabel")}>
               <Input
                 value={reportData.currencyLabel ?? ""}
                 onChange={(event) => onReportDataChange({ currencyLabel: event.target.value })}
                 className={inputClass}
                 dir="auto"
-                placeholder={t("reportData.fields.currencyPlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.issueDate")}>
+            <ReportField label={t("reportData.fields.issueDate")} invalid={fieldInvalid("reportIssueDate")}>
               <Input
                 type="date"
                 value={reportData.reportIssueDate ?? ""}
@@ -501,7 +568,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.inspectionDate")}>
+            <ReportField label={t("reportData.fields.inspectionDate")} invalid={fieldInvalid("inspectionDate")}>
               <Input
                 type="date"
                 value={reportData.inspectionDate ?? ""}
@@ -510,7 +577,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.valuationDate")}>
+            <ReportField label={t("reportData.fields.valuationDate")} invalid={fieldInvalid("valuationDate")}>
               <Input
                 type="date"
                 value={reportData.valuationDate ?? ""}
@@ -519,7 +586,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.agreementDate")}>
+            <ReportField label={t("reportData.fields.agreementDate")} invalid={fieldInvalid("agreementDate")}>
               <Input
                 type="date"
                 value={reportData.agreementDate ?? ""}
@@ -528,7 +595,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.inspectionLocation")}>
+            <ReportField label={t("reportData.fields.inspectionLocation")} invalid={fieldInvalid("inspectionLocation")}>
               <Input
                 value={reportData.inspectionLocation ?? ""}
                 onChange={(event) => onReportDataChange({ inspectionLocation: event.target.value })}
@@ -555,6 +622,7 @@ export function MvReportDataForm({
           icon={<UserRound className="h-5 w-5" />}
           open={openSections.client}
           onOpenChange={onSectionOpenChange}
+          completion={sectionCompletion?.client}
         >
           <div className="mb-3">
             <ReportField label={t("reportData.client.select")}>
@@ -578,7 +646,7 @@ export function MvReportDataForm({
             </ReportField>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
-            <ReportField label={t("reportData.client.name")}>
+            <ReportField label={t("reportData.client.name")} invalid={fieldInvalid("clientName")}>
               <Input
                 value={reportData.clientName ?? ""}
                 onChange={(event) => onReportDataChange({ clientName: event.target.value })}
@@ -612,7 +680,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.legalTypePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.activity")}>
+            <ReportField label={t("reportData.client.activity")} invalid={fieldInvalid("clientActivity")}>
               <Input
                 value={reportData.clientActivity ?? ""}
                 onChange={(event) => onReportDataChange({ clientActivity: event.target.value })}
@@ -620,7 +688,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.representative")}>
+            <ReportField label={t("reportData.client.representative")} invalid={fieldInvalid("clientRepresentativeName")}>
               <Input
                 value={reportData.clientRepresentativeName ?? ""}
                 onChange={(event) => onReportDataChange({ clientRepresentativeName: event.target.value })}
@@ -628,7 +696,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.representativeRole")}>
+            <ReportField label={t("reportData.client.representativeRole")} invalid={fieldInvalid("clientRepresentativeRole")}>
               <Input
                 value={reportData.clientRepresentativeRole ?? ""}
                 onChange={(event) => onReportDataChange({ clientRepresentativeRole: event.target.value })}
@@ -637,7 +705,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.representativeRolePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.intendedUsers")}>
+            <ReportField label={t("reportData.client.intendedUsers")} invalid={fieldInvalid("intendedUsers")}>
               <Input
                 value={reportData.intendedUsers ?? ""}
                 onChange={(event) => onReportDataChange({ intendedUsers: event.target.value })}
@@ -646,7 +714,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.intendedUsersPlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.intendedUse")}>
+            <ReportField label={t("reportData.client.intendedUse")} invalid={fieldInvalid("intendedUse")}>
               <Input
                 value={reportData.intendedUse ?? ""}
                 onChange={(event) => onReportDataChange({ intendedUse: event.target.value })}
@@ -663,9 +731,10 @@ export function MvReportDataForm({
           icon={<Coins className="h-5 w-5" />}
           open={openSections.finalValue}
           onOpenChange={onSectionOpenChange}
+          completion={sectionCompletion?.finalValue}
         >
           <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
-            <ReportField label={t("reportData.finalValue.amount")}>
+            <ReportField label={t("reportData.finalValue.amount")} invalid={fieldInvalid("finalValue")}>
               <Input
                 type="number"
                 min="0"
@@ -700,9 +769,10 @@ export function MvReportDataForm({
           icon={<Scale className="h-5 w-5" />}
           open={openSections.basisPremise}
           onOpenChange={onSectionOpenChange}
+          completion={sectionCompletion?.basisPremise}
         >
           <div className="grid gap-3">
-            <ReportField label={t("reportData.basisPremise.assetSubjectDescription")}>
+            <ReportField label={t("reportData.basisPremise.assetSubjectDescription")} invalid={fieldInvalid("assetSubjectDescription")}>
               <Input
                 value={reportData.assetSubjectDescription ?? ""}
                 onChange={(event) =>
@@ -712,7 +782,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.basisPremise.valuationBasisDefinition")}>
+            <ReportField label={t("reportData.basisPremise.valuationBasisDefinition")} invalid={fieldInvalid("valuationBasisDefinition")}>
               <Textarea
                 value={reportData.valuationBasisDefinition ?? ""}
                 onChange={(event) =>
@@ -722,7 +792,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.basisPremise.valuePremiseDefinition")}>
+            <ReportField label={t("reportData.basisPremise.valuePremiseDefinition")} invalid={fieldInvalid("valuePremiseDefinition")}>
               <Textarea
                 value={reportData.valuePremiseDefinition ?? ""}
                 onChange={(event) =>
@@ -741,9 +811,15 @@ export function MvReportDataForm({
           icon={<UsersRound className="h-5 w-5" />}
           open={openSections.participants}
           onOpenChange={onSectionOpenChange}
+          completion={sectionCompletion?.participants}
         >
           <div className="grid gap-4">
-            <div className="flex flex-col gap-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div
+              className={cn(
+                "flex flex-col gap-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3 sm:flex-row sm:items-center sm:justify-between",
+                fieldInvalid("valuationTeam") && "border-red-500 bg-red-50/60 ring-2 ring-red-100",
+              )}
+            >
               <div className="min-w-0">
                 <p className="text-[13px] font-extrabold text-sky-950">
                   {t("reportData.participants.selectTitle")}
@@ -915,7 +991,10 @@ export function MvReportDataForm({
                         </div>
                       </div>
 
-                      <ReportField label={t("reportData.participants.roleField")}>
+                      <ReportField
+                        label={t("reportData.participants.roleField")}
+                        invalid={fieldInvalid(`valuationTeamRole:${member.id}`)}
+                      >
                         <Input
                           value={member.role ?? ""}
                           onChange={(event) =>

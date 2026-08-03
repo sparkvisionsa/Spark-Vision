@@ -456,6 +456,14 @@ export const mvAr = {
     nameRequired: "اسم التقرير مطلوب.",
     saved: "تم حفظ بيانات التقرير.",
     saveFailed: "تعذر حفظ بيانات التقرير.",
+    incomplete: {
+      title: "بيانات مهمة غير مكتملة",
+      description:
+        "يوجد {count} حقل فارغ يؤثر في محتوى تقرير Word وPDF النهائي. هل تريد استكمال البيانات قبل الحفظ؟",
+      listTitle: "الحقول التي تحتاج إلى مراجعة:",
+      fillFields: "العودة واستكمال البيانات",
+      saveAnyway: "الحفظ رغم النقص",
+    },
     clone: {
       button: "استنساخ بيانات من مشروع آخر",
       title: "استنساخ البيانات من تقرير",
@@ -788,6 +796,11 @@ export const mvAr = {
       toggleAll: "عرض الصور في التقرير",
       selectReportImages: "تحديد صور التقرير",
       selectedCount: "{count} للتقرير",
+      emptySelectionWarningTitle: "لم تحدد صورًا للتقرير",
+      emptySelectionWarningDescription:
+        "توجد {count} صورة في صور الأصول، لكن لن تظهر أي صورة منها في التقرير ما لم تحددها.",
+      selectImagesNow: "تحديد الصور الآن",
+      continueWithoutImages: "المتابعة دون صور",
       hideFromReport: "إخفاء من التقرير",
       showInReport: "إظهار في التقرير",
     },

@@ -75,6 +75,11 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "x-asset-image-count",
       "x-word-merge-stats",
       "x-word-merge-warnings",
+      // تنزيل PDF بجانب Word — بدونها الواجهة لا تعرف رمز PDF ولا سبب الفشل
+      "x-word-merge-pdf",
+      "x-word-merge-pdf-token",
+      "x-word-merge-pdf-error",
+      "x-word-merge-pdf-available",
     ] as const;
     for (const name of passthrough) {
       const v = upstream.headers.get(name);

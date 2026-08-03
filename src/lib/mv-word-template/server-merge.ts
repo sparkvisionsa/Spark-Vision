@@ -207,8 +207,8 @@ export async function mergeWordReportTemplateViaServer(
     }
   }
 
-  // تحويل المتصفح يضغط المستند في صفحة واحدة للمستندات الكبيرة — لا يُستخدم إلا كاحتياطي صغير
-  if (params.alsoPdf && !pdfBlob && docxBlob.size > 0 && docxBlob.size < 2_500_000) {
+  // احتياطي متصفح متعدد الصفحات إن فشل تحويل الخادم (مثلاً بلا LibreOffice على Ubuntu)
+  if (params.alsoPdf && !pdfBlob && docxBlob.size > 0) {
     try {
       pdfBlob = await convertDocxBlobToPdfBlob(docxBlob);
       pdfSource = "browser";
@@ -216,12 +216,8 @@ export async function mergeWordReportTemplateViaServer(
       pdfError =
         (err instanceof Error && err.message.trim()) ||
         pdfError ||
-        "تعذر تحويل ملف Word إلى PDF.";
+        "تعذر تحويل ملف Word إلى PDF. ثبّت LibreOffice على الخادم لنتائج أفضل.";
     }
-  } else if (params.alsoPdf && !pdfBlob) {
-    pdfError =
-      pdfError ||
-      "تعذر إنشاء PDF متعدد الصفحات على الخادم. تأكد من توفر Microsoft Word أو LibreOffice.";
   }
 
   return {

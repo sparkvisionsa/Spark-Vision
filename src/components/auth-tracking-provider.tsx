@@ -242,6 +242,7 @@ export default function AuthTrackingProvider({
   const [csrfToken, setCsrfToken] = useState("");
   const [loading, setLoading] = useState(true);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
 
   const actionQueueRef = useRef<TrackingAction[]>([]);
   const flushTimerRef = useRef<number | null>(null);
@@ -249,6 +250,7 @@ export default function AuthTrackingProvider({
   const lastInteractionRef = useRef(Date.now());
   const heartbeatStartRef = useRef(Date.now());
   const scrollMilestoneRef = useRef(0);
+  const sessionExpiryHandledRef = useRef(false);
 
   const applySnapshot = useCallback((snapshot: SessionPayload) => {
     setUser(snapshot.user ?? null);
@@ -258,6 +260,10 @@ export default function AuthTrackingProvider({
     setConfig(snapshot.config ?? null);
     if (snapshot.csrfToken) {
       setCsrfToken(snapshot.csrfToken);
+    }
+    if (snapshot.user) {
+      sessionExpiryHandledRef.current = false;
+      setSessionExpiredNotice(false);
     }
   }, []);
 
@@ -501,7 +507,6 @@ export default function AuthTrackingProvider({
   }, [sendSessionEvent]);
 
   useEffect(() => {
-    if (!SV_BEHAVIOR_TRACKING_ENABLED) return;
     const onInteract = () => {
       lastInteractionRef.current = Date.now();
     };
@@ -629,6 +634,27 @@ export default function AuthTrackingProvider({
       const method = init?.method ?? "GET";
       const start = performance.now();
       const response = await originalFetch(input, init);
+      const isAuthEntryEndpoint =
+        lowerUrl.includes("/api/auth/login") ||
+        lowerUrl.includes("/api/auth/register") ||
+        lowerUrl.includes("/api/auth/logout") ||
+        lowerUrl.includes("/api/auth/me");
+      if (
+        response.status === 401 &&
+        isApiRequest &&
+        !isTrackingEndpoint &&
+        !isAuthEntryEndpoint &&
+        user &&
+        !sessionExpiryHandledRef.current
+      ) {
+        sessionExpiryHandledRef.current = true;
+        actionQueueRef.current = [];
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setCsrfToken("");
+        setSessionExpiredNotice(true);
+      }
       if (isApiRequest && !isTrackingEndpoint) {
         const durationMs = Math.round(performance.now() - start);
         const sampleRate = isHighVolumeListEndpoint ? 0.03 : 0.15;
@@ -637,15 +663,17 @@ export default function AuthTrackingProvider({
         if (!shouldTrackCall) {
           return response;
         }
-        trackAction({
-          actionType: "api_call",
-          actionDetails: {
-            url,
-            method,
-            status: response.status,
-            durationMs,
-          },
-        });
+        if (SV_BEHAVIOR_TRACKING_ENABLED) {
+          trackAction({
+            actionType: "api_call",
+            actionDetails: {
+              url,
+              method,
+              status: response.status,
+              durationMs,
+            },
+          });
+        }
       }
       return response;
     }) as typeof window.fetch;
@@ -679,7 +707,13 @@ export default function AuthTrackingProvider({
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [flushActions, trackAction]);
+  }, [flushActions, trackAction, user]);
+
+  useEffect(() => {
+    if (!sessionExpiredNotice) return;
+    const timeout = window.setTimeout(() => setSessionExpiredNotice(false), 10_000);
+    return () => window.clearTimeout(timeout);
+  }, [sessionExpiredNotice]);
 
   const value = useMemo<AuthTrackingContextType>(
     () => ({
@@ -719,6 +753,18 @@ export default function AuthTrackingProvider({
   return (
     <AuthTrackingContext.Provider value={value}>
       {children}
+      {sessionExpiredNotice ? (
+        <div
+          role="alert"
+          dir="rtl"
+          className="fixed left-1/2 top-6 z-[400] w-[min(92vw,34rem)] -translate-x-1/2 rounded-2xl border-2 border-red-500 bg-white px-5 py-4 text-center shadow-2xl shadow-red-950/25"
+        >
+          <p className="text-base font-black text-red-800">انتهت جلسة تسجيل الدخول</p>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">
+            تم تسجيل خروجك تلقائياً لحماية بياناتك. سجّل الدخول مرة أخرى ثم أعد تنفيذ العملية.
+          </p>
+        </div>
+      ) : null}
     </AuthTrackingContext.Provider>
   );
 }

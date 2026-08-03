@@ -153,6 +153,13 @@ function projectRecentTimestamp(project: MvProject): number {
   return Number.isNaN(created) ? 0 : created;
 }
 
+function projectCreatedTimestamp(project: MvProject): number {
+  const created = Date.parse(project.createdAt);
+  if (!Number.isNaN(created)) return created;
+  const updated = Date.parse(project.updatedAt);
+  return Number.isNaN(updated) ? 0 : updated;
+}
+
 function ProjectWorkspaceLink({
   project,
   title,
@@ -1201,7 +1208,7 @@ export default function MvProjectsDashboard() {
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [projectQuery, setProjectQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("all");
-  const [sortRecentlyWorked, setSortRecentlyWorked] = useState(true);
+  const [sortRecentlyWorked, setSortRecentlyWorked] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
   const [contactDataOpen, setContactDataOpen] = useState(false);
@@ -1422,11 +1429,11 @@ export default function MvProjectsDashboard() {
       return true;
     });
 
-    if (!sortRecentlyWorked) return next;
-
     return [...next].sort((a, b) => {
-      const recentDelta = projectRecentTimestamp(b) - projectRecentTimestamp(a);
-      if (recentDelta !== 0) return recentDelta;
+      const delta = sortRecentlyWorked
+        ? projectRecentTimestamp(b) - projectRecentTimestamp(a)
+        : projectCreatedTimestamp(b) - projectCreatedTimestamp(a);
+      if (delta !== 0) return delta;
       return b._id.localeCompare(a._id);
     });
   }, [projectQuery, sortRecentlyWorked, statusFilter, visibleProjects]);
@@ -1845,11 +1852,11 @@ export default function MvProjectsDashboard() {
   const resetFilters = () => {
     setProjectQuery("");
     setStatusFilter("all");
-    setSortRecentlyWorked(true);
+    setSortRecentlyWorked(false);
   };
 
   const hasActiveFilters =
-    projectQuery.trim().length > 0 || statusFilter !== "all" || !sortRecentlyWorked;
+    projectQuery.trim().length > 0 || statusFilter !== "all" || sortRecentlyWorked;
 
   return (
     <div className={cn(tajawal.className, "min-h-full text-slate-950")} dir={dir}>

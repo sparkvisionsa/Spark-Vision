@@ -456,6 +456,14 @@ export const mvEn = {
     nameRequired: "Report name is required.",
     saved: "Report data saved.",
     saveFailed: "Could not save report data.",
+    incomplete: {
+      title: "Important information is incomplete",
+      description:
+        "{count} empty fields affect the final Word and PDF report. Would you like to complete them before saving?",
+      listTitle: "Fields requiring review:",
+      fillFields: "Go back and complete",
+      saveAnyway: "Save anyway",
+    },
     clone: {
       button: "Clone data from another project",
       title: "Clone data from a report",
@@ -788,6 +796,11 @@ export const mvEn = {
       toggleAll: "Show images in report",
       selectReportImages: "Select report images",
       selectedCount: "{count} for report",
+      emptySelectionWarningTitle: "No report images selected",
+      emptySelectionWarningDescription:
+        "There are {count} asset images, but none will appear in the report unless you select them.",
+      selectImagesNow: "Select images now",
+      continueWithoutImages: "Continue without images",
       hideFromReport: "Hide from report",
       showInReport: "Show in report",
     },
