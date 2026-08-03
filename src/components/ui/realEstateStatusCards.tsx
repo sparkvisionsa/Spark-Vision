@@ -423,7 +423,7 @@ export function ValuationStatusPairBoard({
   const language = langContext?.language ?? "en";
   const isRtl = language === "ar";
 
-  const total = Object.values(counts).reduce((sum, n) => sum + (n ?? 0), 0);
+  const total = Object.values(counts).reduce<number>((sum, n) => sum + (n ?? 0), 0);
 
   const [activeTaqeem, setActiveTaqeem] = useState<string | null>(null);
 
