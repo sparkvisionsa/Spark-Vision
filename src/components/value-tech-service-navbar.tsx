@@ -3,6 +3,7 @@
 import { useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import {
+  ArrowLeft,
   ChevronDown,
   Globe,
   Home,
@@ -28,7 +29,13 @@ const copy = {
     brandName: "فاليو تك",
     brandSubtitle: "Value Tech",
     home: "Home",
+    sparkHome: "Spark Vision Home",
     machines: "Machines & Equipment Valuation System",
+    realEstate: "Real Estate Valuation System",
+    reports: "Report Upload System",
+    sources: "Information Sources System",
+    inventory: "Asset Inventory System",
+    inspection: "Asset Inspection System",
     products: "Products",
     language: "Language",
     login: "Login",
@@ -37,7 +44,13 @@ const copy = {
     brandName: "فاليو تك",
     brandSubtitle: "حلول تقييم الأصول",
     home: "الرئيسية",
+    sparkHome: "العودة إلى سبارك فيجن",
     machines: "نظام تقييم الآلات والمعدات",
+    realEstate: "نظام تقييم العقارات",
+    reports: "نظام رفع التقارير",
+    sources: "نظام مصادر المعلومات",
+    inventory: "نظام حصر الأصول",
+    inspection: "نظام معاينة الأصول",
     products: "المنتجات",
     language: "اللغة",
     login: "تسجيل الدخول",
@@ -148,20 +161,36 @@ function HubNavbar() {
     setProductsMobileOpen(false);
   }, [pathname]);
 
+  const productRoutes = [
+    { href: "/machine-valuation", label: t.machines },
+    { href: "/real-estate-valuation", label: t.realEstate },
+    { href: "/value-tech-app", label: t.reports },
+    { href: "/evaluation-source", label: t.sources },
+    { href: "/asset-inventory", label: t.inventory },
+    { href: "/asset-inspection", label: t.inspection },
+  ];
+
   const isHubHome = pathname === "/value-tech";
-  const isProductsSection = pathname.startsWith("/machine-valuation");
+  const isProductsSection = productRoutes.some(
+    ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
+  );
 
   const productMenuItems = (close: () => void) => (
-    <DropdownMenuItem
-      className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-      onSelect={(e) => {
-        e.preventDefault();
-        close();
-        router.push("/machine-valuation");
-      }}
-    >
-      {t.machines}
-    </DropdownMenuItem>
+    <>
+      {productRoutes.map((product) => (
+        <DropdownMenuItem
+          key={product.href}
+          className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+          onSelect={(e) => {
+            e.preventDefault();
+            close();
+            router.push(product.href);
+          }}
+        >
+          {product.label}
+        </DropdownMenuItem>
+      ))}
+    </>
   );
 
   const hubProductsMenuClass =
@@ -173,6 +202,11 @@ function HubNavbar() {
         <HubBrandLink isArabic={isArabic} />
 
         <nav className="flex min-w-0 flex-1 items-center justify-center gap-1">
+          <Link href="/" className="vt-hub-nav-link hidden sm:inline-flex">
+            <ArrowLeft className={cn("h-3.5 w-3.5", !isArabic && "rotate-180")} aria-hidden />
+            {t.sparkHome}
+          </Link>
+
           <Link
             href="/value-tech"
             className={cn("vt-hub-nav-link", isHubHome && "vt-hub-nav-link--active")}
@@ -214,6 +248,15 @@ function HubNavbar() {
         </div>
 
         <div className="flex items-center gap-1 sm:hidden">
+          <Link
+            href="/"
+            aria-label={t.sparkHome}
+            title={t.sparkHome}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#f5cd7b] outline-none transition hover:bg-[rgba(232,184,90,0.12)]"
+          >
+            <ArrowLeft className={cn("h-[18px] w-[18px]", !isArabic && "rotate-180")} aria-hidden />
+          </Link>
+
           <DropdownMenu>
             <DropdownMenuTrigger
               aria-label={t.language}
@@ -296,9 +339,18 @@ function DefaultNavbar() {
     setProductsMobileOpen(false);
   }, [pathname]);
 
+  const productRoutes = [
+    { href: "/machine-valuation", label: t.machines },
+    { href: "/real-estate-valuation", label: t.realEstate },
+    { href: "/value-tech-app", label: t.reports },
+    { href: "/evaluation-source", label: t.sources },
+    { href: "/asset-inventory", label: t.inventory },
+    { href: "/asset-inspection", label: t.inspection },
+  ];
+
   const isValueTechRoute =
     pathname.startsWith("/value-tech") ||
-    pathname.startsWith("/machine-valuation") ||
+    productRoutes.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`)) ||
     pathname.startsWith("/clients") ||
     pathname.startsWith("/settings");
 
@@ -317,16 +369,19 @@ function DefaultNavbar() {
           {t.home}
         </span>
       </DropdownMenuItem>
-      <DropdownMenuItem
-        className="cursor-pointer text-[13px]"
-        onSelect={(e) => {
-          e.preventDefault();
-          close();
-          router.push("/machine-valuation");
-        }}
-      >
-        {t.machines}
-      </DropdownMenuItem>
+      {productRoutes.map((product) => (
+        <DropdownMenuItem
+          key={product.href}
+          className="cursor-pointer text-[13px]"
+          onSelect={(e) => {
+            e.preventDefault();
+            close();
+            router.push(product.href);
+          }}
+        >
+          {product.label}
+        </DropdownMenuItem>
+      ))}
     </>
   );
 

@@ -4,7 +4,12 @@ import { useContext } from "react";
 import Link from "@/components/prefetch-link";
 import {
   ArrowUpRight,
+  Building2,
+  ClipboardList,
   Cpu,
+  LayoutGrid,
+  Library,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
@@ -32,6 +37,36 @@ const copy = {
         description: "Professional appraisal workflows for industrial assets and equipment.",
         icon: Cpu,
       },
+      {
+        href: "/real-estate-valuation",
+        title: "Real Estate Valuation",
+        description: "Structured workflows for professional real estate valuation operations.",
+        icon: Building2,
+      },
+      {
+        href: "/value-tech-app",
+        title: "Report Upload System",
+        description: "Manage valuation reports and submissions through the desktop application.",
+        icon: LayoutGrid,
+      },
+      {
+        href: "/evaluation-source",
+        title: "Information Sources",
+        description: "Market data, pricing references, and sources that support valuation decisions.",
+        icon: Library,
+      },
+      {
+        href: "/asset-inventory",
+        title: "Asset Inventory",
+        description: "Count, classify, and track organization assets accurately.",
+        icon: ClipboardList,
+      },
+      {
+        href: "/asset-inspection",
+        title: "Asset Inspection",
+        description: "Document asset condition and field inspection data.",
+        icon: Search,
+      },
     ] satisfies ProductCard[],
   },
   ar: {
@@ -45,6 +80,36 @@ const copy = {
         title: "نظام تقييم الآلات والمعدات",
         description: "منصة متكاملة لتقييم الآلات والمعدات الصناعية وفق أعلى المعايير المهنية.",
         icon: Cpu,
+      },
+      {
+        href: "/real-estate-valuation",
+        title: "نظام تقييم العقارات",
+        description: "مسار عمل منظم لعمليات تقييم العقارات باحترافية.",
+        icon: Building2,
+      },
+      {
+        href: "/value-tech-app",
+        title: "نظام رفع التقارير",
+        description: "إدارة تقارير التقييم ورفعها من خلال تطبيق سطح المكتب.",
+        icon: LayoutGrid,
+      },
+      {
+        href: "/evaluation-source",
+        title: "مصادر المعلومات",
+        description: "بيانات السوق ومصادر الأسعار والمراجع الداعمة لقرارات التقييم.",
+        icon: Library,
+      },
+      {
+        href: "/asset-inventory",
+        title: "تطبيق حصر الأصول",
+        description: "حصر وتصنيف وتتبع أصول المنشأة بدقة.",
+        icon: ClipboardList,
+      },
+      {
+        href: "/asset-inspection",
+        title: "تطبيق معاينة الأصول",
+        description: "توثيق حالة الأصول وبيانات المعاينة الميدانية.",
+        icon: Search,
       },
     ] satisfies ProductCard[],
   },
@@ -64,7 +129,6 @@ function ProductCardTile({
   index: number;
 }) {
   const Icon = product.icon;
-  const isSoon = Boolean(product.status);
 
   const body = (
     <div
@@ -78,50 +142,36 @@ function ProductCardTile({
 
         <div className="min-w-0 flex-1 space-y-2 pt-0.5">
           <h2 className="vt-product-title sm:text-[1.02rem]">{product.title}</h2>
-          {isSoon ? (
+          {product.status ? (
             <span className="vt-product-soon-badge">{product.status ?? soonLabel}</span>
           ) : null}
+          <p className="line-clamp-2 text-xs leading-5 text-slate-500">{product.description}</p>
         </div>
       </div>
 
-      {!isSoon ? (
-        <div
-          className={cn(
-            "vt-product-card-footer mt-auto flex pt-4",
-            isArabic ? "justify-end" : "justify-start",
-          )}
-        >
-          <span className="vt-product-navigate">
-            {navigateLabel}
-            <ArrowUpRight
-              className={cn(
-                "h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
-                isArabic && "-scale-x-100 group-hover:translate-x-[-2px]",
-              )}
-              aria-hidden
-            />
-          </span>
-        </div>
-      ) : null}
+      <div
+        className={cn(
+          "vt-product-card-footer mt-auto flex pt-4",
+          isArabic ? "justify-end" : "justify-start",
+        )}
+      >
+        <span className="vt-product-navigate">
+          {navigateLabel}
+          <ArrowUpRight
+            className={cn(
+              "h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
+              isArabic && "-scale-x-100 group-hover:translate-x-[-2px]",
+            )}
+            aria-hidden
+          />
+        </span>
+      </div>
     </div>
   );
 
   const className = cn(
     "group vt-product-card text-start motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
-    isSoon && "vt-product-card--soon cursor-default",
   );
-
-  if (isSoon) {
-    return (
-      <div
-        style={{ animationDelay: `${index * 50}ms` }}
-        className={className}
-        aria-disabled
-      >
-        {body}
-      </div>
-    );
-  }
 
   return (
     <Link

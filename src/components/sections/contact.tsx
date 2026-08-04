@@ -1,10 +1,6 @@
 "use client";
 
 import React, { useContext } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { SectionHeading } from "../ui/heading";
 import { LanguageContext } from "../layout-provider";
 import { content } from "@/lib/content";
@@ -15,6 +11,7 @@ export default function ContactSection() {
   if (!langContext) return null;
   const { language } = langContext;
   const c = content[language];
+  const isArabic = language === "ar";
 
   return (
     <section id="contact" className="py-16 md:py-24 bg-secondary/30">
@@ -33,66 +30,45 @@ export default function ContactSection() {
             className="mx-auto w-full max-w-xl animation-fade-in-up"
             style={{ animationDelay: "0.4s" }}
           >
-            <form
-              className="space-y-6"
-              onSubmit={(e) => e.preventDefault()}
-            >
-              <div>
-                <Label htmlFor="name" className="text-foreground/80">
-                  {c.contact.form.name}
-                </Label>
-                <Input
-                  type="text"
-                  id="name"
-                  name="name"
-                  className="mt-2 bg-background"
-                  autoComplete="name"
-                />
+            <div className="space-y-4 rounded-2xl border border-border bg-background p-6 shadow-sm">
+              <a
+                href="tel:+966550545782"
+                className="flex items-center gap-4 rounded-xl border border-border p-4 transition-colors hover:bg-secondary/50"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Phone className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block text-sm text-muted-foreground">{isArabic ? "رقم التواصل" : "Phone"}</span>
+                  <span className="mt-1 block font-semibold text-foreground" dir="ltr">+966550545782</span>
+                </span>
+              </a>
+
+              <a
+                href={`https://wa.me/${c.contact.form.whatsappNumber}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-4 rounded-xl border border-border p-4 transition-colors hover:bg-[#25D366]/5"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#25D366]/10 text-[#128C4A]">
+                  <MessageCircle className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block text-sm text-muted-foreground">{isArabic ? "واتساب" : "WhatsApp"}</span>
+                  <span className="mt-1 block font-semibold text-foreground">{isArabic ? "ابدأ المحادثة مباشرة" : "Start a conversation"}</span>
+                </span>
+              </a>
+
+              <div className="flex items-center gap-4 rounded-xl border border-border p-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <MapPin className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block text-sm text-muted-foreground">{isArabic ? "الموقع" : "Location"}</span>
+                  <span className="mt-1 block font-semibold text-foreground">{isArabic ? "الرياض، المملكة العربية السعودية" : "Riyadh, Saudi Arabia"}</span>
+                </span>
               </div>
-              <div>
-                <Label htmlFor="email" className="text-foreground/80">
-                  {c.contact.form.email}
-                </Label>
-                <Input
-                  type="email"
-                  id="email"
-                  name="email"
-                  className="mt-2 bg-background"
-                  autoComplete="email"
-                />
-              </div>
-              <div>
-                <Label htmlFor="message" className="text-foreground/80">
-                  {c.contact.form.message}
-                </Label>
-                <Textarea
-                  id="message"
-                  name="message"
-                  rows={4}
-                  className="mt-2 bg-background"
-                />
-              </div>
-              <div className="text-center space-y-4">
-                <Button type="submit" size="lg" className="w-full sm:w-auto">
-                  {c.contact.form.button}
-                </Button>
-                <Button
-                  asChild
-                  variant="outline"
-                  size="lg"
-                  className="w-full sm:w-auto"
-                >
-                  <a
-                    href={`https://wa.me/${c.contact.form.whatsappNumber}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Phone className="w-4 h-4 mr-2" />
-                    {c.contact.form.whatsappButton}
-                  </a>
-                </Button>
-              </div>
-            </form>
+            </div>
           </div>
 
           <div
@@ -109,12 +85,6 @@ export default function ContactSection() {
                 loading="lazy"
                 title="Google Maps Location"
               ></iframe>
-            </div>
-            <div className="mt-6 text-center text-muted-foreground">
-              <p className="flex items-center justify-center gap-2">
-                <MapPin className="w-5 h-5 text-primary" />
-                1600 Amphitheatre Parkway, Mountain View, CA 94043
-              </p>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { ValueTechLoginCard } from "@/components/value-tech-login-experience";
 
@@ -48,6 +48,7 @@ export default function AuthModal({
         dir="rtl"
         className="w-[min(32rem,calc(100vw-2rem))] border-0 bg-transparent p-0 shadow-none sm:max-w-none [&>button]:left-5 [&>button]:right-auto [&>button]:top-5 [&>button]:z-20 [&>button]:rounded-full [&>button]:border [&>button]:border-[#f4cf86]/40 [&>button]:bg-[#071528]/75 [&>button]:p-2 [&>button]:text-[#f7d693] [&>button]:opacity-100 [&>button]:backdrop-blur"
       >
+        <DialogTitle className="sr-only">تسجيل الدخول إلى فاليو تك</DialogTitle>
         <ValueTechLoginCard
           mode="modal"
           phone={phone}

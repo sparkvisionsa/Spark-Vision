@@ -1404,7 +1404,7 @@ export const mvAr = {
       defaultName: "تقرير تقييم.docx",
       loadFailed: "تعذر تحميل قالب تقرير تقييم المضمّن.",
       preparing: "جاري تحضير البيانات والصور…",
-      merging: "جاري دمج متغيرات القالب على الخادم… قد يستغرق ذلك بضع دقائق عند كثرة الصور.",
+      merging: "جاري إنشاء ملفي Word وPDF بجودة عالية…",
       downloading: "جاري تنزيل الملف…",
       readingVariables: "جاري قراءة متغيرات القالب…",
       preparingFile: "جاري تجهيز ملف Word…",

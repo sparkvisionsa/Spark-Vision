@@ -1405,7 +1405,7 @@ export const mvEn = {
       defaultName: "تقرير تقييم.docx",
       loadFailed: "Could not load the bundled valuation report template.",
       preparing: "Preparing data and images…",
-      merging: "Merging template variables on the server… This can take a few minutes when there are many images.",
+      merging: "Creating high-quality Word and PDF files…",
       downloading: "Downloading file…",
       readingVariables: "Reading template variables…",
       preparingFile: "Preparing Word file…",

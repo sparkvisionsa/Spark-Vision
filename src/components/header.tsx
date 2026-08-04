@@ -13,11 +13,13 @@ import {
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { LanguageSwitcher } from "./language-switcher";
 import AuthUserMenu from "./auth-user-menu";
-import { ChevronDown, Menu } from "lucide-react";
+import { ChevronDown, Menu, MessageCircle } from "lucide-react";
 import Image from "next/image";
 import SparkLogo from "@/app/Spark.jpg";
 import { LanguageContext } from "./layout-provider";
 import { content } from "@/lib/content";
+
+const WHATSAPP_HREF = "https://wa.me/966550545782";
 
 interface HeaderProps {
   navDisabled?: boolean;
@@ -269,6 +271,15 @@ export default function Header({ navDisabled = false }: HeaderProps) {
                     </Link>
                   ),
                 )}
+                <a
+                  href={WHATSAPP_HREF}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-[#128C4A]"
+                >
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  {isArabic ? "واتساب" : "WhatsApp"}
+                </a>
               </div>
             </div>
           </SheetContent>
@@ -294,6 +305,17 @@ export default function Header({ navDisabled = false }: HeaderProps) {
         </Link>
 
         <div className="flex flex-1 items-center justify-end space-x-2 rtl:space-x-reverse">
+          <div className="hidden items-center gap-1 lg:flex" dir="ltr">
+            <a
+              href={WHATSAPP_HREF}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#128C4A] transition-colors hover:bg-[#25D366]/10"
+              aria-label={isArabic ? "تواصل عبر واتساب" : "Contact us on WhatsApp"}
+            >
+              <MessageCircle className="h-5 w-5" aria-hidden="true" />
+            </a>
+          </div>
           <AuthUserMenu />
           <LanguageSwitcher />
         </div>

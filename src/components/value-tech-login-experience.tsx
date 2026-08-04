@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { ChevronDown, Eye, EyeOff, Loader2 } from "lucide-react";
+import Link from "@/components/prefetch-link";
+import { ArrowRight, ChevronDown, Eye, EyeOff, Loader2 } from "lucide-react";
 import {
   COUNTRY_DIAL_CODES,
   DEFAULT_COUNTRY_DIAL_CODE,
@@ -293,6 +294,16 @@ export function ValueTechLoginCard({
         >
           نسيت كلمة المرور؟
         </button>
+
+        {!compact ? (
+          <Link
+            href="/"
+            className="mx-auto flex w-fit items-center justify-center gap-2 rounded-xl border border-[#d8b46a]/40 bg-[#0b1b31]/70 px-4 py-2.5 text-sm font-bold text-[#f5d083] transition hover:border-[#f5d083]/70 hover:bg-[#132945] hover:text-[#ffe3a6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2c879]/60"
+          >
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            العودة إلى الصفحة الرئيسية
+          </Link>
+        ) : null}
       </form>
     </div>
   );
@@ -303,61 +314,6 @@ export function ValueTechLoginScreen(props: ValueTechLoginScreenProps) {
     <div className="vt-login-screen fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">
       <div className="vt-login-card-shell relative z-10 flex w-full justify-center">
         <ValueTechLoginCard {...props} mode="screen" />
-      </div>
-    </div>
-  );
-}
-
-export function ValueTechPasswordGateScreen({
-  password,
-  error,
-  onPasswordChange,
-  onSubmit,
-}: {
-  password: string;
-  error?: string;
-  onPasswordChange: (value: string) => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="vt-login-screen fixed inset-0 z-[100] flex items-center justify-center px-4 py-8">
-      <div className="vt-login-card-shell relative z-10 flex w-full justify-center">
-        <div className="vt-login-card min-h-[31rem] w-full max-w-[36rem] px-7 pb-8 pt-12 text-center sm:px-10 sm:pt-14" dir="rtl">
-          <h1 className="vt-login-title mx-auto text-[2.2rem] font-extrabold leading-[1.2]">
-            تسجيل الدخول - فاليو تك
-          </h1>
-          <p className="mx-auto mt-4 max-w-[31rem] text-center text-[16px] font-medium leading-8 text-[#d7dde8]">
-            أدخل كلمة المرور لعرض الواجهة
-          </p>
-
-          <form
-            className="mx-auto mt-8 w-full max-w-[31rem] space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSubmit();
-            }}
-          >
-            <ValueTechPasswordField
-              value={password}
-              onChange={onPasswordChange}
-              autoFocus
-            />
-
-            {error ? (
-              <p className="rounded-xl border border-rose-300/45 bg-rose-950/45 px-4 py-3 text-sm font-medium leading-6 text-rose-100">
-                {error}
-              </p>
-            ) : null}
-
-            <button
-              type="submit"
-              className="vt-login-submit group relative flex h-[3.9rem] w-full items-center justify-center overflow-hidden rounded-xl text-[1.4rem] font-extrabold text-white transition duration-200 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ffe1a2]/80 disabled:pointer-events-none disabled:opacity-60"
-              disabled={!password}
-            >
-              دخول
-            </button>
-          </form>
-        </div>
       </div>
     </div>
   );

@@ -43,7 +43,7 @@ export default function HeroSection() {
             style={{ animationDelay: "0.6s" }}
           >
             <Button asChild size="lg">
-              <Link href="#contact">{c.hero.cta}</Link>
+              <Link href="#portfolio">{c.hero.cta}</Link>
             </Button>
           </div>
         </div>

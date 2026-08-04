@@ -1,10 +1,9 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, LayoutDashboard, LogIn, LogOut, Shield, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,18 +32,12 @@ type AuthUserMenuProps = {
 export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout, guestAccess, loading } = useAuthTracking();
+  const { user, logout, loading } = useAuthTracking();
   const [openAuthModal, setOpenAuthModal] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const autoOpenTriggeredRef = useRef(false);
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const t = language === "ar" ? copy.ar : copy.en;
-
-  const attemptsText =
-    guestAccess && guestAccess.registrationRequired
-      ? `${guestAccess.attemptsRemaining}/${guestAccess.limit} guest attempts left`
-      : null;
 
   useEffect(() => {
     const openAuthFromEvent = () => {
@@ -60,18 +53,6 @@ export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {
     setAccountMenuOpen(false);
   }, [pathname]);
 
-  useEffect(() => {
-    if (user) {
-      autoOpenTriggeredRef.current = false;
-      return;
-    }
-    if (!guestAccess?.registrationRequired) return;
-    if (guestAccess.attemptsRemaining > 0) return;
-    if (autoOpenTriggeredRef.current) return;
-    autoOpenTriggeredRef.current = true;
-    setOpenAuthModal(true);
-  }, [guestAccess, user]);
-
   if (loading) {
     return (
       <div className="h-8 w-24 animate-pulse rounded bg-slate-200" />
@@ -79,21 +60,8 @@ export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {
   }
 
   if (!user) {
-    const used = guestAccess?.attemptsUsed ?? 0;
-    const total = guestAccess?.limit ?? 0;
-    const percent = total > 0 ? Math.min(100, (used / total) * 100) : 0;
     return (
-      <div className="flex items-center gap-2">
-        {attemptsText ? (
-          <div className="hidden min-w-[220px] rounded border border-slate-200 bg-white px-2 py-2 lg:block">
-            <div className="mb-1 flex items-center justify-between text-[11px] text-slate-600">
-              <span>Guest Access</span>
-              <span>{guestAccess?.attemptsRemaining ?? 0} left</span>
-            </div>
-            <Progress value={100 - percent} className="h-1.5" />
-            <div className="mt-1 text-[10px] text-slate-500">{attemptsText}</div>
-          </div>
-        ) : null}
+      <div className="flex items-center">
         <Button
           size="sm"
           variant="outline"

@@ -35,6 +35,11 @@ export default function ValueTechAccessGate({ sectionKey, children }: ValueTechA
     }
   }, [user, productId, router]);
 
+  // The products hub is public. Authentication starts only after a product card is opened.
+  if (sectionKey === "vt") {
+    return <>{children}</>;
+  }
+
   if (loading) {
     return <PageTransitionLoader />;
   }

@@ -494,10 +494,10 @@ export const content = {
       { name: "Contact", href: "#contact" },
     ],
     hero: {
-      headline: "Smart Software Solutions for a Smarter Future",
+      headline: "We Build the Future of Your Business with Technology",
       subtext:
-        "Spark Vision delivers innovative software, AI automation, and digital solutions for fast-growing businesses.",
-      cta: "Get a Free Consultation",
+        "Professional software solutions, artificial intelligence, and advanced automation designed to improve your business efficiency and achieve sustainable growth.",
+      cta: "Explore Products",
     },
     video: {
       header: `Spark Vision: Cutting-Edge Technology Powering Innovation
@@ -649,14 +649,14 @@ export const content = {
     contact: {
       title: "Get in Touch",
       subtitle:
-        "Have a project in mind? We'd love to hear from you. Fill out the form below to get started.",
+        "Contact us directly by phone or WhatsApp, or find our location on the map.",
       form: {
         name: "Name",
         email: "Email",
         message: "Message",
         button: "Send Message",
         whatsappButton: "Contact Us",
-        whatsappNumber: "",
+        whatsappNumber: "966550545782",
       },
     },
     maintenance: {
@@ -725,10 +725,10 @@ export const content = {
       { name: "اتصل بنا", href: "#contact" },
     ],
     hero: {
-      headline: "حلول برمجية ذكية لمستقبل أكثر ذكاءً",
+      headline: "نبني مستقبل أعمالك بالتقنية",
       subtext:
-        "سبارك فيجن تقدم برمجيات مبتكرة، وأتمتة بالذكاء الاصطناعي، وحلول رقمية للأعمال المتنامية.",
-      cta: "احجز استشارة مجانية",
+        "حلول برمجية احترافية، ذكاء اصطناعي، وأتمتة متقدمة مصممة لرفع كفاءة أعمالك وتحقيق نمو مستدام.",
+      cta: "استكشف المنتجات",
     },
     video: {
       header:
@@ -877,14 +877,14 @@ export const content = {
     contact: {
       title: "تواصل معنا",
       subtitle:
-        "هل لديك مشروع في ذهنك؟ نود أن نسمع منك. املأ النموذج أدناه للبدء.",
+        "يسعدنا تواصلك معنا مباشرة عبر الهاتف أو واتساب، ويمكنك الاطلاع على موقعنا في الخريطة.",
       form: {
         name: "الاسم",
         email: "البريد الإلكتروني",
         message: "الرسالة",
         button: "إرسال الرسالة",
         whatsappButton: "اتصل بنا",
-        whatsappNumber: "01140943934",
+        whatsappNumber: "966550545782",
       },
     },
     maintenance: {
