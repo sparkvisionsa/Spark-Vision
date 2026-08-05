@@ -1695,6 +1695,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const projectRef = useRef<MvProject | null>(project);
   const reportDataPersistTimerRef = useRef<number | null>(null);
   const reportDataPersistRequestRef = useRef(0);
+  const beforeWordMergeRef = useRef<() => Promise<void>>(async () => undefined);
   const draftModeOverrideRef = useRef<boolean | null>(null);
   const [files, setFiles] = useState<MvDriveFile[]>(() => initialFiles);
   const [loading, setLoading] = useState(() => initialProject == null);
@@ -2827,6 +2828,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     setPdfExportProgress(8);
     setPdfExportLabel(t("report.export.preparingWordData"));
     try {
+      await beforeWordMergeRef.current();
       const mergeInput = await prepareMvWordMergeInput({
         projectName: project?.name || "report",
         displayNumber: project?.displayNumber,
@@ -2837,20 +2839,20 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         loadImages: false,
       });
       setPdfExportProgress(55);
-      setPdfExportLabel(t("report.export.mergingWordPdf"));
+      setPdfExportLabel(t("report.wordTemplate.merging"));
       const result = await mergeWordReportTemplateSmart({
         projectId,
         mergeInput,
         assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
         valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
         clientImageUrls: wordTemplateClientImageSources.map((s) => s.url),
-        alsoPdf: true,
+        alsoPdf: false,
+        useStoredProjectState: true,
         imageLayout: buildMvWordImageLayout(reportData),
       });
       const safeName = (project?.name || "report").replace(/[\\/:*?"<>|]+/g, "-");
       downloadMergedReportFiles({
         docxBlob: result.blob,
-        pdfBlob: result.pdfBlob,
         baseName: safeName,
       });
       setPdfExportProgress(100);
@@ -2860,19 +2862,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         mergeStats.assetImagesInserted > 0 ||
         mergeStats.valuationImagesInserted > 0 ||
         mergeStats.clientImagesInserted > 0;
-      const warningDetail = [
-        ...mergeStats.warnings,
-        result.pdfBlob
-          ? null
-          : result.pdfError
-            ? result.pdfError
-            : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const successLabel = result.pdfBlob
-        ? t("report.export.wordTemplatePdf")
-        : t("report.export.wordTemplate");
+      const warningDetail = mergeStats.warnings.filter(Boolean).join(" ");
+      const successLabel = t("report.export.wordTemplate");
       toast({
         variant: hasMergedContent ? "default" : "destructive",
         description: warningDetail
@@ -3143,6 +3134,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     },
     [persistProjectReportData, sessionKey, t, toast],
   );
+
+  const flushPendingReportDataForWord = useCallback(async () => {
+    if (!reportDataPersistTimerRef.current) return;
+    window.clearTimeout(reportDataPersistTimerRef.current);
+    reportDataPersistTimerRef.current = null;
+    const pendingReportData = projectRef.current?.reportData;
+    if (!pendingReportData) return;
+    const saved = await persistProjectReportData(pendingReportData);
+    if (!saved) {
+      throw new Error(t("report.settings.saveFailed"));
+    }
+  }, [persistProjectReportData, t]);
+
+  // كلا مساري تنزيل Word (زر الشريط والنافذة) ينتظران أي حفظ محلي معلّق
+  // ثم يتركان الخادم يقرأ أحدث نسخة موحدة للمشروع والصور والحسابات والعميل.
+  beforeWordMergeRef.current = flushPendingReportDataForWord;
 
   useEffect(
     () => () => {
@@ -4407,6 +4414,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           valuationImageSources={wordTemplateValuationImageSources}
           clientImageSources={wordTemplateClientImageSources}
           onReportDataPatch={onReportDataPatch}
+          onBeforeMerge={flushPendingReportDataForWord}
           disabled={loading || reportMediaLoading}
         />
       ) : null}

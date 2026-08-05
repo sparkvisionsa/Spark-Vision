@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useContext } from "react";
+import { Check } from "lucide-react";
 import { SectionHeading } from "../ui/heading";
 import { LanguageContext } from "../layout-provider";
 import { content } from "@/lib/content";
+import { SectionReveal } from "./section-reveal";
 
 export default function WhyChooseUsSection() {
   const langContext = useContext(LanguageContext);
@@ -12,37 +14,41 @@ export default function WhyChooseUsSection() {
   const c = content[language];
 
   return (
-    <section id="why-choose-us" className="py-16 md:py-24">
-      <div className="container">
-        <div className="mx-auto max-w-5xl text-center">
-          <div className="animation-fade-in-up">
-            <SectionHeading
-              title={c.whyChooseUs.title}
-              subtitle={c.whyChooseUs.subtitle}
-            />
-          </div>
-        </div>
-        <div className="mx-auto mt-12 max-w-2xl lg:max-w-4xl">
-          <dl className="grid max-w-xl grid-cols-1 gap-x-8 gap-y-10 lg:max-w-none lg:grid-cols-2 lg:gap-y-16">
+    <section id="why-choose-us" className="home-section py-20 md:py-28">
+      <div className="container relative">
+        <SectionReveal className="mx-auto max-w-5xl text-center">
+          <SectionHeading
+            title={c.whyChooseUs.title}
+            subtitle={c.whyChooseUs.subtitle}
+            className="home-section-heading"
+          />
+        </SectionReveal>
+        <div className="mx-auto mt-14 max-w-5xl">
+          <dl className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {c.whyChooseUs.features.map((feature, index) => (
-              <div
+              <SectionReveal
                 key={feature.name}
-                className="relative ps-16 animation-fade-in-up"
-                style={{ animationDelay: `${0.4 + index * 0.1}s` }}
+                className="h-full"
+                delay={80 + index * 75}
               >
-                <dt className="text-base font-semibold leading-7 text-foreground">
-                  <div className="absolute top-0 left-0 flex h-10 w-10 items-center justify-center rounded-lg bg-primary rtl:right-0 rtl:left-auto">
-                    <feature.icon
-                      className="h-6 w-6 text-primary-foreground"
-                      aria-hidden="true"
-                    />
+                <div className="home-feature-card group flex h-full items-start gap-4 rounded-2xl border bg-card/70 p-5 backdrop-blur-sm sm:p-6">
+                  <div className="home-icon-orbit flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors duration-300 group-hover:bg-primary group-hover:text-primary-foreground">
+                    <feature.icon className="h-5 w-5" aria-hidden="true" />
                   </div>
-                  {feature.name}
-                </dt>
-                <dd className="mt-2 text-base leading-7 text-muted-foreground">
-                  {feature.description}
-                </dd>
-              </div>
+                  <div className="relative z-10 min-w-0 flex-1">
+                    <dt className="flex items-center gap-2 text-base font-bold leading-7 text-foreground">
+                      <span>{feature.name}</span>
+                      <Check className="h-4 w-4 shrink-0 text-primary/70" aria-hidden="true" />
+                    </dt>
+                    <dd className="mt-2 text-sm leading-7 text-muted-foreground sm:text-base">
+                      {feature.description}
+                    </dd>
+                  </div>
+                  <span className="relative z-10 hidden text-[10px] font-black tabular-nums text-primary/40 sm:block">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                </div>
+              </SectionReveal>
             ))}
           </dl>
         </div>

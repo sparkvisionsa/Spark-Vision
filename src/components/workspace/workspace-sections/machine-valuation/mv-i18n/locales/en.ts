@@ -804,6 +804,13 @@ export const mvEn = {
       hideFromReport: "Hide from report",
       showInReport: "Show in report",
     },
+    pdf: {
+      preparing: "Preparing PDF for selected images…",
+      noSelection: "Select at least one report image first.",
+      downloaded: "PDF downloaded for selected images ({count} images).",
+      downloadedWithFailures: "Downloaded {count} images; some could not be loaded: {failed}",
+      failed: "Could not create a PDF from the selected images.",
+    },
     reportSelect: {
       title: "Select report images",
       subtitle: "{selected} of {total} selected — only these appear in report templates and Word",
@@ -835,6 +842,8 @@ export const mvEn = {
       refreshFromServer: "Refresh from server",
       refreshFromServerTitle: "Reload asset folders from server",
       download: "Download asset images",
+      downloadReportImagesPdf: "Download report images as PDF",
+      downloadReportImagesPdfTitle: "Convert the selected report images to a PDF file",
       openImage: "Open image",
       openVideo: "Open video",
       deleteImage: "Delete image",

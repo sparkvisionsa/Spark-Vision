@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Clock,
   Download,
+  FileDown,
   FileSpreadsheet,
   FileVideo,
   GripVertical,
@@ -89,6 +90,7 @@ import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson } from "./mv-api-client";
 import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
+import { buildAssetImagesPdf } from "@/lib/mv-asset-images-pdf";
 
 interface MvAssetImagesHubProps {
   projectId: string;
@@ -1590,6 +1592,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [reportData, setReportData] = useState<MvProjectReportData>({ includeAssetImages: true });
   const [includeAssetImagesInReport, setIncludeAssetImagesInReport] = useState(true);
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
+  const [creatingReportImagesPdf, setCreatingReportImagesPdf] = useState(false);
   const reportSelectionPendingRef = useRef(0);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
   const [emptyReportSelectionWarningOpen, setEmptyReportSelectionWarningOpen] = useState(false);
@@ -2478,6 +2481,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             key: file._id,
             name: fileNameFromPathSafe(file),
             previewUrl: reportSelectPreviewUrl(projectId, file),
+            mimeType: file.mimeType,
             selected: isAssetViewFileReportIncluded(file, filesById),
             disabled: displayOnly ? false : !effectiveId,
           };
@@ -2503,6 +2507,35 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       ),
     [reportSelectSections],
   );
+  const selectedReportImagePdfSources = useMemo(() => {
+    const sources: { url: string; name: string; mimeType?: string }[] = [];
+    const seen = new Set<string>();
+    const addSource = (source: { url: string; name?: string; mimeType?: string }) => {
+      const url = source.url.trim();
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      sources.push({ url, name: source.name?.trim() || t("assetImages.meta.image"), mimeType: source.mimeType });
+    };
+
+    // Start with the order shown in the report-selection modal, including
+    // PicAsset display-only images, then add any selected saved files that do
+    // not belong to one of those sections.
+    for (const section of reportSelectSections) {
+      for (const image of section.images) {
+        if (!image.selected || image.disabled) continue;
+        addSource({ url: image.previewUrl, name: image.name, mimeType: image.mimeType });
+      }
+    }
+    for (const file of files) {
+      if (!isReportImageIncluded(file)) continue;
+      addSource({
+        url: reportSelectPreviewUrl(projectId, file as AssetImageViewFile),
+        name: fileNameFromPathSafe(file as AssetImageViewFile),
+        mimeType: file.mimeType,
+      });
+    }
+    return sources;
+  }, [files, projectId, reportSelectSections, t]);
   const shouldWarnAboutEmptyReportSelection =
     !loading && !loadingPreviewFolders && reportSelectTotalCount > 0 && reportSelectSelectedCount === 0;
   const shouldWarnAboutEmptyReportSelectionRef = useRef(shouldWarnAboutEmptyReportSelection);
@@ -4114,6 +4147,55 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     },
     [projectId, t, toast],
   );
+
+  const downloadSelectedReportImagesAsPdf = useCallback(async () => {
+    if (creatingReportImagesPdf) return;
+    if (selectedReportImagePdfSources.length === 0) {
+      toast({ variant: "destructive", description: t("assetImages.pdf.noSelection") });
+      return;
+    }
+
+    setCreatingReportImagesPdf(true);
+    try {
+      const result = await buildAssetImagesPdf({
+        sources: selectedReportImagePdfSources,
+        filenameBase: projectName ?? projectId,
+      });
+      if (result.failedNames.length > 0) {
+        toast({
+          description: t("assetImages.pdf.downloadedWithFailures", {
+            count: numberFormatter.format(result.imageCount),
+            failed: result.failedNames.slice(0, 2).join("، "),
+          }),
+        });
+      } else {
+        toast({
+          description: t("assetImages.pdf.downloaded", {
+            count: numberFormatter.format(result.imageCount),
+          }),
+        });
+      }
+    } catch (error) {
+      const errorCode = error instanceof Error ? error.message : "";
+      toast({
+        variant: "destructive",
+        description:
+          errorCode === "no_report_images_selected"
+            ? t("assetImages.pdf.noSelection")
+            : t("assetImages.pdf.failed"),
+      });
+    } finally {
+      setCreatingReportImagesPdf(false);
+    }
+  }, [
+    creatingReportImagesPdf,
+    numberFormatter,
+    projectId,
+    projectName,
+    selectedReportImagePdfSources,
+    t,
+    toast,
+  ]);
 
   const toggleImageSelection = useCallback(
     (fileId: string) => {
@@ -5968,6 +6050,18 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           {t("assetImages.actions.download")}
         </DropdownMenuItem>
         <DropdownMenuItem
+          onSelect={() => void downloadSelectedReportImagesAsPdf()}
+          disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
+          className="cursor-pointer text-[12px]"
+        >
+          {creatingReportImagesPdf ? (
+            <Loader2 className="h-4 w-4 animate-spin text-rose-700" />
+          ) : (
+            <FileDown className="h-4 w-4 text-rose-700" />
+          )}
+          {t("assetImages.actions.downloadReportImagesPdf")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
           onSelect={deleteSelectedItems}
           disabled={selectedCount === 0 || deleting}
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
@@ -6274,6 +6368,28 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         onClick={() => setReportImagesSelectOpen(true)}
                       >
                         {t("assetImages.report.selectReportImages")}
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 shrink-0 gap-2 rounded-lg border-rose-200 bg-white px-3 text-[12px] font-black text-rose-800 shadow-sm hover:bg-rose-50"
+                        disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
+                        onClick={() => void downloadSelectedReportImagesAsPdf()}
+                        title={t("assetImages.actions.downloadReportImagesPdfTitle")}
+                      >
+                        {creatingReportImagesPdf ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FileDown className="h-3.5 w-3.5" />
+                        )}
+                        <span className="hidden xl:inline">
+                          {creatingReportImagesPdf
+                            ? t("assetImages.pdf.preparing")
+                            : t("assetImages.actions.downloadReportImagesPdf")}
+                        </span>
+                        <span className="xl:hidden">PDF</span>
                       </Button>
 
                       {reportSelectSelectedCount > 0 ? (

@@ -46,6 +46,7 @@ export interface MvWordTemplatePanelProps {
   valuationImageSources: MvWordTemplateImageSource[];
   clientImageSources?: MvWordTemplateImageSource[];
   onReportDataPatch: (patch: Partial<MvProjectReportData>) => void;
+  onBeforeMerge?: () => Promise<void>;
   disabled?: boolean;
   layout?: "drawer" | "modal";
 }
@@ -169,6 +170,7 @@ export function MvWordTemplatePanel({
   valuationImageSources,
   clientImageSources = [],
   onReportDataPatch,
+  onBeforeMerge,
   disabled = false,
   layout = "drawer",
 }: MvWordTemplatePanelProps) {
@@ -277,6 +279,7 @@ export function MvWordTemplatePanel({
       setMergeProgress(12);
       setMergeStage(t("report.wordTemplate.preparing"));
       try {
+        await onBeforeMerge?.();
         const mergeInput = await prepareMvWordMergeInput({
           projectName,
           displayNumber,
@@ -289,13 +292,14 @@ export function MvWordTemplatePanel({
 
         setMergeProgress(46);
         setMergeStage(t("report.wordTemplate.merging"));
-        const { blob, pdfBlob, pdfError, mergeStats } = await mergeWordReportTemplateSmart({
+        const { blob, mergeStats } = await mergeWordReportTemplateSmart({
           projectId,
           mergeInput,
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
           clientImageUrls: clientImageSources.map((s) => s.url),
-          alsoPdf: true,
+          alsoPdf: false,
+          useStoredProjectState: true,
           imageLayout,
         });
         const safeName = (projectName || "report").replace(/[\\/:*?"<>|]+/g, "-");
@@ -304,13 +308,9 @@ export function MvWordTemplatePanel({
         setMergeStage(t("report.wordTemplate.downloading"));
         downloadMergedReportFiles({
           docxBlob: blob,
-          pdfBlob,
           baseName: safeName,
         });
         setMergeProgress(100);
-        if (!pdfBlob && pdfError) {
-          mergeStats.warnings.push(pdfError);
-        }
 
         const hasMergedContent =
           mergeStats.variablesFilled > 0 ||
@@ -383,6 +383,7 @@ export function MvWordTemplatePanel({
       clientImageSources,
       displayNumber,
       imageLayout,
+      onBeforeMerge,
       projectId,
       projectName,
       reportData,

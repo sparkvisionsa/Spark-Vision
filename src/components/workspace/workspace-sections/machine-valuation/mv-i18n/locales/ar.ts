@@ -804,6 +804,13 @@ export const mvAr = {
       hideFromReport: "إخفاء من التقرير",
       showInReport: "إظهار في التقرير",
     },
+    pdf: {
+      preparing: "جاري تجهيز PDF للصور المحددة…",
+      noSelection: "حدد صورة واحدة على الأقل للتقرير أولاً.",
+      downloaded: "تم تنزيل PDF للصور المحددة ({count} صورة).",
+      downloadedWithFailures: "تم تنزيل {count} صورة، وتعذر تحميل بعض الصور: {failed}",
+      failed: "تعذر إنشاء PDF للصور المحددة.",
+    },
     reportSelect: {
       title: "تحديد صور التقرير",
       subtitle: "المحدد {selected} من {total} — تظهر فقط في قوالب التقرير وملف Word",
@@ -835,6 +842,8 @@ export const mvAr = {
       refreshFromServer: "تحديث من الخادم",
       refreshFromServerTitle: "إعادة جلب مجلدات الأصول من الخادم",
       download: "تنزيل صور الأصول",
+      downloadReportImagesPdf: "تنزيل صور التقرير PDF",
+      downloadReportImagesPdfTitle: "تحويل الصور المحددة للتقرير إلى ملف PDF",
       openImage: "فتح الصورة",
       openVideo: "فتح الفيديو",
       deleteImage: "حذف الصورة",

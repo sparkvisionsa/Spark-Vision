@@ -32,6 +32,7 @@ export async function mergeWordReportTemplateSmart(params: {
   valuationImageUrls: string[];
   clientImageUrls?: string[];
   alsoPdf?: boolean;
+  useStoredProjectState?: boolean;
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
@@ -46,7 +47,8 @@ export async function mergeWordReportTemplateSmart(params: {
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
     clientImageUrls: params.clientImageUrls,
-    alsoPdf: params.alsoPdf,
+    alsoPdf: false,
+    useStoredProjectState: params.useStoredProjectState,
     imageLayout: params.imageLayout,
   });
   return { ...serverResult, mergeSource: "server" };

@@ -21,6 +21,7 @@ export type MvReportSelectImageItem = {
   key: string;
   name: string;
   previewUrl: string;
+  mimeType?: string;
   selected: boolean;
   disabled?: boolean;
 };

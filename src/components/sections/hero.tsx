@@ -8,6 +8,7 @@ import data from "@/lib/placeholder-images.json";
 import { LanguageContext } from "../layout-provider";
 import { content } from "@/lib/content";
 import type { PlaceholderImage } from "@/lib/types";
+import HeroKeywordParticles from "./hero-keyword-particles";
 
 export default function HeroSection() {
   const heroImage = data.placeholderImages.find(
@@ -20,10 +21,11 @@ export default function HeroSection() {
   const c = content[language];
 
   return (
-    <section className="relative overflow-hidden py-20 md:py-32 lg:py-40">
+    <section className="relative isolate overflow-hidden py-20 md:py-32 lg:py-40">
       <div className="tech-pattern" />
       <div className="container relative">
-        <div className="mx-auto max-w-3xl text-center">
+        <HeroKeywordParticles language={language} />
+        <div className="relative z-10 mx-auto max-w-3xl text-center">
           <div
             className="animation-fade-in-up"
             style={{ animationDelay: "0.2s" }}
@@ -48,7 +50,7 @@ export default function HeroSection() {
           </div>
         </div>
         <div
-          className="mt-16 sm:mt-24 animation-fade-in-up h-screen"
+          className="relative z-10 mt-16 h-screen animation-fade-in-up sm:mt-24"
           style={{ animationDelay: "0.8s" }}
         >
           <div className="relative h-full w-full rounded-none bg-gray-900/5 ring-1 ring-inset ring-gray-900/10">

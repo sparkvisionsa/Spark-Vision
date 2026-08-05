@@ -11,6 +11,8 @@ export type ServerWordMergeParams = {
   clientImageUrls?: string[];
   /** اطلب Word + PDF محوّل من نفس الملف (تنزيلان منفصلان، بدون ZIP) */
   alsoPdf?: boolean;
+  /** استخدم أحدث بيانات وصور محفوظة للمشروع مباشرة من الخادم. */
+  useStoredProjectState?: boolean;
   imageLayout?: {
     imagesPerRow: number;
     imagesPerPage: number;
@@ -123,6 +125,7 @@ async function fetchMergedPdfByToken(projectId: string, token: string): Promise<
 export async function mergeWordReportTemplateViaServer(
   params: ServerWordMergeParams,
 ): Promise<MvWordMergeDownloadResult> {
+  const useStoredProjectState = params.useStoredProjectState !== false;
   // أرسل الحالة الحالية كاملة، بما في ذلك الفراغ الصريح، حتى ينعكس مسح الحقل
   // فوراً في التنزيل حتى لو لم يكتمل الحفظ التلقائي بعد.
   const textValues = buildTemplateVariableValues(params.mergeInput);
@@ -137,17 +140,20 @@ export async function mergeWordReportTemplateViaServer(
   );
 
   const body: Record<string, unknown> = {
-    textValues,
     imageLayout: params.imageLayout,
     assetImagesBase64: [],
-    valuationImagesBase64,
-    alsoPdf: params.alsoPdf === true,
+    alsoPdf: false,
+    useStoredProjectState,
   };
-  // لا ترسل قوائم صور فارغة — كانت تُفسَّر كـ «بدون صور» وتمنع احتياطي الخادم
-  if (assetImageUrls.length > 0) body.assetImageUrls = assetImageUrls;
-  if (valuationImageUrls.length > 0) body.valuationImageUrls = valuationImageUrls;
-  if (clientImageUrls.length > 0) body.clientImageUrls = clientImageUrls;
-  if (clientImagesBase64.length > 0) body.clientImagesBase64 = clientImagesBase64;
+  // الوضع الافتراضي يقرأ أحدث نسخة من MongoDB لحظة الدمج، ولا يرسل كاش الصفحة.
+  if (!useStoredProjectState) {
+    body.textValues = textValues;
+    body.valuationImagesBase64 = valuationImagesBase64;
+    if (assetImageUrls.length > 0) body.assetImageUrls = assetImageUrls;
+    if (valuationImageUrls.length > 0) body.valuationImageUrls = valuationImageUrls;
+    if (clientImageUrls.length > 0) body.clientImageUrls = clientImageUrls;
+    if (clientImagesBase64.length > 0) body.clientImagesBase64 = clientImagesBase64;
+  }
 
   const response = await fetch(
     `/api/mv/projects/${encodeURIComponent(params.projectId)}/word-template/merge`,
@@ -237,7 +243,7 @@ export async function mergeWordReportTemplateViaServer(
   };
 }
 
-/** ينزّل Word، وإن وُجد PDF ينزّله مباشرة بعده كملف منفصل. */
+/** ينزّل ملف Word المدمج فقط. */
 export function downloadMergedReportFiles(opts: {
   docxBlob: Blob;
   pdfBlob?: Blob;
@@ -245,9 +251,4 @@ export function downloadMergedReportFiles(opts: {
 }) {
   const safe = opts.baseName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
   downloadBlob(opts.docxBlob, `${safe}-merged-report.docx`);
-  if (opts.pdfBlob) {
-    window.setTimeout(() => {
-      downloadBlob(opts.pdfBlob!, `${safe}-merged-report.pdf`);
-    }, 400);
-  }
 }

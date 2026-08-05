@@ -1722,25 +1722,19 @@ export default function MvProjectsDashboard() {
           mergeInput,
           assetImageUrls: [],
           valuationImageUrls: [],
-          alsoPdf: true,
+          alsoPdf: false,
+          useStoredProjectState: true,
         });
         const safeName = projectName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
         downloadMergedReportFiles({
           docxBlob: result.blob,
-          pdfBlob: result.pdfBlob,
           baseName: safeName,
         });
         const warningDetail = result.mergeStats.warnings.join(" ");
         toast({
-          description: result.pdfBlob
-            ? warningDetail
-              ? `${t("projects.wordExport.doneWordPdf")} ${warningDetail}`
-              : t("projects.wordExport.doneWordPdf")
-            : result.pdfError
-              ? `${t("projects.wordExport.doneWordOnly")} ${result.pdfError}`
-              : warningDetail
-                ? `${t("projects.wordExport.doneWordOnly")} ${warningDetail}`
-                : t("projects.wordExport.doneWordOnly"),
+          description: warningDetail
+            ? `${t("projects.wordExport.doneWordOnly")} ${warningDetail}`
+            : t("projects.wordExport.doneWordOnly"),
         });
       } catch (error) {
         toast({
