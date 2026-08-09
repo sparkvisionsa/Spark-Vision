@@ -14,6 +14,7 @@ const EXACT_REWRITES: [string, string][] = [
   ["/asset-inspection", "/w/asset-inspection"],
   ["/clients", "/w/clients"],
   ["/settings", "/w/settings"],
+  ["/settings/report", "/w/settings/report"]
 ];
 
 const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source"];
@@ -143,6 +144,7 @@ export const config = {
     "/asset-inspection",
     "/clients",
     "/settings",
+    "/settings/report",
     "/evaluation-source",
     "/evaluation-source/:path*",
     "/favicon.ico",
