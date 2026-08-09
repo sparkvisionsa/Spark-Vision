@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState, useContext, useRef, useCallback } from "react";
 import { toApiUrl } from "@/lib/api-url";
 import { useSidebar } from "@/components/ui/sidebar";
 import { SettlementRow } from "./SettlementComparison";
@@ -8,15 +8,12 @@ import { SettlementComparison } from "./SettlementComparison";
 import {
   AppraiserOpinionSection,
   emptyAppraiserData,
-  type AppraiserData,
-  type MethodTotals,
 } from "./AppraiserOpinionSection";
 import { DEFAULT_SECTION1_TITLES } from "./SettlementComparison";
 import { LanguageContext } from "@/components/layout-provider";
 import {
   ReplacementCostSection,
   type ReplacementFields,
-  type ReplacementLine,
 } from "./ReplacementCostSection";
 import dynamic from "next/dynamic";
 
@@ -56,6 +53,7 @@ import {
   Users,
   Building2,
   Scale,
+  Copy,
 } from "lucide-react";
 
 // ─── Map Picker (lazy-loaded, same as SettlementComparison) ──────────────────
@@ -73,6 +71,14 @@ type AvailableServices = {
   telephoneLine: boolean | null;
   waterMetersCount: number | null;
   electricityMetersCount: number | null;
+};
+
+type CompanySignatoryOption = {
+  id: string;
+  name: string;
+  jobTitle: string;
+  membershipNo?: string;
+  source: "user" | "reportOnly";
 };
 
 const T = {
@@ -1016,12 +1022,17 @@ function WizardShell({
   onStepChange,
   lang,
   children,
+  lastStepActions,
 }: {
   steps: { key: string; label: string; icon: React.ReactNode; completion?: { requiredTotal: number; requiredFilled: number; isComplete: boolean } }[];
   activeStep: number;
   onStepChange: (i: number) => void;
   lang: "ar" | "en";
   children: React.ReactNode;
+  lastStepActions?: {
+    onOverview: () => void;
+    onViewReport: () => void;
+  };
 }) {
   return (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -1115,65 +1126,114 @@ function WizardShell({
       </div>
 
       {/* Right pane */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {children}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            marginTop: 8,
-            padding: "12px 4px",
-          }}
-        >
-          <button
-            type="button"
-            disabled={activeStep === 0}
-            onClick={() => onStepChange(Math.max(0, activeStep - 1))}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "9px 16px",
-              border: `1px solid ${DS.border}`,
-              borderRadius: DS.radius.md,
-              background: DS.surface,
-              color: DS.textMuted,
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: activeStep === 0 ? "default" : "pointer",
-              opacity: activeStep === 0 ? 0.4 : 1,
-              fontFamily: "inherit",
-            }}
-          >
-            {lang === "ar" ? <ArrowRight size={14} /> : <ArrowLeft size={14} />}
-            {lang === "ar" ? "السابق" : "Previous"}
-          </button>
-          <button
-            type="button"
-            disabled={activeStep === steps.length - 1}
-            onClick={() => onStepChange(Math.min(steps.length - 1, activeStep + 1))}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "9px 16px",
-              border: "none",
-              borderRadius: DS.radius.md,
-              background: DS.primary,
-              color: "#fff",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: activeStep === steps.length - 1 ? "default" : "pointer",
-              opacity: activeStep === steps.length - 1 ? 0.4 : 1,
-              fontFamily: "inherit",
-              boxShadow: `0 2px 8px ${DS.primary}35`,
-            }}
-          >
-            {steps[Math.min(steps.length - 1, activeStep + 1)]?.label}
-            {lang === "ar" ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
-          </button>
-        </div>
-      </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {children}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginTop: 8,
+                  padding: "12px 4px",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={activeStep === 0}
+                  onClick={() => onStepChange(Math.max(0, activeStep - 1))}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "9px 16px",
+                    border: `1px solid ${DS.border}`,
+                    borderRadius: DS.radius.md,
+                    background: DS.surface,
+                    color: DS.textMuted,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: activeStep === 0 ? "default" : "pointer",
+                    opacity: activeStep === 0 ? 0.4 : 1,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {lang === "ar" ? <ArrowRight size={14} /> : <ArrowLeft size={14} />}
+                  {lang === "ar" ? "السابق" : "Previous"}
+                </button>
+
+                {activeStep === steps.length - 1 && lastStepActions ? (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={lastStepActions.onOverview}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "9px 16px",
+                        border: `1px solid ${DS.border}`,
+                        borderRadius: DS.radius.md,
+                        background: DS.surface,
+                        color: DS.textMuted,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      <ClipboardList size={14} />
+                      {lang === "ar" ? "نظرة عامة" : "Overview"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={lastStepActions.onViewReport}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "9px 16px",
+                        border: "none",
+                        borderRadius: DS.radius.md,
+                        background: DS.primary,
+                        color: "#fff",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        boxShadow: `0 2px 8px ${DS.primary}35`,
+                      }}
+                    >
+                      <Printer size={14} />
+                      {lang === "ar" ? "عرض التقرير النهائي" : "View Final Report"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={activeStep === steps.length - 1}
+                    onClick={() => onStepChange(Math.min(steps.length - 1, activeStep + 1))}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "9px 16px",
+                      border: "none",
+                      borderRadius: DS.radius.md,
+                      background: DS.primary,
+                      color: "#fff",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: activeStep === steps.length - 1 ? "default" : "pointer",
+                      opacity: activeStep === steps.length - 1 ? 0.4 : 1,
+                      fontFamily: "inherit",
+                      boxShadow: `0 2px 8px ${DS.primary}35`,
+                    }}
+                  >
+                    {steps[Math.min(steps.length - 1, activeStep + 1)]?.label}
+                    {lang === "ar" ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                  </button>
+                )}
+              </div>
+            </div>
     </div>
   );
 }
@@ -1553,6 +1613,13 @@ function emptyReplacementLine() {
   };
 }
 
+function cryptoRandomId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `author-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+
 // ─── Empty eval ───────────────────────────────────────────────────────────────
 
 function emptyEval() {
@@ -1664,14 +1731,11 @@ function emptyEval() {
     methodsIncome: { incomeTotal: "", incomeReason: "" },
     reportItems: { standards: "", scope: "", assumptions: "", risks: "" },
     authors: {
-      author1Id: "",
-      author1Title: "",
-      author2Id: "",
-      author2Title: "",
-      author3Id: "",
-      author3Title: "",
-      author4Id: "",
-      author4Title: "",
+      authorEntries: [{ id: cryptoRandomId(), signatoryId: "", title: "" }] as {
+        id: string;
+        signatoryId: string;
+        title: string;
+      }[],
     },
     comparisonRows: [emptyComparisonRow(), emptyComparisonRow()],
     appraiser: emptyAppraiserData(),
@@ -2119,6 +2183,7 @@ export function TransactionEvaluationPage({
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [signatories, setSignatories] = useState<CompanySignatoryOption[]>([]);
   const [statusMsg, setStatusMsg] = useState<{
     type: "ok" | "error" | "info";
     text: string;
@@ -2139,6 +2204,83 @@ export function TransactionEvaluationPage({
 
   // ── Map picker state for Map Location section ──────────────────────────────
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [showCopyModal, setShowCopyModal] = useState(false);
+    const [copyList, setCopyList] = useState<any[]>([]);
+    const [copyLoading, setCopyLoading] = useState(false);
+    const [copySearch, setCopySearch] = useState("");
+    const [copyingId, setCopyingId] = useState<string | null>(null);
+    const [copyError, setCopyError] = useState<string | null>(null);
+
+    const openCopyModal = () => {
+      setShowCopyModal(true);
+      setCopyError(null);
+      setCopyLoading(true);
+      fetch(toApiUrl("/api/transactions"), {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then((data) => {
+          const arr = Array.isArray(data)
+            ? data
+            : (data.data ?? data.transactions ?? data.items ?? []);
+          setCopyList(arr.filter((row: any) => (row.id ?? row._id) !== transactionId));
+        })
+        .catch(() =>
+          setCopyError(lang === "ar" ? "فشل تحميل المعاملات" : "Failed to load transactions"),
+        )
+        .finally(() => setCopyLoading(false));
+    };
+
+    const handleCopyFromTransaction = (sourceId: string) => {
+      setCopyingId(sourceId);
+      setCopyError(null);
+      fetch(toApiUrl(`/api/transactions/${sourceId}`), {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error();
+          return r.json();
+        })
+        .then((data) => {
+          setEv(buildEvFromTxData(data));
+          setIsDirty(true);
+          setShowCopyModal(false);
+          setStatusMsg({
+            type: "ok",
+            text: lang === "ar" ? "تم نسخ البيانات بنجاح" : "Data copied successfully",
+          });
+        })
+        .catch(() =>
+          setCopyError(lang === "ar" ? "فشل نسخ البيانات" : "Failed to copy data"),
+        )
+        .finally(() => setCopyingId(null));
+    };
+
+    const filteredCopyList = copyList.filter((row: any) => {
+      if (!copySearch.trim()) return true;
+      const q = copySearch.toLowerCase();
+      const hay = [
+        row.assignmentNumber,
+        row.clientName,
+        row.clientId,
+        row.id,
+        row._id,
+        row?.evalData?.address,
+        row?.evalData?.ownerName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+
+  const [isDirty, setIsDirty] = useState(false);
+  const skipNextDirtyMark = useRef(true); // true while we're loading/hydrating ev programmatically
 
   // ── Investment entry helpers ──────────────────────────────────────────────────
 
@@ -2153,6 +2295,44 @@ export function TransactionEvaluationPage({
       ),
     }));
   }
+
+  const addAuthor = useCallback(() => {
+    setEv((p) => ({
+      ...p,
+      authors: {
+        authorEntries: [
+          ...p.authors.authorEntries,
+          { id: cryptoRandomId(), signatoryId: "", title: "" },
+        ],
+      },
+    }));
+  }, []);
+
+  const updateAuthor = useCallback(
+    (rowId: string, patch: Partial<{ signatoryId: string; title: string }>) => {
+      setEv((p) => ({
+        ...p,
+        authors: {
+          authorEntries: p.authors.authorEntries.map((a) =>
+            a.id === rowId ? { ...a, ...patch } : a,
+          ),
+        },
+      }));
+    },
+    [],
+  );
+
+  const removeAuthor = useCallback((rowId: string) => {
+    setEv((p) => ({
+      ...p,
+      authors: {
+        authorEntries:
+          p.authors.authorEntries.length > 1
+            ? p.authors.authorEntries.filter((a) => a.id !== rowId)
+            : p.authors.authorEntries, // always keep at least one row
+      },
+    }));
+  }, []);
 
   function addInvestmentLine(entryIdx: number) {
     setEv((p) => ({
@@ -2212,6 +2392,7 @@ export function TransactionEvaluationPage({
       ),
     }));
   }
+
 
   function addMarketComp(entryIdx: number) {
     setEv((p) => ({
@@ -2362,10 +2543,17 @@ export function TransactionEvaluationPage({
     ? neighborhoods.filter((n) => n.cityId === ev.location.cityId)
     : neighborhoods;
 
-  useEffect(() => {
-    if (!tx) return;
-    const e: Record<string, any> = tx.evalData ?? {};
-    const bl = buildByLabel(tx.templateFieldValues);
+  function ensureAtLeastOneAuthor(
+    entries: { id: string; signatoryId: string; title: string }[],
+  ) {
+    return entries.length > 0
+      ? entries
+      : [{ id: cryptoRandomId(), signatoryId: "", title: "" }];
+  }
+
+  const buildEvFromTxData = useCallback((txData: any) => {
+    const e: Record<string, any> = txData.evalData ?? {};
+    const bl = buildByLabel(txData.templateFieldValues);
     const pick = (...candidates: (string | undefined)[]): string =>
       candidates.find((v) => v !== undefined && v !== "") ?? "";
     const resolvedPropertyArea = pick(
@@ -2389,7 +2577,7 @@ export function TransactionEvaluationPage({
         e.electricityMetersCount ??
         null,
     };
-    setEv({
+    return {
       status: pick(e.status, "new"),
       section1Rows:
         Array.isArray(e.section1Rows) && e.section1Rows.length > 0
@@ -2519,20 +2707,39 @@ export function TransactionEvaluationPage({
         incomeReason: pick(e.incomeReason),
       },
       reportItems: {
-        standards: pick(e.standards),
-        scope: pick(e.scope),
-        assumptions: pick(e.assumptions),
-        risks: pick(e.risks),
+        standards: pick(
+          e.standards,
+          "تم إعداد هذا التقرير وفقاً لمعايير التقييم السعودية الصادرة عن الهيئة السعودية للمقيمين المعتمدين (تقييم)، ومعايير التقييم الدولية (IVS).",
+        ),
+        scope: pick(
+          e.scope,
+          "قام المقيم بمعاينة الأصل ميدانياً، وجمع البيانات المتعلقة بالموقع والمساحة والمواصفات، والاطلاع على الوثائق المتوفرة (الصك، الرخصة، المخطط)، بالإضافة إلى دراسة السوق العقاري المحلي والمقارنات المتاحة في نفس المنطقة أو مناطق مشابهة.",
+        ),
+        assumptions: pick(
+          e.assumptions,
+          "تم افتراض أن المعلومات والوثائق المقدمة من قبل العميل صحيحة ودقيقة، وأن الأصل خالٍ من أي التزامات أو نزاعات قانونية لم يتم الإفصاح عنها، وأن الغرض من التقييم كما هو موضح في الطلب.",
+        ),
+        risks: pick(
+          e.risks,
+          "قد تتأثر القيمة النهائية بتقلبات السوق العقاري، أو بأي معلومات لم يتم الإفصاح عنها من قبل العميل، أو بتغيرات في الأنظمة والتشريعات ذات العلاقة.",
+        ),
       },
       authors: {
-        author1Id: pick(e.author1Id),
-        author1Title: pick(e.author1Title),
-        author2Id: pick(e.author2Id),
-        author2Title: pick(e.author2Title),
-        author3Id: pick(e.author3Id),
-        author3Title: pick(e.author3Title),
-        author4Id: pick(e.author4Id),
-        author4Title: pick(e.author4Title),
+        authorEntries: ensureAtLeastOneAuthor(
+          Array.isArray(e.authorEntries) && e.authorEntries.length > 0
+            ? e.authorEntries.map((a: any) => ({
+                id: typeof a.id === "string" && a.id ? a.id : cryptoRandomId(),
+                signatoryId: typeof a.signatoryId === "string" ? a.signatoryId : "",
+                title: typeof a.title === "string" ? a.title : "",
+              }))
+            : [1, 2, 3, 4]
+                .map((n) => ({
+                  signatoryId: pick(e[`author${n}Id`]),
+                  title: pick(e[`author${n}Title`]),
+                }))
+                .filter((a) => a.signatoryId || a.title)
+                .map((a) => ({ id: cryptoRandomId(), ...a })),
+        ),
       },
       comparisonRows: e.comparisonRows?.length
         ? e.comparisonRows.map((r: any) => ({
@@ -2583,10 +2790,65 @@ export function TransactionEvaluationPage({
         : [],
       dcfEntries: Array.isArray(e.dcfEntries) ? e.dcfEntries : [],
       rentalValueEntries: Array.isArray(e.rentalValueEntries)
-        ? e.rentalValueEntries
-        : [],
-    });
-  }, [tx]);
+              ? e.rentalValueEntries
+              : [],
+          };
+        }, [lang]);
+
+        useEffect(() => {
+          if (!tx) return;
+          setEv(buildEvFromTxData(tx));
+          skipNextDirtyMark.current = true;
+        }, [tx, buildEvFromTxData]);
+
+
+        useEffect(() => {
+          fetch(toApiUrl("/api/company/users"), {
+            credentials: "include",
+            cache: "no-store",
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+              if (!data) return;
+              const users = Array.isArray(data.users) ? data.users : [];
+              const reportOnly = Array.isArray(data.reportOnlySignatories)
+                ? data.reportOnlySignatories
+                : [];
+
+              const opts: CompanySignatoryOption[] = [
+                ...users
+                  .filter((u: any) => u.valuationReportDisplayName)
+                  .map((u: any) => ({
+                    id: u.id,
+                    name: u.valuationReportDisplayName as string,
+                    jobTitle: (u.valuationReportJobTitle as string) ?? "",
+                    membershipNo: (u.valuationReportMembershipNo as string) ?? "",
+                    source: "user" as const,
+                  })),
+                ...reportOnly.map((r: any) => ({
+                  id: r.id,
+                  name: r.name as string,
+                  jobTitle: (r.jobTitle as string) ?? "",
+                  membershipNo: (r.membershipNo as string) ?? "",
+                  source: "reportOnly" as const,
+                })),
+              ];
+
+              setSignatories(opts);
+            })
+            .catch(() => {
+              // silently ignore — authors dropdown just falls back to empty list
+            });
+        }, []);
+  useEffect(() => {
+    if (skipNextDirtyMark.current) {
+      skipNextDirtyMark.current = false;
+      return;
+    }
+    setIsDirty(true);
+  }, [ev]);
+
+
 
   const { setOpen } = useSidebar()
 
@@ -2595,7 +2857,15 @@ export function TransactionEvaluationPage({
     setOpen(false);
     return () => setOpen(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = ""; // required for Chrome to show the native confirm dialog
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
   const handleSave = async () => {
     setSaving(true);
     setStatusMsg({ type: "info", text: t.saving });
@@ -2620,7 +2890,7 @@ export function TransactionEvaluationPage({
         ...ev.methodsCost,
         ...ev.methodsIncome,
         ...ev.reportItems,
-        ...ev.authors,
+        authorEntries: ev.authors.authorEntries,
         comparisonRows: ev.comparisonRows,
         section1Rows: ev.section1Rows,
         settlementRows: ev.settlementRows,
@@ -2642,6 +2912,7 @@ export function TransactionEvaluationPage({
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const updated = await res.json();
       setTx(updated);
+      setIsDirty(false);
       setStatusMsg({ type: "ok", text: t.savedOk });
       onStatusSaved?.();
     } catch {
@@ -2735,6 +3006,21 @@ export function TransactionEvaluationPage({
   const svc = ev.services.availableServices;
   const statusColor = STATUS_COLORS[ev.status] ?? STATUS_COLORS.new;
 
+  // ── Select-all / Deselect-all helper for Property Services ─────────────────
+  const ALL_ENV_KEYS = [
+    "mosque", "commercialMarket", "park", "governmentFacility",
+    "highSpeedRoad", "otherServices", "educationalFacility",
+    "securityFacility", "medicalFacility",
+  ];
+  const allEnvSelected = ALL_ENV_KEYS.every((k) =>
+    (ev.services.surroundingEnvironment ?? []).includes(k),
+  );
+  const allBoolServicesSelected =
+    svc.electricity === true &&
+    svc.sanitaryDrainage === true &&
+    svc.telephoneLine === true;
+  const allServicesSelected = allEnvSelected && allBoolServicesSelected;
+
   // ── Loading / Error ────────────────────────────────────────────────────────
 
   if (loading)
@@ -2827,7 +3113,17 @@ export function TransactionEvaluationPage({
       >
         <button
           type="button"
-          onClick={onBack}
+          onClick={() => {
+            if (isDirty) {
+              const confirmed = window.confirm(
+                lang === "ar"
+                  ? "لديك تغييرات غير محفوظة. هل تريد المغادرة دون حفظ؟"
+                  : "You have unsaved changes. Leave without saving?",
+              );
+              if (!confirmed) return;
+            }
+            onBack();
+          }}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -2905,198 +3201,217 @@ export function TransactionEvaluationPage({
         </div>
       </div>
 
-      {/* ── Request Information ─────────────────────────────────────────────── */}
-      <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang}>
-      {activeStep === 0 && (
-        <>
-          {/* ── Hero (enlarged, data-rich) ─────────────────────────────────── */}
-          <div
-            style={{
-              position: "relative",
-              borderRadius: DS.radius.xl,
-              padding: "26px 26px 22px",
-              marginBottom: 12,
-              background: `linear-gradient(135deg, ${DS.primary} 0%, #7c3aed 100%)`,
-              boxShadow: `0 10px 30px -8px ${DS.primary}55`,
-              overflow: "hidden",
-              color: "#fff",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                top: -40, insetInlineEnd: -40,
-                width: 180, height: 180,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.08)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                bottom: -60, insetInlineStart: -20,
-                width: 160, height: 160,
-                borderRadius: "50%",
-                background: "rgba(255,255,255,0.06)",
-              }}
-            />
-            <div style={{ position: "relative" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" as const, marginBottom: 18 }}>
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                    <span
-                      style={{
-                        width: 36, height: 36, borderRadius: DS.radius.md,
-                        background: "rgba(255,255,255,0.16)",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
-                    >
-                      <ClipboardList size={18} />
-                    </span>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.2px" }}>{t.pageTitle}</div>
-                      <div style={{ fontSize: 11, opacity: 0.8 }}>#{transactionId}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>
-                    {t.finalAssetValue}
-                  </div>
-                  <div style={{ fontSize: 32, fontWeight: 800, direction: "ltr" as const, lineHeight: 1.1 }}>
-                    {ev.appraiser.finalAssetValue
-                      ? Number(ev.appraiser.finalAssetValue).toLocaleString("en-US", { maximumFractionDigits: 0 })
-                      : (lang === "ar" ? "لم يُحدد بعد" : "Not yet determined")}
-                  </div>
-                </div>
-
-                {/* Status badge + opened/completed toggles */}
-                <div style={{ display: "flex", flexDirection: "column" as const, alignItems: isRtl ? "flex-start" : "flex-end", gap: 8 }}>
+      {/* ── Quick actions ───────────────────────────────────────────────────────────── */}
                   <div
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "5px 12px",
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: "rgba(255,255,255,0.18)",
+                      background: DS.surface,
+                      border: `1px solid ${DS.border}`,
+                      borderRadius: DS.radius.xl,
+                      marginBottom: 12,
+                      padding: "14px 18px",
+                      boxShadow: DS.shadow.md,
+                      position: "sticky" as const,
+                      top: 12,
+                      zIndex: 60,
                     }}
                   >
-                    {WORKFLOW_STATUSES[lang].find((s) => s.value === ev.status)?.label}
+                    <p style={{ fontSize: 10, fontWeight: 700, color: DS.textLight, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 10px" }}>
+                      {t.secAssetDetails}
+                    </p>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                      <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
+                      <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
+                      <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
+                      <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
+                      <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
+                      <ActionButton icon={<Printer size={14} />} label={t.btnView} onClick={() => window.open(`/api/transactions/${transactionId}/pdf`, "_blank")} />
+                      <ActionButton icon={<FileText size={14} />} label={t.btnPdf} onClick={() => { const a = document.createElement("a"); a.href = `/api/transactions/${transactionId}/pdf`; a.download = `valuation-${transactionId}.pdf`; a.click(); }} />
+                      <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: isRtl ? "flex-start" : "flex-end" }}>
+
+      {/* ── Request Information ─────────────────────────────────────────────── */}
+      <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang} lastStepActions={{
+                onOverview: () => setActiveStep(0),
+                onViewReport: () =>
+                  window.open(`/api/transactions/${transactionId}/pdf`, "_blank"),
+              }}
+>
+      {activeStep === 0 && (
+        <>
+        {/* ── Hero (compact) ──────────────────────────────────────────────── */}
+        {/* ── Hero ─────────────────────────────────────────────────────────── */}
+                  <div
+                    style={{
+                      position: "relative",
+                      borderRadius: DS.radius.xl,
+                      padding: "20px 24px 18px",
+                      marginBottom: 12,
+                      background: `linear-gradient(135deg, ${DS.primary} 0%, #7c3aed 100%)`,
+                      boxShadow: `0 10px 30px -8px ${DS.primary}55`,
+                      overflow: "hidden",
+                      color: "#fff",
+                    }}
+                  >
                     <div
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        background: tx?.isOpened ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
+                        position: "absolute",
+                        top: -40, insetInlineEnd: -40,
+                        width: 180, height: 180,
+                        borderRadius: "50%",
+                        background: "rgba(255,255,255,0.08)",
                       }}
-                    >
-                      {tx?.isOpened ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-                      {lang === "ar" ? (tx?.isOpened ? "تم الفتح" : "لم يُفتح") : (tx?.isOpened ? "Opened" : "Not opened")}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const next = !tx?.isCompleted;
-                        setTx((prev: any) => ({ ...prev, isCompleted: next }));
-                        try {
-                          const res = await fetch(
-                            toApiUrl(`/api/transactions/${transactionId}/completed`),
-                            {
-                              method: "PATCH",
-                              credentials: "include",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ isCompleted: next }),
-                            },
-                          );
-                          if (!res.ok) throw new Error();
-                          const updated = await res.json();
-                          setTx(updated);
-                          onStatusSaved?.();
-                        } catch {
-                          setTx((prev: any) => ({ ...prev, isCompleted: !next }));
-                          setStatusMsg({ type: "error", text: t.saveError });
-                        }
-                      }}
+                    />
+                    <div
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "4px 10px",
-                        borderRadius: 999,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        background: tx?.isCompleted ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
-                        color: "#fff",
+                        position: "absolute",
+                        bottom: -60, insetInlineStart: -20,
+                        width: 160, height: 160,
+                        borderRadius: "50%",
+                        background: "rgba(255,255,255,0.06)",
                       }}
-                    >
-                      {tx?.isCompleted ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-                      {lang === "ar" ? (tx?.isCompleted ? "مكتملة" : "غير مكتملة") : (tx?.isCompleted ? "Completed" : "Not completed")}
-                    </button>
-                  </div>
-                </div>
-              </div>
+                    />
+                    <div style={{ position: "relative" }}>
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" as const, marginBottom: 14 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                          <span
+                            style={{
+                              width: 34, height: 34, borderRadius: DS.radius.md,
+                              background: "rgba(255,255,255,0.16)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            <ClipboardList size={17} />
+                          </span>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.2px" }}>{t.pageTitle}</span>
+                              <span style={{ fontSize: 11, opacity: 0.75 }}>#{transactionId}</span>
+                            </div>
+                            <div style={{ fontSize: 10.5, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginTop: 4 }}>
+                              {t.finalAssetValue}
+                            </div>
+                            <div style={{ fontSize: 26, fontWeight: 800, direction: "ltr" as const, lineHeight: 1.15 }}>
+                              {ev.appraiser.finalAssetValue
+                                ? Number(ev.appraiser.finalAssetValue).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                                : (lang === "ar" ? "لم يُحدد بعد" : "Not yet determined")}
+                            </div>
+                          </div>
+                        </div>
 
-              {/* Data-rich metrics grid (merged from Request + Asset Info) */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-                  gap: "16px 22px",
-                  paddingTop: 16,
-                  borderTop: "1px solid rgba(255,255,255,0.18)",
-                }}
-              >
-                {[
-                  { label: t.propertyArea, value: ev.assetInfo.propertyArea },
-                  { label: t.propertyType, value: ev.assetInfo.propertyType },
-                  { label: t.address, value: ev.assetInfo.address },
-                  { label: t.landUse, value: ev.assetInfo.landUse },
-                  { label: t.region, value: ev.location.regionName || ev.location.cityName },
-                  { label: t.client, value: tx?.clientName ?? tx?.clientId },
-                  {
-                    label: t.valuationPurpose,
-                    value: VALUATION_PURPOSES[lang][tx?.valuationPurpose] ?? tx?.valuationPurpose,
-                  },
-                  { label: t.refNo, value: transactionId },
-                ].map((m, i) => (
-                  <div key={i} style={{ minWidth: 90 }}>
-                    <div style={{ fontSize: 10, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>
-                      {m.label}
+                        {/* Status badge + opened/completed toggles */}
+                        <div style={{ display: "flex", flexDirection: "column" as const, alignItems: isRtl ? "flex-start" : "flex-end", gap: 7 }}>
+                          <div
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "5px 12px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              background: "rgba(255,255,255,0.18)",
+                            }}
+                          >
+                            {WORKFLOW_STATUSES[lang].find((s) => s.value === ev.status)?.label}
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: isRtl ? "flex-start" : "flex-end" }}>
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 5,
+                                padding: "4px 10px",
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: tx?.isOpened ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
+                              }}
+                            >
+                              {tx?.isOpened ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                              {lang === "ar" ? (tx?.isOpened ? "تم الفتح" : "لم يُفتح") : (tx?.isOpened ? "Opened" : "Not opened")}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const next = !tx?.isCompleted;
+                                setTx((prev: any) => ({ ...prev, isCompleted: next }));
+                                try {
+                                  const res = await fetch(
+                                    toApiUrl(`/api/transactions/${transactionId}/completed`),
+                                    {
+                                      method: "PATCH",
+                                      credentials: "include",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ isCompleted: next }),
+                                    },
+                                  );
+                                  if (!res.ok) throw new Error();
+                                  const updated = await res.json();
+                                  setTx(updated);
+                                  onStatusSaved?.();
+                                } catch {
+                                  setTx((prev: any) => ({ ...prev, isCompleted: !next }));
+                                  setStatusMsg({ type: "error", text: t.saveError });
+                                }
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 5,
+                                padding: "4px 10px",
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                border: "none",
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                                background: tx?.isCompleted ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
+                                color: "#fff",
+                              }}
+                            >
+                              {tx?.isCompleted ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                              {lang === "ar" ? (tx?.isCompleted ? "مكتملة" : "غير مكتملة") : (tx?.isCompleted ? "Completed" : "Not completed")}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Data-rich metrics grid (merged from Request + Asset Info) */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+                          gap: "12px 22px",
+                          paddingTop: 13,
+                          borderTop: "1px solid rgba(255,255,255,0.18)",
+                        }}
+                      >
+                        {[
+                          { label: t.propertyArea, value: ev.assetInfo.propertyArea },
+                          { label: t.propertyType, value: ev.assetInfo.propertyType },
+                          { label: t.address, value: ev.assetInfo.address },
+                          { label: t.landUse, value: ev.assetInfo.landUse },
+                          { label: t.region, value: ev.location.regionName || ev.location.cityName },
+                          { label: t.client, value: tx?.clientName ?? tx?.clientId },
+                          {
+                            label: t.valuationPurpose,
+                            value: VALUATION_PURPOSES[lang][tx?.valuationPurpose] ?? tx?.valuationPurpose,
+                          },
+                          { label: t.refNo, value: transactionId },
+                        ].map((m, i) => (
+                          <div key={i} style={{ minWidth: 90 }}>
+                            <div style={{ fontSize: 9.5, opacity: 0.75, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>
+                              {m.label}
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{m.value || "—"}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35 }}>{m.value || "—"}</div>
+
                   </div>
-                ))}
-              </div>
-            </div>
-            </div>
-
-            {/* ── Quick actions ───────────────────────────────────────────────────── */}
-            <div style={{ background: DS.surface, border: `1px solid ${DS.border}`, borderRadius: DS.radius.xl, marginBottom: 12, padding: "14px 18px", boxShadow: DS.shadow.sm }}>
-              <p style={{ fontSize: 10, fontWeight: 700, color: DS.textLight, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 10px" }}>
-                {t.secAssetDetails}
-              </p>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-                <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
-                <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
-                <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
-                <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
-                <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
-                <ActionButton icon={<Printer size={14} />} label={t.btnView} onClick={() => window.open(`/api/transactions/${transactionId}/pdf`, "_blank")} />
-                <ActionButton icon={<FileText size={14} />} label={t.btnPdf} onClick={() => { const a = document.createElement("a"); a.href = `/api/transactions/${transactionId}/pdf`; a.download = `valuation-${transactionId}.pdf`; a.click(); }} />
-                <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
-              </div>
-            </div>
-
           {/* ── Expanded stat grid (remaining Request + Asset Info data) ─────── */}
           <div
             style={{
@@ -3641,7 +3956,48 @@ export function TransactionEvaluationPage({
               }
             />
           </Field>
-        </GridFields>
+              </GridFields>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEv((p) => ({
+                      ...p,
+                      services: {
+                        ...p.services,
+                        availableServices: {
+                          ...p.services.availableServices,
+                          electricity: !allServicesSelected ? true : null,
+                          sanitaryDrainage: !allServicesSelected ? true : null,
+                          telephoneLine: !allServicesSelected ? true : null,
+                        },
+                        surroundingEnvironment: !allServicesSelected ? ALL_ENV_KEYS : [],
+                      },
+                    }))
+                  }
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "7px 14px",
+                    background: allServicesSelected ? `${DS.red}10` : `${DS.primary}10`,
+                    border: `1px solid ${allServicesSelected ? DS.red + "35" : DS.primary + "30"}`,
+                    borderRadius: DS.radius.md,
+                    color: allServicesSelected ? DS.red : DS.primary,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {allServicesSelected ? <X size={13} /> : <Check size={13} />}
+                  {allServicesSelected
+                    ? lang === "ar" ? "إلغاء تحديد الكل" : "Deselect All"
+                    : lang === "ar" ? "تحديد الكل" : "Select All"}
+                </button>
+              </div>
 
         <div style={{ marginTop: 16 }}>
           {/* Boolean toggle checkboxes — electricity, drainage, telephone */}
@@ -8173,66 +8529,131 @@ export function TransactionEvaluationPage({
       {/* ── Authors ──────────────────────────────────────────────────────────── */}
             <SectionCard title={t.secAuthors} icon={<Users size={14}/>} lang={lang} >
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {[1, 2, 3, 4].map((n) => (
-            <div
-              key={n}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {ev.authors.authorEntries.map((entry, idx) => {
+              const picked = signatories.find((s) => s.id === entry.signatoryId);
+              return (
+                <div
+                  key={entry.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr auto",
+                    gap: 10,
+                    alignItems: "end",
+                    padding: "12px 14px",
+                    background: DS.surfaceAlt,
+                    border: `1px solid ${DS.border}`,
+                    borderRadius: DS.radius.md,
+                  }}
+                >
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: DS.textLight,
+                        fontWeight: 700,
+                        textTransform: "uppercase" as const,
+                        letterSpacing: "0.06em",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {lang === "ar" ? `معد ${idx + 1} — الاسم` : `Author ${idx + 1} — Name`}
+                    </label>
+                    <Select
+                      value={entry.signatoryId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const sig = signatories.find((s) => s.id === val);
+                        updateAuthor(entry.id, {
+                          signatoryId: val,
+                          title: sig ? sig.jobTitle : entry.title,
+                        });
+                      }}
+                    >
+                      <option value="">{lang === "ar" ? "بدون" : "None"}</option>
+                      {signatories.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                          {s.source === "reportOnly"
+                            ? lang === "ar"
+                              ? " (معدّ تقرير)"
+                              : " (Report only)"
+                            : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        color: DS.textLight,
+                        fontWeight: 700,
+                        textTransform: "uppercase" as const,
+                        letterSpacing: "0.06em",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {lang === "ar" ? `معد ${idx + 1} — المنصب` : `Author ${idx + 1} — Title`}
+                    </label>
+                    <Input
+                      value={entry.title}
+                      onChange={(e) => updateAuthor(entry.id, { title: e.target.value })}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeAuthor(entry.id)}
+                    disabled={ev.authors.authorEntries.length <= 1}
+                    title={lang === "ar" ? "حذف" : "Remove"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 34,
+                      height: 34,
+                      border: `1px solid ${DS.border}`,
+                      borderRadius: DS.radius.md,
+                      background: DS.surface,
+                      color: DS.red,
+                      cursor:
+                        ev.authors.authorEntries.length <= 1 ? "not-allowed" : "pointer",
+                      opacity: ev.authors.authorEntries.length <= 1 ? 0.35 : 1,
+                    }}
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={addAuthor}
               style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-                padding: "12px 14px",
-                background: DS.surfaceAlt,
-                border: `1px solid ${DS.border}`,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                alignSelf: "flex-start",
+                padding: "8px 14px",
+                background: `${DS.primary}12`,
+                border: `1.5px solid ${DS.primary}35`,
                 borderRadius: DS.radius.md,
+                color: DS.primary,
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
               }}
             >
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 10,
-                    color: DS.textLight,
-                    fontWeight: 700,
-                    textTransform: "uppercase" as const,
-                    letterSpacing: "0.06em",
-                    marginBottom: 4,
-                  }}
-                >
-                  {lang === "ar"
-                    ? `معد ${n} — معرف / اسم`
-                    : `Author ${n} — ID / Name`}
-                </label>
-                <Input
-                  value={(ev.authors as any)[`author${n}Id`] ?? ""}
-                  onChange={(e) =>
-                    setField("authors", `author${n}Id`, e.target.value)
-                  }
-                />
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    fontSize: 10,
-                    color: DS.textLight,
-                    fontWeight: 700,
-                    textTransform: "uppercase" as const,
-                    letterSpacing: "0.06em",
-                    marginBottom: 4,
-                  }}
-                >
-                  {lang === "ar" ? `معد ${n} — المنصب` : `Author ${n} — Title`}
-                </label>
-                <Input
-                  value={(ev.authors as any)[`author${n}Title`] ?? ""}
-                  onChange={(e) =>
-                    setField("authors", `author${n}Title`, e.target.value)
-                  }
-                />
-              </div>
-            </div>
-          ))}
+              <UserCheck size={14} />
+              {lang === "ar" ? "إضافة معدّ" : "Add Author"}
+            </button>
+          </div>
         </div>
             </SectionCard>
 
@@ -8313,8 +8734,212 @@ export function TransactionEvaluationPage({
             <Save size={22} />
           )}
         </button>
+        <button
+                  type="button"
+                  onClick={openCopyModal}
+                  title={
+                    lang === "ar"
+                      ? "نسخ البيانات من معاملة أخرى"
+                      : "Copy Data from Another Transaction"
+                  }
+                  style={{
+                    width: 46,
+                    height: 46,
+                    borderRadius: "50%",
+                    background: DS.surface,
+                    color: DS.primary,
+                    border: `1.5px solid ${DS.primary}40`,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: DS.shadow.md,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <Copy size={19} />
+                </button>
       </div>
 
+
+      {showCopyModal && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(15,23,42,0.55)",
+                  zIndex: 500,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 16,
+                }}
+                onClick={() => setShowCopyModal(false)}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    background: DS.surface,
+                    borderRadius: DS.radius.xl,
+                    width: "100%",
+                    maxWidth: 560,
+                    maxHeight: "80vh",
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    boxShadow: DS.shadow.lg,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "14px 18px",
+                      borderBottom: `1px solid ${DS.border}`,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <span
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: DS.radius.sm,
+                          background: `${DS.primary}15`,
+                          color: DS.primary,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Copy size={15} />
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: DS.text }}>
+                        {lang === "ar"
+                          ? "نسخ البيانات من معاملة أخرى"
+                          : "Copy Data from Another Transaction"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCopyModal(false)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: DS.textMuted,
+                        display: "flex",
+                      }}
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+
+                  <div style={{ padding: "12px 18px 0" }}>
+                    <Input
+                      value={copySearch}
+                      onChange={(e) => setCopySearch(e.target.value)}
+                      placeholder={
+                        lang === "ar"
+                          ? "ابحث برقم التكليف أو العميل أو المالك..."
+                          : "Search by assignment #, client, or owner..."
+                      }
+                    />
+                  </div>
+
+                  {copyError && (
+                    <div style={{ margin: "10px 18px 0", fontSize: 12, color: DS.red }}>
+                      {copyError}
+                    </div>
+                  )}
+
+                  <div style={{ padding: "12px 18px 18px", overflowY: "auto", flex: 1 }}>
+                    {copyLoading ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 40,
+                          color: DS.textMuted,
+                          gap: 8,
+                        }}
+                      >
+                        <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                        {t.loading}
+                      </div>
+                    ) : filteredCopyList.length === 0 ? (
+                      <div
+                        style={{
+                          textAlign: "center",
+                          color: DS.textLight,
+                          padding: 40,
+                          fontSize: 13,
+                        }}
+                      >
+                        {lang === "ar" ? "لا توجد معاملات" : "No transactions found"}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {filteredCopyList.map((row: any) => {
+                          const id = row.id ?? row._id;
+                          const busy = copyingId === id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              disabled={!!copyingId}
+                              onClick={() => handleCopyFromTransaction(id)}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                padding: "10px 12px",
+                                border: `1px solid ${DS.border}`,
+                                borderRadius: DS.radius.md,
+                                background: DS.surfaceAlt,
+                                cursor: copyingId ? "default" : "pointer",
+                                textAlign: isRtl ? "right" : "left",
+                                fontFamily: "inherit",
+                                opacity: copyingId && !busy ? 0.5 : 1,
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: DS.text,
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {row.clientName ?? row.clientId ?? "—"}
+                                  {row.assignmentNumber ? ` · ${row.assignmentNumber}` : ""}
+                                </div>
+                                <div style={{ fontSize: 11, color: DS.textMuted, marginTop: 2 }}>
+                                  {row?.evalData?.address ?? row?.evalData?.ownerName ?? id}
+                                </div>
+                              </div>
+                              {busy ? (
+                                <Loader2
+                                  size={15}
+                                  style={{ animation: "spin 1s linear infinite", color: DS.primary }}
+                                />
+                              ) : (
+                                <Copy size={15} style={{ color: DS.primary, flexShrink: 0 }} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   );

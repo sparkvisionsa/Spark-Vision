@@ -72,6 +72,7 @@ const copy = {
     sidebarSources: "Information Sources System",
     sidebarApp: "Report Upload System",
     sidebarAssetInventory: "Asset Inventory System",
+    sidebarTransactions: "Transactions",
     sidebarAssetInspection: "Asset Inspection System",
     sidebarClients: "Clients",
     sidebarSettings: "Settings",
@@ -93,6 +94,7 @@ const copy = {
     sidebarApp: "نظام رفع التقارير",
     sidebarAssetInventory: "تطبيق حصر الأصول",
     sidebarAssetInspection: "تطبيق معاينة الأصول",
+    sidebarTransactions: "المعاملات",
     sidebarClients: "العملاء",
     sidebarSettings: "الإعدادات",
     sidebarCompany: "دليل الشركة",
@@ -504,12 +506,6 @@ export default function ValueTechShell({
     pathname === "/machine-valuation" ||
     pathname.startsWith("/machine-valuation/");
 
-  const currentProduct = PRODUCT_ROUTES.find((r) =>
-    r.href === "/evaluation-source"
-      ? pathname === "/evaluation-source" ||
-        pathname.startsWith("/evaluation-source/")
-      : pathname === r.href || pathname.startsWith(r.href + "/"),
-  );
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
@@ -631,27 +627,25 @@ export default function ValueTechShell({
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {currentProduct && (
-                    <SidebarMenuItem>
+                  <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
-                        isActive
-                        className={activeClass}
+                        isActive={isActive("/real-estate-valuation")}
+                        className={
+                          isActive("/real-estate-valuation") ? activeClass : idleClass
+                        }
                       >
                         <Link
-                          href={currentProduct.href}
+                          href="/real-estate-valuation"
                           className="flex items-center gap-2"
                         >
-                          <currentProduct.icon
-                            className={cn("h-4 w-4", currentProduct.iconColor)}
-                          />
+                          <ClipboardList className="h-4 w-4 text-emerald-600" />
                           <span className={dark ? undefined : "text-black"}>
-                            {t[currentProduct.labelKey]}
+                            {t.sidebarTransactions}
                           </span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                  )}
 
                   <SidebarSeparator className={cn("my-2", separatorClass)} />
 

@@ -325,14 +325,6 @@ const AUTO_FILL_RULES: AutoFillRule[] = [
   },
   { titles: ["الواجهات", "Frontages"], getValue: (row) => row.roads || "" },
   {
-    titles: ["ظروف السوق", "Market Conditions"],
-    getValue: (row) => row.description || "",
-  },
-  {
-    titles: ["شروط التمويل", "Financing Terms"],
-    getValue: (row) => row.source || "",
-  },
-  {
     titles: ["الإستخدام", "Usage"],
     getValue: (row, lang, propertyTypes) =>
       row.propertyTypeId ? (propertyTypes[lang][row.propertyTypeId] ?? "") : "",
