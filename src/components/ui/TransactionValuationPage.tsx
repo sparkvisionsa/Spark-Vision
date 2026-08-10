@@ -2682,12 +2682,20 @@ export function TransactionEvaluationPage({
       },
       appraiser: {
         ...emptyAppraiserData(),
-        evalDate: pick(e.evalDate),
-        completedDate: pick(e.completedDate),
-        reportDate: pick(e.reportDate),
-        finalAssetValue: pick(e.finalAssetValue),
-        appraiserDesc: pick(e.appraiserDesc),
-        appraiserNotes: pick(e.appraiserNotes),
+        ...(e.appraiserData && typeof e.appraiserData === "object"
+          ? e.appraiserData
+          : {}),
+        // legacy fallback for records saved before appraiserData existed
+        ...(!e.appraiserData || Object.keys(e.appraiserData).length === 0
+          ? {
+              evalDate: pick(e.evalDate),
+              completedDate: pick(e.completedDate),
+              reportDate: pick(e.reportDate),
+              finalAssetValue: pick(e.finalAssetValue),
+              appraiserDesc: pick(e.appraiserDesc),
+              appraiserNotes: pick(e.appraiserNotes),
+            }
+          : {}),
       },
       methodsMarket: {
         marketMeterPrice: pick(e.marketMeterPrice),
@@ -2885,7 +2893,13 @@ export function TransactionEvaluationPage({
         availableServices: ev.services.availableServices,
         surroundingEnvironment: ev.services.surroundingEnvironment,
         ...ev.map,
-        ...ev.appraiser,
+        appraiserData: ev.appraiser,
+        evalDate: ev.appraiser.evalDate,
+        completedDate: ev.appraiser.completedDate,
+        reportDate: ev.appraiser.reportDate,
+        finalAssetValue: ev.appraiser.finalAssetValue,
+        appraiserDesc: ev.appraiser.appraiserDesc,
+        appraiserNotes: ev.appraiser.appraiserNotes,
         ...ev.methodsMarket,
         ...ev.methodsCost,
         ...ev.methodsIncome,
@@ -3224,8 +3238,23 @@ export function TransactionEvaluationPage({
                       <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
                       <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
                       <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
-                      <ActionButton icon={<Printer size={14} />} label={t.btnView} onClick={() => window.open(`/api/transactions/${transactionId}/pdf`, "_blank")} />
-                      <ActionButton icon={<FileText size={14} />} label={t.btnPdf} onClick={() => { const a = document.createElement("a"); a.href = `/api/transactions/${transactionId}/pdf`; a.download = `valuation-${transactionId}.pdf`; a.click(); }} />
+                      <ActionButton
+                        icon={<Printer size={14} />}
+                        label={t.btnView}
+                        onClick={() =>
+                          window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank")
+                        }
+                      />
+                      <ActionButton
+                        icon={<FileText size={14} />}
+                        label={t.btnPdf}
+                        onClick={() => {
+                          const a = document.createElement("a");
+                          a.href = `/api/transactions/${transactionId}/pdf?disposition=attachment`;
+                          a.download = `valuation-${transactionId}.pdf`;
+                          a.click();
+                        }}
+                      />
                       <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
                     </div>
                   </div>
@@ -3234,7 +3263,7 @@ export function TransactionEvaluationPage({
       <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang} lastStepActions={{
                 onOverview: () => setActiveStep(0),
                 onViewReport: () =>
-                  window.open(`/api/transactions/${transactionId}/pdf`, "_blank"),
+                  window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank"),
               }}
 >
       {activeStep === 0 && (

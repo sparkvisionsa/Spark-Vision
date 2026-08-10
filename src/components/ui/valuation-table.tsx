@@ -552,15 +552,20 @@ function applyFilters(
 
 // ─── PDF helpers ──────────────────────────────────────────────────────────────
 
-/** Opens the PDF in a new tab (view / print) */
+/** Opens the PDF/DOCX in a new tab for viewing */
 function viewPdf(transactionId: string) {
-  window.open(toApiUrl(`/api/transactions/${transactionId}/pdf`), "_blank");
+  window.open(
+    toApiUrl(`/api/transactions/${transactionId}/pdf?disposition=inline`),
+    "_blank",
+  );
 }
 
-/** Triggers a browser download of the PDF */
+/** Triggers a browser download */
 function downloadPdf(transactionId: string) {
   const a = document.createElement("a");
-  a.href = toApiUrl(`/api/transactions/${transactionId}/pdf`);
+  a.href = toApiUrl(
+    `/api/transactions/${transactionId}/pdf?disposition=attachment`,
+  );
   a.download = `valuation-${transactionId}.pdf`;
   document.body.appendChild(a);
   a.click();

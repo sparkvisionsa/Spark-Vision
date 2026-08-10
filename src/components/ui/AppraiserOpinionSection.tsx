@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -359,10 +359,11 @@ export function AppraiserOpinionSection({
 
   // Keep finalAssetValue in sync so parent saves the computed number
   const finalValueStr = finalValue > 0 ? String(finalValue) : "";
-  if (data.finalAssetValue !== finalValueStr) {
-    // Schedule outside render to avoid setState-during-render warning
-    setTimeout(() => set({ finalAssetValue: finalValueStr }), 0);
-  }
+  useEffect(() => {
+    if (data.finalAssetValue !== finalValueStr) {
+      set({ finalAssetValue: finalValueStr });
+    }
+  }, [finalValueStr, data.finalAssetValue, set]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
