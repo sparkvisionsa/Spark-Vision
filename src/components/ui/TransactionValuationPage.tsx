@@ -2820,7 +2820,10 @@ export function TransactionEvaluationPage({
               if (!data) return;
               const users = Array.isArray(data.users) ? data.users : [];
               const reportOnly = Array.isArray(data.reportOnlySignatories)
-                ? data.reportOnlySignatories
+                ? data.reportOnlySignatories.filter((r: any) =>
+                    Array.isArray(r.productIds) &&
+                    r.productIds.includes("real-estate-valuation"),
+                  )
                 : [];
 
               const opts: CompanySignatoryOption[] = [
