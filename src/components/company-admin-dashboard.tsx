@@ -85,6 +85,8 @@ import {
   Wand2,
 } from "lucide-react";
 
+console.log("company-admin-dashboard.tsx LOADED");
+
 export type CompanyAdminDashboardVariant = "standalone" | "embedded";
 export type CompanyAdminDashboardMode = "general" | "report-defaults";
 
@@ -120,6 +122,7 @@ type ReportOnlySignatoryRow = {
   membershipNo: string;
   signatureImageDataUrl: string | null;
   createdAt: string;
+  productIds: string[];
   updatedAt: string;
   isReportOnly: true;
 };
@@ -1607,6 +1610,25 @@ export default function CompanyAdminDashboard({
   );
   const productPayload = useMemo(() => (productId ? { productId } : {}), [productId]);
   const productLabel = productId ? VALUE_TECH_PRODUCT_LABELS_AR[productId] : null;
+
+  const visibleReportOnlySignatories = useMemo(() => {
+    if (!data) return [];
+    if (!productId) {
+      console.log("No product id found")
+      return data.reportOnlySignatories;
+    }
+    console.log("product id found")
+
+    return data.reportOnlySignatories.filter((row) => {
+      const rowProductIds = row.productIds ?? [];
+      if (rowProductIds.length === 0) {
+        // Untagged legacy rows default to machine-valuation (equipment) only
+        return productId === "machine-valuation";
+      }
+      return rowProductIds.includes(productId);
+    });
+  }, [data, productId]);
+
   const reportDefaultsOnly = mode === "report-defaults";
   const isCompanyAdmin = user?.role === "company_admin";
 
@@ -1627,6 +1649,7 @@ export default function CompanyAdminDashboard({
           jobTitle: row.jobTitle ?? "",
           membershipNo: row.membershipNo ?? "",
           signatureImageDataUrl: row.signatureImageDataUrl ?? null,
+          productIds: row.productIds ?? [], // NEW
           createdAt: row.createdAt ?? "",
           updatedAt: row.updatedAt ?? "",
           isReportOnly: true,
@@ -2311,7 +2334,7 @@ export default function CompanyAdminDashboard({
     setSubmitError(null);
     setStatus(null);
     try {
-      await apiJson("/api/company/report-signatories", csrfToken, {
+      await apiJson(`/api/company/report-signatories${productQuery}`, csrfToken, { // CHANGED
         method: "POST",
         body: JSON.stringify({
           name,
@@ -3060,7 +3083,7 @@ export default function CompanyAdminDashboard({
                           </TableRow>
                         );
                       })}
-                      {data.reportOnlySignatories.map((row) => (
+                      {visibleReportOnlySignatories.map((row) => (
                         <TableRow key={row.id} className="border-slate-100 bg-violet-50/20">
                           <TableCell className="font-medium text-slate-900">
                             <div className="grid gap-0.5">
@@ -3118,7 +3141,7 @@ export default function CompanyAdminDashboard({
                           </TableCell>
                         </TableRow>
                       ))}
-                      {data.users.length === 0 && data.reportOnlySignatories.length === 0 ? (
+                      {data.users.length === 0 && visibleReportOnlySignatories.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={5} className="py-10 text-center text-[12px] text-slate-500">
                             لا يوجد مقيمون بعد. أضف مستخدماً من تبويب مستخدمو الشركة أو معدّ تقرير من هنا.
