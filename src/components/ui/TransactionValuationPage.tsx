@@ -2467,6 +2467,13 @@ export function TransactionEvaluationPage({
       },
     }));
 
+  const setLandSpace = (val: string) =>
+    setEv((prev) => ({
+      ...prev,
+      assetInfo: { ...prev.assetInfo, propertyArea: val },
+      replacementFields: { ...prev.replacementFields, landSpace: val },
+    }));
+
   const setAvailableService = (
     key: keyof AvailableServices,
     val: boolean | number | null,
@@ -2557,8 +2564,8 @@ export function TransactionEvaluationPage({
     const pick = (...candidates: (string | undefined)[]): string =>
       candidates.find((v) => v !== undefined && v !== "") ?? "";
     const resolvedPropertyArea = pick(
-      e.propertyArea,
       e.landSpace,
+      e.propertyArea,
       e.assetArea,
       bl["مساحة الأصل"],
     );
@@ -3773,7 +3780,15 @@ export function TransactionEvaluationPage({
               <option value="مستوي">{lang === "ar" ? "مستوي" : "Level"}</option>
               <option value="منخفض">{lang === "ar" ? "منخفض" : "Low"}</option>
             </Select>
-          </Field>
+                </Field>
+                <Field label={t.landSpace}>
+                  <Input
+                    type="text"
+                    dir="ltr"
+                    value={ev.replacementFields.landSpace}
+                    onChange={(e) => setLandSpace(e.target.value)}
+                  />
+                </Field>
           <Field label={t.streetWidth} required={requiredBasicKeys.has("streetWidth")}>
             <Input
               type="text"
@@ -4508,7 +4523,11 @@ export function TransactionEvaluationPage({
           }
           fields={ev.replacementFields as ReplacementFields}
           onFieldsChange={(fields) =>
-            setEv((p) => ({ ...p, replacementFields: fields }))
+            setEv((p) => ({
+              ...p,
+              replacementFields: fields,
+              assetInfo: { ...p.assetInfo, propertyArea: fields.landSpace },
+            }))
           }
         />
             </SectionCard>

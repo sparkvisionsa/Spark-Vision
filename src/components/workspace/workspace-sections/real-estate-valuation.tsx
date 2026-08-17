@@ -157,6 +157,12 @@ const RealEstateValuationSection = () => {
     return () => clearInterval(id);
   }, [fetchTransactions]);
 
+  useEffect(() => {
+    const handler = () => setView({ name: "list" });
+    window.addEventListener("sv:real-estate-go-list", handler);
+    return () => window.removeEventListener("sv:real-estate-go-list", handler);
+  }, []);
+
   // ─── Navigation helpers ────────────────────────────────────────────────────
 
   const goList = useCallback(() => setView({ name: "list" }), []);

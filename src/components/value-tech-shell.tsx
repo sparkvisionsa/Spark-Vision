@@ -627,7 +627,7 @@ export default function ValueTechShell({
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <SidebarMenuItem>
+                    <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
                         isActive={isActive("/real-estate-valuation")}
@@ -637,6 +637,9 @@ export default function ValueTechShell({
                       >
                         <Link
                           href="/real-estate-valuation"
+                          onClick={() => {
+                            window.dispatchEvent(new CustomEvent("sv:real-estate-go-list"));
+                          }}
                           className="flex items-center gap-2"
                         >
                           <ClipboardList className="h-4 w-4 text-emerald-600" />
