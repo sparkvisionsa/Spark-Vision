@@ -3121,20 +3121,24 @@ export function TransactionEvaluationPage({
         boxSizing: "border-box",
       }}
     >
-      {/* ── Page header ────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 10,
-          background: DS.surface,
-          borderRadius: DS.radius.xl,
-          padding: "12px 14px",
-          border: `1px solid ${DS.border}`,
-          boxShadow: DS.shadow.sm,
-        }}
-      >
+    {/* ── Page header (incl. quick actions) ─────────────────────────────── */}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: 12,
+        marginBottom: 12,
+        background: DS.surface,
+        borderRadius: DS.radius.xl,
+        padding: "12px 14px",
+        border: `1px solid ${DS.border}`,
+        boxShadow: DS.shadow.md,
+        position: "sticky" as const,
+        top: 12,
+        zIndex: 60,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button
           type="button"
           onClick={() => {
@@ -3225,49 +3229,37 @@ export function TransactionEvaluationPage({
         </div>
       </div>
 
-      {/* ── Quick actions ───────────────────────────────────────────────────────────── */}
-                  <div
-                    style={{
-                      background: DS.surface,
-                      border: `1px solid ${DS.border}`,
-                      borderRadius: DS.radius.xl,
-                      marginBottom: 12,
-                      padding: "14px 18px",
-                      boxShadow: DS.shadow.md,
-                      position: "sticky" as const,
-                      top: 12,
-                      zIndex: 60,
-                    }}
-                  >
-                    <p style={{ fontSize: 10, fontWeight: 700, color: DS.textLight, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 10px" }}>
-                      {t.secAssetDetails}
-                    </p>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-                      <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
-                      <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
-                      <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
-                      <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
-                      <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
-                      <ActionButton
-                        icon={<Printer size={14} />}
-                        label={t.btnView}
-                        onClick={() =>
-                          window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank")
-                        }
-                      />
-                      <ActionButton
-                        icon={<FileText size={14} />}
-                        label={t.btnPdf}
-                        onClick={() => {
-                          const a = document.createElement("a");
-                          a.href = `/api/transactions/${transactionId}/pdf?disposition=attachment`;
-                          a.download = `valuation-${transactionId}.pdf`;
-                          a.click();
-                        }}
-                      />
-                      <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
-                    </div>
-                  </div>
+      {/* ── Quick actions ─────────────────────────────────────────────── */}
+      <div style={{ borderTop: `1px solid ${DS.border}`, paddingTop: 10 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+          <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
+          <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
+          <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
+          <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
+          <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
+          <ActionButton
+            icon={<Printer size={14} />}
+            label={t.btnView}
+            onClick={() =>
+              window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank")
+            }
+          />
+          <ActionButton
+            icon={<FileText size={14} />}
+            label={t.btnPdf}
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = `/api/transactions/${transactionId}/pdf?disposition=attachment`;
+              a.download = `valuation-${transactionId}.pdf`;
+              a.click();
+            }}
+          />
+          <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
+        </div>
+      </div>
+    </div>
+
+
 
       {/* ── Request Information ─────────────────────────────────────────────── */}
       <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang} lastStepActions={{
@@ -3278,8 +3270,7 @@ export function TransactionEvaluationPage({
 >
       {activeStep === 0 && (
         <>
-        {/* ── Hero (compact) ──────────────────────────────────────────────── */}
-        {/* ── Hero ─────────────────────────────────────────────────────────── */}
+        {/* ── Hero ──────────────────────────────────────────────── */}
                   <div
                     style={{
                       position: "relative",

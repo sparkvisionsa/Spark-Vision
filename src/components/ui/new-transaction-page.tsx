@@ -1521,6 +1521,12 @@ function StepReview({
   onGoBackToScan,
   deedAttachment,
   setDeedAttachment,
+  regions,
+  cities,
+  neighborhoods,
+  loadingLocations,
+  locationSelection,
+  onLocationSelectionChange,
 }: {
   ocrResult: OcrResult | null;
   evalDataFields: Record<string, string>;
@@ -1539,6 +1545,23 @@ function StepReview({
   onGoBackToScan: () => void;
   deedAttachment: File | null;
   setDeedAttachment: (f: File | null) => void;
+  regions: { id: string; titleAr: string; titleEn: string }[];
+  cities: { id: string; titleAr: string; titleEn: string; regionId: string }[];
+  neighborhoods: {
+    id: string;
+    titleAr: string;
+    titleEn: string;
+    cityId: string;
+  }[];
+  loadingLocations: boolean;
+  locationSelection: { regionId: string; cityId: string; neighborhoodId: string };
+  onLocationSelectionChange: React.Dispatch<
+    React.SetStateAction<{
+      regionId: string;
+      cityId: string;
+      neighborhoodId: string;
+    }>
+  >;
 }) {
   const hasOcr = ocrResult !== null;
 
@@ -1552,6 +1575,58 @@ function StepReview({
 
   // FIX 3: Pass ownerId extracted from deed to the verification panel
   const ownerId = ocrResult?.ownerId ?? "";
+
+  // Location fields (region/city/neighborhood) in the general template map to
+  // these evalData keys — see LABEL_TO_EVAL_KEY.
+  const citiesForRegion = locationSelection.regionId
+    ? cities.filter((c) => c.regionId === locationSelection.regionId)
+    : cities;
+  const neighborhoodsForCity = locationSelection.cityId
+    ? neighborhoods.filter((n) => n.cityId === locationSelection.cityId)
+    : neighborhoods;
+
+  const handleRegionSelect = (val: string) => {
+    const region = regions.find((r) => r.id === val);
+    onLocationSelectionChange({
+      regionId: val,
+      cityId: "",
+      neighborhoodId: "",
+    });
+    setEvalField("regionId", val);
+    setEvalField(
+      "regionName",
+      region ? (isArabic ? region.titleAr : region.titleEn) : "",
+    );
+    setEvalField("cityName", "");
+    setEvalField("neighborhoodName", "");
+  };
+
+  const handleCitySelect = (val: string) => {
+    const city = cities.find((c) => c.id === val);
+    onLocationSelectionChange((prev) => ({
+      ...prev,
+      cityId: val,
+      neighborhoodId: "",
+    }));
+    setEvalField(
+      "cityName",
+      city ? (isArabic ? city.titleAr : city.titleEn) : "",
+    );
+    setEvalField("neighborhoodName", "");
+  };
+
+  const handleNeighborhoodSelect = (val: string) => {
+    const neighborhood = neighborhoods.find((n) => n.id === val);
+    onLocationSelectionChange((prev) => ({ ...prev, neighborhoodId: val }));
+    setEvalField(
+      "neighborhoodName",
+      neighborhood
+        ? isArabic
+          ? neighborhood.titleAr
+          : neighborhood.titleEn
+        : "",
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -1607,6 +1682,83 @@ function StepReview({
               const isHighlighted = hasOcr && ocrFilledKeys.has(evalKey);
               const isTextarea = f.fieldType === "textarea";
               const isSelect = f.fieldType === "select" && !!f.options?.length;
+
+              // ── Region / City / Neighborhood: pull from DB when not OCR-filled ──
+              const isRegionField = evalKey === "regionId";
+              const isCityField = evalKey === "cityName";
+              const isNeighborhoodField = evalKey === "neighborhoodName";
+              const isLocationField =
+                isRegionField || isCityField || isNeighborhoodField;
+
+              if (isLocationField && !isHighlighted) {
+                return (
+                  <div key={f.id}>
+                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                      {f.label}
+                    </label>
+                    {isRegionField && (
+                      <SelectField
+                        value={locationSelection.regionId}
+                        onChange={handleRegionSelect}
+                        disabled={loadingLocations}
+                      >
+                        <option value="" disabled>
+                          {loadingLocations
+                            ? "…"
+                            : isArabic
+                              ? "الرجاء اختيار المنطقة"
+                              : "Please select region"}
+                        </option>
+                        {regions.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {isArabic ? r.titleAr : r.titleEn}
+                          </option>
+                        ))}
+                      </SelectField>
+                    )}
+                    {isCityField && (
+                      <SelectField
+                        value={locationSelection.cityId}
+                        onChange={handleCitySelect}
+                        disabled={loadingLocations}
+                      >
+                        <option value="" disabled>
+                          {loadingLocations
+                            ? "…"
+                            : isArabic
+                              ? "الرجاء اختيار المدينة"
+                              : "Please select city"}
+                        </option>
+                        {citiesForRegion.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {isArabic ? c.titleAr : c.titleEn}
+                          </option>
+                        ))}
+                      </SelectField>
+                    )}
+                    {isNeighborhoodField && (
+                      <SelectField
+                        value={locationSelection.neighborhoodId}
+                        onChange={handleNeighborhoodSelect}
+                        disabled={loadingLocations}
+                      >
+                        <option value="" disabled>
+                          {loadingLocations
+                            ? "…"
+                            : isArabic
+                              ? "الرجاء اختيار الحي"
+                              : "Please select neighborhood"}
+                        </option>
+                        {neighborhoodsForCity.map((n) => (
+                          <option key={n.id} value={n.id}>
+                            {isArabic ? n.titleAr : n.titleEn}
+                          </option>
+                        ))}
+                      </SelectField>
+                    )}
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -1836,6 +1988,24 @@ export function NewTransactionPage({
   const [templates, setTemplates] = useState<TemplateOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
 
+  // Region / City / Neighborhood lookups — used to render dropdowns for the
+  // general-template location fields whenever OCR didn't already fill them in.
+  const [regions, setRegions] = useState<
+    { id: string; titleAr: string; titleEn: string }[]
+  >([]);
+  const [cities, setCities] = useState<
+    { id: string; titleAr: string; titleEn: string; regionId: string }[]
+  >([]);
+  const [neighborhoods, setNeighborhoods] = useState<
+    { id: string; titleAr: string; titleEn: string; cityId: string }[]
+  >([]);
+  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [locationSelection, setLocationSelection] = useState<{
+    regionId: string;
+    cityId: string;
+    neighborhoodId: string;
+  }>({ regionId: "", cityId: "", neighborhoodId: "" });
+
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
   const [evalDataFields, setEvalDataFields] = useState<Record<string, string>>(
     {},
@@ -1863,6 +2033,7 @@ export function NewTransactionPage({
   useEffect(() => {
     setEvalDataFields({});
     setOcrFilledKeys(new Set());
+    setLocationSelection({ regionId: "", cityId: "", neighborhoodId: "" });
     if (!selectedTemplate) {
       setTemplateFieldValues({});
       return;
@@ -1927,6 +2098,29 @@ export function NewTransactionPage({
         setTemplates([]);
       })
       .finally(() => setLoadingClients(false));
+  }, []);
+
+  // Region / City / Neighborhood lookups — same source used by the
+  // TransactionEvaluationPage location dropdowns.
+  useEffect(() => {
+    Promise.all([
+      fetch(toApiUrl("/api/locations/regions"), {
+        credentials: "include",
+      }).then((r) => r.json()),
+      fetch(toApiUrl("/api/locations/cities"), { credentials: "include" }).then(
+        (r) => r.json(),
+      ),
+      fetch(toApiUrl("/api/locations/neighborhoods"), {
+        credentials: "include",
+      }).then((r) => r.json()),
+    ])
+      .then(([regs, cts, nbs]) => {
+        setRegions(regs);
+        setCities(cts);
+        setNeighborhoods(nbs);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingLocations(false));
   }, []);
   // ── Validation ──────────────────────────────────────────────────────────────
 
@@ -2129,6 +2323,7 @@ export function NewTransactionPage({
       setDeedAttachment(null);
       setScannedDeedFile(null);
       setOcrScanned(false);
+      setLocationSelection({ regionId: "", cityId: "", neighborhoodId: "" });
       setStep("setup");
       onSubmit?.(created);
     } catch (e) {
@@ -2144,6 +2339,7 @@ export function NewTransactionPage({
     setDeedAttachment(null);
     setScannedDeedFile(null);
     setOcrScanned(false);
+    setLocationSelection({ regionId: "", cityId: "", neighborhoodId: "" });
     setStep("setup");
     onBack();
   };
@@ -2206,6 +2402,12 @@ export function NewTransactionPage({
             onGoBackToScan={() => setStep("setup")}
             deedAttachment={deedAttachment}
             setDeedAttachment={setDeedAttachment}
+            regions={regions}
+            cities={cities}
+            neighborhoods={neighborhoods}
+            loadingLocations={loadingLocations}
+            locationSelection={locationSelection}
+            onLocationSelectionChange={setLocationSelection}
           />
         )}
 
