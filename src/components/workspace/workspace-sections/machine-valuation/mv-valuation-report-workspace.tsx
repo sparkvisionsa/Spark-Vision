@@ -1,6 +1,5 @@
 "use client";
 
-import { Tajawal } from "next/font/google";
 import {
   useCallback,
   useEffect,
@@ -12,6 +11,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { systemArabicFont as reportFont } from "@/lib/system-fonts";
 import {
   ChevronsLeft,
   ChevronsRight,
@@ -23,6 +23,7 @@ import {
   ListTree,
   Loader2,
   PencilRuler,
+  Presentation,
   RotateCcw,
   Ruler,
   Save,
@@ -82,7 +83,7 @@ import {
   type MvClientDocumentsStore,
 } from "./mv-client-documents-store";
 import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-export-menu";
-import { MvWordTemplateModal } from "./mv-word-template-modal";
+import { MvWordTemplateModal, type MvReportTemplateTab } from "./mv-word-template-modal";
 import { buildMvWordImageLayout } from "./mv-word-template-settings";
 import {
   downloadMergedReportFiles,
@@ -227,6 +228,36 @@ function getSheetPixelBox(el: HTMLElement) {
   const w = Math.max(Math.ceil(rect.width), el.offsetWidth, expected.w, 1);
   const h = Math.max(Math.ceil(rect.height), el.offsetHeight, expected.h, 1);
   return { w, h };
+}
+
+/**
+ * A report sheet is physically A4.  If a non-flowing block grows past the
+ * available body (for example a pasted rich-text annex), exporting only the
+ * visible rectangle would silently cut it from the PDF.  The normal report
+ * paths paginate before this check; this is the final guard for unusual user
+ * content and custom templates.
+ */
+function assertReportSheetsFit(root: HTMLElement) {
+  const overflowing: string[] = [];
+  const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
+
+  sheets.forEach((sheet, index) => {
+    const body = sheet.querySelector<HTMLElement>("[data-mv-report-page-content]");
+    if (!body || body.clientHeight <= 0) return;
+    const overflowY = body.scrollHeight - body.clientHeight;
+    const overflowX = body.scrollWidth - body.clientWidth;
+    if (overflowY > 6 || overflowX > 6) {
+      overflowing.push(String(index + 1));
+    }
+  });
+
+  if (overflowing.length > 0) {
+    const listed = overflowing.slice(0, 5).join("، ");
+    const suffix = overflowing.length > 5 ? "…" : "";
+    throw new Error(
+      `يوجد محتوى أطول من مساحة A4 في الصفحة ${listed}${suffix}. قسّم المحتوى أو أضف صفحات للمرفق قبل التصدير حتى لا يتم قص أي جزء.`,
+    );
+  }
 }
 
 /**
@@ -514,7 +545,7 @@ async function prepareReportDocumentForCapture(root: HTMLElement): Promise<() =>
   const restoreLayout = prepareReportCaptureLayout(root);
   root.setAttribute("data-mv-report-capture", "1");
   await waitNextFrame();
-  await waitForReportStableLayout(root, 900);
+  await waitForReportStableLayout(root, 1600);
   primeReportImagesForCapture(root);
   return () => {
     root.removeAttribute("data-mv-report-capture");
@@ -592,19 +623,31 @@ async function waitForReportImages(root: HTMLElement, timeoutMs = 9000) {
 async function waitForReportStableLayout(root: HTMLElement, timeoutMs = 900) {
   const startedAt = performance.now();
   let previous = "";
+  let stableFrames = 0;
   while (performance.now() - startedAt < timeoutMs) {
     await waitNextFrame();
     const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
+    const flowRoots = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-flow-ready]"));
+    const allFlowsReady = flowRoots.every((flow) => flow.dataset.mvReportFlowReady === "true");
     const next = sheets
       .map((sheet) => {
         const box = getSheetPixelBox(sheet);
         const rect = sheet.getBoundingClientRect();
-        return `${box.w}x${box.h}@${Math.round(rect.top)}:${Math.round(rect.left)}`;
+        const body = sheet.querySelector<HTMLElement>("[data-mv-report-page-content]");
+        const bodyMetrics = body
+          ? `${body.clientWidth}x${body.clientHeight}:${body.scrollWidth}x${body.scrollHeight}`
+          : "cover";
+        const flowWindows = Array.from(sheet.querySelectorAll<HTMLElement>("[data-mv-flow-window]"))
+          .map((window) => `${window.offsetHeight}:${window.scrollHeight}:${window.dataset.mvFlowOffset ?? "0"}`)
+          .join(",");
+        return `${box.w}x${box.h}@${Math.round(rect.top)}:${Math.round(rect.left)}:${bodyMetrics}:${flowWindows}`;
       })
-      .join("|");
-    if (next && next === previous) {
-      await waitNextFrame();
-      return;
+      .join("|") + `#flows:${flowRoots.length}:${allFlowsReady ? "ready" : "pending"}`;
+    if (next && allFlowsReady && next === previous) {
+      stableFrames += 1;
+      if (stableFrames >= 2) return;
+    } else {
+      stableFrames = 0;
     }
     previous = next;
   }
@@ -729,6 +772,7 @@ function resolveMvCompanyLogo(raw: unknown): string | null {
 
 interface MvValuationReportWorkspaceProps {
   projectId: string;
+  variant?: "standalone" | "embedded-system";
 }
 
 type ReportSectionId = string;
@@ -920,7 +964,7 @@ const REPORT_TEMPLATE_OPTIONS = (t: MvT): MvReportTemplateOption[] => [
     description: t("report.templates.default.description"),
     badge: "PDF",
     outputFormat: "pdf",
-    accentClass: "from-slate-700 to-slate-500",
+    accentClass: "from-[#071f33] via-[#0C447C] to-[#0f6d91]",
     previewKind: "default",
   },
   {
@@ -1075,6 +1119,70 @@ function normalizeCompanyAiTemplatesForReport(raw: unknown, t: MvT): MvCompanyAi
     .filter((template) => template.name.trim());
 }
 
+type MvCompanyDocumentTemplateAvailability = {
+  status: "available" | "missing" | "unknown";
+  fileName: string | null;
+};
+
+type MvCompanyDocumentTemplatesAvailability = {
+  word: MvCompanyDocumentTemplateAvailability;
+  pptx: MvCompanyDocumentTemplateAvailability;
+};
+
+const UNKNOWN_COMPANY_DOCUMENT_TEMPLATE: MvCompanyDocumentTemplateAvailability = {
+  status: "unknown",
+  fileName: null,
+};
+
+const UNKNOWN_COMPANY_DOCUMENT_TEMPLATES: MvCompanyDocumentTemplatesAvailability = {
+  word: UNKNOWN_COMPANY_DOCUMENT_TEMPLATE,
+  pptx: UNKNOWN_COMPANY_DOCUMENT_TEMPLATE,
+};
+
+/**
+ * Only recognize a template that the company has persisted. In particular,
+ * `/files/...` is deliberately not valid here: that path used to point to a
+ * system sample and must never enable a company report merge.
+ */
+function companyDocumentTemplateAvailability(
+  reportDefaults: unknown,
+  field: "wordTemplate" | "pptxTemplate",
+): MvCompanyDocumentTemplateAvailability {
+  if (reportDefaults === null) return { status: "missing", fileName: null };
+  if (!reportDefaults || typeof reportDefaults !== "object" || Array.isArray(reportDefaults)) {
+    return UNKNOWN_COMPANY_DOCUMENT_TEMPLATE;
+  }
+  const defaults = reportDefaults as Record<string, unknown>;
+  // Older response shapes do not include template metadata. Keep server-side
+  // validation authoritative instead of blocking a member on that old shape.
+  if (!Object.prototype.hasOwnProperty.call(defaults, field)) {
+    return UNKNOWN_COMPANY_DOCUMENT_TEMPLATE;
+  }
+  const raw = defaults[field];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { status: "missing", fileName: null };
+  }
+  const template = raw as Record<string, unknown>;
+  const fileName = typeof template.fileName === "string" && template.fileName.trim()
+    ? template.fileName.trim()
+    : null;
+  const gridFsFileId = typeof template.gridFsFileId === "string" && template.gridFsFileId.trim();
+  // A URL is merely a non-authoritative local mirror. The durable GridFS id
+  // is required before the UI enables a merge, matching the backend contract.
+  return gridFsFileId
+    ? { status: "available", fileName }
+    : { status: "missing", fileName: null };
+}
+
+function companyDocumentTemplatesAvailability(
+  reportDefaults: unknown,
+): MvCompanyDocumentTemplatesAvailability {
+  return {
+    word: companyDocumentTemplateAvailability(reportDefaults, "wordTemplate"),
+    pptx: companyDocumentTemplateAvailability(reportDefaults, "pptxTemplate"),
+  };
+}
+
 function hasCompanyLetterheadImages(template: MvCompanyReportLetterheadTemplate | null | undefined): boolean {
   if (!template) return false;
   return Boolean(
@@ -1186,11 +1294,13 @@ function ReportTemplateArtwork({
         </>
       ) : (
         <>
-          {/* معاينة القالب الافتراضي: غلاف كحلي عميق مستوحى من تقارير «إنفاذ/تقييم» */}
-          <div className="absolute inset-0 bg-gradient-to-br from-[#081f36] via-[#0c3052] to-[#0e3658]" />
+          {/* معاينة قالب Value Tech الرسمي: هوية كحلية هندسية عالية الوضوح. */}
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,#061b2d_0%,#082f55_48%,#0C447C_100%)]" />
+          <div className="absolute inset-y-0 right-0 w-[37%] bg-[#041522]/55" />
+          <div className="absolute inset-0 opacity-15 [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.18)_1px,transparent_1px)] [background-size:11%_11%] [mask-image:linear-gradient(135deg,black_0%,transparent_68%)]" />
           <div className="absolute inset-x-[12%] top-[18%] h-px bg-white/20" />
-          <div className="absolute inset-x-[14%] bottom-[18%] h-px bg-[#c9a227]/55" />
-          <div className="absolute bottom-[14%] left-1/2 h-[2px] w-[28%] -translate-x-1/2 rounded-full bg-gradient-to-l from-transparent via-[#c9a227] to-transparent" />
+          <div className="absolute right-[17%] top-[16%] h-[46%] w-px bg-[#f37021]/75" />
+          <div className="absolute inset-x-[14%] bottom-[18%] h-px bg-[#f37021]/65" />
           <div className="absolute inset-x-[18%] top-[34%] h-[28%] rounded-md bg-white/92 ring-1 ring-white/70" />
         </>
       )}
@@ -1239,12 +1349,6 @@ function withDraftDefaultProject(project: MvProject | null | undefined): MvProje
     reportData: withDraftDefaultReportData(project.reportData),
   };
 }
-
-const reportFont = Tajawal({
-  subsets: ["arabic"],
-  weight: ["400", "500", "700", "800", "900"],
-  display: "swap",
-});
 
 function normalizePath(path: string) {
   return path.replace(/\\/g, "/").split("/").filter(Boolean).join("/");
@@ -1671,11 +1775,15 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
   return isLegacyDefault ? { ...defaultReportLayout } : layout;
 }
 
-export default function MvValuationReportWorkspace({ projectId }: MvValuationReportWorkspaceProps) {
+export default function MvValuationReportWorkspace({
+  projectId,
+  variant = "standalone",
+}: MvValuationReportWorkspaceProps) {
   const { t, dir } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const { user, profile } = useAuthTracking();
+  const embeddedSystemReport = variant === "embedded-system";
   const sessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
   const initialBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey);
   const initialProjectSummary = readMvWorkflowSessionJson<{
@@ -1707,9 +1815,14 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
   const [companySignatories, setCompanySignatories] = useState<MvReportPreparerOption[]>([]);
   const [companyAdminMembershipNo, setCompanyAdminMembershipNo] = useState<string | null>(null);
-  const [companyBrand, setCompanyBrand] = useState<{ name: string; logoSrc: string | null }>({
+  const [companyBrand, setCompanyBrand] = useState<{
+    name: string;
+    logoSrc: string | null;
+    commercialRegistration: string;
+  }>({
     name: "",
     logoSrc: null,
+    commercialRegistration: "",
   });
   /**
    * Templates pulled from the company-admin tab. They feed narrative paragraphs
@@ -1726,6 +1839,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   });
   const [companyDefaultSections, setCompanyDefaultSections] = useState<MvCompanyReportCustomSection[]>([]);
   const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
+  const [companyDocumentTemplates, setCompanyDocumentTemplates] =
+    useState<MvCompanyDocumentTemplatesAvailability>(UNKNOWN_COMPANY_DOCUMENT_TEMPLATES);
   const [companyAiTemplates, setCompanyAiTemplates] = useState<MvCompanyAiTemplate[]>([]);
   const [preparerFieldEdits] = useState<PreparerFieldEdits>(() =>
     migratePreparerFieldEdits(initialBundle),
@@ -1799,8 +1914,9 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   const [reportSaving, setReportSaving] = useState(false);
   /** Toggles the right-side floating settings drawer (page metrics + images). */
   const [settingsDrawerOpen, setSettingsDrawerOpen] = useState(false);
-  const [settingsDrawerTab, setSettingsDrawerTab] = useState<"templates" | "layout" | "images">("templates");
+  const [settingsDrawerTab, setSettingsDrawerTab] = useState<"templates" | "documents" | "layout" | "images">("templates");
   const [wordTemplateModalOpen, setWordTemplateModalOpen] = useState(false);
+  const [reportTemplateModalTab, setReportTemplateModalTab] = useState<MvReportTemplateTab>("word");
   const [settingsImagesTab, setSettingsImagesTab] = useState<"assets" | "valuation">("assets");
   const [pendingReportTemplateId, setPendingReportTemplateId] = useState(() =>
     normalizeReportTemplateId(initialProject?.reportData?.reportTemplateId, getMvT()),
@@ -2127,8 +2243,21 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
   );
 
   useEffect(() => {
-    setPendingReportTemplateId(normalizeReportTemplateIdFrom(reportTemplateOptions, project?.reportData?.reportTemplateId));
-  }, [project?._id, project?.reportData?.reportTemplateId, reportTemplateOptions]);
+    const savedProjectTemplateId = project?.reportData?.reportTemplateId;
+    const hasSavedProjectTemplate =
+      typeof savedProjectTemplateId === "string" && savedProjectTemplateId.trim().length > 0;
+    const companySystemTemplateId = letterheadTemplate?.templateId;
+    const companyTemplateIsReady =
+      companySystemTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID || hasCompanyLetterheadImages(letterheadTemplate);
+    setPendingReportTemplateId(
+      normalizeReportTemplateIdFrom(
+        reportTemplateOptions,
+        hasSavedProjectTemplate || !companyTemplateIsReady
+          ? savedProjectTemplateId
+          : companySystemTemplateId,
+      ),
+    );
+  }, [letterheadTemplate, project?._id, project?.reportData?.reportTemplateId, reportTemplateOptions]);
 
   useEffect(() => {
     const rd = project?.reportData;
@@ -2160,6 +2289,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         const data = (await res.json()) as {
           companyName?: string;
           logoDataUrl?: string | null;
+          commercialRegistration?: string | null;
           companyAdminMembershipNo?: string | null;
           companyAdminName?: string | null;
           reportSignatoryRows?: Array<{
@@ -2184,11 +2314,18 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             }>;
             letterhead?: MvCompanyReportLetterheadTemplate | null;
             aiTemplates?: unknown[];
+            wordTemplate?: unknown;
+            pptxTemplate?: unknown;
           } | null;
         };
+        if (Object.prototype.hasOwnProperty.call(data, "reportDefaults")) {
+          setCompanyDocumentTemplates(companyDocumentTemplatesAvailability(data.reportDefaults));
+        }
         setCompanyBrand({
           name: typeof data.companyName === "string" ? data.companyName.trim() : "",
           logoSrc: resolveMvCompanyLogo(data.logoDataUrl),
+          commercialRegistration:
+            typeof data.commercialRegistration === "string" ? data.commercialRegistration.trim() : "",
         });
         setCompanyAdminMembershipNo(
           typeof data.companyAdminMembershipNo === "string" && data.companyAdminMembershipNo.trim()
@@ -2375,6 +2512,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportProgress(12);
       setPdfExportLabel(t("report.export.loadingImages"));
       restoreCaptureLayout = await prepareReportDocumentForCapture(root);
+      assertReportSheetsFit(root);
 
       const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
         import("jspdf"),
@@ -2489,6 +2627,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportProgress(12);
       setPdfExportLabel(t("report.export.loadingImages"));
       restoreCaptureLayout = await prepareReportDocumentForCapture(root);
+      assertReportSheetsFit(root);
 
       const { default: html2canvas } = await import("html2canvas");
       const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
@@ -2643,8 +2782,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   useEffect(() => {
     const steps = readVisitedSimpleReportSteps(projectId);
-    if (!steps.includes("report-preview")) {
-      writeVisitedSimpleReportSteps(projectId, [...steps, "report-preview"]);
+    if (!steps.includes("final-report")) {
+      writeVisitedSimpleReportSteps(projectId, [...steps, "final-report"]);
     }
   }, [projectId]);
 
@@ -2653,7 +2792,18 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     [project?.reportData],
   );
   const draftMode = isReportDraftMode(reportData);
-  const appliedReportTemplateId = normalizeReportTemplateIdFrom(reportTemplateOptions, reportData.reportTemplateId);
+  const savedProjectTemplateId = project?.reportData?.reportTemplateId;
+  const hasSavedProjectTemplate =
+    typeof savedProjectTemplateId === "string" && savedProjectTemplateId.trim().length > 0;
+  const companySystemTemplateId = letterheadTemplate?.templateId;
+  const companyTemplateIsReady =
+    companySystemTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID || hasCompanyLetterheadImages(letterheadTemplate);
+  const appliedReportTemplateId = normalizeReportTemplateIdFrom(
+    reportTemplateOptions,
+    hasSavedProjectTemplate || !companyTemplateIsReady
+      ? reportData.reportTemplateId
+      : companySystemTemplateId,
+  );
   const appliedReportTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
   const reportTemplatePreviewOption = reportTemplatePreviewId
     ? findReportTemplateOptionFrom(reportTemplateOptions, reportTemplatePreviewId)
@@ -2824,6 +2974,13 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const downloadAsDocxTemplate = useCallback(async () => {
     if (loading || reportMediaLoading) return;
+    if (companyDocumentTemplates.word.status === "missing") {
+      toast({
+        variant: "destructive",
+        description: t("report.wordTemplate.missingCompanyTemplateDescription"),
+      });
+      return;
+    }
     setDownloadingDocxTemplate(true);
     setPdfExportProgress(8);
     setPdfExportLabel(t("report.export.preparingWordData"));
@@ -2885,6 +3042,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       setPdfExportLabel("");
     }
   }, [
+    companyDocumentTemplates.word.status,
     loading,
     project?.displayNumber,
     project?.name,
@@ -3049,16 +3207,29 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   const reportFooterLines = useMemo(() => {
     const lines: string[] = [];
-    if (companyBrand.name.trim()) lines.push(`الشركة: ${companyBrand.name.trim()}`);
-    const currentUserIdentifier = user?.phone?.trim() || user?.username?.trim();
-    if (currentUserIdentifier) lines.push(`المستخدم الحالي: ${currentUserIdentifier}`);
-    if (profile?.email?.trim()) lines.push(`بريد: ${profile.email.trim()}`);
-    if (profile?.phone?.trim()) lines.push(`هاتف: ${profile.phone.trim()}`);
-    const creator = project?.createdByName?.trim();
-    if (creator) lines.push(`منشئ المشروع: ${creator}`);
-    if (lines.length === 0) lines.push("تقرير تقييم مهني — Spark Vision");
+    const company = companyBrand.name.trim();
+    if (company) lines.push(company);
+    if (companyBrand.commercialRegistration.trim()) {
+      lines.push(`السجل التجاري: ${companyBrand.commercialRegistration.trim()}`);
+    }
+    const valuer = project?.reportData?.leadValuerName?.trim() || primarySignatory?.name?.trim();
+    if (valuer) lines.push(`المقيم المعتمد: ${valuer}`);
+    const membership = primarySignatory?.membershipNo?.trim();
+    if (membership) lines.push(`عضوية رقم: ${membership}`);
+    const reference = project?.reportData?.reportReference?.trim();
+    if (reference) lines.push(`الرقم المرجعي: ${reference}`);
+    const issueDate = project?.reportData?.reportIssueDate?.trim();
+    if (issueDate) lines.push(`تاريخ التقرير: ${issueDate}`);
     return lines;
-  }, [companyBrand.name, user?.phone, user?.username, profile?.email, profile?.phone, project?.createdByName]);
+  }, [
+    companyBrand.name,
+    companyBrand.commercialRegistration,
+    project?.reportData?.leadValuerName,
+    project?.reportData?.reportReference,
+    project?.reportData?.reportIssueDate,
+    primarySignatory?.name,
+    primarySignatory?.membershipNo,
+  ]);
 
   const persistProjectReportData = useCallback(
     async (nextReportData: MvProjectReportData): Promise<boolean> => {
@@ -3340,24 +3511,17 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     ];
   }, [editableSections]);
 
-  /** ترقيم الصفحات في الهيدر + ربط الفهرس بورقة التقرير الفعلية. */
+  /** ربط الفهرس بورقة التقرير الفعلية دون عرض رقم الصفحة على الورقة. */
   useLayoutEffect(() => {
     const root = reportPdfRef.current;
     if (!root || loading) return;
 
-    const labelSheets = (targetRoot: HTMLElement | null) => {
+    const collectSheets = (targetRoot: HTMLElement | null) => {
       if (!targetRoot) return [] as Element[];
-      const targetSheets = Array.from(targetRoot.querySelectorAll("[data-mv-report-sheet]"));
-      const total = targetSheets.length;
-      targetSheets.forEach((sheet, i) => {
-        const slot = sheet.querySelector("[data-mv-page-label-slot]");
-        if (slot) slot.textContent = `${i + 1} / ${total}`;
-      });
-      return targetSheets;
+      return Array.from(targetRoot.querySelectorAll("[data-mv-report-sheet]"));
     };
 
-    const sheets = labelSheets(root);
-    if (previewOpen) labelSheets(previewReportRef.current);
+    const sheets = collectSheets(root);
 
     const next: Record<string, string> = {};
     for (const row of MV_REPORT_TOC_ROWS) {
@@ -3398,7 +3562,6 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
     includeValuationAccountImages,
     companyBrand.name,
     companyBrand.logoSrc,
-    previewOpen,
   ]);
 
   /**
@@ -3616,13 +3779,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
 
   if (!project && !loading && loadError) {
     return (
-      <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", reportFont.className)} dir={dir}>
-        <MvProjectReportHeader
-          compact
-          projectId={projectId}
-          activeStep="report-preview"
-          breadcrumbs={[{ label: projectId }, { label: t("report.breadcrumb") }]}
-        />
+      <MvWorkflowPageFrame
+        className={cn(
+          "bg-[var(--color-background-primary)]",
+          embeddedSystemReport && "rounded-xl bg-white",
+          reportFont.className,
+        )}
+        dir={dir}
+      >
+        {!embeddedSystemReport ? (
+          <MvProjectReportHeader
+            compact
+            projectId={projectId}
+            activeStep="final-report"
+            breadcrumbs={[{ label: projectId }, { label: t("report.breadcrumb") }]}
+          />
+        ) : null}
         <MvErrorState
           title={t("report.openFailed")}
           description={loadError}
@@ -3638,22 +3810,27 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
       className={cn("bg-[var(--color-background-primary)]", reportFont.className)}
       dir={dir}
     >
-      <MvProjectReportHeader
-        compact
-        projectId={projectId}
-        project={project}
-        activeStep="report-preview"
-        breadcrumbs={[
-          { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: t("report.breadcrumb") },
-        ]}
-      />
+      {!embeddedSystemReport ? (
+        <MvProjectReportHeader
+          compact
+          projectId={projectId}
+          project={project}
+          activeStep="final-report"
+          breadcrumbs={[
+            { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
+            { label: t("report.breadcrumb") },
+          ]}
+        />
+      ) : null}
 
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1920px] flex-1 flex-col overflow-hidden px-0.5 pb-1 pt-1 sm:px-1">
         {/* === شريط أدوات التقرير — responsive === */}
         <div
           className={cn(
-            "mv-report-chrome mb-1.5 flex shrink-0 flex-col gap-2 rounded-xl border border-slate-200/80 bg-white/95 p-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur sm:gap-2.5 lg:flex-row lg:items-center lg:justify-between",
+            "mv-report-chrome flex shrink-0 flex-col rounded-xl border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur",
+            embeddedSystemReport
+              ? "mb-1 gap-1.5 p-1.5 sm:gap-2 md:flex-row md:items-center md:justify-between"
+              : "mb-1.5 gap-2 p-2 sm:gap-2.5 lg:flex-row lg:items-center lg:justify-between",
           )}
         >
           {/* أدوات التنقل والإعدادات */}
@@ -3775,19 +3952,39 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 </Select>
               </div>
 
-              {isSimpleReport ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-9 shrink-0 gap-1.5 rounded-lg border-sky-200 bg-sky-50/80 px-2.5 text-[10.5px] font-black text-[#0C447C] hover:bg-sky-100"
-                  disabled={loading || reportMediaLoading}
-                  onClick={() => setWordTemplateModalOpen(true)}
-                  title={t("report.toolbar.downloadWord")}
-                >
-                  <FileType className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t("report.toolbar.downloadWord")}</span>
-                </Button>
+              {isSimpleReport && !embeddedSystemReport ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0 gap-1.5 rounded-lg border-sky-200 bg-sky-50/80 px-2.5 text-[10.5px] font-black text-[#0C447C] hover:bg-sky-100"
+                    disabled={loading || reportMediaLoading}
+                    onClick={() => {
+                      setReportTemplateModalTab("word");
+                      setWordTemplateModalOpen(true);
+                    }}
+                    title={t("report.toolbar.downloadWord")}
+                  >
+                    <FileType className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">{t("report.toolbar.downloadWord")}</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 shrink-0 gap-1.5 rounded-lg border-orange-200 bg-orange-50/80 px-2.5 text-[10.5px] font-black text-orange-800 hover:bg-orange-100"
+                    disabled={loading || reportMediaLoading}
+                    onClick={() => {
+                      setReportTemplateModalTab("pptx");
+                      setWordTemplateModalOpen(true);
+                    }}
+                    title={t("report.toolbar.downloadPptxTemplate")}
+                  >
+                    <Presentation className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">{t("report.toolbar.downloadPptxTemplate")}</span>
+                  </Button>
+                </>
               ) : null}
 
               <label
@@ -3863,7 +4060,7 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         </div>
 
         {/* === Workspace body (sidebar + canvas) === */}
-        <div className="relative flex min-h-0 w-full flex-1 gap-0 overflow-hidden">
+        <div className="relative flex h-0 min-h-0 w-full flex-1 gap-0 overflow-hidden">
           <aside
             className={cn(
               "mv-report-chrome absolute right-0 top-0 z-[90] shrink-0 transition-[width] duration-200 ease-out print:hidden",
@@ -3952,7 +4149,8 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
             <div
               ref={reportSectionsScrollRef}
               className={cn(
-                "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain [overflow-anchor:none]",
+                "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]",
+                embeddedSystemReport ? "overscroll-y-auto" : "overscroll-y-contain",
                 "touch-pan-y [-webkit-overflow-scrolling:touch]",
                 "transition-[padding] duration-200 ease-out",
                 !navCollapsed && "lg:pr-[188px]",
@@ -4020,7 +4218,12 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                 </div>
 
                 <div className="shrink-0 border-b border-slate-100 px-2 py-1.5">
-                  <div className="flex gap-0.5 rounded-md bg-slate-100/70 p-0.5 ring-1 ring-slate-200/70">
+                  <div
+                    className={cn(
+                      "grid gap-0.5 rounded-md bg-slate-100/70 p-0.5 ring-1 ring-slate-200/70",
+                      embeddedSystemReport ? "grid-cols-3" : "grid-cols-4",
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => setSettingsDrawerTab("templates")}
@@ -4034,6 +4237,22 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                       <FileText className="h-3 w-3" />
                       {t("report.settings.tabs.templates")}
                     </button>
+                    {!embeddedSystemReport ? (
+                      <button
+                        type="button"
+                        onClick={() => setSettingsDrawerTab("documents")}
+                        title={t("report.settings.tabs.documents")}
+                        className={cn(
+                          "flex min-w-0 items-center justify-center gap-1 rounded px-1 py-1 text-[10px] font-black transition",
+                          settingsDrawerTab === "documents"
+                            ? "bg-white text-[#0C447C] shadow-sm"
+                            : "text-slate-500 hover:bg-white/50",
+                        )}
+                      >
+                        <FileType className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{t("report.settings.tabs.documents")}</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setSettingsDrawerTab("layout")}
@@ -4164,6 +4383,66 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
                           );
                         })}
                       </div>
+                    </div>
+                  ) : settingsDrawerTab === "documents" && !embeddedSystemReport ? (
+                    <div className="space-y-2.5">
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="flex items-start gap-2.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-[#0C447C]">
+                            <FileType className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0 text-right">
+                            <p className="text-[11px] font-black text-slate-900">
+                              {t("report.settings.documents.title")}
+                            </p>
+                            <p className="mt-1 text-[9.5px] font-semibold leading-4 text-slate-500">
+                              {t("report.settings.documents.hint")}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl border border-sky-200 bg-white p-3 text-right shadow-sm transition hover:border-sky-300 hover:bg-sky-50/50"
+                        onClick={() => {
+                          setReportTemplateModalTab("word");
+                          setWordTemplateModalOpen(true);
+                        }}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#0C447C] text-white">
+                          <FileText className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-black text-slate-900">
+                            {t("report.settings.documents.wordTitle")}
+                          </span>
+                          <span className="mt-0.5 block text-[9.5px] font-semibold leading-4 text-slate-500">
+                            {t("report.settings.documents.wordHint")}
+                          </span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl border border-orange-200 bg-white p-3 text-right shadow-sm transition hover:border-orange-300 hover:bg-orange-50/50"
+                        onClick={() => {
+                          setReportTemplateModalTab("pptx");
+                          setWordTemplateModalOpen(true);
+                        }}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-600 text-white">
+                          <Presentation className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-black text-slate-900">
+                            {t("report.settings.documents.pptxTitle")}
+                          </span>
+                          <span className="mt-0.5 block text-[9.5px] font-semibold leading-4 text-slate-500">
+                            {t("report.settings.documents.pptxHint")}
+                          </span>
+                        </span>
+                      </button>
                     </div>
                   ) : settingsDrawerTab === "layout" ? (
                     <div className="space-y-2.5">
@@ -4402,10 +4681,11 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
         </div>
       ) : null}
 
-      {isSimpleReport ? (
+      {isSimpleReport && !embeddedSystemReport ? (
         <MvWordTemplateModal
           open={wordTemplateModalOpen}
           onOpenChange={setWordTemplateModalOpen}
+          initialTab={reportTemplateModalTab}
           projectId={projectId}
           projectName={project?.name || "report"}
           displayNumber={project?.displayNumber}
@@ -4415,6 +4695,10 @@ export default function MvValuationReportWorkspace({ projectId }: MvValuationRep
           clientImageSources={wordTemplateClientImageSources}
           onReportDataPatch={onReportDataPatch}
           onBeforeMerge={flushPendingReportDataForWord}
+          templateAvailability={companyDocumentTemplates.word.status}
+          companyTemplateFileName={companyDocumentTemplates.word.fileName}
+          pptxTemplateAvailability={companyDocumentTemplates.pptx.status}
+          pptxCompanyTemplateFileName={companyDocumentTemplates.pptx.fileName}
           disabled={loading || reportMediaLoading}
         />
       ) : null}

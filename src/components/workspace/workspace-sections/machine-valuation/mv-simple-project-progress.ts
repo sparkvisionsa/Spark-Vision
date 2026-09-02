@@ -5,7 +5,7 @@ export type MvSimpleReportStepId =
   | "asset-images"
   | "valuation-actions"
   | "client-files"
-  | "report-preview";
+  | "final-report";
 
 export const MV_SIMPLE_REPORT_STEP_COUNT = 5;
 
@@ -82,22 +82,27 @@ export function isClientFilesStepComplete(clientDocumentImageCount: number): boo
   return clientDocumentImageCount > 0;
 }
 
-/** إعداد التقرير: زيارة الخطوة مع بيانات مكتملة، أو قالب/قيمة نهائية محفوظة. */
-export function isReportPreviewStepComplete(
+/** التقرير النهائي: زيارة الخطوة مع بيانات مكتملة، أو قيمة نهائية محفوظة. */
+export function isFinalReportStepComplete(
   data: MvProjectReportData | undefined | null,
-  options?: { visitedReportPreview?: boolean },
+  options?: { visitedFinalReport?: boolean },
 ): boolean {
   if (data?.finalValue != null && Number.isFinite(Number(data.finalValue))) return true;
   if (isReportFieldFilled(data?.reportTemplateId)) return true;
-  if (options?.visitedReportPreview && isSimpleReportDataStepComplete(data)) return true;
+  if (options?.visitedFinalReport && isSimpleReportDataStepComplete(data)) return true;
   return false;
 }
+
+/** @deprecated استخدم isFinalReportStepComplete */
+export const isReportPreviewStepComplete = isFinalReportStepComplete;
 
 export type MvSimpleStepCompletionInput = {
   reportData?: MvProjectReportData | null;
   assetImageCount?: number;
   valuationAccountImageCount?: number;
   clientDocumentImageCount?: number;
+  visitedFinalReport?: boolean;
+  /** توافق مع الاستدعاءات القديمة */
   visitedReportPreview?: boolean;
 };
 
@@ -118,10 +123,12 @@ export function computeCompletedSimpleReportSteps(
   if (isClientFilesStepComplete(input.clientDocumentImageCount ?? 0)) {
     done.push("client-files");
   }
-  if (isReportPreviewStepComplete(input.reportData, {
-    visitedReportPreview: input.visitedReportPreview,
-  })) {
-    done.push("report-preview");
+  if (
+    isFinalReportStepComplete(input.reportData, {
+      visitedFinalReport: input.visitedFinalReport ?? input.visitedReportPreview,
+    })
+  ) {
+    done.push("final-report");
   }
 
   return done;

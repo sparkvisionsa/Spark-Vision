@@ -2,13 +2,24 @@
 
 import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { REPORT_BODY_CONTENT_FOOTER_GAP_PX } from "./mv-report-page-metrics";
+import {
+  REPORT_BODY_CONTENT_FOOTER_GAP_PX,
+  REPORT_INTERIOR_FRAME_MM,
+} from "./mv-report-page-metrics";
 import type { MvCompanyReportLetterheadTemplate } from "./types";
 
 export type MvReportPageVariant = "cover" | "interior";
 export type MvReportPageOrientation = "portrait" | "landscape";
 
 const MvReportLetterheadContext = createContext<MvCompanyReportLetterheadTemplate | null>(null);
+
+const VALUE_TECH_OFFICIAL_TEMPLATE_ID = "default-report-template";
+const VALUE_TECH_COVER_ARTWORK = "/report-assets/value-tech-machine-valuation-cover-v1.png";
+const VALUE_TECH_DIVIDER_ARTWORK = "/report-assets/value-tech-machine-valuation-divider-portrait-v1.png";
+
+function millimeters(value: number) {
+  return `${value}mm`;
+}
 
 /**
  * يحدد ما إذا كان غلاف التقرير ذا خلفية داكنة (نص أبيض) أم فاتحة (نص داكن).
@@ -55,7 +66,7 @@ function ReportLogoImg({ src, className, style }: { src: string; className?: str
   return <img src={src} alt="" className={className} style={style} crossOrigin={cross} />;
 }
 
-function ReportBackgroundImage({ src }: { src: string }) {
+function ReportBackgroundImage({ src, fit = "fill" }: { src: string; fit?: "fill" | "cover" }) {
   const cross =
     src.startsWith("http://") || src.startsWith("https://") ? ("anonymous" as const) : undefined;
   /* eslint-disable-next-line @next/next/no-img-element */
@@ -63,7 +74,10 @@ function ReportBackgroundImage({ src }: { src: string }) {
     <img
       src={src}
       alt=""
-      className="pointer-events-none absolute inset-0 z-0 h-full w-full select-none object-fill"
+      className={cn(
+        "pointer-events-none absolute inset-0 z-0 h-full w-full select-none",
+        fit === "cover" ? "object-cover" : "object-fill",
+      )}
       crossOrigin={cross}
       data-mv-report-letterhead-background
     />
@@ -77,18 +91,18 @@ const LETTERHEAD_SAFE_AREA = {
     paddingBottom: "24mm",
   },
   portrait: {
-    paddingInline: "13mm",
-    headerHeight: "25mm",
-    footerHeight: "18mm",
-    bodyPaddingTop: "2mm",
-    bodyPaddingBottom: "2mm",
+    paddingInline: millimeters(REPORT_INTERIOR_FRAME_MM.portrait.paddingInline),
+    headerHeight: millimeters(REPORT_INTERIOR_FRAME_MM.portrait.header),
+    footerHeight: millimeters(REPORT_INTERIOR_FRAME_MM.portrait.footer),
+    bodyPaddingTop: millimeters(REPORT_INTERIOR_FRAME_MM.portrait.bodyPaddingTop),
+    bodyPaddingBottom: millimeters(REPORT_INTERIOR_FRAME_MM.portrait.bodyPaddingBottom),
   },
   landscape: {
-    paddingInline: "14mm",
-    headerHeight: "18mm",
-    footerHeight: "14mm",
-    bodyPaddingTop: "1.5mm",
-    bodyPaddingBottom: "1.5mm",
+    paddingInline: millimeters(REPORT_INTERIOR_FRAME_MM.landscape.paddingInline),
+    headerHeight: millimeters(REPORT_INTERIOR_FRAME_MM.landscape.header),
+    footerHeight: millimeters(REPORT_INTERIOR_FRAME_MM.landscape.footer),
+    bodyPaddingTop: millimeters(REPORT_INTERIOR_FRAME_MM.landscape.bodyPaddingTop),
+    bodyPaddingBottom: millimeters(REPORT_INTERIOR_FRAME_MM.landscape.bodyPaddingBottom),
   },
 } as const;
 
@@ -97,15 +111,20 @@ export interface MvReportPageShellProps {
   orientation?: MvReportPageOrientation;
   companyName: string;
   companyNameNode?: ReactNode;
+  /** السجل التجاري — يُعرض بجانب اسم الشركة. */
+  commercialRegistration?: string;
   logoSrc: string | null;
   /** أسطر الفوتر (ديناميكية من الشركة / المستخدم / المشروع) */
   footerLines: string[];
   /**
    * محتوى فوتر مخصّص للغلاف فقط (variant="cover"): عند تمريره يحلّ محل
-   * عرض ‎`footerLines`‎ الافتراضي، ويُستخدم لإظهار شريط 3 أعمدة في الغلاف
-   * (المقيم المعتمد + رقم العضوية | الرقم المرجعي | تاريخ التقرير).
+   * عرض ‎`footerLines`‎ الافتراضي.
    */
   coverFooterContent?: ReactNode;
+  /** محتوى فوتر للصفحات الداخلية — label + value في صف واحد بدون اقتطاع. */
+  footerContent?: ReactNode;
+  /** Chooses the built-in Value Tech artwork for a cover or a section divider. */
+  coverArtwork?: "hero" | "divider";
   /**
    * Cover فقط: يلغي بطاقة الخلفية البيضاء حول الـ ‎children‎ في الأغلفة الداكنة
    * عند تفعيلها يظهر المحتوى مباشرة فوق الخلفية الكحلية (تصميم مطابق لتقارير
@@ -155,8 +174,45 @@ function DraftWatermarkLayer({ orientation = "portrait" }: { orientation?: MvRep
   );
 }
 
+/** A subtle permanent identity layer for the official Value Tech template. */
+function ValueTechOfficialWatermark({ orientation }: { orientation: MvReportPageOrientation }) {
+  const landscape = orientation === "landscape";
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
+      <div
+        className="absolute inset-0 opacity-[0.027]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(12,68,124,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(12,68,124,0.16) 1px, transparent 1px)",
+          backgroundSize: landscape ? "15mm 15mm" : "13mm 13mm",
+          maskImage: "linear-gradient(135deg, transparent 2%, black 32%, transparent 82%)",
+        }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/value-tech-icon.png"
+        alt=""
+        className="absolute left-1/2 top-1/2 h-auto w-[88mm] -translate-x-1/2 -translate-y-1/2 opacity-[0.035] grayscale"
+      />
+      <span
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center text-[11px] font-black tracking-[0.56em] text-[#0C447C]/[0.07]"
+        style={{ transform: "translate(-50%, -50%) rotate(-38deg)" }}
+      >
+        VALUE TECH · PROFESSIONAL VALUATION
+      </span>
+    </div>
+  );
+}
+
 function reportTemplateChrome(templateId: string) {
   switch (templateId) {
+    case "default-report-template":
+      return {
+        cover: "bg-[#061b2d] text-white",
+        header: "border-b border-[#0C447C]/18 border-t-[2px] border-t-[#c9a227] bg-white/95 text-[#061b2d]",
+        footer: "border-t-2 border-[#c9a227] bg-[#f4f7fa] text-[#061b2d]",
+        brand: "text-white",
+      };
     case "executive-navy":
       return {
         cover: "bg-gradient-to-br from-slate-950 via-[#0C447C] to-sky-800 text-white",
@@ -231,12 +287,31 @@ function reportTemplateChrome(templateId: string) {
 }
 
 function ReportTemplateCoverDecor({ templateId }: { templateId: string }) {
+  if (templateId === "default-report-template") {
+    return (
+      <>
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(2,14,28,0.98)_0%,rgba(4,24,45,0.93)_38%,rgba(4,24,45,0.54)_61%,rgba(4,24,45,0.08)_100%)]" aria-hidden />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-[4mm] bg-[#c9a227]" aria-hidden />
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.13]"
+          aria-hidden
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.16) 1px, transparent 1px)",
+            backgroundSize: "14mm 14mm",
+            maskImage: "linear-gradient(90deg, black 0%, black 36%, transparent 74%)",
+          }}
+        />
+        <div className="pointer-events-none absolute left-[18mm] top-[24mm] h-px w-[65mm] bg-[#c9a227]/75" aria-hidden />
+        <div className="pointer-events-none absolute bottom-[28mm] left-[18mm] right-[18mm] h-px bg-white/25" aria-hidden />
+      </>
+    );
+  }
   if (templateId === "executive-navy") {
     return (
       <>
         <div className="pointer-events-none absolute inset-y-0 right-0 w-[34%] bg-slate-950/70" aria-hidden />
         <div className="pointer-events-none absolute left-[10mm] right-[78mm] top-[28mm] h-px bg-sky-300/70" aria-hidden />
-        <div className="pointer-events-none absolute bottom-[34mm] left-[18mm] h-[24mm] w-[48mm] border border-sky-200/60 bg-white/10" aria-hidden />
       </>
     );
   }
@@ -320,9 +395,12 @@ export function MvReportPageShell({
   orientation = "portrait",
   companyName,
   companyNameNode,
+  commercialRegistration,
   logoSrc,
   footerLines,
   coverFooterContent,
+  footerContent,
+  coverArtwork = "hero",
   coverChildrenChromeless = false,
   draftWatermark = false,
   letterheadTemplate,
@@ -346,6 +424,14 @@ export function MvReportPageShell({
   const safeArea = land ? LETTERHEAD_SAFE_AREA.landscape : LETTERHEAD_SAFE_AREA.portrait;
   const showDefaultFooterText = !letterheadEnabled && footerLines.length > 0;
   const activeTemplateId = activeLetterheadTemplate?.templateId ?? "default-report-template";
+  const isValueTechOfficial = activeTemplateId === VALUE_TECH_OFFICIAL_TEMPLATE_ID;
+  const builtInCoverArtwork = isValueTechOfficial
+    ? coverArtwork === "divider"
+      ? VALUE_TECH_DIVIDER_ARTWORK
+      : VALUE_TECH_COVER_ARTWORK
+    : null;
+  const resolvedCoverBackground = coverBackground || builtInCoverArtwork;
+  const reportFrame = REPORT_INTERIOR_FRAME_MM[land ? "landscape" : "portrait"];
   const templateChrome = reportTemplateChrome(activeTemplateId);
   const coverTemplateClass = templateChrome.cover;
   const headerTemplateClass = templateChrome.header;
@@ -364,6 +450,7 @@ export function MvReportPageShell({
   if (variant === "cover") {
     const customCover = Boolean(coverBackground);
     const showCoverBrand = !customCover;
+    const officialCoverLayout = isValueTechOfficial && !customCover;
     const coverContentStyle: CSSProperties | undefined = customCover
       ? {
           paddingInline: LETTERHEAD_SAFE_AREA.cover.paddingInline,
@@ -378,7 +465,7 @@ export function MvReportPageShell({
         data-mv-report-orientation="portrait"
         data-mv-report-variant="cover"
         data-mv-letterhead-active={letterheadEnabled ? "true" : undefined}
-        data-mv-letterhead-background={coverBackground ? "true" : undefined}
+        data-mv-letterhead-background={resolvedCoverBackground ? "true" : undefined}
         className={cn(
           "relative mx-auto mb-8 overflow-hidden rounded-md shadow-[0_16px_48px_-14px_rgba(12,68,124,0.38)] ring-1 ring-[#0C447C]/20",
           customCover ? "bg-white" : coverTemplateClass,
@@ -386,7 +473,12 @@ export function MvReportPageShell({
           className,
         )}
       >
-        {coverBackground ? <ReportBackgroundImage src={coverBackground} /> : null}
+        {resolvedCoverBackground ? (
+          <ReportBackgroundImage
+            src={resolvedCoverBackground}
+            fit={coverBackground ? "fill" : "cover"}
+          />
+        ) : null}
         {!customCover ? (
           <ReportTemplateCoverDecor templateId={activeTemplateId} />
         ) : null}
@@ -398,17 +490,6 @@ export function MvReportPageShell({
           style={coverContentStyle}
           data-mv-report-page-content
         >
-          <div
-            className={cn(
-              "absolute z-10 rounded-full bg-white/90 px-3 py-1 text-[10px] font-black tabular-nums text-[#0C447C] shadow-sm ring-1 ring-[#0C447C]/15",
-              customCover ? "left-[9mm] top-[8mm]" : "left-5 top-5",
-            )}
-            data-mv-page-label-slot
-            aria-live="polite"
-            dir="ltr"
-          >
-            —
-          </div>
           {/*
             تخطيط الغلاف بنمط مستوحى من تقارير الجهات المهنية:
             • منطقة علوية (~45% من الارتفاع): لوجو الشركة + اسمها مركّزاً.
@@ -418,12 +499,21 @@ export function MvReportPageShell({
           */}
           <div className="flex flex-1 flex-col">
             {showCoverBrand ? (
-              <div className="flex flex-col items-center justify-end gap-4 px-6 text-center" style={{ flexBasis: "45%" }}>
+              <div
+                className={cn(
+                  "flex flex-col justify-end gap-4",
+                  officialCoverLayout
+                    ? "mr-auto w-full max-w-[92mm] items-start px-0 text-right"
+                    : "items-center px-6 text-center",
+                )}
+                style={{ flexBasis: officialCoverLayout ? "39%" : "45%" }}
+              >
                 {effectiveLogoSrc ? (
                   <ReportLogoImg
                     src={effectiveLogoSrc}
                     className={cn(
-                      "mx-auto h-32 max-h-[140px] w-auto max-w-[300px] bg-transparent object-contain",
+                      "h-32 max-h-[140px] w-auto max-w-[300px] bg-transparent object-contain",
+                      officialCoverLayout ? "mr-0" : "mx-auto",
                       darkCoverChrome && "drop-shadow-[0_2px_10px_rgba(0,0,0,0.18)]",
                     )}
                     style={{ backgroundColor: "transparent" }}
@@ -432,18 +522,41 @@ export function MvReportPageShell({
                   <div className="h-2 w-24 rounded-full bg-[#0C447C]/20" aria-hidden />
                 )}
                 {companyName || companyNameNode ? (
-                  <div className={cn("max-w-[85%] text-center text-[22px] font-black leading-snug tracking-tight text-white sm:text-[26px]", templateChrome.brand)}>
-                    {companyNameNode ?? companyName}
+                  <div className={cn(
+                    officialCoverLayout ? "max-w-full text-right" : "max-w-[85%] text-center",
+                    "space-y-1",
+                  )}>
+                    <div className={cn(
+                      officialCoverLayout ? "text-right" : "text-center",
+                      "text-[22px] font-black leading-snug tracking-tight text-white sm:text-[26px]",
+                      templateChrome.brand,
+                    )}>
+                      {companyNameNode ?? companyName}
+                    </div>
+                    {commercialRegistration?.trim() ? (
+                      <p className={cn(
+                        officialCoverLayout ? "text-right" : "text-center",
+                        "text-[11px] font-bold tracking-wide text-white/80",
+                      )}>
+                        السجل التجاري: {commercialRegistration.trim()}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             ) : null}
             <div
-              className="flex flex-1 flex-col items-center justify-center px-6 text-center"
+              className={cn(
+                "flex flex-1 flex-col",
+                officialCoverLayout
+                  ? "items-start justify-end px-[18mm] pb-[25mm] text-right"
+                  : "items-center justify-center px-6 text-center",
+              )}
             >
               <div
                 className={cn(
                   "w-full",
+                  officialCoverLayout && "mr-auto max-w-[92mm]",
                   darkCoverChrome && !coverChildrenChromeless &&
                     "max-w-xl rounded-2xl bg-white/92 p-5 shadow-[0_18px_50px_-22px_rgba(0,0,0,0.45)] ring-1 ring-white/70 backdrop-blur",
                 )}
@@ -459,7 +572,9 @@ export function MvReportPageShell({
               footerImageSrc
                 ? "py-1 px-2 text-[9px] font-semibold leading-relaxed bg-transparent"
                 : coverFooterContent
-                  ? "bg-[#f37021] px-4 py-3 text-white"
+                  ? isValueTechOfficial
+                    ? "border-t-2 border-[#c9a227] bg-[#031525]/92 px-3 py-2.5 text-white backdrop-blur-[2px]"
+                    : "border-t border-white/25 bg-black/25 px-3 py-2.5 text-white"
                   : letterheadEnabled
                     ? "bg-transparent px-2 py-3 text-[9px] font-semibold leading-relaxed"
                     : darkCoverChrome
@@ -506,6 +621,9 @@ export function MvReportPageShell({
       )}
     >
       {pageBackground ? <ReportBackgroundImage src={pageBackground} /> : null}
+      {isValueTechOfficial && !customInteriorLetterhead ? (
+        <ValueTechOfficialWatermark orientation={orientation} />
+      ) : null}
       <header
         className={cn(
           "relative z-[1] shrink-0",
@@ -517,26 +635,39 @@ export function MvReportPageShell({
           customInteriorLetterhead
             ? {
                 minHeight: safeArea.headerHeight,
+                height: safeArea.headerHeight,
                 paddingInline: safeArea.paddingInline,
-                paddingTop: land ? "4mm" : "6mm",
+                paddingTop: land ? "3mm" : "4mm",
                 paddingBottom: "2mm",
               }
-            : undefined
+            : {
+                minHeight: millimeters(reportFrame.header),
+                height: millimeters(reportFrame.header),
+                paddingInline: millimeters(reportFrame.paddingInline),
+                paddingTop: land ? "3mm" : "4mm",
+                paddingBottom: "2mm",
+              }
         }
       >
-        {/* dir=ltr يثبّت رقم الصفحة على اليسار البصري بغض النظر عن اتجاه التقرير */}
-        <div className="grid grid-cols-[minmax(3.25rem,auto)_1fr] items-start gap-3" dir="ltr">
-          <div
-            className={cn(
-              "min-w-[3rem] pt-1 text-left text-[11px] font-black tabular-nums",
-              headerAccentTextClass,
-              customInteriorLetterhead && "rounded-full bg-white/88 px-2 py-0.5 shadow-sm ring-1 ring-[#0C447C]/10",
+        {isValueTechOfficial && !customInteriorLetterhead ? (
+          <div className="flex h-full items-center gap-2.5" dir="rtl">
+            {effectiveLogoSrc ? (
+              <ReportLogoImg src={effectiveLogoSrc} className="h-10 w-auto max-w-[130px] object-contain" />
+            ) : (
+              <div className="h-9 w-9 rounded-lg bg-[#0C447C]/10" aria-hidden />
             )}
-            data-mv-page-label-slot
-            aria-live="polite"
-          >
-            —
+            <div className="min-w-0">
+              <div className="min-w-0 break-words text-[10px] font-black leading-snug text-[#061b2d]">
+                {companyNameNode ?? (companyName || "—")}
+              </div>
+              {commercialRegistration?.trim() ? (
+                <div className="mt-0.5 break-words text-[7.5px] font-bold leading-snug text-[#35516a]">
+                  السجل التجاري: {commercialRegistration.trim()}
+                </div>
+              ) : null}
+            </div>
           </div>
+        ) : (
           <div className="flex min-w-0 flex-col items-center gap-1" dir="rtl">
             {!customInteriorLetterhead && effectiveLogoSrc ? (
               <ReportLogoImg src={effectiveLogoSrc} className="h-14 max-h-16 w-auto max-w-[200px] object-contain" />
@@ -544,19 +675,18 @@ export function MvReportPageShell({
               <div className="h-10 w-24 rounded bg-slate-100" aria-hidden />
             )}
             {!customInteriorLetterhead ? (
-              <div className={cn("max-w-full truncate text-center text-[11px] font-black", headerAccentTextClass)}>
+              <div className={cn("max-w-full text-center text-[11px] font-black leading-snug", headerAccentTextClass)}>
                 {companyNameNode ?? (companyName || "—")}
               </div>
             ) : null}
           </div>
-        </div>
+        )}
       </header>
 
       <div
         className={cn(
-          "relative z-[1] flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-visible text-right",
-          customInteriorLetterhead ? "px-0" : "px-[3mm] py-3",
-          !customInteriorLetterhead && land && "py-2",
+          "relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden text-right",
+          customInteriorLetterhead ? "px-0" : "px-0 py-0",
         )}
         style={
           customInteriorLetterhead
@@ -565,7 +695,11 @@ export function MvReportPageShell({
                 paddingTop: safeArea.bodyPaddingTop,
                 paddingBottom: `calc(${safeArea.bodyPaddingBottom} + ${REPORT_BODY_CONTENT_FOOTER_GAP_PX}px)`,
               }
-            : { paddingBottom: REPORT_BODY_CONTENT_FOOTER_GAP_PX }
+            : {
+                paddingInline: millimeters(reportFrame.paddingInline),
+                paddingTop: millimeters(reportFrame.bodyPaddingTop),
+                paddingBottom: `calc(${millimeters(reportFrame.bodyPaddingBottom)} + ${REPORT_BODY_CONTENT_FOOTER_GAP_PX}px)`,
+              }
         }
         data-mv-report-page-content
       >
@@ -574,29 +708,39 @@ export function MvReportPageShell({
 
       <footer
         className={cn(
-          "relative z-[1] mt-auto shrink-0",
+          "relative z-[1] mt-auto shrink-0 overflow-hidden",
           customInteriorLetterhead
             ? "bg-transparent"
             : footerImageSrc
-              ? "bg-transparent px-[3mm] py-2"
+              ? "bg-transparent"
               : footerTemplateClass,
         )}
         style={
           customInteriorLetterhead
               ? {
                 minHeight: safeArea.footerHeight,
+                height: safeArea.footerHeight,
                 paddingInline: safeArea.paddingInline,
                 paddingTop: footerImageSrc ? "0.5mm" : "1mm",
                 paddingBottom: footerImageSrc ? "0.5mm" : land ? "3mm" : "4mm",
               }
-            : undefined
+            : {
+                minHeight: millimeters(reportFrame.footer),
+                height: millimeters(reportFrame.footer),
+                paddingInline: millimeters(reportFrame.paddingInline),
+                paddingTop: footerImageSrc ? "0.5mm" : "2mm",
+                paddingBottom: footerImageSrc ? "0.5mm" : "2mm",
+              }
         }
       >
         <div
           className={cn(
-            "flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-center text-[8px] font-semibold leading-relaxed",
+            footerContent
+              ? "flex h-full w-full min-w-0 items-stretch overflow-hidden"
+              : "flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-center text-[8px] font-semibold leading-relaxed",
             interiorFooterTextClass,
             footerImageSrc && "h-full min-h-[10mm] items-center",
+            !footerContent && isValueTechOfficial && !customInteriorLetterhead && "h-full items-center justify-stretch gap-x-3 gap-y-0.5 text-[8px] text-[#35516a]",
           )}
         >
           {footerImageSrc ? (
@@ -605,6 +749,8 @@ export function MvReportPageShell({
               className="mx-auto h-auto w-full max-w-full object-contain"
               style={{ maxHeight: land ? "10mm" : "14mm" }}
             />
+          ) : footerContent ? (
+            footerContent
           ) : showDefaultFooterText ? (
             footerLines.map((line, i) => <span key={`${i}-${line}`}>{line}</span>)
           ) : !letterheadEnabled ? (
@@ -614,5 +760,55 @@ export function MvReportPageShell({
       </footer>
       {draftWatermark ? <DraftWatermarkLayer orientation={orientation} /> : null}
     </div>
+  );
+}
+
+export interface MvReportSectionDividerProps {
+  sequence: string;
+  title: ReactNode;
+  companyName: string;
+  companyNameNode?: ReactNode;
+  commercialRegistration?: string;
+  logoSrc: string | null;
+  footerLines: string[];
+  coverFooterContent?: ReactNode;
+  draftWatermark?: boolean;
+}
+
+/**
+ * A full A4 divider used between major Value Tech report chapters.  It is a
+ * real report sheet (not a visual overlay), so it is numbered and exported to
+ * PDF exactly like every other page.
+ */
+export function MvReportSectionDivider({
+  sequence,
+  title,
+  companyName,
+  companyNameNode,
+  commercialRegistration,
+  logoSrc,
+  footerLines,
+  coverFooterContent,
+  draftWatermark = false,
+}: MvReportSectionDividerProps) {
+  return (
+    <MvReportPageShell
+      variant="cover"
+      coverArtwork="divider"
+      companyName={companyName}
+      companyNameNode={companyNameNode}
+      commercialRegistration={commercialRegistration}
+      logoSrc={logoSrc}
+      footerLines={footerLines}
+      draftWatermark={draftWatermark}
+      coverChildrenChromeless
+      coverFooterContent={coverFooterContent}
+    >
+      <section className="mx-auto w-full max-w-[125mm] space-y-5 px-5 text-center text-white" dir="rtl">
+        <p className="text-[10px] font-black tracking-[0.26em] text-[#f0d877]">القسم {sequence}</p>
+        <div className="mx-auto h-px w-[58mm] bg-gradient-to-l from-transparent via-[#c9a227] to-transparent" />
+        <h2 className="text-[30px] font-black leading-[1.28] tracking-tight sm:text-[39px]">{title}</h2>
+      </section>
+    </MvReportPageShell>
   );
 }

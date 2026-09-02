@@ -49,7 +49,6 @@ import {
   Search,
   Tag,
 } from "lucide-react";
-import { IBM_Plex_Sans, Sora } from "next/font/google";
 import Image from "next/image";
 import { LanguageContext } from "@/components/layout-provider";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -58,16 +57,10 @@ import {
   isVehicleTextMatch,
   toVehicleCanonicalKey,
 } from "@/lib/vehicle-name-match";
+import { systemSansFont } from "@/lib/system-fonts";
 
-const sora = Sora({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const plex = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-});
+const sora = systemSansFont;
+const plex = systemSansFont;
 
 type EvaluationSourceItem = {
   id: string;

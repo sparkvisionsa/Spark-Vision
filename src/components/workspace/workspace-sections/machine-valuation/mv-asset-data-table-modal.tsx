@@ -1,16 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Columns2,
   Database,
   Download,
   FileAudio,
   FileSpreadsheet,
+  Filter,
+  FolderTree,
   ImageIcon,
+  Layers,
   Loader2,
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Check,
   X,
   Car,
   Package,
@@ -40,6 +46,12 @@ import { buildAssetParentFolderPath } from "./mv-subproject-helpers";
 import type { MvSubProject, PicAsset, PicAssetImage, PicAssetVoiceNote } from "./types"
 import { patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 import { getAssetTypeMeta, useMvI18n, type MvT } from "./mv-i18n";
+import {
+  EMPTY_ASSET_DESCRIPTION_CATALOG,
+  fetchAssetDescriptionCatalog,
+  formatAssetDescriptionLabel,
+  type AssetDescriptionCatalog,
+} from "@/lib/company-asset-descriptions";
 
 const TABLE_PAGE_SIZE = 10;
 
@@ -126,31 +138,100 @@ function quantityLabel(pic: PicAsset | null | undefined, ctx: TableFormatContext
   return Number.isFinite(n) ? ctx.numberFormatter.format(n) : raw;
 }
 
-/** تسمية النوع الفرعي (‎subAssetType‎) للعرض في الجدول. */
-function subAssetTypeLabel(pic: PicAsset | null | undefined, notAvailable: string): string {
-  const raw = readSubAssetType(pic);
-  return raw ? raw : notAvailable;
+function assetDescriptionText(pic: PicAsset | null | undefined, fallback: string): string {
+  return formatAssetDescriptionLabel(pic?.assetDescription) || fallback;
+}
+
+function picAssetName(pic: PicAsset | null | undefined, fallback = ""): string {
+  const name = typeof pic?.name === "string" ? pic.name.trim() : "";
+  if (name) return name;
+  const label = typeof pic?.lable === "string" ? pic.lable.trim() : "";
+  return label || fallback;
+}
+
+function picAssetCategory(pic: PicAsset | null | undefined): string {
+  return typeof pic?.category === "string" ? pic.category.trim() : "";
+}
+
+function picAssetKind(pic: PicAsset | null | undefined): string {
+  return typeof pic?.type === "string" ? pic.type.trim() : "";
+}
+
+/** رابط الصورة الرئيسية من ‎assets.images.main.url‎. */
+function picAssetMainImageUrl(pic: PicAsset | null | undefined): string {
+  const image = pic?.mainImage;
+  if (!image || typeof image !== "object") return "";
+  const url = "url" in image && typeof image.url === "string" ? image.url.trim() : "";
+  return url;
+}
+
+function uniqueCatalogLabels(items: { label: string }[]): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const item of items) {
+    const label = item.label.trim();
+    const key = label.toLocaleLowerCase("ar");
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+  }
+  return labels;
+}
+
+function locationValue(value: string | null | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** مكان الأصل من ‎assets.asset_location‎ في الجذر. */
+function originalAssetLocationText(pic: PicAsset | null | undefined, ctx: TableFormatContext): string {
+  return locationValue(pic?.asset_location) || ctx.t("projects.assetTable.columns.assetLocationNoData");
+}
+
+/**
+ * مكان الأصل الحالي:
+ * - ‎newAssetLocation‎ عند وجوده.
+ * - «لم يتغير» عندما يوجد مكان أصلي فقط.
+ * - «لا يوجد» عندما تغيب القيمتان.
+ */
+function currentAssetLocationText(pic: PicAsset | null | undefined, ctx: TableFormatContext): string {
+  const currentLocation = locationValue(pic?.newAssetLocation);
+  if (currentLocation) return currentLocation;
+  if (locationValue(pic?.asset_location)) {
+    return ctx.t("projects.assetTable.columns.assetLocationUnchanged");
+  }
+  return ctx.t("projects.assetTable.columns.assetLocationNoData");
 }
 
 type EditableAssetField =
-  | "name"
+  | "lable"
+  | "asset_location"
   | "brand"
   | "model"
   | "manufactureYear"
   | "kilometersDriven"
   | "condition"
-  | "notes";
+  | "notes"
+  | "category"
+  | "type"
+  | "assetDescription";
 
 function fieldRawValue(row: AssetTableRow, field: EditableAssetField): string {
   const pic = row.picAsset;
-  if (field === "name") return (pic?.name ?? row.sub.name ?? "").trim();
+  if (field === "lable") return picAssetName(pic, row.sub.name ?? "");
+  if (field === "category") return picAssetCategory(pic);
+  if (field === "type") return picAssetKind(pic);
+  if (field === "assetDescription") return assetDescriptionText(pic, "");
+  if (field === "asset_location") return typeof pic?.asset_location === "string" ? pic.asset_location.trim() : "";
   if (!pic) return "";
   if (field === "brand") return typeof pic.brand === "string" ? pic.brand.trim() : "";
   if (field === "model") return typeof pic.model === "string" ? pic.model.trim() : "";
   if (field === "manufactureYear") return pic.manufactureYear != null ? String(pic.manufactureYear).trim() : "";
   if (field === "kilometersDriven") return pic.kilometersDriven != null ? String(pic.kilometersDriven).trim() : "";
-  const v = pic[field];
-  return typeof v === "string" ? v.trim() : "";
+  if (field === "condition" || field === "notes") {
+    const v = pic[field];
+    return typeof v === "string" ? v.trim() : "";
+  }
+  return "";
 }
 
 function EditableTextCell({
@@ -234,6 +315,179 @@ function EditableTextCell({
   );
 }
 
+/**
+ * حقل قابل للكتابة مع قائمة اقتراحات من مواقع الأصول الموجودة في المشروع.
+ * يبقى إدخال النص متاحاً حتى يمكن تصحيح قيمة خيار أو إضافة مكان جديد مباشرة.
+ */
+function AssetLocationSelectCell({
+  value,
+  options,
+  onSave,
+  saving,
+  placeholder,
+}: {
+  value: string;
+  options: string[];
+  onSave: (next: string) => Promise<void>;
+  saving?: boolean;
+  placeholder: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const listId = `asset-location-options-${useId()}`;
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next === value.trim()) return;
+    void onSave(next).catch(() => setDraft(value));
+  };
+
+  return (
+    <div className="relative mx-auto max-w-[220px]">
+      <input
+        value={draft}
+        list={listId}
+        dir="auto"
+        disabled={saving}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          }
+          if (e.key === "Escape") {
+            setDraft(value);
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        className="w-full rounded-md border border-transparent bg-white/80 px-2 py-1 text-[12px] text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option} value={option} />
+        ))}
+      </datalist>
+      {saving ? (
+        <Loader2 className="pointer-events-none absolute left-1 top-1.5 h-3.5 w-3.5 animate-spin text-sky-500" />
+      ) : null}
+    </div>
+  );
+}
+
+function CatalogLabelSelectCell({
+  value,
+  options,
+  saving,
+  placeholder,
+  emptyHint,
+  searchPlaceholder,
+  notAvailable,
+  onSave,
+}: {
+  value: string;
+  options: string[];
+  saving?: boolean;
+  placeholder: string;
+  emptyHint: string;
+  searchPlaceholder: string;
+  notAvailable: string;
+  onSave: (next: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const labels = useMemo(() => {
+    const next = [...options];
+    if (value && !next.some((item) => item === value)) next.unshift(value);
+    return next;
+  }, [options, value]);
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLocaleLowerCase("ar");
+    if (!needle) return labels;
+    return labels.filter((item) => item.toLocaleLowerCase("ar").includes(needle));
+  }, [labels, q]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative mx-auto min-w-[160px] max-w-[240px] text-right">
+      <button
+        type="button"
+        disabled={saving}
+        dir="rtl"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-1 rounded-md border border-transparent bg-white/80 px-2 py-1 text-[12px] text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+      >
+        <span className={cn("truncate", !value && "text-slate-400")}>{value || placeholder}</span>
+        {saving ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-500" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+        )}
+      </button>
+      {open ? (
+        <div className="absolute z-40 mt-1 w-[min(18rem,70vw)] rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+          <div className="relative mb-1.5">
+            <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={searchPlaceholder}
+              className="h-8 rounded-lg border-slate-200 pe-7 text-[12px]"
+              dir="auto"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto">
+            <button
+              type="button"
+              className="mb-1 w-full rounded-md px-2 py-1 text-right text-[11px] text-slate-400 hover:bg-slate-50"
+              onClick={() => {
+                setOpen(false);
+                if (value) void onSave("");
+              }}
+            >
+              {notAvailable}
+            </button>
+            {filtered.length === 0 ? (
+              <p className="px-2 py-3 text-[11px] text-slate-400">{emptyHint}</p>
+            ) : (
+              filtered.map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  dir="auto"
+                  className={cn(
+                    "flex w-full rounded-md px-2 py-1.5 text-right text-[12px] hover:bg-sky-50",
+                    label === value && "bg-sky-50 font-semibold text-sky-800",
+                  )}
+                  onClick={() => {
+                    setOpen(false);
+                    if (label !== value) void onSave(label);
+                  }}
+                >
+                  {label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function isVehicleAsset(t: unknown): boolean {
   if (typeof t !== "string") return false;
   const k = t.toLowerCase();
@@ -257,14 +511,28 @@ function buildAssetSearchText(row: AssetTableRow, ctx: TableFormatContext): stri
         : 0;
   const parts = [
     row.parentPath,
+    pic?.lable,
     pic?.name ?? row.sub.name,
     pic?._id,
     pic?.subAssetType,
+    assetDescriptionText(pic, ""),
+    pic?.assetDescription?.category,
+    pic?.assetDescription?.type,
+    pic?.assetDescription?.name,
+    pic?.category,
+    pic?.type,
+    pic?.asset_location,
+    pic?.newAssetLocation,
     readSubAssetType(pic),
     readQuantity(pic),
     pic?.brand,
     pic?.model,
     pic?.code,
+    pic?.client_code,
+    pic?.employer,
+    pic?.val_tech_id,
+    picAssetMainImageUrl(pic),
+    pic?.asset_source,
     pic?.condition,
     formatCondition(pic?.condition, ctx),
     pic?.notes,
@@ -319,7 +587,6 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
     },
     { key: "isPresent", label: c("isPresent"), text: (r) => formatBool(r.picAsset?.isPresent, ctx), minWidth: 72 },
     { key: "isDone", label: c("isDone"), text: (r) => formatBool(r.picAsset?.isDone, ctx), minWidth: 72 },
-    { key: "imageCount", label: c("imageCount"), text: (r) => imageCountText(r, ctx), minWidth: 88 },
     {
       key: "voiceNotes",
       label: c("voiceNotes"),
@@ -328,6 +595,7 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
         <VoiceNotesCell asset={row.picAsset} projectId={projectId} ctx={ctx} />
       ),
       minWidth: 220,
+      excludeFromExport: true,
     },
     {
       key: "notes",
@@ -347,16 +615,88 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
       text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt, ctx),
       minWidth: 150,
     },
+    {
+      key: "asset_source",
+      label: c("assetSource"),
+      text: (r) => formatAssetSource(r.picAsset?.asset_source, ctx),
+      minWidth: 120,
+    },
+  ];
+}
+
+function buildLeadingColumns(ctx: TableFormatContext): ColumnDef[] {
+  const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
+  return [
+    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
+    {
+      key: "val_tech_id",
+      label: c("valTechId"),
+      text: (r) => formatText(r.picAsset?.val_tech_id, ctx.notAvailable),
+      minWidth: 150,
+    },
+    { key: "preview", label: c("mainImage"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
+    {
+      key: "mainImageUrl",
+      label: c("mainImageUrl"),
+      text: (r) => formatText(picAssetMainImageUrl(r.picAsset), ctx.notAvailable),
+      minWidth: 240,
+      render: ({ row }) => {
+        const url = picAssetMainImageUrl(row.picAsset);
+        if (!url) return <span className="text-slate-400">{ctx.notAvailable}</span>;
+        return (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            dir="ltr"
+            className="mx-auto block max-w-[320px] break-all text-left text-[11px] font-medium text-sky-700 hover:underline"
+          >
+            {url}
+          </a>
+        );
+      },
+    },
+    {
+      key: "lable",
+      label: c("lable"),
+      text: (r) => formatText(picAssetName(r.picAsset, r.sub.name), ctx.notAvailable),
+      minWidth: 180,
+    },
+    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
+    {
+      key: "category",
+      label: c("category"),
+      text: (r) => formatText(picAssetCategory(r.picAsset), ctx.notAvailable),
+      minWidth: 140,
+    },
+    {
+      key: "type",
+      label: c("type"),
+      text: (r) => formatText(picAssetKind(r.picAsset), ctx.notAvailable),
+      minWidth: 160,
+    },
+    {
+      key: "asset_location",
+      label: c("assetLocation"),
+      text: (r) => originalAssetLocationText(r.picAsset, ctx),
+      minWidth: 160,
+    },
+    {
+      key: "newAssetLocation",
+      label: c("currentAssetLocation"),
+      text: (r) => currentAssetLocationText(r.picAsset, ctx),
+      minWidth: 160,
+    },
+    { key: "client_code", label: c("clientCode"), text: (r) => formatText(r.picAsset?.client_code, ctx.notAvailable), minWidth: 150 },
+    { key: "code", label: c("code"), text: (r) => formatText(r.picAsset?.code, ctx.notAvailable), minWidth: 150 },
+    { key: "employer", label: c("employer"), text: (r) => formatText(r.picAsset?.employer, ctx.notAvailable), minWidth: 140 },
   ];
 }
 
 function buildVehicleColumns(ctx: TableFormatContext): ColumnDef[] {
   const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
   return [
-    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
-    { key: "preview", label: c("preview"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
-    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
-    { key: "name", label: c("name"), text: (r) => formatText(r.picAsset?.name ?? r.sub.name, ctx.notAvailable), minWidth: 180 },
+    ...buildLeadingColumns(ctx),
     { key: "brand", label: c("brand"), text: (r) => formatText(r.picAsset?.brand, ctx.notAvailable), minWidth: 110 },
     { key: "model", label: c("model"), text: (r) => formatText(r.picAsset?.model, ctx.notAvailable), minWidth: 110 },
     {
@@ -378,16 +718,7 @@ function buildVehicleColumns(ctx: TableFormatContext): ColumnDef[] {
 function buildOtherColumns(ctx: TableFormatContext): ColumnDef[] {
   const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
   return [
-    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
-    { key: "preview", label: c("preview"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
-    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
-    { key: "name", label: c("name"), text: (r) => formatText(r.picAsset?.name ?? r.sub.name, ctx.notAvailable), minWidth: 180 },
-    {
-      key: "subAssetType",
-      label: c("subAssetType"),
-      text: (r) => subAssetTypeLabel(r.picAsset, ctx.notAvailable),
-      minWidth: 120,
-    },
+    ...buildLeadingColumns(ctx),
     {
       key: "quantity",
       label: c("quantity"),
@@ -399,7 +730,11 @@ function buildOtherColumns(ctx: TableFormatContext): ColumnDef[] {
 }
 
 const EDITABLE_COLUMN_KEYS = new Set([
-  "name",
+  "lable",
+  "category",
+  "type",
+  "assetDescription",
+  "asset_location",
   "brand",
   "model",
   "manufactureYear",
@@ -432,6 +767,376 @@ function formatText(v: string | null | undefined, fallback: string): string {
   if (typeof v !== "string") return fallback;
   const trimmed = v.trim();
   return trimmed ? trimmed : fallback;
+}
+
+const ASSET_SOURCE_FILTER_KEYS = ["client", "system", "app"] as const;
+type AssetSourceFilterKey = (typeof ASSET_SOURCE_FILTER_KEYS)[number];
+
+function normalizeAssetSourceKey(value: string | null | undefined): AssetSourceFilterKey | null {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (raw === "عميل" || raw === "client") return "client";
+  if (raw === "نظام" || raw === "system") return "system";
+  if (raw === "تطبيق" || raw === "app") return "app";
+  return null;
+}
+
+function assetSourceFilterLabel(key: AssetSourceFilterKey, t: MvT): string {
+  if (key === "client") return t("projects.assetTable.columns.assetSourceClient");
+  if (key === "system") return t("projects.assetTable.columns.assetSourceSystem");
+  return t("projects.assetTable.columns.assetSourceApp");
+}
+
+function formatAssetSource(value: string | null | undefined, ctx: TableFormatContext): string {
+  const key = normalizeAssetSourceKey(value);
+  return key ? assetSourceFilterLabel(key, ctx.t) : ctx.notAvailable;
+}
+
+function rowMatchesSourceFilter(row: AssetTableRow, selected: ReadonlySet<AssetSourceFilterKey>): boolean {
+  if (selected.size === 0) return true;
+  const key = normalizeAssetSourceKey(row.picAsset?.asset_source);
+  return key != null && selected.has(key);
+}
+
+type ClientRawValue = string | number | boolean | null;
+type ClientRawData = Record<string, ClientRawValue>;
+
+const CLIENT_RAW_SYSTEM_KEYS = new Set([
+  "notes",
+  "quantity",
+  "subAssetType",
+  "client_code",
+  "employer",
+  "asset_location",
+  "hasNotes",
+]);
+
+const CLIENT_SHEET_COLUMN_KEY = "__clientSheetName";
+
+function picAssetRawData(pic: PicAsset | null | undefined): ClientRawData {
+  const raw = pic?.rawData;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw;
+}
+
+function collectClientRawKeys(rows: AssetTableRow[]): string[] {
+  const seen = new Set<string>();
+  const keys: string[] = [];
+  for (const row of rows) {
+    for (const key of Object.keys(picAssetRawData(row.picAsset))) {
+      const field = key.trim();
+      if (!field || CLIENT_RAW_SYSTEM_KEYS.has(field) || seen.has(field)) continue;
+      seen.add(field);
+      keys.push(field);
+    }
+  }
+  return keys;
+}
+
+function collectClientSheetNames(rows: AssetTableRow[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const row of rows) {
+    const name = row.picAsset?.sheetName?.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+function formatClientRawCell(value: ClientRawValue | undefined): string | number | boolean {
+  if (value == null) return "";
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+  return String(value);
+}
+
+function clientRowsFromExport(rows: AssetTableRow[]): AssetTableRow[] {
+  return rows.filter((row) => normalizeAssetSourceKey(row.picAsset?.asset_source) === "client");
+}
+
+async function attachClientRawDataToRows(projectId: string, rows: AssetTableRow[]): Promise<AssetTableRow[]> {
+  const needsFetch = rows.some((row) => row.picAsset != null && row.picAsset.rawData === undefined);
+  if (!needsFetch) return rows;
+  const res = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}?picAssetMode=summary`, {
+    credentials: "include",
+  });
+  if (!res.ok) return rows;
+  const data = (await res.json()) as { subProjects?: MvSubProject[] };
+  const byId = new Map<string, ClientRawData | null>();
+  for (const sub of data.subProjects ?? []) {
+    const pic = sub.picAsset;
+    if (pic?._id && pic.rawData !== undefined) byId.set(pic._id, pic.rawData);
+  }
+  if (byId.size === 0) return rows;
+  return rows.map((row) => {
+    const id = row.picAsset?._id;
+    if (!id || !row.picAsset || !byId.has(id)) return row;
+    return { ...row, picAsset: { ...row.picAsset, rawData: byId.get(id) ?? {} } };
+  });
+}
+
+function HeaderFilterMenu({
+  open,
+  onClose,
+  minWidth = 240,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  minWidth?: number;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      onClose();
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [onClose, open]);
+
+  if (!open) return null;
+  return (
+    <div
+      ref={menuRef}
+      style={{ minWidth }}
+      className="absolute end-0 top-[calc(100%+6px)] z-[80] flex max-h-[min(20rem,45vh)] w-[min(20rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-800 shadow-2xl"
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
+
+function headerFilterButtonClass(active: boolean) {
+  return cn(
+    "inline-flex h-9 min-w-[9.5rem] max-w-[16rem] items-center justify-between gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold shadow-sm transition",
+    active
+      ? "border-sky-300 bg-white text-sky-900"
+      : "border-white/20 bg-white/10 text-white hover:bg-white/15",
+  );
+}
+
+function AssetSourceFilterSelect({
+  selected,
+  onChange,
+  t,
+}: {
+  selected: ReadonlySet<AssetSourceFilterKey>;
+  onChange: (next: Set<AssetSourceFilterKey>) => void;
+  t: MvT;
+}) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const buttonLabel = (() => {
+    if (selected.size === 0) return t("projects.assetTable.sourceFilterAll");
+    if (selected.size === 1) {
+      const only = ASSET_SOURCE_FILTER_KEYS.find((key) => selected.has(key));
+      return only ? assetSourceFilterLabel(only, t) : t("projects.assetTable.sourceFilterAll");
+    }
+    return t("projects.assetTable.sourceFilterSelected", {
+      count: String(selected.size),
+    });
+  })();
+
+  const toggle = (key: AssetSourceFilterKey) => {
+    const next = new Set(selected);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(next);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        dir="rtl"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={t("projects.assetTable.sourceFilterLabel")}
+        onClick={() => setOpen((value) => !value)}
+        className={headerFilterButtonClass(selected.size > 0)}
+      >
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Filter className="h-3.5 w-3.5 shrink-0 opacity-80" />
+          <span className="truncate">{buttonLabel}</span>
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      </button>
+      <HeaderFilterMenu open={open} onClose={() => setOpen(false)} minWidth={220}>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
+          <p className="text-[11px] font-bold text-slate-600">{t("projects.assetTable.sourceFilterLabel")}</p>
+          {selected.size > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-sky-700 hover:underline"
+              onClick={() => onChange(new Set())}
+            >
+              {t("projects.assetTable.sourceFilterClear")}
+            </button>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5" role="listbox" aria-multiselectable="true">
+          {ASSET_SOURCE_FILTER_KEYS.map((key) => {
+            const checked = selected.has(key);
+            return (
+              <button
+                key={key}
+                type="button"
+                role="option"
+                aria-selected={checked}
+                dir="rtl"
+                onClick={() => toggle(key)}
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[12px] hover:bg-sky-50",
+                  checked && "bg-sky-50 font-semibold text-sky-900",
+                )}
+              >
+                <span>{assetSourceFilterLabel(key, t)}</span>
+                <span
+                  className={cn(
+                    "flex h-4 w-4 items-center justify-center rounded border",
+                    checked ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 bg-white",
+                  )}
+                >
+                  {checked ? <Check className="h-3 w-3" /> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </HeaderFilterMenu>
+    </div>
+  );
+}
+
+function AssetPathFilterSelect({
+  value,
+  options,
+  onChange,
+  t,
+}: {
+  value: string;
+  options: string[];
+  onChange: (next: string) => void;
+  t: MvT;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase("ar");
+    if (!needle) return options;
+    return options.filter((item) => item.toLocaleLowerCase("ar").includes(needle));
+  }, [options, search]);
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        dir="rtl"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={t("projects.assetTable.pathFilterLabel")}
+        onClick={() => setOpen((next) => !next)}
+        className={headerFilterButtonClass(Boolean(value))}
+      >
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <FolderTree className="h-3.5 w-3.5 shrink-0 opacity-80" />
+          <span className="truncate">{value || t("projects.assetTable.pathFilterAll")}</span>
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      </button>
+      <HeaderFilterMenu open={open} onClose={() => setOpen(false)} minWidth={280}>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
+          <p className="text-[11px] font-bold text-slate-600">{t("projects.assetTable.pathFilterLabel")}</p>
+          {value ? (
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-sky-700 hover:underline"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              {t("projects.assetTable.pathFilterClear")}
+            </button>
+          ) : null}
+        </div>
+        <div className="border-b border-slate-100 p-1.5">
+          <div className="relative">
+            <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("projects.assetTable.pathFilterSearch")}
+              className="h-8 rounded-lg border-slate-200 pe-7 text-[12px]"
+              dir="auto"
+            />
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5" role="listbox">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            dir="rtl"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+            className={cn(
+              "flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[12px] hover:bg-sky-50",
+              !value && "bg-sky-50 font-semibold text-sky-900",
+            )}
+          >
+            <span>{t("projects.assetTable.pathFilterAll")}</span>
+            {!value ? <Check className="h-3.5 w-3.5 text-sky-700" /> : null}
+          </button>
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-[11px] text-slate-400">{t("projects.assetTable.pathFilterEmpty")}</p>
+          ) : (
+            filtered.map((path) => {
+              const checked = path === value;
+              return (
+                <button
+                  key={path}
+                  type="button"
+                  role="option"
+                  aria-selected={checked}
+                  dir="auto"
+                  onClick={() => {
+                    onChange(path);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-right text-[12px] hover:bg-sky-50",
+                    checked && "bg-sky-50 font-semibold text-sky-900",
+                  )}
+                >
+                  <span className="min-w-0 whitespace-normal break-words">{path}</span>
+                  {checked ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700" /> : null}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </HeaderFilterMenu>
+    </div>
+  );
 }
 
 const CONDITION_KEYS = [
@@ -506,6 +1211,8 @@ interface ColumnDef {
   /** أعمدة المركبة تخفى عند عدم وجود أي أصل مركبة. */
   vehicleOnly?: boolean;
   minWidth?: number;
+  /** يُعرض في الجدول ولا يُصدَّر إلى Excel. */
+  excludeFromExport?: boolean;
 }
 
 interface AssetTableRow {
@@ -558,6 +1265,285 @@ function picAssetImageKey(im: PicAssetImage, idx: number): string {
 function normalizePicAssetImages(asset: PicAsset | null): PicAssetImage[] {
   if (!asset || !Array.isArray(asset.images)) return [];
   return asset.images;
+}
+
+const EXCEL_ASSET_IMAGE_WIDTH = 144;
+const EXCEL_ASSET_IMAGE_HEIGHT = 108;
+
+function assetMainImageSrc(row: AssetTableRow, projectId: string): string | null {
+  const image = row.picAsset?.mainImage;
+  if (!image || isExternalPicVideo(image)) return null;
+  return picAssetImageSrc(image, projectId);
+}
+
+function isSameOriginUrl(url: string): boolean {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
+async function imageUrlToExcelPng(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url, {
+      credentials: isSameOriginUrl(url) ? "include" : "omit",
+    });
+    if (!response.ok) return null;
+
+    const imageBlob = await response.blob();
+    if (!imageBlob.type.startsWith("image/")) return null;
+
+    const objectUrl = URL.createObjectURL(imageBlob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const next = new Image();
+        next.onload = () => resolve(next);
+        next.onerror = () => reject(new Error("Could not load asset image."));
+        next.src = objectUrl;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = EXCEL_ASSET_IMAGE_WIDTH;
+      canvas.height = EXCEL_ASSET_IMAGE_HEIGHT;
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+
+      context.fillStyle = "#FFFFFF";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.drawImage(image, Math.round((canvas.width - width) / 2), Math.round((canvas.height - height) / 2), width, height);
+      return canvas.toDataURL("image/png");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function exportAssetDataWorkbook({
+  projectId,
+  filename,
+  vehicleColumns,
+  otherColumns,
+  vehicleRows,
+  otherRows,
+  vehicleSheetName,
+  otherSheetName,
+  isArabic,
+  includeClientRawData = false,
+  clientGroupLabel,
+  systemGroupLabel,
+  clientSheetColumnLabel,
+}: {
+  projectId: string;
+  filename: string;
+  vehicleColumns: ColumnDef[];
+  otherColumns: ColumnDef[];
+  vehicleRows: AssetTableRow[];
+  otherRows: AssetTableRow[];
+  vehicleSheetName: string;
+  otherSheetName: string;
+  isArabic: boolean;
+  includeClientRawData?: boolean;
+  clientGroupLabel?: string;
+  systemGroupLabel?: string;
+  clientSheetColumnLabel?: string;
+}): Promise<void> {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Spark Vision";
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  const headerFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF0F766E" } };
+  const clientGroupFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF0C447C" } };
+  const clientHeaderFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF1D4ED8" } };
+  const headerFont = { bold: true, color: { argb: "FFFFFFFF" }, name: "Calibri", size: 11 };
+  const bodyFont = { name: "Calibri", size: 11, color: { argb: "FF0F172A" } };
+  const thin = { style: "thin" as const, color: { argb: "FFCBD5E1" } };
+  const cellBorder = { top: thin, left: thin, bottom: thin, right: thin };
+  const oddFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF8FAFC" } };
+  const evenFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFFFFFF" } };
+  const clientOddFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFEFF6FF" } };
+  const clientEvenFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF8FBFF" } };
+
+  const allExportRows = [...vehicleRows, ...otherRows];
+  const sheetNames = collectClientSheetNames(allExportRows);
+  const rawKeys = includeClientRawData ? collectClientRawKeys(allExportRows) : [];
+  const clientKeys =
+    includeClientRawData && rawKeys.length > 0
+      ? sheetNames.length > 1
+        ? [CLIENT_SHEET_COLUMN_KEY, ...rawKeys]
+        : rawKeys
+      : [];
+  const dualHeaders = clientKeys.length > 0;
+
+  const appendSheet = async (sheetName: string, columns: ColumnDef[], rows: AssetTableRow[]) => {
+    if (rows.length === 0) return;
+    const exportCols = columns.filter((column) => !column.excludeFromExport);
+    const headerRowCount = dualHeaders ? 2 : 1;
+    const totalCols = exportCols.length + clientKeys.length;
+    if (totalCols === 0) return;
+
+    const worksheet = workbook.addWorksheet(sheetName.slice(0, 31), {
+      views: [{ state: "frozen", ySplit: headerRowCount, rightToLeft: isArabic, showGridLines: false }],
+      properties: { defaultRowHeight: 22, tabColor: { argb: dualHeaders ? "FF0C447C" : "FF0F766E" } },
+      pageSetup: {
+        orientation: "landscape",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 0,
+        paperSize: 9,
+        horizontalCentered: true,
+      },
+    });
+    const imageColumnIndex = exportCols.findIndex((column) => column.key === "preview") + clientKeys.length;
+    const allColDefs = [
+      ...clientKeys.map((key) => ({
+        key: `raw:${key}`,
+        width: Math.max(14, Math.min(36, Math.ceil((key === CLIENT_SHEET_COLUMN_KEY ? 16 : key.length) * 1.1))),
+      })),
+      ...exportCols.map((column) => ({
+        key: column.key,
+        width:
+          column.key === "preview"
+            ? 22
+            : Math.max(12, Math.min(42, Math.ceil((column.minWidth ?? 140) / 7))),
+      })),
+    ];
+    worksheet.columns = allColDefs.map((column) => ({
+      key: column.key,
+      width: column.width,
+    }));
+
+    const paintRange = (
+      rowNumber: number,
+      startCol: number,
+      endCol: number,
+      fill: typeof headerFill,
+      height = 28,
+    ) => {
+      const row = worksheet.getRow(rowNumber);
+      row.height = height;
+      for (let col = startCol; col <= endCol; col += 1) {
+        const cell = row.getCell(col);
+        cell.font = headerFont;
+        cell.fill = fill;
+        cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+        cell.border = cellBorder;
+      }
+    };
+
+    if (dualHeaders) {
+      const clientEnd = clientKeys.length;
+      const systemStart = clientEnd + 1;
+      worksheet.getRow(1).getCell(1).value = clientGroupLabel || "";
+      worksheet.getRow(1).getCell(systemStart).value = systemGroupLabel || "";
+      if (clientEnd > 1) worksheet.mergeCells(1, 1, 1, clientEnd);
+      if (exportCols.length > 1) worksheet.mergeCells(1, systemStart, 1, totalCols);
+      paintRange(1, 1, clientEnd, clientGroupFill, 26);
+      paintRange(1, systemStart, totalCols, headerFill, 26);
+
+      clientKeys.forEach((key, index) => {
+        worksheet.getRow(2).getCell(index + 1).value =
+          key === CLIENT_SHEET_COLUMN_KEY ? clientSheetColumnLabel || key : key;
+      });
+      exportCols.forEach((column, index) => {
+        worksheet.getRow(2).getCell(clientEnd + index + 1).value = column.label;
+      });
+      paintRange(2, 1, clientEnd, clientHeaderFill);
+      paintRange(2, systemStart, totalCols, headerFill);
+    } else {
+      exportCols.forEach((column, index) => {
+        worksheet.getRow(1).getCell(index + 1).value = column.label;
+      });
+      paintRange(1, 1, exportCols.length, headerFill);
+    }
+
+    if (totalCols > 0) {
+      worksheet.autoFilter = {
+        from: { row: headerRowCount, column: 1 },
+        to: { row: headerRowCount, column: totalCols },
+      };
+    }
+
+    const imageRows = rows.map((row, rowIndex) => {
+      const clientValues = clientKeys.map((key) => {
+        if (key === CLIENT_SHEET_COLUMN_KEY) return row.picAsset?.sheetName?.trim() || "";
+        return formatClientRawCell(picAssetRawData(row.picAsset)[key]);
+      });
+      const systemValues = exportCols.map((column) => (column.key === "preview" ? "" : column.text(row)));
+      const worksheetRow = worksheet.addRow([...clientValues, ...systemValues]);
+      worksheetRow.height = imageColumnIndex >= clientKeys.length ? 86 : 22;
+      worksheetRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        const isClientCell = colNumber <= clientKeys.length;
+        const colKey = isClientCell ? clientKeys[colNumber - 1] : exportCols[colNumber - clientKeys.length - 1]?.key;
+        cell.font = bodyFont;
+        cell.border = cellBorder;
+        cell.fill = isClientCell
+          ? rowIndex % 2 === 0
+            ? clientOddFill
+            : clientEvenFill
+          : rowIndex % 2 === 0
+            ? oddFill
+            : evenFill;
+        cell.alignment = {
+          vertical: "middle",
+          wrapText: true,
+          horizontal:
+            colKey === "parentPath" || colKey === "lable" || colKey === "notes"
+              ? isArabic
+                ? "right"
+                : "left"
+              : "center",
+        };
+      });
+      return { row, worksheetRow };
+    });
+
+    if (exportCols.every((column) => column.key !== "preview")) return;
+    const images = await Promise.all(
+      imageRows.map(({ row }) => {
+        const source = assetMainImageSrc(row, projectId);
+        return source ? imageUrlToExcelPng(source) : Promise.resolve(null);
+      }),
+    );
+    for (let index = 0; index < images.length; index += 1) {
+      const image = images[index];
+      if (!image) continue;
+      const imageId = workbook.addImage({ base64: image, extension: "png" });
+      worksheet.addImage(imageId, {
+        tl: {
+          col: imageColumnIndex + 0.12,
+          row: imageRows[index].worksheetRow.number - 0.92,
+        },
+        ext: { width: EXCEL_ASSET_IMAGE_WIDTH, height: EXCEL_ASSET_IMAGE_HEIGHT },
+        editAs: "oneCell",
+      });
+    }
+  };
+
+  await appendSheet(vehicleSheetName, vehicleColumns, vehicleRows);
+  await appendSheet(otherSheetName, otherColumns, otherRows);
+  if (workbook.worksheets.length === 0) {
+    throw new Error("No asset data to export.");
+  }
+
+  const buffer = new Uint8Array(await workbook.xlsx.writeBuffer());
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const downloadUrl = URL.createObjectURL(blob);
+  const download = document.createElement("a");
+  download.href = downloadUrl;
+  download.download = filename;
+  document.body.appendChild(download);
+  download.click();
+  download.remove();
+  URL.revokeObjectURL(downloadUrl);
 }
 
 function firstStillImage(images: PicAssetImage[]): PicAssetImage | null {
@@ -838,28 +1824,19 @@ export async function exportProjectAssetsExcel({
     .filter((r) => !isVehicleAsset(r.picAsset?.assetType))
     .map((row, index) => ({ ...row, index }));
 
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-  const appendSheet = (sheetName: string, cols: ColumnDef[], sheetRows: AssetTableRow[]) => {
-    if (sheetRows.length === 0) return;
-    const header = cols.map((c) => c.label);
-    const body = sheetRows.map((r) => cols.map((c) => c.text(r)));
-    const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-    ws["!cols"] = cols.map((c) => ({
-      wch: Math.max(10, Math.min(60, Math.ceil((c.minWidth ?? 140) / 8))),
-    }));
-    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-  };
-  appendSheet(t("projects.assetTable.sheetVehicles"), vehicleColumns, vehicleRows);
-  appendSheet(t("projects.assetTable.sheetOther"), otherColumns, otherRows);
-
-  if (wb.SheetNames.length === 0) {
-    throw new Error(t("projects.assetTable.exportNoRows"));
-  }
-
   const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
   const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  XLSX.writeFile(wb, `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
+  await exportAssetDataWorkbook({
+    projectId,
+    filename: `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`,
+    vehicleColumns,
+    otherColumns,
+    vehicleRows,
+    otherRows,
+    vehicleSheetName: t("projects.assetTable.sheetVehicles"),
+    otherSheetName: t("projects.assetTable.sheetOther"),
+    isArabic,
+  });
 
   return { count: vehicleRows.length + otherRows.length };
 }
@@ -876,8 +1853,11 @@ export function MvAssetDataTableModal({
   const otherColumns = useMemo(() => buildOtherColumns(tableCtx), [tableCtx]);
   const { toast } = useToast();
   const [query, setQuery] = useState("");
+  const [sourceFilters, setSourceFilters] = useState<Set<AssetSourceFilterKey>>(new Set());
+  const [pathFilter, setPathFilter] = useState("");
   const [activeTab, setActiveTab] = useState<AssetTab>("vehicles");
   const [exporting, setExporting] = useState(false);
+  const [clientExportDialogOpen, setClientExportDialogOpen] = useState(false);
   const [entries, setEntries] = useState<PreviewEntry[]>(() => {
     if (typeof window === "undefined") return [];
     const cached = readMvWorkflowSessionJson<{ entries?: PreviewEntry[]; entriesFull?: boolean }>(
@@ -904,10 +1884,22 @@ export function MvAssetDataTableModal({
   const [galleryAsset, setGalleryAsset] = useState<{ asset: PicAsset; name: string } | null>(null);
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [catalog, setCatalog] = useState<AssetDescriptionCatalog>(EMPTY_ASSET_DESCRIPTION_CATALOG);
   const loadIdRef = useRef(0);
   const hydrateCancelRef = useRef<(() => void) | null>(null);
   const folderLookupRef = useRef<FolderLookup | null>(null);
   folderLookupRef.current = folderLookup;
+  const assetLocationOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          entries
+            .map((entry) => entry.picAsset?.asset_location?.trim() ?? "")
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b, "ar-SA", { sensitivity: "base" })),
+    [entries],
+  );
 
   const persistEntriesCache = useCallback(
     (nextEntries: PreviewEntry[], lookup: FolderLookup | null = folderLookupRef.current) => {
@@ -980,43 +1972,37 @@ export function MvAssetDataTableModal({
       const cellKey = `${subId}:${field}`;
       setSavingCell(cellKey);
       try {
-        if (field === "name") {
-          const trimmed = nextValue.trim();
-          if (!trimmed) {
-            toast({ variant: "destructive", description: t("projects.assetTable.nameRequired") });
-            return;
-          }
-          const updated = await patchMvSubprojectPicAsset(projectId, subId, { name: trimmed });
-          applyEntryUpdate(subId, (e) => ({
-            ...e,
-            sub: { ...e.sub, name: trimmed },
-            picAsset: mergePicAssetPreferFull(e.picAsset, { ...updated, name: trimmed }),
-          }));
-        } else if (field === "manufactureYear" || field === "kilometersDriven") {
-          const trimmed = nextValue.trim();
-          const payload = { [field]: trimmed ? trimmed : null };
-          const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
-          applyEntryUpdate(subId, (e) => ({
-            ...e,
-            picAsset: mergePicAssetPreferFull(e.picAsset, updated),
-          }));
-        } else if (field === "brand" || field === "model") {
-          const payload = { [field]: nextValue.trim() || null };
-          const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
-          applyEntryUpdate(subId, (e) => ({
-            ...e,
-            picAsset: mergePicAssetPreferFull(e.picAsset, updated),
-          }));
-        } else {
-          const payload: Record<string, string | null> = {
-            [field]: nextValue.trim() || null,
-          };
-          const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
-          applyEntryUpdate(subId, (e) => ({
-            ...e,
-            picAsset: mergePicAssetPreferFull(e.picAsset, updated),
-          }));
+        const trimmed = nextValue.trim();
+        if (field === "assetDescription") return;
+        if (field === "lable" && !trimmed) {
+          toast({ variant: "destructive", description: t("projects.assetTable.nameRequired") });
+          return;
         }
+
+        const payload: Record<string, unknown> =
+          field === "lable"
+            ? { name: trimmed }
+            : field === "manufactureYear" || field === "kilometersDriven"
+              ? {
+                  [field]: trimmed
+                    ? Number.isFinite(Number(trimmed.replace(/,/g, "")))
+                      ? Number(trimmed.replace(/,/g, ""))
+                      : trimmed
+                    : null,
+                }
+              : { [field]: trimmed || null };
+
+        const updated = await patchMvSubprojectPicAsset(projectId, subId, payload);
+        applyEntryUpdate(subId, (e) => ({
+          ...e,
+          sub: field === "lable" ? { ...e.sub, name: trimmed } : e.sub,
+          picAsset:
+            field === "lable"
+            ? mergePicAssetPreferFull(e.picAsset, { ...updated, name: trimmed })
+              : field === "category" || field === "type"
+                ? mergePicAssetFromApi(e.picAsset, { ...updated, [field]: trimmed || null })
+                : mergePicAssetPreferFull(e.picAsset, updated),
+        }));
         toast({ description: t("projects.assetTable.saveSuccess") });
       } catch (e) {
         toast({
@@ -1024,7 +2010,6 @@ export function MvAssetDataTableModal({
           title: t("projects.assetTable.saveFailedTitle"),
           description: e instanceof Error ? e.message : t("projects.assetTable.saveFailed"),
         });
-        throw e;
       } finally {
         setSavingCell(null);
       }
@@ -1037,6 +2022,58 @@ export function MvAssetDataTableModal({
       if (!EDITABLE_COLUMN_KEYS.has(colKey)) return null;
       const field = colKey as EditableAssetField;
       const saving = savingCell === `${row.sub._id}:${field}`;
+
+      if (field === "category") {
+        return (
+          <CatalogLabelSelectCell
+            value={picAssetCategory(row.picAsset)}
+            options={uniqueCatalogLabels(catalog.categories)}
+            saving={saving}
+            placeholder={t("projects.assetTable.categoryPlaceholder")}
+            emptyHint={t("projects.assetTable.categoryEmpty")}
+            searchPlaceholder={t("projects.assetTable.categorySearch")}
+            notAvailable={tableCtx.notAvailable}
+            onSave={async (v) => saveAssetField(row, "category", v)}
+          />
+        );
+      }
+
+      if (field === "type") {
+        const categoryLabel = picAssetCategory(row.picAsset);
+        const selectedCategory = catalog.categories.find(
+          (item) => item.label.trim() === categoryLabel,
+        );
+        const scopedTypes = selectedCategory
+          ? catalog.types.filter((item) => item.categoryId === selectedCategory.id)
+          : catalog.types;
+        return (
+          <CatalogLabelSelectCell
+            value={picAssetKind(row.picAsset)}
+            options={uniqueCatalogLabels(scopedTypes.length > 0 ? scopedTypes : catalog.types)}
+            saving={saving}
+            placeholder={t("projects.assetTable.typePlaceholder")}
+            emptyHint={t("projects.assetTable.typeEmpty")}
+            searchPlaceholder={t("projects.assetTable.typeSearch")}
+            notAvailable={tableCtx.notAvailable}
+            onSave={async (v) => saveAssetField(row, "type", v)}
+          />
+        );
+      }
+
+      if (field === "asset_location") {
+        const value = fieldRawValue(row, field);
+        return (
+          <AssetLocationSelectCell
+            value={value}
+            options={assetLocationOptions}
+            saving={saving}
+            placeholder={
+              value ? t("projects.assetTable.locationPlaceholder") : t("projects.assetTable.columns.assetLocationNoData")
+            }
+            onSave={async (v) => saveAssetField(row, field, v)}
+          />
+        );
+      }
 
       if (field === "condition") {
         const raw = fieldRawValue(row, field);
@@ -1068,7 +2105,7 @@ export function MvAssetDataTableModal({
       }
 
       const singleLine =
-        field === "name" ||
+        field === "lable" ||
         field === "brand" ||
         field === "model" ||
         field === "manufactureYear" ||
@@ -1077,14 +2114,22 @@ export function MvAssetDataTableModal({
         <EditableTextCell
           value={fieldRawValue(row, field)}
           saving={saving}
-          required={field === "name"}
+          required={field === "lable"}
           multiline={!singleLine}
-          placeholder={field === "name" ? t("projects.assetTable.namePlaceholder") : tableCtx.notAvailable}
+          placeholder={field === "lable" ? t("projects.assetTable.lablePlaceholder") : tableCtx.notAvailable}
           onSave={async (v) => saveAssetField(row, field, v)}
         />
       );
     },
-    [saveAssetField, savingCell, t, tableCtx.notAvailable],
+    [
+      assetLocationOptions,
+      catalog.categories,
+      catalog.types,
+      saveAssetField,
+      savingCell,
+      t,
+      tableCtx.notAvailable,
+    ],
   );
 
   const openAssetGallery = useCallback(
@@ -1152,6 +2197,7 @@ export function MvAssetDataTableModal({
             const mergedPic = mergePicAssetFromApi(existing?.picAsset ?? null, entry.picAsset);
             const mergedName =
               mergedPic?.name?.trim() ||
+              mergedPic?.lable?.trim() ||
               entry.sub.name ||
               existing?.sub.name ||
               "";
@@ -1186,14 +2232,35 @@ export function MvAssetDataTableModal({
   }, [open, projectId, loadAssetFolders]);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetchAssetDescriptionCatalog()
+      .then((next) => {
+        if (!cancelled) setCatalog(next);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalog(EMPTY_ASSET_DESCRIPTION_CATALOG);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    setSourceFilters(new Set());
+    setPathFilter("");
     setPage(0);
-  }, [query, activeTab]);
+  }, [projectId]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, activeTab, sourceFilters, pathFilter]);
 
   const allRows = useMemo<AssetTableRow[]>(() => {
     const filtered = entries.filter((e) => e.picAsset != null);
     const sorted = filtered.sort((a, b) => {
-      const an = (a.picAsset?.name ?? a.sub.name ?? "").toString();
-      const bn = (b.picAsset?.name ?? b.sub.name ?? "").toString();
+      const an = picAssetName(a.picAsset, a.sub.name);
+      const bn = picAssetName(b.picAsset, b.sub.name);
       return an.localeCompare(bn, "ar-SA", { numeric: true, sensitivity: "base" });
     });
     return sorted.map((entry, index) => ({
@@ -1206,11 +2273,41 @@ export function MvAssetDataTableModal({
     }));
   }, [entries, folderLookup, tableCtx.notAvailable]);
 
+  const sourceFilteredRows = useMemo(
+    () => allRows.filter((row) => rowMatchesSourceFilter(row, sourceFilters)),
+    [allRows, sourceFilters],
+  );
+
+  const pathOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const paths: string[] = [];
+    for (const row of sourceFilteredRows) {
+      const path = row.parentPath.trim();
+      if (!path || path === tableCtx.notAvailable || seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
+    return paths.sort((a, b) => a.localeCompare(b, "ar-SA", { numeric: true, sensitivity: "base" }));
+  }, [sourceFilteredRows, tableCtx.notAvailable]);
+
+  useEffect(() => {
+    if (pathFilter && !pathOptions.includes(pathFilter)) setPathFilter("");
+  }, [pathFilter, pathOptions]);
+
+  const pathFilteredRows = useMemo(
+    () => (pathFilter ? sourceFilteredRows.filter((row) => row.parentPath === pathFilter) : sourceFilteredRows),
+    [pathFilter, sourceFilteredRows],
+  );
+
   const searchedRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return allRows;
-    return allRows.filter((r) => buildAssetSearchText(r, tableCtx).includes(q));
-  }, [allRows, query, tableCtx]);
+    if (!q) return pathFilteredRows;
+    return pathFilteredRows.filter((r) => buildAssetSearchText(r, tableCtx).includes(q));
+  }, [pathFilteredRows, query, tableCtx]);
+
+  const sourceFilterActive = sourceFilters.size > 0;
+  const pathFilterActive = Boolean(pathFilter);
+  const tableFilterActive = Boolean(query.trim()) || sourceFilterActive || pathFilterActive;
 
   const vehicleRowsAll = useMemo(
     () =>
@@ -1287,48 +2384,109 @@ export function MvAssetDataTableModal({
     };
   }, [open, pagedRows, persistEntriesCache, projectId]);
 
-  const handleExportExcel = async () => {
-    if (rows.length === 0) {
-      toast({ variant: "destructive", description: t("projects.assetTable.exportNoData") });
-      return;
-    }
-    setExporting(true);
-    try {
-      const XLSX = await import("xlsx");
-      const wb = XLSX.utils.book_new();
-      const appendSheet = (sheetName: string, cols: ColumnDef[], data: AssetTableRow[]) => {
-        if (data.length === 0) return;
-        const header = cols.map((c) => c.label);
-        const body = data.map((r) => cols.map((c) => c.text(r)));
-        const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-        ws["!cols"] = cols.map((c) => ({
-          wch: Math.max(10, Math.min(60, Math.ceil((c.minWidth ?? 140) / 8))),
-        }));
-        XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-      };
-      appendSheet(t("projects.assetTable.sheetVehicles"), vehicleColumns, vehicleRows);
-      appendSheet(t("projects.assetTable.sheetOther"), otherColumns, otherRows);
-      if (wb.SheetNames.length === 0) {
-        toast({ variant: "destructive", description: t("projects.assetTable.exportNoRows") });
+  const exportRowCount = vehicleRows.length + otherRows.length;
+  const clientExportMeta = useMemo(() => {
+    const clientRows = clientRowsFromExport([...vehicleRows, ...otherRows]);
+    const sheets = collectClientSheetNames(clientRows);
+    return {
+      rowCount: clientRows.length,
+      sheetCount: sheets.length,
+      sheetNames: sheets,
+    };
+  }, [otherRows, vehicleRows]);
+
+  const runExportExcel = useCallback(
+    async (includeClientRawData: boolean) => {
+      if (exportRowCount === 0) {
+        toast({
+          variant: "destructive",
+          description: tableFilterActive
+            ? t("projects.assetTable.exportNoRows")
+            : t("projects.assetTable.exportNoData"),
+        });
         return;
       }
-      const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
-      const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-      XLSX.writeFile(wb, `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`, { bookType: "xlsx" });
-      toast({
-        description: t("projects.assetTable.exportSuccess", {
-          count: tableCtx.numberFormatter.format(vehicleRows.length + otherRows.length),
-        }),
-      });
-    } catch (e) {
+      setClientExportDialogOpen(false);
+      setExporting(true);
+      try {
+        let nextVehicleRows = vehicleRows;
+        let nextOtherRows = otherRows;
+        if (includeClientRawData) {
+          const [enrichedVehicles, enrichedOthers] = await Promise.all([
+            attachClientRawDataToRows(projectId, vehicleRows),
+            attachClientRawDataToRows(projectId, otherRows),
+          ]);
+          nextVehicleRows = enrichedVehicles;
+          nextOtherRows = enrichedOthers;
+          const rawKeys = collectClientRawKeys([...nextVehicleRows, ...nextOtherRows]);
+          if (rawKeys.length === 0) {
+            toast({ description: t("projects.assetTable.exportClientRawMissing") });
+            includeClientRawData = false;
+          }
+        }
+        const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
+        const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        await exportAssetDataWorkbook({
+          projectId,
+          filename: `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`,
+          vehicleColumns,
+          otherColumns,
+          vehicleRows: nextVehicleRows,
+          otherRows: nextOtherRows,
+          vehicleSheetName: t("projects.assetTable.sheetVehicles"),
+          otherSheetName: t("projects.assetTable.sheetOther"),
+          isArabic,
+          includeClientRawData,
+          clientGroupLabel: t("projects.assetTable.exportClientGroup"),
+          systemGroupLabel: t("projects.assetTable.exportSystemGroup"),
+          clientSheetColumnLabel: t("projects.assetTable.exportClientSheetColumn"),
+        });
+        toast({
+          description: t("projects.assetTable.exportSuccess", {
+            count: tableCtx.numberFormatter.format(nextVehicleRows.length + nextOtherRows.length),
+          }),
+        });
+      } catch (e) {
+        toast({
+          variant: "destructive",
+          title: t("projects.assetTable.exportFailedTitle"),
+          description: e instanceof Error ? e.message : t("projects.assetTable.exportUnexpected"),
+        });
+      } finally {
+        setExporting(false);
+      }
+    },
+    [
+      exportRowCount,
+      isArabic,
+      otherColumns,
+      otherRows,
+      projectId,
+      projectName,
+      t,
+      tableCtx.numberFormatter,
+      tableFilterActive,
+      toast,
+      vehicleColumns,
+      vehicleRows,
+    ],
+  );
+
+  const requestExportExcel = () => {
+    if (exportRowCount === 0) {
       toast({
         variant: "destructive",
-        title: t("projects.assetTable.exportFailedTitle"),
-        description: e instanceof Error ? e.message : t("projects.assetTable.exportUnexpected"),
+        description: tableFilterActive
+          ? t("projects.assetTable.exportNoRows")
+          : t("projects.assetTable.exportNoData"),
       });
-    } finally {
-      setExporting(false);
+      return;
     }
+    if (sourceFilters.has("client") && clientExportMeta.rowCount > 0) {
+      setClientExportDialogOpen(true);
+      return;
+    }
+    void runExportExcel(false);
   };
 
   return (
@@ -1336,14 +2494,14 @@ export function MvAssetDataTableModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
       <MvDialogContent
         closeOnDark
-        className="flex h-[92vh] w-[96vw] max-w-[1400px] flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0"
+        className="flex h-[min(92vh,calc(100dvh-1.5rem))] max-h-[min(92vh,calc(100dvh-1.5rem))] w-[min(96vw,1400px)] max-w-[1400px] flex-col gap-0 overflow-visible rounded-2xl border border-slate-200 bg-white p-0"
         dir={dir}
       >
         <DialogTitle className="sr-only">
           {t("projects.assetTable.title")} — {projectName ?? t("projects.assetTable.projectFallback")}
         </DialogTitle>
 
-        <div className="relative shrink-0 overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 py-4 pe-14 text-white">
+        <div className="relative z-30 shrink-0 overflow-visible bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 py-4 pe-14 text-white">
           <div className="pointer-events-none absolute -left-16 -top-12 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
           <div className="relative flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -1357,7 +2515,7 @@ export function MvAssetDataTableModal({
               <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-sky-100/90">
                 <span>
                   {t("projects.assetTable.totalSummary", {
-                    total: tableCtx.numberFormatter.format(rows.length),
+                    total: tableCtx.numberFormatter.format(searchedRows.length),
                     vehicles: tableCtx.numberFormatter.format(vehicleRows.length),
                     other: tableCtx.numberFormatter.format(otherRows.length),
                   })}
@@ -1374,6 +2532,17 @@ export function MvAssetDataTableModal({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <AssetSourceFilterSelect
+                selected={sourceFilters}
+                onChange={setSourceFilters}
+                t={t}
+              />
+              <AssetPathFilterSelect
+                value={pathFilter}
+                options={pathOptions}
+                onChange={setPathFilter}
+                t={t}
+              />
               <div className="relative">
                 <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/60" />
                 <Input
@@ -1397,8 +2566,8 @@ export function MvAssetDataTableModal({
               <Button
                 type="button"
                 size="sm"
-                disabled={exporting || rows.length === 0}
-                onClick={() => void handleExportExcel()}
+                disabled={exporting || exportRowCount === 0}
+                onClick={() => void requestExportExcel()}
                 className="h-9 gap-1.5 rounded-lg bg-emerald-500 px-3 text-[12px] font-bold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50"
               >
                 {exporting ? (
@@ -1478,9 +2647,13 @@ export function MvAssetDataTableModal({
               <p className="text-[12px] font-medium">
                 {query.trim()
                   ? t("projects.assetTable.noSearchResults")
-                  : activeTab === "vehicles"
-                    ? t("projects.assetTable.noVehicles")
-                    : t("projects.assetTable.noOtherAssets")}
+                  : pathFilterActive
+                    ? t("projects.assetTable.noPathFilterResults")
+                    : sourceFilterActive
+                    ? t("projects.assetTable.noSourceFilterResults")
+                    : activeTab === "vehicles"
+                      ? t("projects.assetTable.noVehicles")
+                      : t("projects.assetTable.noOtherAssets")}
               </p>
             </div>
           ) : (
@@ -1510,9 +2683,10 @@ export function MvAssetDataTableModal({
                     {visibleColumns.map((col, idx) => {
                       const textValue = col.text(row);
                       const isFirst = idx === 0;
-                      const isName = col.key === "name";
+                      const isLable = col.key === "lable";
+                      const isAssetType = col.key === "type";
+                      const isCategory = col.key === "category";
                       const isParentPath = col.key === "parentPath";
-                      const isSubAssetType = col.key === "subAssetType";
                       const isQuantity = col.key === "quantity";
                       return (
                         <td
@@ -1521,9 +2695,9 @@ export function MvAssetDataTableModal({
                             "border-b border-slate-100 px-3 py-2 text-center align-middle text-slate-800",
                             isFirst &&
                               "sticky right-0 z-10 bg-white font-bold tabular-nums text-slate-500 shadow-[1px_0_0_0_rgb(241,245,249)] group-hover:bg-sky-50/60",
-                            isName && "font-semibold text-slate-900",
+                            (isLable || isAssetType || isCategory) && "font-semibold text-slate-900",
                             isParentPath && "text-right text-[11px] leading-relaxed",
-                            (isSubAssetType || isQuantity) && "font-medium tabular-nums text-slate-900",
+                            isQuantity && "font-medium tabular-nums text-slate-900",
                             textValue === tableCtx.notAvailable && !isFirst && col.key !== "preview" && "text-slate-400",
                           )}
                           style={{ minWidth: col.minWidth ?? 120 }}
@@ -1531,7 +2705,7 @@ export function MvAssetDataTableModal({
                           {col.key === "preview" ? (
                             <AssetThumbnailCell
                               asset={row.picAsset}
-                              assetName={formatText(row.picAsset?.name ?? row.sub.name, "")}
+                              assetName={formatText(picAssetName(row.picAsset, row.sub.name), "")}
                               subProjectId={row.sub._id}
                               projectId={projectId}
                               loadingDetails={loadingDetails}
@@ -1568,7 +2742,7 @@ export function MvAssetDataTableModal({
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-500">
           <div className="flex flex-wrap items-center gap-3">
             <span>
-              {query.trim()
+              {tableFilterActive
                 ? t("projects.assetTable.displayedCount", {
                     shown: tableCtx.numberFormatter.format(visibleRows.length),
                     total: tableCtx.numberFormatter.format(tabRowsAll.length),
@@ -1630,6 +2804,91 @@ export function MvAssetDataTableModal({
             {t("common.close")}
           </Button>
         </div>
+
+        {clientExportDialogOpen ? (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-md">
+            <div className="relative w-full max-w-xl overflow-hidden rounded-[28px] border border-white/15 bg-white shadow-[0_30px_80px_-24px_rgba(12,68,124,0.55)]">
+              <div className="relative overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-6 py-5 text-white">
+                <div className="pointer-events-none absolute -left-10 -top-10 h-32 w-32 rounded-full bg-sky-400/25 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-8 right-6 h-24 w-24 rounded-full bg-emerald-300/20 blur-2xl" />
+                <p className="relative text-[10px] font-semibold uppercase tracking-[0.22em] text-white/55">
+                  Spark Vision
+                </p>
+                <h3 className="relative mt-1 flex items-center gap-2 text-lg font-black">
+                  <Layers className="h-5 w-5 text-sky-200" />
+                  {t("projects.assetTable.exportClientDialogTitle")}
+                </h3>
+                <p className="relative mt-2 max-w-lg text-[13px] leading-6 text-sky-50/90">
+                  {t("projects.assetTable.exportClientDialogLead")}
+                </p>
+                <div className="relative mt-4 flex flex-wrap gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-3 py-1 text-[11px] font-semibold text-white">
+                    <FileSpreadsheet className="h-3.5 w-3.5" />
+                    {t("projects.assetTable.exportClientDialogRows", {
+                      count: tableCtx.numberFormatter.format(clientExportMeta.rowCount),
+                    })}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/12 px-3 py-1 text-[11px] font-semibold text-white">
+                    <Columns2 className="h-3.5 w-3.5" />
+                    {t("projects.assetTable.exportClientDialogSheets", {
+                      count: tableCtx.numberFormatter.format(Math.max(1, clientExportMeta.sheetCount)),
+                    })}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-3 px-6 py-5">
+                <p className="text-[12px] leading-6 text-slate-500">
+                  {t("projects.assetTable.exportClientDialogBody")}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => void runExportExcel(true)}
+                    className="group rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-white p-4 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg disabled:opacity-60"
+                  >
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#0C447C] text-white shadow-sm">
+                      <Layers className="h-4 w-4" />
+                    </span>
+                    <p className="mt-3 text-[13px] font-black text-slate-900">
+                      {t("projects.assetTable.exportClientDialogInclude")}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      {t("projects.assetTable.exportClientDialogIncludeHint")}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => void runExportExcel(false)}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md disabled:opacity-60"
+                  >
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+                      <Database className="h-4 w-4" />
+                    </span>
+                    <p className="mt-3 text-[13px] font-black text-slate-900">
+                      {t("projects.assetTable.exportClientDialogSystemOnly")}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                      {t("projects.assetTable.exportClientDialogSystemOnlyHint")}
+                    </p>
+                  </button>
+                </div>
+                <div className="flex justify-end pt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={exporting}
+                    onClick={() => setClientExportDialogOpen(false)}
+                    className="h-9 rounded-xl px-4 text-[12px] font-semibold text-slate-500 hover:text-slate-800"
+                  >
+                    {t("projects.assetTable.exportClientDialogCancel")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </MvDialogContent>
       </Dialog>
 

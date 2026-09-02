@@ -1,6 +1,9 @@
 import type { MvColumnFormatKind } from "@/lib/mv-hyperformula";
 import type { MvValuationAccountingStore } from "./mv-valuation-accounting-store";
 import type { MvClientDocumentsStore } from "./mv-client-documents-store";
+import type { MvReportCustomField, MvReportCustomSection } from "./mv-report-custom-fields";
+
+export type { MvReportCustomField, MvReportCustomFieldType, MvReportCustomSection } from "./mv-report-custom-fields";
 
 export type MvCellFontFamily =
   | "default"
@@ -171,6 +174,8 @@ export interface MvReportInsertedBlock {
 export type MvReportPageOrientationPreference = "portrait" | "landscape";
 
 export interface MvProjectReportData {
+  /** Company report-data model selected for this simplified project. */
+  reportDataModelId?: string;
   reportReference?: string;
   reportTitle?: string;
   assetSingularPlural?: string;
@@ -231,6 +236,10 @@ export interface MvProjectReportData {
   finalValueWords?: string;
   /** قالب إخراج التقرير المختار داخل خطوات المشروع البسيط. */
   reportTemplateId?: string;
+  /** قالب Word المختار لهذا المشروع من قوالب الشركة. */
+  wordTemplateId?: string;
+  /** قالب PowerPoint المختار لهذا المشروع من قوالب الشركة. */
+  pptxTemplateId?: string;
   /**
    * وضع عرض التقرير: مسودة = علامة مائية «مسودة» على كل الصفحات
    * وإخفاء صور التوقيع في جدول 24.0 رأي القيمة.
@@ -245,6 +254,10 @@ export interface MvProjectReportData {
   clientDocumentsImagesPerRow?: 1 | 2 | 3;
   /** عدد صور الأصول في الصف عند دمج قالب Word. */
   wordAssetImagesPerRow?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** عدد صور الأصول في صف شريحة PowerPoint. */
+  pptxAssetImagesPerRow?: 1 | 2 | 3 | 4 | 5 | 6;
+  /** عدد صور مرفقات العميل في صف شريحة PowerPoint. */
+  pptxClientImagesPerRow?: 1 | 2 | 3 | 4 | 5 | 6;
   /** جودة إعادة ترميز الصور داخل تقرير Word كنسبة مئوية. */
   wordImageQuality?: 60 | 70 | 80 | 90 | 95 | 100;
   /** محتوى HTML — شهادة التسجيل في بوابة «تقييم» */
@@ -269,6 +282,10 @@ export interface MvProjectReportData {
   reportHiddenAnchorIds?: string[];
   /** اتجاهات صفحات التقرير اليدوية، مفاتيحها anchor الصفحة أو معرف الصورة. */
   reportPageOrientations?: Record<string, MvReportPageOrientationPreference>;
+  /** حقول يضيفها المستخدم داخل أقسام بيانات التقرير. */
+  customFields?: MvReportCustomField[];
+  /** أقسام إضافية يضيفها المستخدم في نهاية صفحة بيانات التقرير. */
+  customSections?: MvReportCustomSection[];
 }
 
 export interface MvProjectLocation {
@@ -413,9 +430,22 @@ export interface PicAsset {
   _id: string;
   projectId: string;
   parent: string;
-  name: string;
+  /** اسم الأصل — يُقرأ ويُحدَّث في ‎assets.name‎. */
+  name: string | null;
+  /** الاسم الأصلي عند التوليد؛ يبقى ثابتاً بعد الإنشاء. */
+  lable: string | null;
+  /** كود العميل من عمود Excel. */
+  client_code: string | null;
+  /** الموظف من عمود Excel المختار عند إنشاء مجلدات الصور. */
+  employer: string | null;
+  /** يصل كسلسلة لحماية دقة BSON Int64 في JavaScript. */
+  val_tech_id: string | null;
   importId?: string | null;
   sheetName?: string | null;
+  /** مصدر الأصل: عميل | نظام | تطبيق */
+  asset_source?: string | null;
+  /** بيانات صف إكسل العميل كما حُفظت في ‎assets.rawData‎. */
+  rawData?: Record<string, string | number | boolean | null> | null;
   createdAt: string;
   updatedAt: string;
   isAssetFolder: true;
@@ -441,8 +471,25 @@ export interface PicAsset {
   createdBy: string | null;
   /** تخزين GridFS (‎fileId‎) و/أو عناوين URL خارجية */
   images: PicAssetImage[];
+  /** الصورة الرئيسية في ‎assets.images.main‎ عند وجودها. */
+  mainImage?: PicAssetImage | null;
   voiceNotes: PicAssetVoiceNote[];
   isDone: boolean;
+  /** وصف الأصل المختار من ‎assets.asset_description‎ (فئة / نوع / اسم). */
+  assetDescription?: {
+    id: string;
+    category: string;
+    type: string;
+    name: string;
+  } | null;
+  /** فئة الأصل من ‎assets.category‎. */
+  category?: string | null;
+  /** نوع الأصل من ‎assets.type‎. */
+  type?: string | null;
+  /** مكان الأصل كما ورد من Excel أو كما اختاره المستخدم. */
+  asset_location?: string | null;
+  /** المكان الحالي للأصل بعد نقله، من ‎assets.newAssetLocation‎. */
+  newAssetLocation?: string | null;
   /** عند ‎GET project?picAssetMode=summary‎ — عرض أعداد دون جلب المصفوفات */
   imageCount?: number;
   voiceNoteCount?: number;

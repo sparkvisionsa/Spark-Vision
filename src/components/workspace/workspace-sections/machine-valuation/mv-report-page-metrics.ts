@@ -9,10 +9,33 @@ export const REPORT_BODY_CONTENT_SAFETY_PX = 12;
 
 export type ReportPageOrientation = "portrait" | "landscape";
 
+/**
+ * The physical A4 frame used by the report shell and the flow paginator.
+ * Keeping this in one place prevents a visual header/footer redesign from
+ * silently shrinking the usable body and clipping a page during PDF capture.
+ */
+export const REPORT_INTERIOR_FRAME_MM = {
+  portrait: {
+    paddingInline: 12,
+    header: 25,
+    footer: 22,
+    bodyPaddingTop: 5,
+    bodyPaddingBottom: 5,
+  },
+  landscape: {
+    paddingInline: 14,
+    header: 19,
+    footer: 18,
+    bodyPaddingTop: 4,
+    bodyPaddingBottom: 4,
+  },
+} as const;
+
 /** عرض منطقة المحتوى الداخلية (210mm − padding أفقي 6mm). */
 export function getReportInteriorBodyWidthPx(orientation: ReportPageOrientation = "portrait") {
   const pageWidthMm = orientation === "landscape" ? 297 : 210;
-  return Math.floor((pageWidthMm - 6) * REPORT_CSS_PX_PER_MM);
+  const frame = REPORT_INTERIOR_FRAME_MM[orientation];
+  return Math.floor((pageWidthMm - frame.paddingInline * 2) * REPORT_CSS_PX_PER_MM);
 }
 
 /**
@@ -21,10 +44,11 @@ export function getReportInteriorBodyWidthPx(orientation: ReportPageOrientation 
  */
 export function getReportInteriorBodyMaxPx(orientation: ReportPageOrientation = "portrait") {
   const pageMm = orientation === "landscape" ? 210 : 297;
-  const headerMm = orientation === "landscape" ? 22 : 32;
-  const footerMm = orientation === "landscape" ? 16 : 18;
-  const bodyPaddingMm = orientation === "landscape" ? 3 : 6;
-  const raw = Math.floor((pageMm - headerMm - footerMm - bodyPaddingMm) * REPORT_CSS_PX_PER_MM);
+  const frame = REPORT_INTERIOR_FRAME_MM[orientation];
+  const bodyPaddingMm = frame.bodyPaddingTop + frame.bodyPaddingBottom;
+  const raw = Math.floor(
+    (pageMm - frame.header - frame.footer - bodyPaddingMm) * REPORT_CSS_PX_PER_MM,
+  );
   return Math.max(
     1,
     raw - REPORT_BODY_CONTENT_FOOTER_GAP_PX - REPORT_BODY_CONTENT_SAFETY_PX,

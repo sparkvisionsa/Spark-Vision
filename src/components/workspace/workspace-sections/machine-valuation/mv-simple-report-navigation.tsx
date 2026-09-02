@@ -26,18 +26,26 @@ export type MvSimpleReportStepId =
   | "asset-images"
   | "valuation-actions"
   | "client-files"
-  | "report-preview";
+  | "final-report";
 
 const SIMPLE_REPORT_STEP_IDS = new Set<MvSimpleReportStepId>([
   "report-data",
   "asset-images",
   "valuation-actions",
   "client-files",
-  "report-preview",
+  "final-report",
 ]);
 
 function visitedStorageKey(projectId: string) {
   return `mv:simple-report-visited:${projectId}`;
+}
+
+function normalizeVisitedStepId(value: string): MvSimpleReportStepId | null {
+  if (value === "report-preview") return "final-report";
+  if (SIMPLE_REPORT_STEP_IDS.has(value as MvSimpleReportStepId)) {
+    return value as MvSimpleReportStepId;
+  }
+  return null;
 }
 
 export function readVisitedSimpleReportSteps(projectId: string): MvSimpleReportStepId[] {
@@ -47,9 +55,12 @@ export function readVisitedSimpleReportSteps(projectId: string): MvSimpleReportS
     if (!raw) return ["report-data"];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return ["report-data"];
-    return parsed.filter(
-      (value): value is MvSimpleReportStepId =>
-        typeof value === "string" && SIMPLE_REPORT_STEP_IDS.has(value as MvSimpleReportStepId),
+    return Array.from(
+      new Set(
+        parsed
+          .map((value) => (typeof value === "string" ? normalizeVisitedStepId(value) : null))
+          .filter((value): value is MvSimpleReportStepId => Boolean(value)),
+      ),
     );
   } catch {
     return ["report-data"];
@@ -80,7 +91,7 @@ export function mvSimpleReportStepHref(projectId: string, stepId: MvSimpleReport
   if (stepId === "asset-images") return `/machine-valuation/${projectId}/workflow/asset-images`;
   if (stepId === "valuation-actions") return `/machine-valuation/${projectId}/workflow/valuation`;
   if (stepId === "client-files") return `/machine-valuation/${projectId}/workflow/client-files`;
-  if (stepId === "report-preview") return `/machine-valuation/${projectId}/workflow/report`;
+  if (stepId === "final-report") return `/machine-valuation/${projectId}/workflow/final-report`;
   if (stepId === "report-data") return `/machine-valuation/${projectId}/workflow/report-data`;
   return `/machine-valuation/${projectId}/workflow/report-data`;
 }
@@ -561,7 +572,7 @@ export function MvProjectReportHeader({
         assetImageCount > 0 ? assetImageCount : (loadedProject?.assetImageCount ?? 0),
       valuationAccountImageCount,
       clientDocumentImageCount,
-      visitedReportPreview: visitedSteps?.includes("report-preview"),
+      visitedFinalReport: visitedSteps?.includes("final-report"),
     });
   }, [
     completedSteps,

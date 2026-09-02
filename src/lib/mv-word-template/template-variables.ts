@@ -4,7 +4,7 @@ import { extractWtTextNodes } from "./docx-xml-utils";
 const WORD_TEXT_PART_RE =
   /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i;
 const TEMPLATE_VARIABLE_RE =
-  /(?:<<\s*([^<>\r\n]{1,160}?)\s*>>|«\s*([^«»\r\n]{1,160}?)\s*»)/g;
+  /(?:<<\s*([^<>\r\n]{1,160}?)\s*>>|>>\s*([^<>\r\n]{1,160}?)\s*<<|«\s*([^«»\r\n]{1,160}?)\s*»|»\s*([^«»\r\n]{1,160}?)\s*«)/g;
 
 function normalizeTemplateVariableName(value: string): string {
   return value
@@ -14,7 +14,7 @@ function normalizeTemplateVariableName(value: string): string {
 
 /**
  * يستخرج أسماء متغيرات القالب النصية حتى عندما تقسمها Word بين عدة runs.
- * يدعم الصيغتين «اسم_المتغير» و<<اسم_المتغير>> في القالب المضمّن والقوالب العامة.
+ * يدعم الصيغتين «اسم_المتغير» و<<اسم_المتغير>> في قوالب الشركات المختلفة.
  */
 export function scanDocxTemplateVariables(buffer: ArrayBuffer): string[] {
   const zip = new PizZip(buffer);
@@ -27,7 +27,7 @@ export function scanDocxTemplateVariables(buffer: ArrayBuffer): string[] {
       xml.replace(/<\/w:p>/g, "<w:t>\n</w:t></w:p>"),
     );
     for (const match of text.matchAll(TEMPLATE_VARIABLE_RE)) {
-      const name = normalizeTemplateVariableName(match[1] ?? match[2] ?? "");
+      const name = normalizeTemplateVariableName(match[1] ?? match[2] ?? match[3] ?? match[4] ?? "");
       if (name) found.add(name);
     }
   }

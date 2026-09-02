@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  CircleAlert,
   Download,
   Gauge,
   Images,
@@ -47,6 +48,12 @@ export interface MvWordTemplatePanelProps {
   clientImageSources?: MvWordTemplateImageSource[];
   onReportDataPatch: (patch: Partial<MvProjectReportData>) => void;
   onBeforeMerge?: () => Promise<void>;
+  /**
+   * `unknown` is intentionally non-blocking: the merge endpoint remains the
+   * source of truth if the company-settings metadata cannot be read.
+   */
+  templateAvailability?: "available" | "missing" | "unknown";
+  companyTemplateFileName?: string | null;
   disabled?: boolean;
   layout?: "drawer" | "modal";
 }
@@ -171,6 +178,8 @@ export function MvWordTemplatePanel({
   clientImageSources = [],
   onReportDataPatch,
   onBeforeMerge,
+  templateAvailability = "unknown",
+  companyTemplateFileName,
   disabled = false,
   layout = "drawer",
 }: MvWordTemplatePanelProps) {
@@ -191,7 +200,11 @@ export function MvWordTemplatePanel({
 
   const assetImagesPerPage = recommendedMvWordAssetImagesPerPage(assetImagesPerRow);
   const clientImagesPerPage = clientImagesPerRow * clientImagesPerRow;
-  const templateFileName = t("report.wordTemplate.defaultName");
+  const templateMissing = templateAvailability === "missing";
+  const templateFileName =
+    templateAvailability === "available" && companyTemplateFileName?.trim()
+      ? companyTemplateFileName.trim()
+      : t("report.wordTemplate.companyTemplate");
   const mergeImageCount =
     assetImageSources.length + valuationImageSources.length + clientImageSources.length;
   const mergeStartedAtRef = useRef<number | null>(null);
@@ -275,6 +288,7 @@ export function MvWordTemplatePanel({
 
   const runMergeAndDownload = useCallback(
     async () => {
+      if (templateMissing) return;
       setGenerating(true);
       setMergeProgress(12);
       setMergeStage(t("report.wordTemplate.preparing"));
@@ -389,6 +403,7 @@ export function MvWordTemplatePanel({
       reportData,
       t,
       toast,
+      templateMissing,
       valuationImageSources,
     ],
   );
@@ -401,22 +416,48 @@ export function MvWordTemplatePanel({
     }
   }, [runMergeAndDownload]);
 
-  const busy = disabled || generating;
+  const busy = disabled || generating || templateMissing;
 
   return (
     <div className={cn(layout === "modal" ? "p-1" : "space-y-2.5")} dir={dir}>
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_35px_-24px_rgba(15,23,42,0.45)]">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-emerald-50/60 px-4 py-3">
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3",
+              templateMissing ? "bg-amber-50/80" : "bg-emerald-50/60",
+            )}
+          >
             <div className="min-w-0 text-right">
               <p className="truncate text-[11px] font-black text-slate-900">{templateFileName}</p>
-              <p className="mt-0.5 text-[9px] font-semibold text-emerald-700">
-                {t("report.wordTemplate.activeBundled")}
+              <p className={cn(
+                "mt-0.5 text-[9px] font-semibold",
+                templateMissing ? "text-amber-700" : "text-emerald-700",
+              )}>
+                {templateMissing
+                  ? t("report.wordTemplate.missingCompanyTemplateHint")
+                  : t("report.wordTemplate.companyTemplateHint")}
               </p>
             </div>
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+            {templateMissing ? (
+              <CircleAlert className="h-5 w-5 shrink-0 text-amber-600" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+            )}
           </div>
 
           <div className="space-y-3 p-4">
+            {templateMissing ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-right">
+                <div className="flex items-start gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                    <CircleAlert className="h-4 w-4" />
+                  </span>
+                  <p className="min-w-0 flex-1 text-[10px] font-semibold leading-5 text-amber-900">
+                    {t("report.wordTemplate.missingCompanyTemplateDescription")}
+                  </p>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-2">
               <p className="text-[10px] font-black text-slate-600">
                 {t("report.wordTemplate.imageStatsTitle")}
@@ -463,6 +504,7 @@ export function MvWordTemplatePanel({
                 })}
               />
             </div>
+            )}
 
             {mergeProgress != null ? (
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
@@ -486,7 +528,11 @@ export function MvWordTemplatePanel({
               onClick={() => void generateMergedReport()}
             >
               {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {generating && mergeStage ? mergeStage : t("report.wordTemplate.startMerge")}
+              {generating && mergeStage
+                ? mergeStage
+                : templateMissing
+                  ? t("report.wordTemplate.uploadCompanyTemplateFirst")
+                  : t("report.wordTemplate.startMerge")}
             </Button>
           </div>
         </div>

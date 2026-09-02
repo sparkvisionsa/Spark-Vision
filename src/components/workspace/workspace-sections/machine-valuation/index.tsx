@@ -43,7 +43,7 @@ const MvClientFilesShell = dynamic(() => import("./mv-client-files-shell"), {
 const MvReportDataWorkspace = dynamic(() => import("./mv-report-data-workspace"), {
   loading: () => <MvRouteSkeleton />,
 });
-const MvValuationReportWorkspace = dynamic(() => import("./mv-valuation-report-workspace"), {
+const MvFinalReportWorkspace = dynamic(() => import("./mv-final-report-workspace"), {
   loading: () => <MvRouteSkeleton />,
 });
 
@@ -84,8 +84,12 @@ function parseMvPath(pathname: string) {
       if (segments[2] === "report-data" && segments.length === 3) {
         return { view: "report-data-workflow" as const, projectId, segments };
       }
+      if (segments[2] === "final-report" && segments.length === 3) {
+        return { view: "final-report-workflow" as const, projectId, segments };
+      }
+      // إعداد التقرير مخفي مؤقتاً — توجيه المسار القديم إلى التقرير النهائي
       if (segments[2] === "report" && segments.length === 3) {
-        return { view: "report-workflow" as const, projectId, segments };
+        return { view: "final-report-workflow" as const, projectId, segments };
       }
       if (segments[2] === "valuation") {
         return { view: "valuation-workflow" as const, projectId, segments };
@@ -151,8 +155,8 @@ export default function MachineValuationSection() {
       return <MvValuationShell projectId={route.projectId!} />;
     case "client-files-workflow":
       return <MvClientFilesShell projectId={route.projectId!} />;
-    case "report-workflow":
-      return <MvValuationReportWorkspace projectId={route.projectId!} />;
+    case "final-report-workflow":
+      return <MvFinalReportWorkspace projectId={route.projectId!} />;
     case "report-data-workflow":
       return <MvReportDataWorkspace projectId={route.projectId!} />;
     case "project-files":

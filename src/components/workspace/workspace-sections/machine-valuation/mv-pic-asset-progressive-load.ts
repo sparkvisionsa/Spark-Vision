@@ -116,6 +116,10 @@ export function mergePicAssetPreferFull(
   return {
     ...primary,
     name: pickScalar("name"),
+    lable: pickScalar("lable"),
+    client_code: pickScalar("client_code"),
+    employer: pickScalar("employer"),
+    val_tech_id: pickScalar("val_tech_id"),
     writtenDescription: pickScalar("writtenDescription"),
     condition: pickScalar("condition"),
     notes: pickScalar("notes"),
@@ -127,8 +131,19 @@ export function mergePicAssetPreferFull(
     model: pickScalar("model"),
     manufactureYear: pickScalar("manufactureYear"),
     kilometersDriven: pickScalar("kilometersDriven"),
+    mainImage: pickScalar("mainImage"),
+    newAssetLocation: pickScalar("newAssetLocation"),
     isPresent: primary.isPresent ?? secondary.isPresent,
     isDone: primary.isDone ?? secondary.isDone,
+    assetDescription:
+      primary.assetDescription !== undefined ? primary.assetDescription : secondary.assetDescription ?? null,
+    category: pickScalar("category"),
+    type: pickScalar("type"),
+    asset_source: pickScalar("asset_source"),
+    rawData:
+      primary.rawData !== undefined && primary.rawData !== null
+        ? primary.rawData
+        : secondary.rawData ?? primary.rawData ?? null,
     images: selectedImages,
     voiceNotes: selectedVoice,
     // العدد الأحدث يبقى مرجع الاكتمال؛ اختلافه عن المصفوفة القديمة يفرض hydration جديدًا.
@@ -164,6 +179,50 @@ export function mergePicAssetFromApi(
       fromApi.quantity !== undefined && fromApi.quantity !== null && fromApi.quantity !== ""
         ? fromApi.quantity
         : merged.quantity ?? null,
+    assetDescription:
+      fromApi.assetDescription !== undefined
+        ? fromApi.assetDescription
+        : merged.assetDescription ?? null,
+    category:
+      fromApi.category !== undefined
+        ? fromApi.category
+        : merged.category ?? merged.assetDescription?.category ?? null,
+    type:
+      fromApi.type !== undefined
+        ? fromApi.type
+        : merged.type ?? merged.assetDescription?.type ?? null,
+    asset_source:
+      fromApi.asset_source !== undefined
+        ? fromApi.asset_source
+        : merged.asset_source ?? null,
+    asset_location:
+      fromApi.asset_location !== undefined
+        ? fromApi.asset_location
+        : merged.asset_location ?? null,
+    lable:
+      fromApi.lable !== undefined
+        ? fromApi.lable
+        : merged.lable ?? null,
+    client_code:
+      fromApi.client_code !== undefined
+        ? fromApi.client_code
+        : merged.client_code ?? null,
+    employer:
+      fromApi.employer !== undefined
+        ? fromApi.employer
+        : merged.employer ?? null,
+    val_tech_id:
+      fromApi.val_tech_id !== undefined
+        ? fromApi.val_tech_id
+        : merged.val_tech_id ?? null,
+    newAssetLocation:
+      fromApi.newAssetLocation !== undefined
+        ? fromApi.newAssetLocation
+        : merged.newAssetLocation ?? null,
+    rawData:
+      fromApi.rawData !== undefined
+        ? fromApi.rawData
+        : merged.rawData ?? null,
   };
 }
 

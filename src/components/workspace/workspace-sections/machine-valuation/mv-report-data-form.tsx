@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode, Ref } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronsDownUp,
@@ -51,6 +51,20 @@ import {
   type MvReportPreparerOption,
 } from "./mv-report-preparers";
 import type { MvProject, MvProjectReportData, MvReportTeamMember } from "./types";
+import type { MvReportDataModel } from "./mv-report-data-models";
+import {
+  MvReportAddFieldModal,
+  MvReportAddSectionModal,
+} from "./mv-report-add-field-modal";
+import {
+  createReportCustomId,
+  customFieldsForSection,
+  MV_REPORT_CUSTOM_FIELD_LIMIT,
+  MV_REPORT_CUSTOM_SECTION_LIMIT,
+  MV_REPORT_CUSTOM_VALUE_MAX_LENGTH,
+  type MvReportCustomField,
+  type MvReportCustomFieldType,
+} from "./mv-report-custom-fields";
 
 const NO_CLIENT_SELECTED = "__no-client__";
 
@@ -95,6 +109,7 @@ function ReportSelect({
   onChange,
   dir,
   invalid = false,
+  hidden = false,
 }: {
   label: string;
   value: string;
@@ -103,7 +118,9 @@ function ReportSelect({
   onChange: (value: string) => void;
   dir: "rtl" | "ltr";
   invalid?: boolean;
+  hidden?: boolean;
 }) {
+  if (hidden) return null;
   return (
     <label className="grid gap-2 text-start">
       <span className="text-[11px] font-bold text-slate-500">{label}</span>
@@ -133,11 +150,14 @@ function ReportField({
   label,
   children,
   invalid = false,
+  hidden = false,
 }: {
   label: string;
   children: ReactNode;
   invalid?: boolean;
+  hidden?: boolean;
 }) {
+  if (hidden) return null;
   return (
     <label className="grid gap-2 text-start">
       <span className={cn("text-[11px] font-bold text-slate-500", invalid && "text-red-700")}>
@@ -159,20 +179,98 @@ function ReportField({
   );
 }
 
-function ReportSection({
+function CustomFieldsBlock({
+  fields,
+  invalidFieldKeys,
+  inputClass,
+  textareaClass,
+  onChangeValue,
+  onDelete,
+  deleteLabel,
+}: {
+  fields: MvReportCustomField[];
+  invalidFieldKeys?: ReadonlySet<string>;
+  inputClass: string;
+  textareaClass: string;
+  onChangeValue: (id: string, value: string) => void;
+  onDelete: (id: string) => void;
+  deleteLabel: string;
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <div className="mt-4 grid gap-3 border-t border-dashed border-slate-200 pt-4 md:grid-cols-2">
+      {fields.map((field) => {
+        const invalid = invalidFieldKeys?.has(`customField:${field.id}`) === true;
+        const label = field.required ? `${field.label} *` : field.label;
+        const control =
+          field.type === "textarea" ? (
+            <Textarea
+              value={field.value ?? ""}
+              onChange={(event) => onChangeValue(field.id, event.target.value)}
+              className={cn(textareaClass, "min-h-24")}
+              dir="auto"
+              aria-required={field.required || undefined}
+              maxLength={MV_REPORT_CUSTOM_VALUE_MAX_LENGTH}
+            />
+          ) : (
+            <Input
+              type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+              value={field.value ?? ""}
+              onChange={(event) => onChangeValue(field.id, event.target.value)}
+              className={cn(inputClass, (field.type === "number" || field.type === "date") && "text-left")}
+              dir={field.type === "text" ? "auto" : "ltr"}
+              aria-required={field.required || undefined}
+              maxLength={field.type === "text" ? MV_REPORT_CUSTOM_VALUE_MAX_LENGTH : undefined}
+            />
+          );
+        return (
+          <div key={field.id} className="relative">
+            <ReportField label={label} invalid={invalid}>
+              {control}
+            </ReportField>
+            <button
+              type="button"
+              onClick={() => onDelete(field.id)}
+              disabled={Boolean(field.modelId)}
+              title={field.modelId ? "يُدار هذا الحقل من نموذج بيانات التقرير" : deleteLabel}
+              aria-label={field.modelId ? "حقل من نموذج بيانات التقرير" : deleteLabel}
+              className="absolute end-0 top-0 flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReportSection<TSectionId extends string>({
   id,
   title,
   icon,
   open,
   onOpenChange,
+  onAddField,
+  addFieldDisabled = false,
+  onRemoveSection,
+  addFieldLabel,
+  addFieldDisabledLabel,
+  removeSectionLabel,
   children,
   completion = 0,
 }: {
-  id: MvReportCollapsibleSectionId;
+  id: TSectionId;
   title: string;
   icon: ReactNode;
   open: boolean;
-  onOpenChange: (id: MvReportCollapsibleSectionId, open: boolean) => void;
+  onOpenChange: (id: TSectionId, open: boolean) => void;
+  onAddField?: () => void;
+  addFieldDisabled?: boolean;
+  onRemoveSection?: () => void;
+  addFieldLabel?: string;
+  addFieldDisabledLabel?: string;
+  removeSectionLabel?: string;
   children: ReactNode;
   completion?: number;
 }) {
@@ -201,35 +299,60 @@ function ReportSection({
           open ? "border-sky-200/90 ring-1 ring-sky-100/80" : "border-slate-200/90",
         )}
       >
-        <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 bg-white px-4 py-3.5 text-start transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200">
-          <div className="flex min-w-0 items-center gap-2">
-            <span
-              className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm transition-colors",
-                open ? "bg-sky-950" : "bg-slate-900",
-              )}
-            >
-              {icon}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2">
-                <span className="truncate text-[14px] font-extrabold text-slate-950">{title}</span>
-                <span className={cn("shrink-0 text-[11px] font-black tabular-nums", progressTextTone)}>
-                  {safeCompletion}%
+        <div className="flex items-center gap-2 bg-white px-3 py-3 sm:px-4">
+          <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center justify-between gap-3 text-start transition hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200 rounded-lg px-1 py-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm transition-colors",
+                  open ? "bg-sky-950" : "bg-slate-900",
+                )}
+              >
+                {icon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-[14px] font-extrabold text-slate-950">{title}</span>
+                  <span className={cn("shrink-0 text-[11px] font-black tabular-nums", progressTextTone)}>
+                    {safeCompletion}%
+                  </span>
+                </span>
+                <span className="mt-1.5 block h-1.5 w-full min-w-28 overflow-hidden rounded-full bg-slate-200">
+                  <span
+                    className={cn("block h-full rounded-full transition-[width,background-color] duration-500", progressTone)}
+                    style={{ width: `${safeCompletion}%` }}
+                  />
                 </span>
               </span>
-              <span className="mt-1.5 block h-1.5 w-full min-w-28 overflow-hidden rounded-full bg-slate-200">
-                <span
-                  className={cn("block h-full rounded-full transition-[width,background-color] duration-500", progressTone)}
-                  style={{ width: `${safeCompletion}%` }}
-                />
-              </span>
+            </div>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition group-hover:border-sky-200 group-hover:text-sky-800">
+              <ChevronDown className={cn("h-4 w-4 transition duration-300", open && "rotate-180")} />
             </span>
-          </div>
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-500 transition group-hover:border-sky-200 group-hover:text-sky-800">
-            <ChevronDown className={cn("h-4 w-4 transition duration-300", open && "rotate-180")} />
-          </span>
-        </CollapsibleTrigger>
+          </CollapsibleTrigger>
+          {onAddField ? (
+            <button
+              type="button"
+              onClick={onAddField}
+              disabled={addFieldDisabled}
+              title={addFieldDisabled ? addFieldDisabledLabel ?? addFieldLabel : addFieldLabel}
+              aria-label={addFieldDisabled ? addFieldDisabledLabel ?? addFieldLabel : addFieldLabel}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+          ) : null}
+          {onRemoveSection ? (
+            <button
+              type="button"
+              onClick={onRemoveSection}
+              title={removeSectionLabel}
+              aria-label={removeSectionLabel}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 shadow-sm transition hover:border-red-300 hover:bg-red-100"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
         <CollapsibleContent className="mv-curtain-content">
           <div className="border-t border-slate-100 bg-slate-50/40 p-4 sm:p-5">{children}</div>
         </CollapsibleContent>
@@ -242,6 +365,7 @@ export function MvReportDataForm({
   project,
   editableProjectName,
   reportData,
+  reportDataModel,
   clientOptions = [],
   preparerOptions = [],
   preparersLoading = false,
@@ -262,6 +386,8 @@ export function MvReportDataForm({
   project: MvProject;
   editableProjectName: string;
   reportData: MvProjectReportData;
+  /** The company model selected for this project (used for section labels). */
+  reportDataModel?: MvReportDataModel;
   clientOptions?: MachineClient[];
   preparerOptions?: MvReportPreparerOption[];
   preparersLoading?: boolean;
@@ -281,8 +407,136 @@ export function MvReportDataForm({
 }) {
   const { t, isArabic, dir } = useMvI18n();
   const [preparersPopoverOpen, setPreparersPopoverOpen] = useState(false);
+  const [addFieldSectionId, setAddFieldSectionId] = useState<string | null>(null);
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
+  const [customSectionOpen, setCustomSectionOpen] = useState<Record<string, boolean>>({});
   const allSectionsOpen = MV_REPORT_COLLAPSIBLE_IDS.every((id) => openSections[id]);
+  const customFields = reportData.customFields ?? [];
+  const customSections = reportData.customSections ?? [];
+  const customFieldLimitReached = customFields.length >= MV_REPORT_CUSTOM_FIELD_LIMIT;
+  const customSectionLimitReached = customSections.length >= MV_REPORT_CUSTOM_SECTION_LIMIT;
+  const customFieldLimitLabel = t("reportData.custom.fieldLimitReached", {
+    count: MV_REPORT_CUSTOM_FIELD_LIMIT,
+  });
+  const customSectionLimitLabel = t("reportData.custom.sectionLimitReached", {
+    count: MV_REPORT_CUSTOM_SECTION_LIMIT,
+  });
+  const setCustomFields = (next: MvReportCustomField[]) => onReportDataChange({ customFields: next });
+
+  useEffect(() => {
+    // Re-entering a project or applying another report-data model must not
+    // inherit a previously expanded custom/model section.
+    setCustomSectionOpen({});
+  }, [project._id, reportData.reportDataModelId]);
+
+  useEffect(() => {
+    if (!invalidFieldKeys?.size) return;
+    const sectionsWithMissingRequiredFields = new Set(
+      customFields
+        .filter(
+          (field) =>
+            invalidFieldKeys.has(`customField:${field.id}`) &&
+            !(MV_REPORT_COLLAPSIBLE_IDS as readonly string[]).includes(field.sectionId),
+        )
+        .map((field) => field.sectionId),
+    );
+    if (sectionsWithMissingRequiredFields.size === 0) return;
+    setCustomSectionOpen((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const sectionId of sectionsWithMissingRequiredFields) {
+        if (next[sectionId] !== true) {
+          next[sectionId] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [customFields, invalidFieldKeys]);
+
+  const updateCustomFieldValue = (id: string, value: string) => {
+    setCustomFields(customFields.map((field) => (field.id === id ? { ...field, value } : field)));
+  };
+  const deleteCustomField = (id: string) => {
+    setCustomFields(customFields.filter((field) => field.id !== id));
+  };
+  const openAddField = (sectionId: string) => {
+    if (customFieldLimitReached) return;
+    if ((MV_REPORT_COLLAPSIBLE_IDS as readonly string[]).includes(sectionId)) {
+      onSectionOpenChange(sectionId as MvReportCollapsibleSectionId, true);
+    } else {
+      setCustomSectionOpen((prev) => ({ ...prev, [sectionId]: true }));
+    }
+    setAddFieldSectionId(sectionId);
+  };
+  const addCustomField = (sectionId: string, next: { label: string; type: MvReportCustomFieldType; required: boolean }) => {
+    if (customFieldLimitReached) return;
+    setCustomFields([
+      ...customFields,
+      {
+        id: createReportCustomId("field"),
+        sectionId,
+        label: next.label,
+        type: next.type,
+        required: next.required,
+        value: "",
+      },
+    ]);
+  };
+  const addCustomSection = (title: string) => {
+    if (customSectionLimitReached) return;
+    const id = createReportCustomId("section");
+    onReportDataChange({
+      customSections: [...customSections, { id, title }],
+    });
+    setCustomSectionOpen((prev) => ({ ...prev, [id]: true }));
+  };
+  const deleteCustomSection = (sectionId: string) => {
+    if (!window.confirm(t("reportData.custom.deleteSectionConfirm"))) return;
+    onReportDataChange({
+      customSections: customSections.filter((section) => section.id !== sectionId),
+      customFields: customFields.filter((field) => field.sectionId !== sectionId),
+    });
+  };
+  const renderCustomFields = (sectionId: string) => (
+    <CustomFieldsBlock
+      fields={customFieldsForSection(customFields, sectionId)}
+      invalidFieldKeys={invalidFieldKeys}
+      inputClass={inputClass}
+      textareaClass={textareaClass}
+      onChangeValue={updateCustomFieldValue}
+      onDelete={deleteCustomField}
+      deleteLabel={t("reportData.custom.deleteField")}
+    />
+  );
   const fieldInvalid = (key: string) => invalidFieldKeys?.has(key) === true;
+  const modelSectionTitle = (sectionId: string, fallback: string) =>
+    reportDataModel?.sections.find((section) => section.id === sectionId)?.title || fallback;
+  const modelFieldBySourceKey = useMemo(
+    () =>
+      new Map(
+        (reportDataModel?.sections ?? [])
+          .flatMap((section) => section.fields)
+          .map((field) => [field.sourceKey, field]),
+      ),
+    [reportDataModel],
+  );
+  // A missing model means an older project, so retain the legacy complete
+  // form. Once a model is selected, its field list is the project's form.
+  const showModelField = (sourceKey: string) =>
+    !reportDataModel || modelFieldBySourceKey.has(sourceKey);
+  const modelFieldLabel = (sourceKey: string, fallback: string) =>
+    modelFieldBySourceKey.get(sourceKey)?.label || fallback;
+  const showModelSection = (sectionId: string) =>
+    !reportDataModel ||
+    reportDataModel.sections.some(
+      (section) => section.id === sectionId && section.fields.length > 0,
+    ) ||
+    customFields.some(
+      (field) =>
+        field.sectionId === sectionId &&
+        (!field.modelId || field.modelId === reportDataModel.id),
+    );
   const SectionToggleIcon = allSectionsOpen ? ChevronsDownUp : ChevronsUpDown;
   const inputClass =
     "h-11 rounded-lg border-slate-300/80 bg-white px-3 text-[13px] font-bold text-slate-950 shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100";
@@ -420,16 +674,21 @@ export function MvReportDataForm({
   return (
     <section className="relative min-w-0 overflow-x-hidden" dir={dir}>
       <div className="min-w-0 space-y-3">
+        {showModelSection("basic") ? (
         <ReportSection
           id="basic"
-          title={t("reportData.sections.basic")}
+          title={modelSectionTitle("basic", t("reportData.sections.basic"))}
           icon={<ClipboardList className="h-5 w-5" />}
           open={openSections.basic}
           onOpenChange={onSectionOpenChange}
+          onAddField={() => openAddField("basic")}
+          addFieldLabel={t("reportData.custom.addField")}
+          addFieldDisabled={customFieldLimitReached}
+          addFieldDisabledLabel={customFieldLimitLabel}
           completion={sectionCompletion?.basic}
         >
           <div className="grid gap-3 md:grid-cols-2">
-            <ReportField label={t("reportData.fields.displayNumber")}>
+            <ReportField label={modelFieldLabel("displayNumber", t("reportData.fields.displayNumber"))} invalid={fieldInvalid("displayNumber")} hidden={!showModelField("displayNumber")}>
               <div className="relative">
                 <Input
                   value={
@@ -452,7 +711,7 @@ export function MvReportDataForm({
                 />
               </div>
             </ReportField>
-            <ReportField label={t("reportData.fields.projectName")} invalid={fieldInvalid("projectName")}>
+            <ReportField label={modelFieldLabel("projectName", t("reportData.fields.projectName"))} invalid={fieldInvalid("projectName")} hidden={!showModelField("projectName")}>
               <Input
                 value={editableProjectName}
                 onChange={(event) => onProjectNameChange(event.target.value)}
@@ -460,7 +719,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.coverTitle")} invalid={fieldInvalid("reportTitle")}>
+            <ReportField label={modelFieldLabel("reportTitle", t("reportData.fields.coverTitle"))} invalid={fieldInvalid("reportTitle")} hidden={!showModelField("reportTitle")}>
               <Input
                 value={reportData.reportTitle ?? ""}
                 onChange={(event) => onReportDataChange({ reportTitle: event.target.value })}
@@ -469,7 +728,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.fields.coverTitlePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.reference")} invalid={fieldInvalid("reportReference")}>
+            <ReportField label={modelFieldLabel("reportReference", t("reportData.fields.reference"))} invalid={fieldInvalid("reportReference")} hidden={!showModelField("reportReference")}>
               <Input
                 value={reportData.reportReference ?? ""}
                 onChange={(event) => onReportDataChange({ reportReference: event.target.value })}
@@ -488,7 +747,7 @@ export function MvReportDataForm({
                 className={cn(inputClass, "bg-slate-100/80 text-slate-500")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.assetSingularPlural")}>
+            <ReportField label={modelFieldLabel("assetSingularPlural", t("reportData.fields.assetSingularPlural"))} invalid={fieldInvalid("assetSingularPlural")} hidden={!showModelField("assetSingularPlural")}>
               <Input
                 value={reportData.assetSingularPlural ?? ""}
                 onChange={(event) =>
@@ -499,51 +758,56 @@ export function MvReportDataForm({
               />
             </ReportField>
             <ReportSelect
-              label={t("reportData.fields.valuationMethod")}
+              label={modelFieldLabel("valuationMethod", t("reportData.fields.valuationMethod"))}
               value={reportData.valuationMethod ?? ""}
               options={valuationMethodOptions}
               placeholder={t("reportData.placeholders.selectMethod")}
               onChange={(value) => onReportDataChange({ valuationMethod: value })}
               dir={dir}
               invalid={fieldInvalid("valuationMethod")}
+              hidden={!showModelField("valuationMethod")}
             />
             <ReportSelect
-              label={t("reportData.fields.valuationPurpose")}
+              label={modelFieldLabel("valuationPurpose", t("reportData.fields.valuationPurpose"))}
               value={reportData.valuationPurpose ?? ""}
               options={valuationPurposeOptions}
               placeholder={t("reportData.placeholders.selectPurpose")}
               onChange={(value) => onReportDataChange({ valuationPurpose: value })}
               dir={dir}
               invalid={fieldInvalid("valuationPurpose")}
+              hidden={!showModelField("valuationPurpose")}
             />
             <ReportSelect
-              label={t("reportData.fields.valuePremise")}
+              label={modelFieldLabel("valuePremise", t("reportData.fields.valuePremise"))}
               value={reportData.valuePremise ?? ""}
               options={valuePremiseOptions}
               placeholder={t("reportData.placeholders.selectPremise")}
               onChange={(value) => onReportDataChange({ valuePremise: value })}
               dir={dir}
               invalid={fieldInvalid("valuePremise")}
+              hidden={!showModelField("valuePremise")}
             />
             <ReportSelect
-              label={t("reportData.fields.valuationBasis")}
+              label={modelFieldLabel("valuationBasis", t("reportData.fields.valuationBasis"))}
               value={reportData.valuationBasis ?? ""}
               options={valuationBasisOptions}
               placeholder={t("reportData.placeholders.selectBasis")}
               onChange={(value) => onReportDataChange({ valuationBasis: value })}
               dir={dir}
               invalid={fieldInvalid("valuationBasis")}
+              hidden={!showModelField("valuationBasis")}
             />
             <ReportSelect
-              label={t("reportData.fields.professionalReportType")}
+              label={modelFieldLabel("reportTypeLabel", t("reportData.fields.professionalReportType"))}
               value={reportData.reportTypeLabel ?? ""}
               options={professionalReportTypeOptions}
               placeholder={t("reportData.placeholders.selectProfessionalType")}
               onChange={(value) => onReportDataChange({ reportTypeLabel: value })}
               dir={dir}
               invalid={fieldInvalid("reportTypeLabel")}
+              hidden={!showModelField("reportTypeLabel")}
             />
-            <ReportField label={t("reportData.fields.standards")} invalid={fieldInvalid("standardsVersion")}>
+            <ReportField label={modelFieldLabel("standardsVersion", t("reportData.fields.standards"))} invalid={fieldInvalid("standardsVersion")} hidden={!showModelField("standardsVersion")}>
               <Input
                 value={reportData.standardsVersion ?? ""}
                 onChange={(event) => onReportDataChange({ standardsVersion: event.target.value })}
@@ -551,7 +815,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.currency")} invalid={fieldInvalid("currencyLabel")}>
+            <ReportField label={modelFieldLabel("currencyLabel", t("reportData.fields.currency"))} invalid={fieldInvalid("currencyLabel")} hidden={!showModelField("currencyLabel")}>
               <Input
                 value={reportData.currencyLabel ?? ""}
                 onChange={(event) => onReportDataChange({ currencyLabel: event.target.value })}
@@ -559,7 +823,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.issueDate")} invalid={fieldInvalid("reportIssueDate")}>
+            <ReportField label={modelFieldLabel("reportIssueDate", t("reportData.fields.issueDate"))} invalid={fieldInvalid("reportIssueDate")} hidden={!showModelField("reportIssueDate")}>
               <Input
                 type="date"
                 value={reportData.reportIssueDate ?? ""}
@@ -568,7 +832,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.inspectionDate")} invalid={fieldInvalid("inspectionDate")}>
+            <ReportField label={modelFieldLabel("inspectionDate", t("reportData.fields.inspectionDate"))} invalid={fieldInvalid("inspectionDate")} hidden={!showModelField("inspectionDate")}>
               <Input
                 type="date"
                 value={reportData.inspectionDate ?? ""}
@@ -577,7 +841,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.valuationDate")} invalid={fieldInvalid("valuationDate")}>
+            <ReportField label={modelFieldLabel("valuationDate", t("reportData.fields.valuationDate"))} invalid={fieldInvalid("valuationDate")} hidden={!showModelField("valuationDate")}>
               <Input
                 type="date"
                 value={reportData.valuationDate ?? ""}
@@ -586,7 +850,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.agreementDate")} invalid={fieldInvalid("agreementDate")}>
+            <ReportField label={modelFieldLabel("agreementDate", t("reportData.fields.agreementDate"))} invalid={fieldInvalid("agreementDate")} hidden={!showModelField("agreementDate")}>
               <Input
                 type="date"
                 value={reportData.agreementDate ?? ""}
@@ -595,7 +859,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.inspectionLocation")} invalid={fieldInvalid("inspectionLocation")}>
+            <ReportField label={modelFieldLabel("inspectionLocation", t("reportData.fields.inspectionLocation"))} invalid={fieldInvalid("inspectionLocation")} hidden={!showModelField("inspectionLocation")}>
               <Input
                 value={reportData.inspectionLocation ?? ""}
                 onChange={(event) => onReportDataChange({ inspectionLocation: event.target.value })}
@@ -604,7 +868,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.fields.inspectionLocationPlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.fields.inspectionMapUrl")}>
+            <ReportField label={modelFieldLabel("inspectionMapUrl", t("reportData.fields.inspectionMapUrl"))} invalid={fieldInvalid("inspectionMapUrl")} hidden={!showModelField("inspectionMapUrl")}>
               <Input
                 value={reportData.inspectionMapUrl ?? ""}
                 onChange={(event) => onReportDataChange({ inspectionMapUrl: event.target.value })}
@@ -614,18 +878,25 @@ export function MvReportDataForm({
               />
             </ReportField>
           </div>
+          {renderCustomFields("basic")}
         </ReportSection>
+        ) : null}
 
+        {showModelSection("client") ? (
         <ReportSection
           id="client"
-          title={t("reportData.sections.client")}
+          title={modelSectionTitle("client", t("reportData.sections.client"))}
           icon={<UserRound className="h-5 w-5" />}
           open={openSections.client}
           onOpenChange={onSectionOpenChange}
+          onAddField={() => openAddField("client")}
+          addFieldLabel={t("reportData.custom.addField")}
+          addFieldDisabled={customFieldLimitReached}
+          addFieldDisabledLabel={customFieldLimitLabel}
           completion={sectionCompletion?.client}
         >
           <div className="mb-3">
-            <ReportField label={t("reportData.client.select")}>
+            <ReportField label={modelFieldLabel("clientId", t("reportData.client.select"))} invalid={fieldInvalid("clientId")} hidden={!showModelField("clientId")}>
               <Select
                 value={reportData.clientId || NO_CLIENT_SELECTED}
                 onValueChange={handleClientSelect}
@@ -646,7 +917,7 @@ export function MvReportDataForm({
             </ReportField>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
-            <ReportField label={t("reportData.client.name")} invalid={fieldInvalid("clientName")}>
+            <ReportField label={modelFieldLabel("clientName", t("reportData.client.name"))} invalid={fieldInvalid("clientName")} hidden={!showModelField("clientName")}>
               <Input
                 value={reportData.clientName ?? ""}
                 onChange={(event) => onReportDataChange({ clientName: event.target.value })}
@@ -654,7 +925,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.email")}>
+            <ReportField label={modelFieldLabel("clientEmail", t("reportData.client.email"))} invalid={fieldInvalid("clientEmail")} hidden={!showModelField("clientEmail")}>
               <Input
                 type="email"
                 value={reportData.clientEmail ?? ""}
@@ -663,7 +934,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.phone")}>
+            <ReportField label={modelFieldLabel("clientPhone", t("reportData.client.phone"))} invalid={fieldInvalid("clientPhone")} hidden={!showModelField("clientPhone")}>
               <Input
                 value={reportData.clientPhone ?? ""}
                 onChange={(event) => onReportDataChange({ clientPhone: event.target.value })}
@@ -671,7 +942,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.legalType")}>
+            <ReportField label={modelFieldLabel("clientLegalType", t("reportData.client.legalType"))} invalid={fieldInvalid("clientLegalType")} hidden={!showModelField("clientLegalType")}>
               <Input
                 value={reportData.clientLegalType ?? ""}
                 onChange={(event) => onReportDataChange({ clientLegalType: event.target.value })}
@@ -680,7 +951,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.legalTypePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.activity")} invalid={fieldInvalid("clientActivity")}>
+            <ReportField label={modelFieldLabel("clientActivity", t("reportData.client.activity"))} invalid={fieldInvalid("clientActivity")} hidden={!showModelField("clientActivity")}>
               <Input
                 value={reportData.clientActivity ?? ""}
                 onChange={(event) => onReportDataChange({ clientActivity: event.target.value })}
@@ -688,7 +959,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.representative")} invalid={fieldInvalid("clientRepresentativeName")}>
+            <ReportField label={modelFieldLabel("clientRepresentativeName", t("reportData.client.representative"))} invalid={fieldInvalid("clientRepresentativeName")} hidden={!showModelField("clientRepresentativeName")}>
               <Input
                 value={reportData.clientRepresentativeName ?? ""}
                 onChange={(event) => onReportDataChange({ clientRepresentativeName: event.target.value })}
@@ -696,7 +967,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.client.representativeRole")} invalid={fieldInvalid("clientRepresentativeRole")}>
+            <ReportField label={modelFieldLabel("clientRepresentativeRole", t("reportData.client.representativeRole"))} invalid={fieldInvalid("clientRepresentativeRole")} hidden={!showModelField("clientRepresentativeRole")}>
               <Input
                 value={reportData.clientRepresentativeRole ?? ""}
                 onChange={(event) => onReportDataChange({ clientRepresentativeRole: event.target.value })}
@@ -705,7 +976,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.representativeRolePlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.intendedUsers")} invalid={fieldInvalid("intendedUsers")}>
+            <ReportField label={modelFieldLabel("intendedUsers", t("reportData.client.intendedUsers"))} invalid={fieldInvalid("intendedUsers")} hidden={!showModelField("intendedUsers")}>
               <Input
                 value={reportData.intendedUsers ?? ""}
                 onChange={(event) => onReportDataChange({ intendedUsers: event.target.value })}
@@ -714,7 +985,7 @@ export function MvReportDataForm({
                 placeholder={t("reportData.client.intendedUsersPlaceholder")}
               />
             </ReportField>
-            <ReportField label={t("reportData.client.intendedUse")} invalid={fieldInvalid("intendedUse")}>
+            <ReportField label={modelFieldLabel("intendedUse", t("reportData.client.intendedUse"))} invalid={fieldInvalid("intendedUse")} hidden={!showModelField("intendedUse")}>
               <Input
                 value={reportData.intendedUse ?? ""}
                 onChange={(event) => onReportDataChange({ intendedUse: event.target.value })}
@@ -723,18 +994,25 @@ export function MvReportDataForm({
               />
             </ReportField>
           </div>
+          {renderCustomFields("client")}
         </ReportSection>
+        ) : null}
 
+        {showModelSection("finalValue") ? (
         <ReportSection
           id="finalValue"
-          title={t("reportData.sections.finalValue")}
+          title={modelSectionTitle("finalValue", t("reportData.sections.finalValue"))}
           icon={<Coins className="h-5 w-5" />}
           open={openSections.finalValue}
           onOpenChange={onSectionOpenChange}
+          onAddField={() => openAddField("finalValue")}
+          addFieldLabel={t("reportData.custom.addField")}
+          addFieldDisabled={customFieldLimitReached}
+          addFieldDisabledLabel={customFieldLimitLabel}
           completion={sectionCompletion?.finalValue}
         >
           <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
-            <ReportField label={t("reportData.finalValue.amount")} invalid={fieldInvalid("finalValue")}>
+            <ReportField label={modelFieldLabel("finalValue", t("reportData.finalValue.amount"))} invalid={fieldInvalid("finalValue")} hidden={!showModelField("finalValue")}>
               <Input
                 type="number"
                 min="0"
@@ -753,7 +1031,7 @@ export function MvReportDataForm({
                 dir="ltr"
               />
             </ReportField>
-            <ReportField label={t("reportData.finalValue.words")}>
+            <ReportField label={modelFieldLabel("finalValueWords", t("reportData.finalValue.words"))} invalid={fieldInvalid("finalValueWords")} hidden={!showModelField("finalValueWords")}>
               <Input
                 value={reportData.finalValueWords ?? ""}
                 readOnly
@@ -761,18 +1039,25 @@ export function MvReportDataForm({
               />
             </ReportField>
           </div>
+          {renderCustomFields("finalValue")}
         </ReportSection>
+        ) : null}
 
+        {showModelSection("basisPremise") ? (
         <ReportSection
           id="basisPremise"
-          title={t("reportData.sections.basisPremise")}
+          title={modelSectionTitle("basisPremise", t("reportData.sections.basisPremise"))}
           icon={<Scale className="h-5 w-5" />}
           open={openSections.basisPremise}
           onOpenChange={onSectionOpenChange}
+          onAddField={() => openAddField("basisPremise")}
+          addFieldLabel={t("reportData.custom.addField")}
+          addFieldDisabled={customFieldLimitReached}
+          addFieldDisabledLabel={customFieldLimitLabel}
           completion={sectionCompletion?.basisPremise}
         >
           <div className="grid gap-3">
-            <ReportField label={t("reportData.basisPremise.assetSubjectDescription")} invalid={fieldInvalid("assetSubjectDescription")}>
+            <ReportField label={modelFieldLabel("assetSubjectDescription", t("reportData.basisPremise.assetSubjectDescription"))} invalid={fieldInvalid("assetSubjectDescription")} hidden={!showModelField("assetSubjectDescription")}>
               <Input
                 value={reportData.assetSubjectDescription ?? ""}
                 onChange={(event) =>
@@ -782,7 +1067,15 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.basisPremise.valuationBasisDefinition")} invalid={fieldInvalid("valuationBasisDefinition")}>
+            <ReportField label={modelFieldLabel("assetDetailedDescription", "الوصف التفصيلي للأصل")} invalid={fieldInvalid("assetDetailedDescription")} hidden={!showModelField("assetDetailedDescription")}>
+              <Textarea
+                value={reportData.assetDetailedDescription ?? ""}
+                onChange={(event) => onReportDataChange({ assetDetailedDescription: event.target.value })}
+                className={textareaClass}
+                dir="auto"
+              />
+            </ReportField>
+            <ReportField label={modelFieldLabel("valuationBasisDefinition", t("reportData.basisPremise.valuationBasisDefinition"))} invalid={fieldInvalid("valuationBasisDefinition")} hidden={!showModelField("valuationBasisDefinition")}>
               <Textarea
                 value={reportData.valuationBasisDefinition ?? ""}
                 onChange={(event) =>
@@ -792,7 +1085,7 @@ export function MvReportDataForm({
                 dir="auto"
               />
             </ReportField>
-            <ReportField label={t("reportData.basisPremise.valuePremiseDefinition")} invalid={fieldInvalid("valuePremiseDefinition")}>
+            <ReportField label={modelFieldLabel("valuePremiseDefinition", t("reportData.basisPremise.valuePremiseDefinition"))} invalid={fieldInvalid("valuePremiseDefinition")} hidden={!showModelField("valuePremiseDefinition")}>
               <Textarea
                 value={reportData.valuePremiseDefinition ?? ""}
                 onChange={(event) =>
@@ -803,14 +1096,21 @@ export function MvReportDataForm({
               />
             </ReportField>
           </div>
+          {renderCustomFields("basisPremise")}
         </ReportSection>
+        ) : null}
 
+        {showModelSection("participants") ? (
         <ReportSection
           id="participants"
-          title={t("reportData.sections.participants")}
+          title={modelSectionTitle("participants", t("reportData.sections.participants"))}
           icon={<UsersRound className="h-5 w-5" />}
           open={openSections.participants}
           onOpenChange={onSectionOpenChange}
+          onAddField={() => openAddField("participants")}
+          addFieldLabel={t("reportData.custom.addField")}
+          addFieldDisabled={customFieldLimitReached}
+          addFieldDisabledLabel={customFieldLimitLabel}
           completion={sectionCompletion?.participants}
         >
           <div className="grid gap-4">
@@ -1034,8 +1334,67 @@ export function MvReportDataForm({
               </div>
             )}
           </div>
+          {renderCustomFields("participants")}
         </ReportSection>
+        ) : null}
+
+        {customSections.map((section) => {
+          const sectionFields = customFieldsForSection(customFields, section.id);
+          const required = sectionFields.filter((field) => field.required);
+          const complete = required.filter((field) => field.value?.trim()).length;
+          return (
+            <ReportSection
+              key={section.id}
+              id={section.id}
+              title={section.title}
+              icon={<Hash className="h-5 w-5" />}
+              // الأقسام المخصصة، بما فيها أقسام نموذج بيانات التقرير، تبدأ
+              // مطوية مثل الأقسام الأساسية عند فتح مشروع مبسط.
+              open={customSectionOpen[section.id] === true}
+              onOpenChange={(id, next) => setCustomSectionOpen((prev) => ({ ...prev, [id]: next }))}
+              onAddField={() => openAddField(section.id)}
+              addFieldLabel={t("reportData.custom.addField")}
+              addFieldDisabled={customFieldLimitReached}
+              addFieldDisabledLabel={customFieldLimitLabel}
+              onRemoveSection={section.modelId ? undefined : () => deleteCustomSection(section.id)}
+              removeSectionLabel={t("reportData.custom.deleteSection")}
+              completion={required.length === 0 ? 100 : Math.round((complete / required.length) * 100)}
+            >
+              {sectionFields.length === 0 ? (
+                <p className="text-[12px] font-medium text-slate-400">{t("reportData.custom.addFieldHint")}</p>
+              ) : null}
+              {renderCustomFields(section.id)}
+            </ReportSection>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => setAddSectionOpen(true)}
+          disabled={customSectionLimitReached}
+          title={customSectionLimitReached ? customSectionLimitLabel : undefined}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-sky-300 bg-sky-50/70 px-4 py-3.5 text-[13px] font-extrabold text-sky-800 transition hover:border-sky-400 hover:bg-sky-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100"
+        >
+          <Plus className="h-4 w-4" strokeWidth={2.5} />
+          {t("reportData.custom.addSection")}
+        </button>
       </div>
+
+      <MvReportAddFieldModal
+        open={addFieldSectionId != null}
+        onOpenChange={(open) => {
+          if (!open) setAddFieldSectionId(null);
+        }}
+        onSubmit={(next) => {
+          if (!addFieldSectionId) return;
+          addCustomField(addFieldSectionId, next);
+        }}
+      />
+      <MvReportAddSectionModal
+        open={addSectionOpen}
+        onOpenChange={setAddSectionOpen}
+        onSubmit={addCustomSection}
+      />
 
       <aside
         className={cn(

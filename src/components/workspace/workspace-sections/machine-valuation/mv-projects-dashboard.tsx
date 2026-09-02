@@ -1,6 +1,5 @@
 "use client";
 
-import { Tajawal } from "next/font/google";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownWideNarrow,
@@ -98,16 +97,11 @@ import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-sim
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
+import { systemArabicFont as tajawal } from "@/lib/system-fonts";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
 type ContactDialogTab = "locations" | "inspectors";
-
-const tajawal = Tajawal({
-  subsets: ["arabic"],
-  weight: ["400", "500", "700", "800"],
-  display: "swap",
-});
 
 function createNumberFormatter(isArabic: boolean) {
   return new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");

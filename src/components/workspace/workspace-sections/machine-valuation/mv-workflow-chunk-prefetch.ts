@@ -8,6 +8,7 @@ const preloaders: Array<() => Promise<unknown>> = [
   () => import("./mv-asset-images-hub"),
   () => import("./mv-valuation-shell"),
   () => import("./mv-client-files-shell"),
+  () => import("./mv-final-report-workspace"),
   () => import("./mv-valuation-report-workspace"),
   () => import("./mv-asset-data-workspace"),
   () => import("./mv-valuation-accounting-workspace"),

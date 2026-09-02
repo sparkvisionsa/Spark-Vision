@@ -80,6 +80,12 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "x-word-merge-pdf-token",
       "x-word-merge-pdf-error",
       "x-word-merge-pdf-available",
+      "x-pptx-merge-stats",
+      "x-pptx-merge-warnings",
+      "x-pptx-merge-pdf",
+      "x-pptx-merge-pdf-token",
+      "x-pptx-merge-pdf-error",
+      "x-pptx-merge-pdf-available",
     ] as const;
     for (const name of passthrough) {
       const v = upstream.headers.get(name);

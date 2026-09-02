@@ -15,25 +15,14 @@ import {
   Sparkles,
   Wrench,
 } from "lucide-react";
-import { Cairo, Manrope, Playfair_Display } from "next/font/google";
 import { LanguageContext } from "@/components/layout-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const manrope = Manrope({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  weight: ["600", "700"],
-});
-
-const cairo = Cairo({
-  subsets: ["arabic"],
-  weight: ["400", "500", "600", "700"],
-});
+import {
+  systemArabicFont as cairo,
+  systemSansFont as manrope,
+  systemSerifFont as playfair,
+} from "@/lib/system-fonts";
 
 const DOWNLOAD_URL =
   "https://github.com/sparkvisionsa/ValueTech-Frontend/releases/download/v1.1.0/value-tech.exe";

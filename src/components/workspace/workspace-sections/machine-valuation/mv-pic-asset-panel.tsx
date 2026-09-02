@@ -544,6 +544,7 @@ export function MvPicAssetPanel({
       {/* بيانات الأصول — في المسار الكامل فقط */}
       {mode === "full" ? (
       (() => {
+        const assetLabel = asset.name ?? asset.lable ?? notAvailable;
         const imageTotal =
           (asset.images?.length ?? 0) > 0
             ? (asset.images?.length ?? 0)
@@ -563,7 +564,7 @@ export function MvPicAssetPanel({
           dir={dir}
         >
           <DialogTitle className="sr-only">
-            {t("assetImages.picPanel.assetDataSrOnly", { name: asset.name })}
+            {t("assetImages.picPanel.assetDataSrOnly", { name: assetLabel })}
           </DialogTitle>
           <div className="relative overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 pb-5 pt-6 text-right text-white">
             <div className="pointer-events-none absolute -left-16 -top-12 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
@@ -574,7 +575,7 @@ export function MvPicAssetPanel({
               {t("assetImages.picPanel.assetDataTitle")}
             </h2>
             <p className="relative mt-1.5 break-words text-sm font-medium text-sky-100/95" dir="auto">
-              {asset.name}
+              {assetLabel}
             </p>
             <div className="relative mt-3 flex flex-wrap justify-end gap-1.5">
               <Badge
@@ -602,7 +603,7 @@ export function MvPicAssetPanel({
             <div className="space-y-4 bg-slate-50/30 px-4 py-4 sm:px-5">
               <DataSection title={t("assetImages.picPanel.sections.basicId")} icon={<Tag className="h-3.5 w-3.5" />}>
                 <div className="grid gap-2.5 sm:grid-cols-2">
-                  <Field label={t("assetImages.picPanel.fields.folderName")} value={asset.name} className="sm:col-span-2" notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.folderName")} value={assetLabel} className="sm:col-span-2" notAvailable={notAvailable} />
                   {picAssetIsVehicle(asset.assetType) ? (
                     <Field label={t("assetImages.picPanel.fields.brand")} value={asset.brand} notAvailable={notAvailable} />
                   ) : (
@@ -619,7 +620,10 @@ export function MvPicAssetPanel({
                       notAvailable={notAvailable}
                     />
                   ) : null}
+                  <Field label={t("assetImages.picPanel.fields.clientCode")} value={asset.client_code} notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.employer")} value={asset.employer} notAvailable={notAvailable} />
                   <Field label={t("assetImages.picPanel.fields.code")} value={asset.code} notAvailable={notAvailable} />
+                  <Field label={t("assetImages.picPanel.fields.valTechId")} value={asset.val_tech_id} notAvailable={notAvailable} />
                   <Field label={t("assetImages.picPanel.fields.isDone")} value={asset.isDone ? t("common.yes") : t("common.no")} notAvailable={notAvailable} />
                   <Field label={t("assetImages.picPanel.fields.isPresent")} value={asset.isPresent ? t("common.yes") : t("common.no")} notAvailable={notAvailable} />
                 </div>

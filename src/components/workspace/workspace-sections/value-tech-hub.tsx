@@ -7,6 +7,7 @@ import {
   Building2,
   ClipboardList,
   Cpu,
+  FileCog,
   LayoutGrid,
   Library,
   Search,
@@ -67,6 +68,12 @@ const copy = {
         description: "Document asset condition and field inspection data.",
         icon: Search,
       },
+      {
+        href: "/helper-tools",
+        title: "Helper Tools",
+        description: "Fast local tools for PDF conversion and Saudi riyal number wording.",
+        icon: FileCog,
+      },
     ] satisfies ProductCard[],
   },
   ar: {
@@ -110,6 +117,12 @@ const copy = {
         title: "تطبيق معاينة الأصول",
         description: "توثيق حالة الأصول وبيانات المعاينة الميدانية.",
         icon: Search,
+      },
+      {
+        href: "/helper-tools",
+        title: "الأدوات المساعدة",
+        description: "أدوات محلية سريعة لتحويل الملفات وتفقيط  .",
+        icon: FileCog,
       },
     ] satisfies ProductCard[],
   },

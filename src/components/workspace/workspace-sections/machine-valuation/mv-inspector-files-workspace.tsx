@@ -1,6 +1,5 @@
 "use client";
 
-import { Tajawal } from "next/font/google";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertCircle,
@@ -45,12 +44,7 @@ import {
 } from "./mv-location-multi-select";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
 import { useMvI18n } from "./mv-i18n";
-
-const font = Tajawal({
-  subsets: ["arabic"],
-  weight: ["400", "500", "700", "800"],
-  display: "swap",
-});
+import { systemArabicFont as font } from "@/lib/system-fonts";
 
 const ACCEPT = "";
 const DEFAULT_INSPECTOR_FILE_LOCATION_IDS = [MV_ALL_LOCATIONS_VALUE];

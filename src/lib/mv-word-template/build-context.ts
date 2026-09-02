@@ -80,7 +80,7 @@ function buildClientIdentity(reportData: MvProjectReportData): string {
   return parts.join(" — ");
 }
 
-/** القيم الحالية التي يستبدل بها الخادم متغيرات « » أو << >> داخل القالب المضمّن. */
+/** القيم الحالية التي يستبدل بها الخادم متغيرات « » أو << >> داخل قالب الشركة. */
 export function buildTemplateVariableValues(
   input: MvWordMergeInput,
 ): MvWordTemplateVariableValues {

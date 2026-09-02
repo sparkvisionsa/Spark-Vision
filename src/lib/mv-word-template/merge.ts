@@ -47,7 +47,7 @@ export async function mergeWordReportTemplateSmart(params: {
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
     clientImageUrls: params.clientImageUrls,
-    alsoPdf: false,
+    alsoPdf: params.alsoPdf === true,
     useStoredProjectState: params.useStoredProjectState,
     imageLayout: params.imageLayout,
   });

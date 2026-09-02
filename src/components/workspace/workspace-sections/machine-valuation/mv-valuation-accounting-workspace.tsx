@@ -4867,7 +4867,7 @@ export default function MvValuationAccountingWorkspace({
           <Button
             type="button"
             className="bg-emerald-700 hover:bg-emerald-800"
-            onClick={() => navigate(`/machine-valuation/${projectId}/workflow/report`)}
+            onClick={() => navigate(`/machine-valuation/${projectId}/workflow/final-report`)}
           >
             الانتقال إلى إعداد التقرير
           </Button>

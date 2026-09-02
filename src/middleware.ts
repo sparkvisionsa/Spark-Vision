@@ -12,6 +12,7 @@ const EXACT_REWRITES: [string, string][] = [
   ["/real-estate-valuation", "/w/real-estate-valuation"],
   ["/asset-inventory", "/w/asset-inventory"],
   ["/asset-inspection", "/w/asset-inspection"],
+  ["/helper-tools", "/w/helper-tools"],
   ["/clients", "/w/clients"],
   ["/settings", "/w/settings"],
   ["/settings/report", "/w/settings/report"]
@@ -142,6 +143,7 @@ export const config = {
     "/machine-valuation/:path*",
     "/asset-inventory",
     "/asset-inspection",
+    "/helper-tools",
     "/clients",
     "/settings",
     "/settings/report",

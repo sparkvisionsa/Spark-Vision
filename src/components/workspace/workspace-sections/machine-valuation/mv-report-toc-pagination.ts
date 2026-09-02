@@ -2,9 +2,12 @@ import { MV_REPORT_TOC_ROWS, type MvReportTocRow } from "./mv-valuation-report-t
 import type { MvReportEditableSection } from "./types";
 
 /** صفوف الفهرس في الصفحة الأولى (مع العنوان والملاحظة). */
-export const MV_REPORT_TOC_ROWS_FIRST_PAGE = 20;
+// Keep deliberate headroom for Arabic titles that wrap to two or more lines.
+// The report shell is a fixed A4 sheet, so an extra TOC page is preferable to
+// letting a long title collide with the footer during PDF capture.
+export const MV_REPORT_TOC_ROWS_FIRST_PAGE = 14;
 /** صفوف الفهرس في صفحات «الفهرس (تابع)». */
-export const MV_REPORT_TOC_ROWS_CONTINUATION = 26;
+export const MV_REPORT_TOC_ROWS_CONTINUATION = 18;
 
 export type ReportTocEntry =
   | { kind: "row"; row: MvReportTocRow }

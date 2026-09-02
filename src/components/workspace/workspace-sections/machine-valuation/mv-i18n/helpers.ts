@@ -12,7 +12,7 @@ export function getSimpleReportSteps(t: MvT) {
     { id: "asset-images" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.assetImages") },
     { id: "valuation-actions" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.valuationActions") },
     { id: "client-files" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.clientFiles") },
-    { id: "report-preview" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.reportPreview") },
+    { id: "final-report" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.finalReport") },
   ];
 }
 

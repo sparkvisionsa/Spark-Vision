@@ -8,10 +8,19 @@ function backendOriginForRewrite() {
   return raw.replace(/\/?api$/i, "").replace(/\/+$/, "") || "http://127.0.0.1:5000";
 }
 
+// Keep a running `next dev` server from sharing (and occasionally corrupting)
+// the production build output. `next start` runs with NODE_ENV=production as
+// well, so it resolves the same directory produced by `next build`.
+const nextDistDir = process.env.NODE_ENV === "production" ? ".next-production" : ".next";
+
 const nextConfig: NextConfig = {
+  distDir: nextDistDir,
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
+  // Genkit and its Express-based reflection runtime are Node-only packages.
+  // Keep them external instead of asking Webpack to analyze Express dynamic requires.
+  serverExternalPackages: ["genkit", "@genkit-ai/core", "@genkit-ai/google-genai"],
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts"],
     /** Must match large MV uploads; default ~10MB truncates multipart when middleware exists. */

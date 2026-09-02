@@ -1,10 +1,12 @@
 import type { MvWordMergeInput } from "./build-context";
 import { buildTemplateVariableValues } from "./build-context";
 import type { MvWordMergeResult, MvWordMergeStats } from "./merge";
-import { convertDocxBlobToPdfBlob, downloadBlob } from "./docx-to-pdf";
+import { downloadBlob } from "./docx-to-pdf";
 
 export type ServerWordMergeParams = {
   projectId: string;
+  /** Selected template from the current company's Word template catalogue. */
+  templateId?: string;
   mergeInput: MvWordMergeInput;
   assetImageUrls: string[];
   valuationImageUrls: string[];
@@ -140,9 +142,10 @@ export async function mergeWordReportTemplateViaServer(
   );
 
   const body: Record<string, unknown> = {
+    ...(params.templateId ? { templateId: params.templateId } : {}),
     imageLayout: params.imageLayout,
     assetImagesBase64: [],
-    alsoPdf: false,
+    alsoPdf: params.alsoPdf === true,
     useStoredProjectState,
   };
   // الوضع الافتراضي يقرأ أحدث نسخة من MongoDB لحظة الدمج، ولا يرسل كاش الصفحة.
@@ -213,17 +216,10 @@ export async function mergeWordReportTemplateViaServer(
     }
   }
 
-  // احتياطي متصفح متعدد الصفحات إن فشل تحويل الخادم (مثلاً بلا LibreOffice على Ubuntu)
-  if (params.alsoPdf && !pdfBlob && docxBlob.size > 0) {
-    try {
-      pdfBlob = await convertDocxBlobToPdfBlob(docxBlob);
-      pdfSource = "browser";
-    } catch (err) {
-      pdfError =
-        (err instanceof Error && err.message.trim()) ||
-        pdfError ||
-        "تعذر تحويل ملف Word إلى PDF. ثبّت LibreOffice على الخادم لنتائج أفضل.";
-    }
+  if (params.alsoPdf && !pdfBlob) {
+    pdfError =
+      pdfError ||
+      "تعذر تحويل Word إلى PDF عبر Microsoft Office. تأكد من تثبيت Microsoft Word على الخادم ثم أعد المحاولة.";
   }
 
   return {
@@ -243,12 +239,25 @@ export async function mergeWordReportTemplateViaServer(
   };
 }
 
-/** ينزّل ملف Word المدمج فقط. */
+/** ينزّل Word، وإن وُجد PDF ينزّله مباشرة بعده كملف منفصل. */
 export function downloadMergedReportFiles(opts: {
   docxBlob: Blob;
   pdfBlob?: Blob;
   baseName: string;
+  /** عند false يُنزَّل PDF فقط (للمعاينة/تنزيل PDF بدون Word). */
+  includeDocx?: boolean;
 }) {
   const safe = opts.baseName.replace(/[\\/:*?"<>|]+/g, "-") || "report";
-  downloadBlob(opts.docxBlob, `${safe}-merged-report.docx`);
+  const includeDocx = opts.includeDocx !== false;
+  if (includeDocx) {
+    downloadBlob(opts.docxBlob, `${safe}-merged-report.docx`);
+  }
+  if (opts.pdfBlob) {
+    window.setTimeout(
+      () => {
+        downloadBlob(opts.pdfBlob!, `${safe}-merged-report.pdf`);
+      },
+      includeDocx ? 400 : 0,
+    );
+  }
 }

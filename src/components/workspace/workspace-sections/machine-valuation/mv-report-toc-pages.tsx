@@ -15,6 +15,7 @@ import { useMvI18n } from "./mv-i18n";
 type TocPagesProps = {
   companyName: string;
   companyNameNode?: ReactNode;
+  commercialRegistration?: string;
   logoSrc: string | null;
   footerLines: string[];
   draftWatermark: boolean;
@@ -134,6 +135,7 @@ export function MvReportTocPages(props: TocPagesProps) {
   const {
     companyName,
     companyNameNode,
+    commercialRegistration,
     logoSrc,
     footerLines,
     draftWatermark,
@@ -159,6 +161,7 @@ export function MvReportTocPages(props: TocPagesProps) {
   const shellProps = {
     companyName,
     companyNameNode,
+    commercialRegistration,
     logoSrc,
     footerLines,
     draftWatermark,

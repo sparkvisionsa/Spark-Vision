@@ -32,6 +32,8 @@ import {
 const ACCEPTED_ASSET_IMPORT_FILES =
   ".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroenabled.12,application/vnd.ms-excel,text/csv,application/csv";
 
+const LOCATION_ONLY_FOLDER_COLUMN = "__location_only__";
+
 type AssetFolderImportColumn = { key: string; label: string };
 
 interface MvAssetImageFoldersModalProps {
@@ -104,6 +106,9 @@ export function MvAssetImageFoldersModal({
   const [selectedSheet, setSelectedSheet] = useState<ActiveImportSheetRef | null>(null);
   const [columns, setColumns] = useState<AssetFolderImportColumn[]>([]);
   const [selectedColumnKey, setSelectedColumnKey] = useState("");
+  const [selectedLocationColumnKey, setSelectedLocationColumnKey] = useState("");
+  const [selectedCodeColumnKey, setSelectedCodeColumnKey] = useState("");
+  const [selectedEmployerColumnKey, setSelectedEmployerColumnKey] = useState("");
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingColumns, setLoadingColumns] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -157,6 +162,9 @@ export function MvAssetImageFoldersModal({
       setSelectedSheet(null);
       setColumns([]);
       setSelectedColumnKey("");
+      setSelectedLocationColumnKey("");
+      setSelectedCodeColumnKey("");
+      setSelectedEmployerColumnKey("");
       return;
     }
     setSelectedSheet((current) => {
@@ -176,6 +184,9 @@ export function MvAssetImageFoldersModal({
     if (!projectId || !selectedSheet?.importId.trim() || !selectedSheet.sheetName.trim()) {
       setColumns([]);
       setSelectedColumnKey("");
+      setSelectedLocationColumnKey("");
+      setSelectedCodeColumnKey("");
+      setSelectedEmployerColumnKey("");
       return;
     }
 
@@ -200,6 +211,9 @@ export function MvAssetImageFoldersModal({
         if (!response.ok) {
           setColumns([]);
           setSelectedColumnKey("");
+          setSelectedLocationColumnKey("");
+          setSelectedCodeColumnKey("");
+          setSelectedEmployerColumnKey("");
           return;
         }
         const data = JSON.parse(text) as { columns?: AssetFolderImportColumn[] };
@@ -208,10 +222,22 @@ export function MvAssetImageFoldersModal({
         setSelectedColumnKey((current) =>
           nextColumns.some((column) => column.key === current) ? current : (nextColumns[0]?.key ?? ""),
         );
+        setSelectedLocationColumnKey((current) =>
+          nextColumns.some((column) => column.key === current) ? current : (nextColumns[0]?.key ?? ""),
+        );
+        setSelectedCodeColumnKey((current) =>
+          nextColumns.some((column) => column.key === current) ? current : (nextColumns[0]?.key ?? ""),
+        );
+        setSelectedEmployerColumnKey((current) =>
+          nextColumns.some((column) => column.key === current) ? current : (nextColumns[0]?.key ?? ""),
+        );
       } catch {
         if (!ac.signal.aborted) {
           setColumns([]);
           setSelectedColumnKey("");
+          setSelectedLocationColumnKey("");
+          setSelectedCodeColumnKey("");
+          setSelectedEmployerColumnKey("");
         }
       } finally {
         if (!ac.signal.aborted) setLoadingColumns(false);
@@ -266,7 +292,7 @@ export function MvAssetImageFoldersModal({
   const generateFolders = useCallback(async (action: GenerateFoldersAction = "close") => {
     if (generatingActionRef.current) return;
 
-    if (!projectId || !selectedSheet || !selectedColumnKey.trim()) {
+    if (!projectId || !selectedSheet || !selectedLocationColumnKey.trim() || !selectedCodeColumnKey.trim() || !selectedEmployerColumnKey.trim()) {
       toast({ variant: "destructive", description: t("import.selectSheetColumn") });
       return;
     }
@@ -281,7 +307,14 @@ export function MvAssetImageFoldersModal({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            columnKey: selectedColumnKey.trim(),
+            columnKey:
+              selectedColumnKey === LOCATION_ONLY_FOLDER_COLUMN
+                ? ""
+                : selectedColumnKey.trim(),
+            locationColumnKey: selectedLocationColumnKey.trim(),
+            clientCodeColumnKey: selectedCodeColumnKey.trim(),
+            codeColumnKey: selectedCodeColumnKey.trim(),
+            employerColumnKey: selectedEmployerColumnKey.trim(),
             importId: selectedSheet.importId.trim(),
             sheetName: selectedSheet.sheetName.trim(),
           }),
@@ -297,12 +330,18 @@ export function MvAssetImageFoldersModal({
         existingCount: number;
         totalValues: number;
         parentFolderName: string;
+        locationOnly?: boolean;
+        updatedLocationCount?: number;
       };
       const numberFormatter = new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
-      const successMessage = t("import.foldersCreated", {
-        count: numberFormatter.format(payload.totalValues),
-        name: payload.parentFolderName,
-      });
+      const successMessage = payload.locationOnly
+        ? t("projects.assetFoldersModal.locationsUpdated", {
+            count: numberFormatter.format(payload.updatedLocationCount ?? payload.totalValues),
+          })
+        : t("import.foldersCreated", {
+            count: numberFormatter.format(payload.totalValues),
+            name: payload.parentFolderName,
+          });
       clearGeneratingAction();
       toast({
         description: successMessage,
@@ -329,7 +368,7 @@ export function MvAssetImageFoldersModal({
     } finally {
       clearGeneratingAction();
     }
-  }, [clearGeneratingAction, isArabic, onGenerated, onOpenChange, onSaveAndClose, projectId, selectedColumnKey, selectedSheet, t, toast]);
+  }, [clearGeneratingAction, isArabic, onGenerated, onOpenChange, onSaveAndClose, projectId, selectedCodeColumnKey, selectedColumnKey, selectedEmployerColumnKey, selectedLocationColumnKey, selectedSheet, t, toast]);
 
   const renameSelectedSheet = useCallback(async () => {
     if (!projectId || !selectedSheet || !importResult) return;
@@ -387,7 +426,15 @@ export function MvAssetImageFoldersModal({
   const selectedSheetValue = selectedSheet ? `${selectedSheet.importId}::${selectedSheet.sheetName}` : "";
   const numberFormatter = new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US");
   const generating = generatingAction !== null;
-  const saveDisabled = !projectId || !selectedSheet || !selectedColumnKey || uploading || loadingColumns || generating;
+  const saveDisabled =
+    !projectId ||
+    !selectedSheet ||
+    !selectedLocationColumnKey ||
+    !selectedCodeColumnKey ||
+    !selectedEmployerColumnKey ||
+    uploading ||
+    loadingColumns ||
+    generating;
   const hasWorkbook = sheets.length > 0;
   const handleClose = () => {
     if (onSaveAndClose) onSaveAndClose();
@@ -459,7 +506,7 @@ export function MvAssetImageFoldersModal({
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             <label className="space-y-1">
               <span className="text-[11px] font-bold text-slate-500">{t("projects.assetFoldersModal.sheet")}</span>
               <Select
@@ -521,6 +568,90 @@ export function MvAssetImageFoldersModal({
                       loadingColumns
                         ? t("projects.assetFoldersModal.loadingColumns")
                         : t("projects.assetFoldersModal.selectColumn")
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="text-right" dir="rtl">
+                  <SelectItem value={LOCATION_ONLY_FOLDER_COLUMN} className="text-[12px]">
+                    {t("projects.assetFoldersModal.locationOnly")}
+                  </SelectItem>
+                  {columns.map((column) => (
+                    <SelectItem key={column.key} value={column.key} className="text-[12px]">
+                      <span dir="auto">{column.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-bold text-slate-500">
+                {t("projects.assetFoldersModal.columnForAssetLocation")}
+              </span>
+              <Select
+                value={selectedLocationColumnKey}
+                onValueChange={setSelectedLocationColumnKey}
+                disabled={columns.length === 0 || loadingColumns}
+              >
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold">
+                  <SelectValue
+                    placeholder={
+                      loadingColumns
+                        ? t("projects.assetFoldersModal.loadingColumns")
+                        : t("projects.assetFoldersModal.selectAssetLocationColumn")
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="text-right" dir="rtl">
+                  {columns.map((column) => (
+                    <SelectItem key={column.key} value={column.key} className="text-[12px]">
+                      <span dir="auto">{column.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-bold text-slate-500">
+                {t("projects.assetFoldersModal.columnForEmployer")}
+              </span>
+              <Select
+                value={selectedEmployerColumnKey}
+                onValueChange={setSelectedEmployerColumnKey}
+                disabled={columns.length === 0 || loadingColumns}
+              >
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold">
+                  <SelectValue
+                    placeholder={
+                      loadingColumns
+                        ? t("projects.assetFoldersModal.loadingColumns")
+                        : t("projects.assetFoldersModal.selectEmployerColumn")
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent className="text-right" dir="rtl">
+                  {columns.map((column) => (
+                    <SelectItem key={`employer:${column.key}`} value={column.key} className="text-[12px]">
+                      <span dir="auto">{column.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-bold text-slate-500">
+                {t("projects.assetFoldersModal.columnForAssetCode")}
+              </span>
+              <Select
+                value={selectedCodeColumnKey}
+                onValueChange={setSelectedCodeColumnKey}
+                disabled={columns.length === 0 || loadingColumns}
+              >
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-[12px] font-semibold">
+                  <SelectValue
+                    placeholder={
+                      loadingColumns
+                        ? t("projects.assetFoldersModal.loadingColumns")
+                        : t("projects.assetFoldersModal.selectAssetCodeColumn")
                     }
                   />
                 </SelectTrigger>

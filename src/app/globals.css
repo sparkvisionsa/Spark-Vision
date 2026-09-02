@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -174,6 +172,18 @@
 }
 
 @layer utilities {
+  .font-system-arabic {
+    font-family: Tahoma, Arial, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .font-system-sans {
+    font-family: "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .font-system-serif {
+    font-family: Georgia, "Times New Roman", ui-serif, serif;
+  }
+
   .tech-pattern {
     position: absolute;
     inset: 0;
@@ -641,7 +651,7 @@
   width: clamp(4.9rem, 7.25vw, 6.5rem);
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
-  animation: hero-keyword-sway 12s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+  animation: hero-keyword-sway 7s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
 }
 
 .hero-keyword-particle-orb,
@@ -663,8 +673,8 @@
   box-shadow: inset -0.65rem -0.75rem 1.25rem hsl(0 0% 0% / 0.22), inset 0.25rem 0.25rem 0.7rem hsl(0 0% 100% / 0.13),
     0 0 0 0.24rem color-mix(in srgb, var(--hero-particle-color) 12%, transparent),
     0 0 1.45rem color-mix(in srgb, var(--hero-particle-color) 42%, transparent);
-  animation: hero-keyword-orb var(--hero-particle-duration) linear var(--hero-particle-delay) infinite,
-    hero-keyword-orb-visibility var(--hero-particle-duration) steps(1, end) var(--hero-particle-delay) infinite;
+  will-change: opacity, transform;
+  animation: hero-keyword-orb var(--hero-particle-duration) linear var(--hero-particle-delay) infinite;
 }
 
 .hero-keyword-particle-smoke {
@@ -686,8 +696,8 @@
   filter: blur(1.25px);
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.2);
-  animation: hero-keyword-smoke var(--hero-particle-duration) linear var(--hero-particle-delay) infinite,
-    hero-keyword-smoke-visibility var(--hero-particle-duration) steps(1, end) var(--hero-particle-delay) infinite;
+  will-change: opacity, transform;
+  animation: hero-keyword-smoke var(--hero-particle-duration) linear var(--hero-particle-delay) infinite;
 }
 
 .hero-keyword-particle-word {
@@ -700,8 +710,8 @@
   text-align: center;
   white-space: nowrap;
   opacity: 0;
-  animation: hero-keyword-word var(--hero-particle-duration) linear var(--hero-particle-delay) infinite,
-    hero-keyword-word-visibility var(--hero-particle-duration) steps(1, end) var(--hero-particle-delay) infinite;
+  will-change: opacity, transform;
+  animation: hero-keyword-word var(--hero-particle-duration) linear var(--hero-particle-delay) infinite;
 }
 
 .hero-keyword-particle::after {
@@ -736,19 +746,9 @@
     transform: translate(-50%, -50%) scale(0.16);
   }
 
-  14% {
+  16% {
     opacity: 0.96;
-    transform: translate(-50%, -50%) scale(0.4);
-  }
-
-  28% {
-    opacity: 0.98;
-    transform: translate(-50%, -50%) scale(0.92);
-  }
-
-  30% {
-    opacity: 0.98;
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, -50%) scale(0.58);
   }
 
   31.99% {
@@ -757,14 +757,14 @@
   }
 
   32%,
-  87% {
+  86.99% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.16);
+    transform: translate(-50%, -50%) scale(1.45);
   }
 
-  88% {
-    opacity: 0.76;
-    transform: translate(-50%, -50%) scale(0.11);
+  87% {
+    opacity: 0.92;
+    transform: translate(-50%, -50%) scale(0.16);
   }
 
   100% {
@@ -773,26 +773,12 @@
   }
 }
 
-@keyframes hero-keyword-orb-visibility {
-  0%,
-  31.99%,
-  88%,
-  100% {
-    visibility: visible;
-  }
-
-  32%,
-  87.99% {
-    visibility: hidden;
-  }
-}
-
 @keyframes hero-keyword-smoke {
   0%,
   31.99%,
   42.01%,
   75.99%,
-  88%,
+  87%,
   100% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.2);
@@ -819,27 +805,9 @@
   }
 }
 
-@keyframes hero-keyword-smoke-visibility {
-  0%,
-  31.99%,
-  42.01%,
-  75.99%,
-  88%,
-  100% {
-    visibility: hidden;
-  }
-
-  32%,
-  42%,
-  76%,
-  87.99% {
-    visibility: visible;
-  }
-}
-
 @keyframes hero-keyword-flash {
   0%,
-  29%,
+  31.99%,
   38%,
   100% {
     opacity: 0;
@@ -888,20 +856,6 @@
   86.99% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.14);
-  }
-}
-
-@keyframes hero-keyword-word-visibility {
-  0%,
-  31.99%,
-  87%,
-  100% {
-    visibility: hidden;
-  }
-
-  32%,
-  86.99% {
-    visibility: visible;
   }
 }
 

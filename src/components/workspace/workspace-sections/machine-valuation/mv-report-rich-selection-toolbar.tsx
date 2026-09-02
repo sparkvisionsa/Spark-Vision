@@ -430,7 +430,7 @@ export function ReportRichHtmlField({
       dir="rtl"
       data-placeholder={placeholder}
       className={cn(
-        "min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-right text-[13px] font-medium leading-8 text-slate-800 shadow-inner outline-none transition empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] focus:border-sky-300 focus:ring-2 focus:ring-sky-100/80",
+        "min-h-28 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-right text-[13px] font-medium leading-8 text-slate-800 shadow-inner outline-none transition empty:before:text-slate-400 empty:before:content-[attr(data-placeholder)] focus:border-sky-300 focus:ring-2 focus:ring-sky-100/80",
         "[unicode-bidi:plaintext] [&_*]:max-w-full [&_*]:[letter-spacing:0] [&_a]:break-all [&_a]:font-semibold [&_a]:text-[#0C447C] [&_a]:underline [&_img]:mx-auto [&_img]:h-auto [&_img]:max-w-full",
         "[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pe-5 [&_ol]:ps-0 [&_p]:my-2 [&_p]:break-words [&_strong]:font-black [&_strong]:text-[#0C447C] [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pe-5 [&_ul]:ps-0 [&_li]:my-1",
         "[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_th]:border-slate-200 [&_th]:bg-sky-50 [&_th]:px-2 [&_th]:py-1.5 [&_th]:font-black [&_th]:text-[#0C447C]",

@@ -1,9 +1,9 @@
 "use client";
 
-import { Tajawal } from "next/font/google";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,6 +14,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Client as MachineClient } from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
 import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
@@ -50,13 +65,19 @@ import {
   writeProjectSummaryCache,
 } from "./mv-project-summary-loader";
 import { useMvI18n } from "./mv-i18n";
+import {
+  isCustomFieldValueMissing,
+  normalizeReportCustomFields,
+  normalizeReportCustomSections,
+} from "./mv-report-custom-fields";
+import {
+  getReportDataModel,
+  isReportDataModelCustomField,
+  normalizeReportDataModels,
+  type MvReportDataModel,
+} from "./mv-report-data-models";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
-
-const reportFont = Tajawal({
-  subsets: ["arabic"],
-  weight: ["400", "500", "700", "800", "900"],
-  display: "swap",
-});
+import { systemArabicFont as reportFont } from "@/lib/system-fonts";
 
 const DEFAULT_ASSET_SINGULAR_PLURAL = "أصل/أصول";
 const DEFAULT_STANDARDS_VERSION = "معايير التقييم الدولية IVS 2025";
@@ -140,6 +161,8 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   wordAssetImagesPerRow: 4,
   wordImageQuality: 100,
   sceRegistrationCertificateHtml: "",
+  customFields: [],
+  customSections: [],
 };
 
 function normalizeReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
@@ -169,7 +192,95 @@ function normalizeReportData(data: MvProjectReportData | undefined | null): MvPr
       finalValue == null
         ? data?.finalValueWords ?? ""
         : numberToArabicRiyalWords(finalValue),
+    customFields: normalizeReportCustomFields(data?.customFields),
+    customSections: normalizeReportCustomSections(data?.customSections),
   };
+}
+
+const MODEL_BUILT_IN_SECTION_IDS = new Set<string>(MV_REPORT_COLLAPSIBLE_IDS);
+
+/**
+ * Materialize the model's company fields in the project's existing custom
+ * field store.  Values stay inside `reportData`, which also lets the merge
+ * services expose the same keys to Word and PowerPoint.
+ */
+function applyReportDataModel(
+  current: MvProjectReportData,
+  model: MvReportDataModel,
+): MvProjectReportData {
+  const currentFields = normalizeReportCustomFields(current.customFields);
+  const currentSections = normalizeReportCustomSections(current.customSections);
+  const previousValueById = new Map(currentFields.map((field) => [field.id, field.value ?? ""]));
+  const modelFields = model.sections
+    .flatMap((section) =>
+      section.fields
+        .filter(isReportDataModelCustomField)
+        .map((field) => ({ sectionId: section.id, field })),
+    )
+    .filter(({ field }) => field.sourceKey.slice("field:".length).trim().length > 0);
+  const modelFieldIds = new Set(modelFields.map(({ field }) => field.sourceKey.slice("field:".length)));
+  const manualFields = currentFields.filter((field) => !field.modelId && !modelFieldIds.has(field.id));
+  const generatedFields = modelFields.map(({ sectionId, field }) => {
+    const id = field.sourceKey.slice("field:".length);
+    return {
+      id,
+      sectionId,
+      modelId: model.id,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      value: previousValueById.get(id) ?? "",
+    };
+  });
+  const modelSections = model.sections
+    .filter((section) => !MODEL_BUILT_IN_SECTION_IDS.has(section.id))
+    .map((section) => ({ id: section.id, title: section.title, modelId: model.id }));
+  const modelSectionIds = new Set(modelSections.map((section) => section.id));
+  const manualSections = currentSections.filter(
+    (section) => !section.modelId && !modelSectionIds.has(section.id),
+  );
+
+  return {
+    ...current,
+    reportDataModelId: model.id,
+    customFields: [...manualFields, ...generatedFields],
+    customSections: [...manualSections, ...modelSections],
+  };
+}
+
+function reportDataNeedsModelMaterialization(
+  data: MvProjectReportData,
+  model: MvReportDataModel,
+): boolean {
+  if (data.reportDataModelId !== model.id) return true;
+  const fields = normalizeReportCustomFields(data.customFields);
+  const modelFieldIds = new Set(
+    model.sections
+      .flatMap((section) => section.fields)
+      .filter(isReportDataModelCustomField)
+      .map((field) => field.sourceKey.slice("field:".length)),
+  );
+  if (fields.some((field) => field.modelId === model.id && !modelFieldIds.has(field.id))) return true;
+  for (const field of model.sections.flatMap((section) => section.fields).filter(isReportDataModelCustomField)) {
+    const id = field.sourceKey.slice("field:".length);
+    const stored = fields.find((item) => item.id === id && item.modelId === model.id);
+    if (
+      !stored ||
+      stored.label !== field.label ||
+      stored.type !== field.type ||
+      stored.required !== field.required ||
+      stored.sectionId !== model.sections.find((section) => section.fields.includes(field))?.id
+    ) {
+      return true;
+    }
+  }
+  const sections = normalizeReportCustomSections(data.customSections);
+  return model.sections
+    .filter((section) => !MODEL_BUILT_IN_SECTION_IDS.has(section.id))
+    .some((section) => {
+      const stored = sections.find((item) => item.id === section.id && item.modelId === model.id);
+      return !stored || stored.title !== section.title;
+    });
 }
 
 interface MvReportDataWorkspaceProps {
@@ -186,7 +297,9 @@ function reportDataLooksFilled(data: MvProjectReportData): boolean {
       data.valuationPurpose?.trim() ||
       data.reportIssueDate?.trim() ||
       data.finalValue != null ||
-      (Array.isArray(data.valuationTeam) && data.valuationTeam.length > 0),
+      (Array.isArray(data.valuationTeam) && data.valuationTeam.length > 0) ||
+      (Array.isArray(data.customFields) && data.customFields.length > 0) ||
+      (Array.isArray(data.customSections) && data.customSections.length > 0),
   );
 }
 
@@ -226,10 +339,16 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [preparerOptions, setPreparerOptions] = useState<MvReportPreparerOption[]>([]);
   const [preparersLoading, setPreparersLoading] = useState(true);
   const [preparersLoaded, setPreparersLoaded] = useState(false);
+  const [reportDataModels, setReportDataModels] = useState<MvReportDataModel[]>(() =>
+    normalizeReportDataModels(null),
+  );
+  const [reportDataModelsLoaded, setReportDataModelsLoaded] = useState(false);
+  const [modelChoiceOpen, setModelChoiceOpen] = useState(false);
+  const [pendingModelId, setPendingModelId] = useState("");
+  // يبدأ نموذج المشروع المبسط مطوياً دائماً، حتى عند العودة إلى مشروع يحتوي
+  // على بيانات محفوظة أو أقسام مخصصة من نموذج بيانات التقرير.
   const [openSections, setOpenSections] = useState<Record<MvReportCollapsibleSectionId, boolean>>(() =>
-    createMvReportCollapsibleState(
-      reportDataLooksFilled(normalizeReportData(initialCached?.project.reportData)),
-    ),
+    createMvReportCollapsibleState(false),
   );
 
   const markClean = useCallback(() => {
@@ -320,9 +439,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       if (!reportDataDirtyRef.current) {
         const nextReportData = normalizeReportData(payload.project.reportData);
         setReportData(nextReportData);
-        if (reportDataLooksFilled(nextReportData)) {
-          setOpenSections(createMvReportCollapsibleState(true));
-        }
+        setOpenSections(createMvReportCollapsibleState(false));
       }
       setLoadError(null);
     } catch (error) {
@@ -350,11 +467,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     if (cached?.project?._id === projectId) {
       setEditableProjectName(cached.project.name ?? "");
       setReportData(normalizeReportData(cached.project.reportData));
-      setOpenSections(
-        createMvReportCollapsibleState(
-          reportDataLooksFilled(normalizeReportData(cached.project.reportData)),
-        ),
-      );
+      setOpenSections(createMvReportCollapsibleState(false));
     } else {
       setEditableProjectName("");
       setReportData(normalizeReportData(null));
@@ -414,7 +527,10 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     let cancelled = false;
     setPreparersLoading(true);
     setPreparersLoaded(false);
-    void mvFetchJson<{ reportSignatoryRows?: unknown[] }>(
+    void mvFetchJson<{
+      reportSignatoryRows?: unknown[];
+      reportDefaults?: { reportDataModels?: unknown };
+    }>(
       "/api/company/report-defaults",
       {},
       {
@@ -428,14 +544,23 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       .then((data) => {
         if (cancelled) return;
         setPreparerOptions(normalizeReportPreparerOptions(data.reportSignatoryRows));
+        const models = normalizeReportDataModels(data.reportDefaults?.reportDataModels);
+        setReportDataModels(models);
+        setPendingModelId((current) => current || models[0]?.id || "");
       })
       .catch(() => {
-        if (!cancelled) setPreparerOptions([]);
+        if (!cancelled) {
+          setPreparerOptions([]);
+          const models = normalizeReportDataModels(null);
+          setReportDataModels(models);
+          setPendingModelId((current) => current || models[0]?.id || "");
+        }
       })
       .finally(() => {
         if (!cancelled) {
           setPreparersLoading(false);
           setPreparersLoaded(true);
+          setReportDataModelsLoaded(true);
         }
       });
     return () => {
@@ -452,6 +577,35 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       return { ...current, valuationTeam: nextTeam };
     });
   }, [preparerOptions, preparersLoaded, reportData.valuationTeam]);
+
+  useEffect(() => {
+    if (!project || !reportDataModelsLoaded) return;
+    const selectedId = reportData.reportDataModelId?.trim() ?? "";
+    const selectedIsAvailable = reportDataModels.some((model) => model.id === selectedId);
+    if (selectedIsAvailable) {
+      const selectedModel = getReportDataModel(reportDataModels, selectedId);
+      if (reportDataNeedsModelMaterialization(reportData, selectedModel)) {
+        setReportData((current) => applyReportDataModel(current, selectedModel));
+      }
+      setModelChoiceOpen(false);
+      return;
+    }
+    if (reportDataModels.length <= 1) {
+      const defaultModel = reportDataModels[0]!;
+      if (reportDataNeedsModelMaterialization(reportData, defaultModel)) {
+        setReportData((current) => applyReportDataModel(current, defaultModel));
+      }
+      setModelChoiceOpen(false);
+      return;
+    }
+    setPendingModelId(reportDataModels[0]?.id ?? "");
+    setModelChoiceOpen(true);
+  }, [project, reportData, reportDataModels, reportDataModelsLoaded]);
+
+  const activeReportDataModel = useMemo(
+    () => getReportDataModel(reportDataModels, reportData.reportDataModelId),
+    [reportData.reportDataModelId, reportDataModels],
+  );
 
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
 
@@ -471,7 +625,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         assetImageCount: assetImageCount > 0 ? assetImageCount : (project?.assetImageCount ?? 0),
         valuationAccountImageCount,
         clientDocumentImageCount,
-        visitedReportPreview: visitedSteps.has("report-preview"),
+        visitedFinalReport: visitedSteps.has("final-report"),
       }),
     );
   }, [
@@ -488,46 +642,42 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const reportFieldChecks = useMemo(() => {
     const textMissing = (value: unknown) =>
       typeof value !== "string" || value.trim().length === 0;
+    const missingForSystemField = (sourceKey: string) => {
+      if (sourceKey === "projectName") return textMissing(editableProjectName);
+      if (sourceKey === "displayNumber") {
+        return typeof project?.displayNumber !== "number" || !Number.isFinite(project.displayNumber);
+      }
+      if (sourceKey === "finalValue") return reportData.finalValue == null;
+      if (sourceKey === "valuationTeam") {
+        return !Array.isArray(reportData.valuationTeam) || reportData.valuationTeam.length === 0;
+      }
+      const value = reportData[sourceKey as keyof MvProjectReportData];
+      if (typeof value === "string") return textMissing(value);
+      if (typeof value === "number") return !Number.isFinite(value);
+      return value == null;
+    };
     const checks: Array<{
       key: string;
       label: string;
-      section: MvReportCollapsibleSectionId;
+      section: string;
       missing: boolean;
-    }> = [
-      { key: "projectName", label: t("reportData.fields.projectName"), section: "basic", missing: textMissing(editableProjectName) },
-      { key: "reportTitle", label: t("reportData.fields.coverTitle"), section: "basic", missing: textMissing(reportData.reportTitle) },
-      { key: "reportReference", label: t("reportData.fields.reference"), section: "basic", missing: textMissing(reportData.reportReference) },
-      { key: "valuationMethod", label: t("reportData.fields.valuationMethod"), section: "basic", missing: textMissing(reportData.valuationMethod) },
-      { key: "valuationPurpose", label: t("reportData.fields.valuationPurpose"), section: "basic", missing: textMissing(reportData.valuationPurpose) },
-      { key: "valuePremise", label: t("reportData.fields.valuePremise"), section: "basic", missing: textMissing(reportData.valuePremise) },
-      { key: "valuationBasis", label: t("reportData.fields.valuationBasis"), section: "basic", missing: textMissing(reportData.valuationBasis) },
-      { key: "reportTypeLabel", label: t("reportData.fields.professionalReportType"), section: "basic", missing: textMissing(reportData.reportTypeLabel) },
-      { key: "standardsVersion", label: t("reportData.fields.standards"), section: "basic", missing: textMissing(reportData.standardsVersion) },
-      { key: "currencyLabel", label: t("reportData.fields.currency"), section: "basic", missing: textMissing(reportData.currencyLabel) },
-      { key: "reportIssueDate", label: t("reportData.fields.issueDate"), section: "basic", missing: textMissing(reportData.reportIssueDate) },
-      { key: "inspectionDate", label: t("reportData.fields.inspectionDate"), section: "basic", missing: textMissing(reportData.inspectionDate) },
-      { key: "valuationDate", label: t("reportData.fields.valuationDate"), section: "basic", missing: textMissing(reportData.valuationDate) },
-      { key: "agreementDate", label: t("reportData.fields.agreementDate"), section: "basic", missing: textMissing(reportData.agreementDate) },
-      { key: "inspectionLocation", label: t("reportData.fields.inspectionLocation"), section: "basic", missing: textMissing(reportData.inspectionLocation) },
-      { key: "clientName", label: t("reportData.client.name"), section: "client", missing: textMissing(reportData.clientName) },
-      { key: "clientActivity", label: t("reportData.client.activity"), section: "client", missing: textMissing(reportData.clientActivity) },
-      { key: "clientRepresentativeName", label: t("reportData.client.representative"), section: "client", missing: textMissing(reportData.clientRepresentativeName) },
-      { key: "clientRepresentativeRole", label: t("reportData.client.representativeRole"), section: "client", missing: textMissing(reportData.clientRepresentativeRole) },
-      { key: "intendedUsers", label: t("reportData.client.intendedUsers"), section: "client", missing: textMissing(reportData.intendedUsers) },
-      { key: "intendedUse", label: t("reportData.client.intendedUse"), section: "client", missing: textMissing(reportData.intendedUse) },
-      { key: "finalValue", label: t("reportData.finalValue.amount"), section: "finalValue", missing: reportData.finalValue == null },
-      { key: "assetSubjectDescription", label: t("reportData.basisPremise.assetSubjectDescription"), section: "basisPremise", missing: textMissing(reportData.assetSubjectDescription) },
-      { key: "valuationBasisDefinition", label: t("reportData.basisPremise.valuationBasisDefinition"), section: "basisPremise", missing: textMissing(reportData.valuationBasisDefinition) },
-      { key: "valuePremiseDefinition", label: t("reportData.basisPremise.valuePremiseDefinition"), section: "basisPremise", missing: textMissing(reportData.valuePremiseDefinition) },
-      {
-        key: "valuationTeam",
-        label: t("reportData.sections.participants"),
-        section: "participants",
-        missing: !Array.isArray(reportData.valuationTeam) || reportData.valuationTeam.length === 0,
-      },
-    ];
+    }> = activeReportDataModel.sections.flatMap((section) =>
+      section.fields
+        .filter((field) => field.required && !isReportDataModelCustomField(field))
+        .map((field) => ({
+          key: field.sourceKey,
+          label: field.label,
+          section: section.id,
+          missing: missingForSystemField(field.sourceKey),
+        })),
+    );
 
-    if (Array.isArray(reportData.valuationTeam)) {
+    const valuationTeamRequired = activeReportDataModel.sections.some((section) =>
+      section.fields.some(
+        (field) => field.sourceKey === "valuationTeam" && field.required,
+      ),
+    );
+    if (valuationTeamRequired && Array.isArray(reportData.valuationTeam)) {
       reportData.valuationTeam.forEach((member) => {
         checks.push({
           key: `valuationTeamRole:${member.id}`,
@@ -537,8 +687,19 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         });
       });
     }
+    for (const field of reportData.customFields ?? []) {
+      // Optional custom fields are intentionally excluded from completion
+      // and missing-field calculations, just like every other optional input.
+      if (!field.required) continue;
+      checks.push({
+        key: `customField:${field.id}`,
+        label: field.label,
+        section: field.sectionId,
+        missing: isCustomFieldValueMissing(field),
+      });
+    }
     return checks;
-  }, [editableProjectName, reportData, t]);
+  }, [activeReportDataModel, editableProjectName, project?.displayNumber, reportData, t]);
 
   const sectionCompletion = useMemo(
     () =>
@@ -564,21 +725,29 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     [invalidFieldKeys, reportFieldChecks],
   );
 
-  const persistReportData = async () => {
-    if (!project) return;
+  const persistReportData = async (
+    reportDataOverride?: MvProjectReportData,
+    options: { silent?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!project) return false;
     const name = editableProjectName.trim();
     if (!name) {
-      toast({ variant: "destructive", description: t("reportData.nameRequired") });
-      return;
+      if (!options.silent) {
+        toast({ variant: "destructive", description: t("reportData.nameRequired") });
+      }
+      return false;
     }
 
     setShowUnsavedCoach(false);
     pendingNavigationRef.current = null;
 
+    const sourceReportData = reportDataOverride ?? reportData;
     const normalizedData = normalizeReportData({
-      ...reportData,
+      ...sourceReportData,
       finalValueWords:
-        reportData.finalValue == null ? "" : numberToArabicRiyalWords(reportData.finalValue),
+        sourceReportData.finalValue == null
+          ? ""
+          : numberToArabicRiyalWords(sourceReportData.finalValue),
     });
 
     try {
@@ -608,14 +777,43 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       setMissingFieldLabels([]);
       markClean();
       writeProjectSummaryCache(projectId, { project: updated, subProjects }, "report");
+      invalidateMvApiCache("projects:");
       markVisited("report-data");
-      toast({ description: t("reportData.saved") });
+      if (!options.silent) toast({ description: t("reportData.saved") });
+      return true;
     } catch {
-      toast({ variant: "destructive", description: t("reportData.saveFailed") });
+      if (!options.silent) {
+        toast({ variant: "destructive", description: t("reportData.saveFailed") });
+      }
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  const selectReportDataModel = useCallback(
+    async (modelId: string) => {
+      const model = getReportDataModel(reportDataModels, modelId);
+      const nextReportData = applyReportDataModel(reportData, model);
+      setPendingModelId(model.id);
+
+      // اختيار النموذج هو إعداد للمشروع نفسه، وليس مجرد تفضيل لواجهة الصفحة.
+      // نحفظه فوراً كي لا يعود سؤال الاختيار عند دخول المشروع في المرة التالية.
+      const saved = await persistReportData(nextReportData, { silent: true });
+      if (!saved) {
+        toast({
+          variant: "destructive",
+          description: "تعذر حفظ نموذج بيانات التقرير. حاول مرة أخرى.",
+        });
+        return;
+      }
+
+      setOpenSections(createMvReportCollapsibleState(false));
+      setModelChoiceOpen(false);
+      toast({ description: `تم حفظ نموذج «${model.name}» لهذا المشروع.` });
+    },
+    [persistReportData, reportData, reportDataModels, toast],
+  );
 
   const handleSaveReportData = async () => {
     const missing = reportFieldChecks.filter((check) => check.missing);
@@ -648,10 +846,10 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     if (!window.confirm(t("reportData.reset.confirm"))) return;
     reportDataDirtyRef.current = true;
     markDirty();
-    setReportData(normalizeReportData(null));
+    setReportData(applyReportDataModel(normalizeReportData(null), activeReportDataModel));
     setOpenSections(createMvReportCollapsibleState(true));
     toast({ description: t("reportData.reset.done") });
-  }, [markDirty, t, toast]);
+  }, [activeReportDataModel, markDirty, t, toast]);
 
   const handleProjectNameChange = useCallback(
     (value: string) => {
@@ -746,32 +944,81 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
       <MvWorkflowPageScrollBody>
         <main className="mx-auto min-w-0 max-w-7xl overflow-x-hidden px-3 py-2 sm:px-5">
-          <MvReportDataForm
-            project={project}
-            editableProjectName={editableProjectName}
-            reportData={reportData}
-            clientOptions={machineClients}
-            preparerOptions={preparerOptions}
-            preparersLoading={preparersLoading}
-            saving={saving}
-            openSections={openSections}
-            saveButtonRef={saveButtonRef}
-            highlightSave={showUnsavedCoach}
-            invalidFieldKeys={displayedInvalidFieldKeys}
-            sectionCompletion={sectionCompletion}
-            onProjectNameChange={handleProjectNameChange}
-            onReportDataChange={handleReportDataChange}
-            onSectionOpenChange={(id, open) => setOpenSections((c) => ({ ...c, [id]: open }))}
-            onToggleAllSections={() =>
-              setOpenSections((current) => {
-                const shouldOpen = !MV_REPORT_COLLAPSIBLE_IDS.every((id) => current[id]);
-                return createMvReportCollapsibleState(shouldOpen);
-              })
-            }
-            onSave={handleSaveReportData}
-            onReset={handleResetReportData}
-            onCloneFromProject={() => setCloneDialogOpen(true)}
-          />
+          {!reportDataModelsLoaded || modelChoiceOpen ? (
+            <div className="flex min-h-[360px] items-center justify-center rounded-2xl border border-slate-200/80 bg-white/90 px-5 text-center shadow-sm">
+              <div className="max-w-sm">
+                <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </span>
+                <p className="mt-3 text-[13px] font-black text-slate-900">جاري تجهيز نموذج بيانات التقرير</p>
+                <p className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                  اختر نموذجًا مناسبًا للمشروع قبل إدخال بيانات التقرير.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <section className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 shadow-sm">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black text-slate-400">نموذج بيانات التقرير</p>
+                  <p className="truncate text-[12px] font-black text-slate-900">{activeReportDataModel.name}</p>
+                </div>
+                {reportDataModels.length > 1 ? (
+                  <Select
+                    value={activeReportDataModel.id}
+                    onValueChange={(nextId) => {
+                      if (nextId === activeReportDataModel.id) return;
+                      if (
+                        reportDataLooksFilled(reportData) &&
+                        !window.confirm("سيبقى المحتوى الحالي محفوظًا، وستتغير الحقول الظاهرة حسب النموذج الجديد. متابعة؟")
+                      ) {
+                        return;
+                      }
+                      selectReportDataModel(nextId);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[min(19rem,100%)] rounded-lg border-slate-200 bg-slate-50 text-[10px] font-bold shadow-none">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent dir="rtl">
+                      {reportDataModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id} className="text-[11px] font-bold">
+                          {model.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </section>
+              <MvReportDataForm
+                project={project}
+                editableProjectName={editableProjectName}
+                reportData={reportData}
+                reportDataModel={activeReportDataModel}
+                clientOptions={machineClients}
+                preparerOptions={preparerOptions}
+                preparersLoading={preparersLoading}
+                saving={saving}
+                openSections={openSections}
+                saveButtonRef={saveButtonRef}
+                highlightSave={showUnsavedCoach}
+                invalidFieldKeys={displayedInvalidFieldKeys}
+                sectionCompletion={sectionCompletion}
+                onProjectNameChange={handleProjectNameChange}
+                onReportDataChange={handleReportDataChange}
+                onSectionOpenChange={(id, open) => setOpenSections((c) => ({ ...c, [id]: open }))}
+                onToggleAllSections={() =>
+                  setOpenSections((current) => {
+                    const shouldOpen = !MV_REPORT_COLLAPSIBLE_IDS.every((id) => current[id]);
+                    return createMvReportCollapsibleState(shouldOpen);
+                  })
+                }
+                onSave={handleSaveReportData}
+                onReset={handleResetReportData}
+                onCloneFromProject={() => setCloneDialogOpen(true)}
+              />
+            </>
+          )}
         </main>
       </MvWorkflowPageScrollBody>
 
@@ -781,6 +1028,60 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         currentProjectId={projectId}
         onCloned={handleReportDataCloned}
       />
+
+      <Dialog
+        open={modelChoiceOpen}
+        onOpenChange={(open) => {
+          // A project with multiple company models must deliberately choose
+          // one; the dialog therefore cannot be dismissed as an empty form.
+          if (open) setModelChoiceOpen(true);
+        }}
+      >
+        <DialogContent
+          dir={dir}
+          className="w-[calc(100%-2rem)] max-w-md gap-0 overflow-hidden rounded-3xl border border-white/80 bg-white p-0 text-right shadow-[0_24px_80px_-20px_rgba(15,23,42,0.45)]"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onPointerDownOutside={(event) => event.preventDefault()}
+        >
+          <div className="h-1 bg-gradient-to-l from-sky-700 via-sky-500 to-cyan-400" />
+          <div className="p-5 sm:p-6">
+            <DialogHeader className="space-y-1.5 text-right sm:text-right">
+              <DialogTitle className="text-[17px] font-black text-slate-950">اختر نموذجًا للمشروع</DialogTitle>
+              <DialogDescription className="text-[12px] font-semibold leading-5 text-slate-500">
+                تعتمد الحقول الظاهرة ومصادر الربط في القوالب على النموذج الذي تختاره لهذا المشروع.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-5">
+              <label className="grid gap-1.5 text-[10px] font-black text-slate-500">
+                نموذج بيانات التقرير
+                <Select value={pendingModelId} onValueChange={setPendingModelId} disabled={saving}>
+                  <SelectTrigger className="h-10 rounded-xl border-slate-200 bg-slate-50 text-[12px] font-black shadow-none">
+                    <SelectValue placeholder="اختر النموذج" />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    {reportDataModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id} className="text-[12px] font-bold">
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+            <DialogFooter className="mt-5 sm:justify-start">
+              <Button
+                type="button"
+                className="h-10 w-full rounded-xl bg-[#0C447C] text-[12px] font-black hover:bg-[#0a3a66]"
+                disabled={!pendingModelId || saving}
+                onClick={() => void selectReportDataModel(pendingModelId)}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {saving ? "جاري حفظ النموذج…" : "استخدام هذا النموذج"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={incompleteWarningOpen} onOpenChange={setIncompleteWarningOpen}>
         <AlertDialogContent
@@ -812,8 +1113,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                 </span>
               </div>
               <ul className="max-h-28 space-y-1 overflow-y-auto pe-1 text-[11px] font-bold text-slate-700">
-                {missingFieldLabels.map((label) => (
-                  <li key={label} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-100">
+                {missingFieldLabels.map((label, index) => (
+                  <li key={`${label}-${index}`} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-slate-100">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
                     <span className="truncate">{label}</span>
                   </li>

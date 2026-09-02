@@ -22,12 +22,12 @@ type HeroSmokePuff = {
 };
 
 const particles: HeroParticleDefinition[] = [
-  { x: "9%", y: "18%", delay: "-1s", duration: "18s", color: "#155eef", word: { ar: "تقنية", en: "TECH" } },
-  { x: "91%", y: "21%", delay: "-4s", duration: "18s", color: "#0f766e", word: { ar: "برمجة", en: "CODE" } },
-  { x: "9%", y: "53%", delay: "-7s", duration: "18s", color: "#4338ca", word: { ar: "حلول", en: "SOLUTIONS" } },
-  { x: "91%", y: "54%", delay: "-10s", duration: "18s", color: "#0369a1", word: { ar: "ذكاء", en: "AI" } },
-  { x: "16%", y: "81%", delay: "-13s", duration: "18s", color: "#1d4ed8", word: { ar: "أتمتة", en: "AUTOMATION" } },
-  { x: "84%", y: "81%", delay: "-16s", duration: "18s", color: "#0e7490", word: { ar: "نمو", en: "GROWTH" } },
+  { x: "9%", y: "18%", delay: "-0.6s", duration: "10s", color: "#155eef", word: { ar: "تقنية", en: "TECH" } },
+  { x: "91%", y: "21%", delay: "-2.2s", duration: "10s", color: "#0f766e", word: { ar: "برمجة", en: "CODE" } },
+  { x: "9%", y: "53%", delay: "-3.9s", duration: "10s", color: "#4338ca", word: { ar: "حلول", en: "SOLUTIONS" } },
+  { x: "91%", y: "54%", delay: "-5.6s", duration: "10s", color: "#0369a1", word: { ar: "ذكاء", en: "AI" } },
+  { x: "16%", y: "81%", delay: "-7.2s", duration: "10s", color: "#1d4ed8", word: { ar: "أتمتة", en: "AUTOMATION" } },
+  { x: "84%", y: "81%", delay: "-8.9s", duration: "10s", color: "#0e7490", word: { ar: "نمو", en: "GROWTH" } },
 ];
 
 const smokePuffs: HeroSmokePuff[] = [

@@ -59,6 +59,18 @@ function normalizePayload(
   };
 }
 
+function isProjectNewerThan(
+  candidate: MvProject,
+  baseline: MvProject,
+): boolean {
+  const candidateUpdatedAt = Date.parse(candidate.updatedAt ?? "");
+  const baselineUpdatedAt = Date.parse(baseline.updatedAt ?? "");
+  return (
+    Number.isFinite(candidateUpdatedAt) &&
+    (!Number.isFinite(baselineUpdatedAt) || candidateUpdatedAt > baselineUpdatedAt)
+  );
+}
+
 export function readProjectSummaryCache(
   projectId: string,
   mode: MvProjectSummaryMode = "summary",
@@ -107,6 +119,15 @@ export function writeProjectSummaryCache(
   mode: MvProjectSummaryMode = "summary",
 ) {
   if (!isUsablePayload(data, projectId)) return;
+
+  // A project card can remain mounted briefly after report data has been
+  // saved. Do not let that older card replace the selected report model in
+  // the report cache while navigating back into the same project.
+  if (mode === "report") {
+    const cached = readProjectSummaryCache(projectId, "report");
+    if (cached && isProjectNewerThan(cached.project, data.project)) return;
+  }
+
   const payload = normalizePayload(projectId, mode, data);
   seedMvApiCache(memoryCacheKey(projectId, mode), {
     project: payload.project,

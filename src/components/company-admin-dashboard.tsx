@@ -58,13 +58,26 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { downloadPptxFromPngSlides } from "@/lib/pptx-export";
 import { scanDocxTemplateVariables } from "@/lib/mv-word-template/template-variables";
+import { scanPptxTemplate } from "@/lib/mv-pptx-template";
+import {
+  CompanyReportDocumentTemplateDashboard,
+  suggestedTemplateBinding,
+  type CompanyReportDocumentTemplateForm,
+  type CompanyReportTemplateVariableMappingForm,
+} from "@/components/company-report-document-template-dashboard";
+import { CompanyAssetDescriptionsDashboard } from "@/components/company-asset-descriptions-dashboard";
+import { CompanyReportDataModelDashboard } from "@/components/company-report-data-model-dashboard";
+import { MvReportPageShell } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-page-shell";
+import {
+  createDefaultReportDataModel,
+  normalizeReportDataModels,
+  type MvReportDataModel,
+} from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
 import {
   Building2,
   CheckCircle2,
   ClipboardList,
-  Download,
   Eye,
   FileText,
   ImageIcon,
@@ -95,6 +108,7 @@ type CompanyInfo = {
   name: string;
   valueTechProductIds: string[];
   logoDataUrl?: string | null;
+  commercialRegistration?: string | null;
   employeeCount?: number;
 };
 
@@ -153,14 +167,8 @@ type CompanyReportLetterheadForm = {
   signatureStampDataUrl: string | null;
 };
 
-type CompanyReportWordTemplateForm = {
-  fileName: string;
-  fileUrl: string | null;
-  fileDataUrl?: string | null;
-  uploadedAt: string;
-  sizeBytes?: number;
-  bookmarkNames: string[];
-};
+type CompanyReportWordTemplateForm = CompanyReportDocumentTemplateForm;
+type CompanyReportPptxTemplateForm = CompanyReportDocumentTemplateForm;
 
 type CompanyAiTemplateVariableForm = {
   key: string;
@@ -230,15 +238,20 @@ type CompanyReportDefaultsForm = {
   };
   customGroups: CompanyReportCustomGroupForm[];
   customSections: CompanyReportCustomSectionForm[];
+  reportDataModels: MvReportDataModel[];
   letterhead: CompanyReportLetterheadForm;
   aiTemplates: CompanyAiTemplateForm[];
+  wordTemplates: CompanyReportWordTemplateForm[];
+  pptxTemplates: CompanyReportPptxTemplateForm[];
+  /** Compatibility mirrors consumed by older report screens. */
   wordTemplate: CompanyReportWordTemplateForm | null;
+  pptxTemplate: CompanyReportPptxTemplateForm | null;
 };
 
 function emptyReportLetterhead(): CompanyReportLetterheadForm {
   return {
     enabled: false,
-    templateId: "classic-letterhead",
+    templateId: "default-report-template",
     outputFormat: "pdf",
     coverImageDataUrl: null,
     pageImageDataUrl: null,
@@ -260,9 +273,17 @@ type LetterheadTemplateOption = {
 
 const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
   {
+    id: "default-report-template",
+    title: "Value Tech الرسمي",
+    description: "هوية مهنية كحلية عالية الوضوح، مهيأة للتقارير الرسمية والجهات الحكومية.",
+    outputFormat: "pdf",
+    accentClass: "from-[#071f33] via-[#0C447C] to-[#0f6d91]",
+    badge: "PDF",
+  },
+  {
     id: "classic-letterhead",
     title: "كلاسيكي رسمي",
-    description: "قالب PDF محافظ يعتمد على غلاف وصفحات داخلية وفوتر واضح.",
+    description: "هوية مؤسسية تقليدية بخطوط زرقاء وفواصل واضحة.",
     outputFormat: "pdf",
     accentClass: "from-sky-600 to-cyan-500",
     badge: "PDF",
@@ -270,15 +291,63 @@ const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
   {
     id: "modern-letterhead",
     title: "حديث مدمج",
-    description: "قالب أنظف للمحتوى الطويل مع إبراز الشعار والتوقيع في أماكن ثابتة.",
+    description: "تصميم حديث بمساحات بيضاء وتدرج أخضر تقني.",
     outputFormat: "pdf",
     accentClass: "from-emerald-600 to-teal-500",
     badge: "PDF",
   },
   {
+    id: "executive-navy",
+    title: "تنفيذي داكن",
+    description: "غلاف قوي وشريط جانبي داكن للتقارير الرسمية عالية القيمة.",
+    outputFormat: "pdf",
+    accentClass: "from-slate-950 via-[#0C447C] to-sky-500",
+    badge: "PDF",
+  },
+  {
+    id: "industrial-amber",
+    title: "صناعي ذهبي",
+    description: "مناسب للمصانع والمعدات الثقيلة بتفاصيل ذهبية وشبكة فنية.",
+    outputFormat: "pdf",
+    accentClass: "from-stone-900 via-amber-700 to-orange-500",
+    badge: "PDF",
+  },
+  {
+    id: "minimal-graphite",
+    title: "Minimal Graphite",
+    description: "أسلوب بسيط جداً بالأبيض والأسود وتركيز على النص والبيانات.",
+    outputFormat: "pdf",
+    accentClass: "from-zinc-950 to-zinc-500",
+    badge: "PDF",
+  },
+  {
+    id: "field-teal",
+    title: "Field Teal",
+    description: "ألوان ميدانية عملية مع مساحات مريحة للصور والملاحظات.",
+    outputFormat: "pdf",
+    accentClass: "from-teal-800 via-cyan-700 to-lime-500",
+    badge: "PDF",
+  },
+  {
+    id: "premium-burgundy",
+    title: "Premium Burgundy",
+    description: "طابع فاخر بأحمر عميق وتفاصيل ذهبية للجهات التنفيذية.",
+    outputFormat: "pdf",
+    accentClass: "from-rose-950 via-red-800 to-amber-500",
+    badge: "PDF",
+  },
+  {
+    id: "creative-blocks",
+    title: "Creative Blocks",
+    description: "تركيب لوني جريء يشبه قوالب العروض الحديثة.",
+    outputFormat: "pdf",
+    accentClass: "from-fuchsia-700 via-sky-600 to-emerald-500",
+    badge: "PDF",
+  },
+  {
     id: "powerpoint-deck",
-    title: "PowerPoint Deck",
-    description: "يحوّل صفحات التقرير إلى شرائح PowerPoint بنسبة عرض 16:9 قابلة للتنزيل كملف PPTX.",
+    title: "PowerPoint Presentation",
+    description: "مهيأ للتنزيل كعرض شرائح 16:9 مع غلاف عرض تقديمي.",
     outputFormat: "pptx",
     accentClass: "from-orange-600 to-amber-500",
     badge: "PPTX",
@@ -293,6 +362,80 @@ const COMPANY_LETTERHEAD_TEMPLATE_OPTION: LetterheadTemplateOption = {
   accentClass: "from-amber-600 to-orange-500",
   badge: "صور",
 };
+
+const A4_PREVIEW_WIDTH_PX = (210 * 96) / 25.4;
+const A4_PREVIEW_HEIGHT_PX = (297 * 96) / 25.4;
+
+function SystemReportTemplatePreview({
+  template,
+  letterhead,
+  companyName,
+  companyLogoSrc,
+  large = false,
+}: {
+  template: LetterheadTemplateOption;
+  letterhead: CompanyReportLetterheadForm;
+  companyName: string;
+  companyLogoSrc: string | null;
+  large?: boolean;
+}) {
+  const scale = large ? 0.58 : 0.29;
+  const companyLetterhead = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
+  const previewLetterhead: CompanyReportLetterheadForm = {
+    ...letterhead,
+    enabled: companyLetterhead,
+    templateId: template.id,
+    outputFormat: template.outputFormat,
+  };
+
+  return (
+    <div
+      className="relative mx-auto shrink-0 overflow-hidden bg-white"
+      style={{
+        width: A4_PREVIEW_WIDTH_PX * scale,
+        height: A4_PREVIEW_HEIGHT_PX * scale,
+      }}
+      aria-hidden
+    >
+      <div
+        className="pointer-events-none absolute left-0 top-0 select-none"
+        style={{
+          width: A4_PREVIEW_WIDTH_PX,
+          height: A4_PREVIEW_HEIGHT_PX,
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+        }}
+      >
+        <MvReportPageShell
+          variant="cover"
+          companyName={companyName || "شركة التقييم"}
+          logoSrc={companyLogoSrc}
+          footerLines={[]}
+          letterheadTemplate={previewLetterhead}
+          coverChildrenChromeless
+          className="!m-0 !rounded-none !shadow-none !ring-0 hover:!shadow-none"
+          coverFooterContent={
+            <div className="grid w-full grid-cols-3 items-center gap-3 text-[11px] font-extrabold text-white" dir="rtl">
+              <div className="text-right">المقيم المعتمد: —</div>
+              <div className="text-center">الرقم المرجعي: MV-001</div>
+              <div className="text-left">تاريخ التقرير: —</div>
+            </div>
+          }
+        >
+          <div className="w-full max-w-3xl space-y-5 text-center text-white">
+            <h3 className="mx-auto px-3 py-2 text-[36px] font-black leading-[1.25] tracking-tight text-white">
+              تقرير تقييم الآلات والمعدات
+            </h3>
+            <div className="mx-auto h-[3px] w-[120px] rounded-full bg-gradient-to-l from-transparent via-[#c9a227] to-transparent" />
+            <p className="mx-auto max-w-xl px-2 text-[20px] font-extrabold leading-7 text-white">
+              (اسم العميل)
+            </p>
+          </div>
+        </MvReportPageShell>
+      </div>
+    </div>
+  );
+}
 
 function emptyReportDefaults(): CompanyReportDefaultsForm {
   return {
@@ -324,9 +467,13 @@ function emptyReportDefaults(): CompanyReportDefaultsForm {
     },
     customGroups: [],
     customSections: [],
+    reportDataModels: [createDefaultReportDataModel()],
     letterhead: emptyReportLetterhead(),
     aiTemplates: [],
+    wordTemplates: [],
+    pptxTemplates: [],
     wordTemplate: null,
+    pptxTemplate: null,
   };
 }
 
@@ -336,30 +483,216 @@ function isReportTemplateImageSource(value: unknown): value is string {
   return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/");
 }
 
-function isCompanyWordTemplateUrl(value: unknown): value is string {
+function isCompanyDocumentTemplateUrl(value: unknown, extension: ".docx" | ".pptx"): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
   return (
-    (trimmed.startsWith("/uploads/company-report-templates/") || trimmed.startsWith("/files/")) &&
-    trimmed.toLowerCase().endsWith(".docx")
+    trimmed.startsWith("/uploads/company-report-templates/") &&
+    trimmed.toLowerCase().endsWith(extension)
   );
 }
 
-function normalizeCompanyWordTemplate(raw: unknown): CompanyReportWordTemplateForm | null {
+function normalizeCompanyTemplateVariableMappings(raw: unknown): CompanyReportTemplateVariableMappingForm[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  return raw.slice(0, 400).flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const data = item as Record<string, unknown>;
+    const variable = typeof data.variable === "string"
+      ? data.variable.trim()
+      : typeof data.placeholder === "string"
+        ? data.placeholder.trim()
+        : "";
+    const normalized = variable.replace(/[\u200e\u200f\u202a-\u202e]/g, "").toLocaleLowerCase();
+    if (!variable || seen.has(normalized)) return [];
+    seen.add(normalized);
+    const sourceFromLegacy = typeof data.source === "string" ? data.source.trim() : "";
+    const sourceType = typeof data.sourceType === "string" ? data.sourceType : "";
+    return [{
+      id: typeof data.id === "string" && data.id.trim() ? data.id.trim() : `template-variable-${index + 1}`,
+      variable,
+      sourceKey:
+        typeof data.sourceKey === "string"
+          ? data.sourceKey.trim()
+          : sourceType === "literal"
+            ? "static"
+            : sourceType === "image" || sourceType === "asset-images"
+              ? suggestedTemplateBinding(variable) || "images.asset"
+              : sourceFromLegacy,
+      staticValue:
+        typeof data.staticValue === "string"
+          ? data.staticValue
+          : typeof data.fallbackValue === "string"
+            ? data.fallbackValue
+            : undefined,
+    }];
+  });
+}
+
+function createCompanyTemplateMappingId() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `template-variable-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeTemplateVariableKey(value: string): string {
+  return value.replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim().toLocaleLowerCase();
+}
+
+/** Keep prior links and seed safe suggested bindings for newly detected variables. */
+function mergeTemplateVariableMappings(opts: {
+  variables: string[];
+  previousMappings: CompanyReportTemplateVariableMappingForm[];
+  previousDetected: Set<string>;
+  nextDetected: Set<string>;
+}): CompanyReportTemplateVariableMappingForm[] {
+  const preserved = opts.previousMappings.filter((mapping) => {
+    const name = normalizeTemplateVariableKey(mapping.variable);
+    return opts.nextDetected.has(name) || !opts.previousDetected.has(name);
+  });
+  const seen = new Set(preserved.map((mapping) => normalizeTemplateVariableKey(mapping.variable)));
+  const seeded: CompanyReportTemplateVariableMappingForm[] = [];
+  for (const variable of opts.variables) {
+    const key = normalizeTemplateVariableKey(variable);
+    if (!variable.trim() || !key || seen.has(key)) continue;
+    const sourceKey = suggestedTemplateBinding(variable);
+    if (!sourceKey) continue;
+    seen.add(key);
+    seeded.push({
+      id: createCompanyTemplateMappingId(),
+      variable: variable.trim(),
+      sourceKey,
+    });
+  }
+  return [...preserved, ...seeded];
+}
+
+function normalizeCompanyDocumentTemplate(
+  raw: unknown,
+  format: "word" | "pptx",
+  index = 0,
+): CompanyReportDocumentTemplateForm | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const data = raw as Partial<CompanyReportWordTemplateForm>;
-  const fileUrl = isCompanyWordTemplateUrl(data.fileUrl) ? data.fileUrl.trim() : null;
+  const data = raw as Partial<CompanyReportDocumentTemplateForm> & { variableNames?: unknown };
+  const extension = format === "word" ? ".docx" : ".pptx";
+  const fileUrl = isCompanyDocumentTemplateUrl(data.fileUrl, extension) ? data.fileUrl.trim() : null;
   const fileDataUrl = typeof data.fileDataUrl === "string" && data.fileDataUrl.startsWith("data:")
     ? data.fileDataUrl
     : null;
-  if (!fileUrl && !fileDataUrl) return null;
+  const gridFsFileId = typeof data.gridFsFileId === "string" && data.gridFsFileId.trim()
+    ? data.gridFsFileId.trim()
+    : null;
+  if (!fileUrl && !fileDataUrl && !gridFsFileId) return null;
+  const fileName = typeof data.fileName === "string" && data.fileName.trim()
+    ? data.fileName.trim()
+    : format === "word" ? "word-template.docx" : "powerpoint-template.pptx";
+  const fallbackName = fileName.replace(/\.(docx|pptx)$/i, "").trim() || (format === "word" ? "قالب Word" : "قالب PowerPoint");
   return {
-    fileName: typeof data.fileName === "string" && data.fileName.trim() ? data.fileName.trim() : "word-template.docx",
+    id: typeof data.id === "string" && data.id.trim()
+      ? data.id.trim()
+      : `${format}-template-${index + 1}`,
+    name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : fallbackName,
+    fileName,
     fileUrl,
     ...(fileDataUrl ? { fileDataUrl } : {}),
+    ...(gridFsFileId ? { gridFsFileId } : {}),
     uploadedAt: typeof data.uploadedAt === "string" ? data.uploadedAt : new Date().toISOString(),
     sizeBytes: typeof data.sizeBytes === "number" && Number.isFinite(data.sizeBytes) ? data.sizeBytes : undefined,
-    bookmarkNames: Array.isArray(data.bookmarkNames) ? data.bookmarkNames.map(String).filter(Boolean).slice(0, 300) : [],
+    bookmarkNames: Array.isArray(data.bookmarkNames)
+      ? data.bookmarkNames.map(String).filter(Boolean).slice(0, 300)
+      : Array.isArray(data.variableNames)
+        ? data.variableNames.map(String).filter(Boolean).slice(0, 300)
+        : [],
+    variableMappings: normalizeCompanyTemplateVariableMappings(data.variableMappings),
+    excludedVariableNames: Array.isArray(data.excludedVariableNames)
+      ? data.excludedVariableNames.map(String).map((name) => name.trim()).filter(Boolean).slice(0, 300)
+      : [],
+  };
+}
+
+function normalizeCompanyDocumentTemplateList(
+  rawList: unknown,
+  legacyTemplate: unknown,
+  format: "word" | "pptx",
+): CompanyReportDocumentTemplateForm[] {
+  const candidates = Array.isArray(rawList)
+    ? rawList.slice(0, 20)
+    : legacyTemplate
+      ? [legacyTemplate]
+      : [];
+  const usedIds = new Set<string>();
+  const usedNames = new Set<string>();
+  const output: CompanyReportDocumentTemplateForm[] = [];
+  for (const [index, candidate] of candidates.entries()) {
+    const normalized = normalizeCompanyDocumentTemplate(candidate, format, index);
+    if (!normalized) continue;
+    let id = normalized.id;
+    while (usedIds.has(id)) id = `${format}-template-${index + 1}-${newReportDefaultId()}`;
+    usedIds.add(id);
+
+    const baseName = (normalized.name.trim() || normalized.fileName.replace(/\.(docx|pptx)$/i, "").trim()).slice(0, 160);
+    let name = baseName;
+    let suffix = 2;
+    while (usedNames.has(name.toLocaleLowerCase())) {
+      const suffixText = ` ${suffix}`;
+      name = `${baseName.slice(0, Math.max(1, 160 - suffixText.length))}${suffixText}`;
+      suffix += 1;
+    }
+    usedNames.add(name.toLocaleLowerCase());
+    output.push({ ...normalized, id, name });
+  }
+  return output;
+}
+
+function uniqueCompanyDocumentTemplateName(
+  requestedName: string,
+  fileName: string,
+  templates: CompanyReportDocumentTemplateForm[],
+  ignoredId?: string,
+): string {
+  const fallback = fileName.replace(/\.(docx|pptx)$/i, "").trim() || "قالب تقرير";
+  const base = (requestedName.trim() || fallback).slice(0, 160);
+  const used = new Set(
+    templates
+      .filter((template) => template.id !== ignoredId)
+      .map((template) => template.name.trim().toLocaleLowerCase())
+      .filter(Boolean),
+  );
+  let name = base;
+  let suffix = 2;
+  while (used.has(name.toLocaleLowerCase())) {
+    const suffixText = ` ${suffix}`;
+    name = `${base.slice(0, Math.max(1, 160 - suffixText.length))}${suffixText}`;
+    suffix += 1;
+  }
+  return name;
+}
+
+function newCompanyDocumentTemplateId(format: "word" | "pptx"): string {
+  return `${format}-template-${newReportDefaultId()}`;
+}
+
+function withCompanyDocumentTemplates(
+  current: CompanyReportDefaultsForm,
+  format: "word" | "pptx",
+  templates: CompanyReportDocumentTemplateForm[],
+): CompanyReportDefaultsForm {
+  return format === "word"
+    ? { ...current, wordTemplates: templates, wordTemplate: templates[0] ?? null }
+    : { ...current, pptxTemplates: templates, pptxTemplate: templates[0] ?? null };
+}
+
+function prepareCompanyDocumentTemplatesForSave(
+  current: CompanyReportDefaultsForm,
+): CompanyReportDefaultsForm {
+  const wordTemplates = normalizeCompanyDocumentTemplateList(current.wordTemplates, current.wordTemplate, "word");
+  const pptxTemplates = normalizeCompanyDocumentTemplateList(current.pptxTemplates, current.pptxTemplate, "pptx");
+  return {
+    ...current,
+    wordTemplates,
+    pptxTemplates,
+    wordTemplate: wordTemplates[0] ?? null,
+    pptxTemplate: pptxTemplates[0] ?? null,
   };
 }
 
@@ -528,12 +861,29 @@ function normalizeReportDefaults(
         }))
         .filter((item) => item.title)
     : [];
+  const rawTemplates = raw as Partial<CompanyReportDefaultsForm> & {
+    wordTemplates?: unknown;
+    pptxTemplates?: unknown;
+    wordTemplate?: unknown;
+    pptxTemplate?: unknown;
+  };
+  const wordTemplates = normalizeCompanyDocumentTemplateList(
+    rawTemplates.wordTemplates,
+    rawTemplates.wordTemplate,
+    "word",
+  );
+  const pptxTemplates = normalizeCompanyDocumentTemplateList(
+    rawTemplates.pptxTemplates,
+    rawTemplates.pptxTemplate,
+    "pptx",
+  );
   return {
     scope: merge(base.scope, raw.scope as Partial<typeof base.scope> | undefined),
     methodology: merge(base.methodology, raw.methodology as Partial<typeof base.methodology> | undefined),
     assumptions: merge(base.assumptions, raw.assumptions as Partial<typeof base.assumptions> | undefined),
     customGroups,
     customSections,
+    reportDataModels: normalizeReportDataModels((raw as { reportDataModels?: unknown }).reportDataModels),
     letterhead: {
       enabled: letterheadRaw.enabled === true,
       templateId:
@@ -549,7 +899,10 @@ function normalizeReportDefaults(
       signatureStampDataUrl: image(letterheadRaw.signatureStampDataUrl),
     },
     aiTemplates: normalizeCompanyAiTemplates((raw as { aiTemplates?: unknown }).aiTemplates),
-    wordTemplate: normalizeCompanyWordTemplate((raw as { wordTemplate?: unknown }).wordTemplate),
+    wordTemplates,
+    pptxTemplates,
+    wordTemplate: wordTemplates[0] ?? null,
+    pptxTemplate: pptxTemplates[0] ?? null,
   };
 }
 
@@ -563,20 +916,20 @@ type ReportDefaultsField = {
 const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   {
     key: "complianceStatement",
-    label: "3.0 الامتثال لمعايير التقييم الدولية",
+    label: "3.0 الالتزام بمعايير التقييم",
     helper: "بيان امتثال التقييم لمعايير IVS وأنظمة الهيئة السعودية للمقيمين المعتمدين (تقييم).",
     rows: 5,
   },
   {
     key: "independenceStatement",
-    label: "4.0 إقرار بالاستقلالية وعدم تضارب المصالح",
+    label: "4.0 الاستقلالية وعدم تضارب المصالح",
     helper:
       "إقرار باستقلالية فريق التقييم — يدعم تعويض {companyName} باسم الشركة تلقائياً عند العرض.",
     rows: 5,
   },
   {
     key: "intendedUseStatement",
-    label: "11.0 الاستخدام المقصود",
+    label: "11.0 الغرض من استخدام التقرير",
     helper: "نص افتراضي يصف الجهة المستفيدة وغرض الاستخدام من التقرير.",
     rows: 4,
   },
@@ -601,7 +954,7 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "useRestriction",
-    label: "14.0 القيود على الاستخدام أو التوزيع أو النشر",
+    label: "14.0 قيود استخدام التقرير ونشره",
     helper: "تحديد الأطراف المصرّح لها بالاستخدام وحدود نشر التقرير.",
     rows: 5,
   },
@@ -613,13 +966,13 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "esgConsiderations",
-    label: "16.0 العوامل البيئية والاجتماعية والحوكمة (ESG)",
-    helper: "أثر العوامل البيئية والاجتماعية والحوكمة على رأي القيمة.",
+    label: "16.0 العوامل البيئية والاجتماعية",
+    helper: "أثر العوامل البيئية والاجتماعية على رأي القيمة.",
     rows: 4,
   },
   {
     key: "informationSources",
-    label: "18.0 طبيعة ومصادر المعلومات المعتمد عليها",
+    label: "18.0 مصادر المعلومات",
     helper: "المدخلات من العميل، أبحاث السوق، المصادر العامة والمتخصصة، إلخ.",
     rows: 6,
   },
@@ -640,7 +993,7 @@ const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "methodologyRationale",
-    label: "24.0 منهجية التقييم والتحليل",
+    label: "24.0 منهجية التقييم",
     rows: 6,
   },
   {
@@ -651,7 +1004,7 @@ const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "salvageValueDescription",
-    label: "25.1 القيمة المتبقية (القيمة التخريدية)",
+    label: "25.1 القيمة المتبقية",
     helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 5,
   },
@@ -1542,6 +1895,7 @@ export default function CompanyAdminDashboard({
   const [brandingBusy, setBrandingBusy] = useState(false);
   const [signatureBusyUserId, setSignatureBusyUserId] = useState<string | null>(null);
   const [logoDraft, setLogoDraft] = useState<string | null>(null);
+  const [commercialRegistrationDraft, setCommercialRegistrationDraft] = useState("");
   const [addOpen, setAddOpen] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
@@ -1581,6 +1935,10 @@ export default function CompanyAdminDashboard({
   const [reportDefaultsSaving, setReportDefaultsSaving] = useState(false);
   const [reportDefaultsDirty, setReportDefaultsDirty] = useState(false);
   const [reportDefaultsBaseline, setReportDefaultsBaseline] = useState<CompanyReportDefaultsForm | null>(null);
+  const [selectedCompanyWordTemplateId, setSelectedCompanyWordTemplateId] = useState("");
+  const [selectedCompanyPptxTemplateId, setSelectedCompanyPptxTemplateId] = useState("");
+  const reportDefaultsRef = useRef(reportDefaults);
+  reportDefaultsRef.current = reportDefaults;
   const [activeReportDefaultsSectionId, setActiveReportDefaultsSectionId] = useState<string>("scope");
   const [activeReportDefaultsNodeId, setActiveReportDefaultsNodeId] = useState("");
   const [newReportDefaultsSectionTitle, setNewReportDefaultsSectionTitle] = useState("");
@@ -1604,6 +1962,22 @@ export default function CompanyAdminDashboard({
   const [personalSignature, setPersonalSignature] = useState<string | null>(null);
   const [personalBusy, setPersonalBusy] = useState(false);
   const [personalSignatureBusy, setPersonalSignatureBusy] = useState(false);
+
+  useEffect(() => {
+    setSelectedCompanyWordTemplateId((current) =>
+      reportDefaults.wordTemplates.some((template) => template.id === current)
+        ? current
+        : reportDefaults.wordTemplates[0]?.id ?? "",
+    );
+  }, [reportDefaults.wordTemplates]);
+
+  useEffect(() => {
+    setSelectedCompanyPptxTemplateId((current) =>
+      reportDefaults.pptxTemplates.some((template) => template.id === current)
+        ? current
+        : reportDefaults.pptxTemplates[0]?.id ?? "",
+    );
+  }, [reportDefaults.pptxTemplates]);
   const productQuery = useMemo(
     () => (productId ? `?productId=${encodeURIComponent(productId)}` : ""),
     [productId],
@@ -1656,6 +2030,7 @@ export default function CompanyAdminDashboard({
         })),
       });
       setLogoDraft(payload.company?.logoDataUrl ?? null);
+      setCommercialRegistrationDraft(payload.company?.commercialRegistration?.trim() ?? "");
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "تعذر التحميل.");
     }
@@ -1743,9 +2118,29 @@ export default function CompanyAdminDashboard({
         method: "PATCH",
         body: JSON.stringify({
           logoDataUrl: logoDraft && logoDraft.length > 0 ? logoDraft : null,
+          commercialRegistration: commercialRegistrationDraft.trim(),
         }),
       });
-      setStatus("تم حفظ الشعار.");
+      setStatus("تم حفظ بيانات الشركة.");
+      await load();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "فشل الحفظ.");
+    } finally {
+      setBrandingBusy(false);
+    }
+  };
+
+  const persistCompanyInfo = async () => {
+    setBrandingBusy(true);
+    setSubmitError(null);
+    try {
+      await apiJson("/api/company/branding", csrfToken, {
+        method: "PATCH",
+        body: JSON.stringify({
+          commercialRegistration: commercialRegistrationDraft.trim(),
+        }),
+      });
+      setStatus("تم حفظ السجل التجاري.");
       await load();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "فشل الحفظ.");
@@ -1965,7 +2360,17 @@ export default function CompanyAdminDashboard({
     [],
   );
 
-  const persistReportDefaults = useCallback(async (nextReportDefaults: CompanyReportDefaultsForm = reportDefaults) => {
+  const persistReportDefaults = useCallback(async (nextReportDefaults?: CompanyReportDefaultsForm) => {
+    const payloadToSave = prepareCompanyDocumentTemplatesForSave(
+      nextReportDefaults ?? reportDefaultsRef.current,
+    );
+    // Canonical arrays already contain the files. Do not duplicate a large
+    // data URL in the legacy singleton mirrors inside the same PATCH body.
+    const requestPayload = {
+      ...payloadToSave,
+      wordTemplate: null,
+      pptxTemplate: null,
+    };
     setReportDefaultsSaving(true);
     setSubmitError(null);
     setStatus(null);
@@ -1975,7 +2380,7 @@ export default function CompanyAdminDashboard({
         csrfToken,
         {
           method: "PATCH",
-          body: JSON.stringify(nextReportDefaults),
+          body: JSON.stringify(requestPayload),
         },
       );
       if (payload.reportDefaults) {
@@ -1983,10 +2388,11 @@ export default function CompanyAdminDashboard({
         setReportDefaults(normalized);
         setReportDefaultsBaseline(normalized);
       } else {
-        setReportDefaultsBaseline(nextReportDefaults);
+        setReportDefaults(payloadToSave);
+        setReportDefaultsBaseline(payloadToSave);
       }
       setReportDefaultsDirty(false);
-      setStatus("تم حفظ أقسام التقرير.");
+      setStatus("تم حفظ أقسام التقرير وروابط القوالب.");
       return true;
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "فشل حفظ أقسام التقرير.");
@@ -1994,7 +2400,50 @@ export default function CompanyAdminDashboard({
     } finally {
       setReportDefaultsSaving(false);
     }
-  }, [csrfToken, reportDefaults]);
+  }, [csrfToken]);
+
+  /**
+   * Selecting a system report template is an explicit adoption action, not a
+   * draft-only field edit.  Persist the exact next object so a reload cannot
+   * fall back to the previously saved template while the project still shows
+   * a different one.
+   */
+  const applySystemReportTemplate = useCallback(
+    async (template: LetterheadTemplateOption) => {
+      if (reportDefaultsSaving) return;
+
+      const isCompanyLetterhead = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
+      const next: CompanyReportDefaultsForm = {
+        ...reportDefaultsRef.current,
+        letterhead: {
+          ...reportDefaultsRef.current.letterhead,
+          templateId: template.id,
+          outputFormat: template.outputFormat,
+          enabled: isCompanyLetterhead,
+        },
+      };
+
+      setReportDefaults(next);
+      setReportDefaultsDirty(true);
+      const hasConfiguredCompanyLetterheadImages = [
+        next.letterhead.coverImageDataUrl,
+        next.letterhead.pageImageDataUrl,
+        next.letterhead.landscapePageImageDataUrl,
+        next.letterhead.logoDataUrl,
+        next.letterhead.footerImageDataUrl,
+        next.letterhead.signatureStampDataUrl,
+      ].some(Boolean);
+      if (isCompanyLetterhead && !hasConfiguredCompanyLetterheadImages) {
+        setLetterheadImagesOpen(true);
+      }
+
+      const saved = await persistReportDefaults(next);
+      if (saved) {
+        setStatus(`تم اعتماد قالب «${template.title}» وحفظه كقالب النظام.`);
+      }
+    },
+    [persistReportDefaults, reportDefaultsSaving],
+  );
 
   const analyzeAiTemplatePdf = useCallback(async () => {
     if (!aiTemplateFile) {
@@ -2162,7 +2611,7 @@ export default function CompanyAdminDashboard({
   );
 
   const uploadCompanyWordTemplate = useCallback(
-    async (file: File) => {
+    async (file: File, mode: "new" | "replace") => {
       if (!file.name.toLowerCase().endsWith(".docx")) {
         setSubmitError("يرجى رفع ملف Word بصيغة .docx فقط.");
         return;
@@ -2176,101 +2625,244 @@ export default function CompanyAdminDashboard({
       try {
         const buffer = await file.arrayBuffer();
         const templateVariables = scanDocxTemplateVariables(buffer);
-        const next: CompanyReportDefaultsForm = {
-          ...reportDefaults,
-          wordTemplate: {
-            fileName: file.name,
-            fileDataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${arrayBufferToBase64(buffer)}`,
-            fileUrl: null,
-            uploadedAt: new Date().toISOString(),
-            sizeBytes: file.size,
-            bookmarkNames: templateVariables,
-          },
+        const previousDefaults = reportDefaults;
+        const wasDirty = reportDefaultsDirty;
+        const previousSelection = selectedCompanyWordTemplateId;
+        const previousTemplate = mode === "replace"
+          ? reportDefaults.wordTemplates.find((template) => template.id === selectedCompanyWordTemplateId) ?? null
+          : null;
+        if (mode === "replace" && !previousTemplate) {
+          setSubmitError("اختر قالب Word المراد استبداله أولاً.");
+          return;
+        }
+        const previousDetected = new Set(
+          (previousTemplate?.bookmarkNames ?? []).map((name) => normalizeTemplateVariableKey(name)),
+        );
+        const nextDetected = new Set(
+          templateVariables.map((name) => normalizeTemplateVariableKey(name)),
+        );
+        const preservedMappings = mergeTemplateVariableMappings({
+          variables: templateVariables,
+          previousMappings: previousTemplate?.variableMappings ?? [],
+          previousDetected,
+          nextDetected,
+        });
+        const id = previousTemplate?.id ?? newCompanyDocumentTemplateId("word");
+        const name = previousTemplate?.name ?? uniqueCompanyDocumentTemplateName(
+          file.name.replace(/\.docx$/i, ""),
+          file.name,
+          reportDefaults.wordTemplates,
+        );
+        const uploadedTemplate: CompanyReportWordTemplateForm = {
+          id,
+          name,
+          fileName: file.name,
+          fileDataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${arrayBufferToBase64(buffer)}`,
+          fileUrl: null,
+          uploadedAt: new Date().toISOString(),
+          sizeBytes: file.size,
+          bookmarkNames: templateVariables,
+          variableMappings: preservedMappings,
+          // Uploading a fresh version intentionally reads its discovered
+          // variables again, including rows hidden in the prior dashboard.
+          excludedVariableNames: [],
         };
+        const wordTemplates = previousTemplate
+          ? reportDefaults.wordTemplates.map((template) => template.id === id ? uploadedTemplate : template)
+          : [...reportDefaults.wordTemplates, uploadedTemplate];
+        const next: CompanyReportDefaultsForm = {
+          ...withCompanyDocumentTemplates(reportDefaults, "word", wordTemplates),
+        };
+        setSelectedCompanyWordTemplateId(id);
         setReportDefaults(next);
         setReportDefaultsDirty(true);
         const saved = await persistReportDefaults(next);
-        if (saved) setStatus("تم حفظ قالب ملف Word للشركة.");
+        if (!saved) {
+          // A template must not remain visible as saved if persistence failed.
+          setReportDefaults(previousDefaults);
+          setReportDefaultsDirty(wasDirty);
+          setSelectedCompanyWordTemplateId(previousSelection);
+          return;
+        }
+        if (saved) setStatus(mode === "new" ? "تم إرفاق قالب Word جديد للشركة." : "تم استبدال ملف قالب Word المحدد.");
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : "تعذر قراءة قالب Word.");
       }
     },
-    [persistReportDefaults, reportDefaults],
+    [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyWordTemplateId],
   );
 
   const removeCompanyWordTemplate = useCallback(async () => {
-    if (!window.confirm("سيتم حذف قالب Word من إعدادات الشركة. هل تريد المتابعة؟")) return;
-    const next: CompanyReportDefaultsForm = { ...reportDefaults, wordTemplate: null };
+    const selected = reportDefaults.wordTemplates.find((template) => template.id === selectedCompanyWordTemplateId);
+    if (!selected) return;
+    if (!window.confirm(`سيتم حذف قالب Word «${selected.name}» من إعدادات الشركة. هل تريد المتابعة؟`)) return;
+    const previousDefaults = reportDefaults;
+    const wasDirty = reportDefaultsDirty;
+    const wordTemplates = reportDefaults.wordTemplates.filter((template) => template.id !== selected.id);
+    const next = withCompanyDocumentTemplates(reportDefaults, "word", wordTemplates);
+    const nextSelection = wordTemplates[0]?.id ?? "";
+    setSelectedCompanyWordTemplateId(nextSelection);
     setReportDefaults(next);
     setReportDefaultsDirty(true);
     const saved = await persistReportDefaults(next);
-    if (saved) setStatus("تم حذف قالب ملف Word.");
-  }, [persistReportDefaults, reportDefaults]);
-
-  const downloadPowerPointTemplateSample = useCallback(() => {
-    if (typeof document === "undefined") return;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1600;
-    canvas.height = 900;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, "#eef6ff");
-    gradient.addColorStop(0.55, "#ffffff");
-    gradient.addColorStop(1, "#fff7ed");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "#0C447C";
-    ctx.fillRect(0, 0, canvas.width, 88);
-    ctx.fillStyle = "#f59e0b";
-    ctx.fillRect(0, 88, canvas.width, 8);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 42px Arial";
-    ctx.textAlign = "right";
-    ctx.fillText("قالب التقرير النهائي - PowerPoint", 1510, 57);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "#d7dee8";
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.roundRect(165, 160, 1270, 600, 24);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = "#0f172a";
-    ctx.font = "700 34px Arial";
-    ctx.fillText("محتوى صفحة التقرير يظهر داخل إطار PowerPoint", 1350, 245);
-    ctx.fillStyle = "#475569";
-    ctx.font = "500 25px Arial";
-    ctx.fillText("يتم تحويل كل صفحة من التقرير النهائي إلى شريحة مستقلة قابلة للعرض والمشاركة.", 1350, 305);
-
-    ctx.strokeStyle = "#cbd5e1";
-    ctx.lineWidth = 3;
-    for (let i = 0; i < 5; i += 1) {
-      const y = 390 + i * 56;
-      ctx.beginPath();
-      ctx.moveTo(330, y);
-      ctx.lineTo(1270, y);
-      ctx.stroke();
+    if (!saved) {
+      setReportDefaults(previousDefaults);
+      setReportDefaultsDirty(wasDirty);
+      setSelectedCompanyWordTemplateId(selected.id);
+      return;
     }
+    if (saved) setStatus(`تم حذف قالب Word «${selected.name}».`);
+  }, [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyWordTemplateId]);
 
-    ctx.fillStyle = "#0f766e";
-    ctx.beginPath();
-    ctx.roundRect(330, 650, 360, 54, 18);
-    ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "700 24px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("PPTX", 510, 686);
+  const uploadCompanyPptxTemplate = useCallback(
+    async (file: File, mode: "new" | "replace") => {
+      if (!file.name.toLowerCase().endsWith(".pptx")) {
+        setSubmitError("يرجى رفع ملف PowerPoint بصيغة .pptx فقط.");
+        return;
+      }
+      if (file.size > 35 * 1024 * 1024) {
+        setSubmitError("حجم قالب PowerPoint يجب ألا يتجاوز 35MB.");
+        return;
+      }
+      setSubmitError(null);
+      setStatus(null);
+      try {
+        const buffer = await file.arrayBuffer();
+        const scan = scanPptxTemplate(buffer);
+        const previousDefaults = reportDefaults;
+        const wasDirty = reportDefaultsDirty;
+        const previousSelection = selectedCompanyPptxTemplateId;
+        const variables = [...new Set([
+          ...scan.variables,
+          // A number of legacy presentation templates use a visible image
+          // marker, rather than a text placeholder. Make it configurable too.
+          ...scan.assetImageMarkerNames,
+        ])];
+        const prior = mode === "replace"
+          ? reportDefaults.pptxTemplates.find((template) => template.id === selectedCompanyPptxTemplateId) ?? null
+          : null;
+        if (mode === "replace" && !prior) {
+          setSubmitError("اختر قالب PowerPoint المراد استبداله أولاً.");
+          return;
+        }
+        const priorDetected = new Set(
+          (prior?.bookmarkNames ?? []).map((name) => normalizeTemplateVariableKey(name)),
+        );
+        const nextDetected = new Set(
+          variables.map((name) => normalizeTemplateVariableKey(name)),
+        );
+        const preservedMappings = mergeTemplateVariableMappings({
+          variables,
+          previousMappings: prior?.variableMappings ?? [],
+          previousDetected: priorDetected,
+          nextDetected,
+        });
+        const id = prior?.id ?? newCompanyDocumentTemplateId("pptx");
+        const name = prior?.name ?? uniqueCompanyDocumentTemplateName(
+          file.name.replace(/\.pptx$/i, ""),
+          file.name,
+          reportDefaults.pptxTemplates,
+        );
+        const uploadedTemplate: CompanyReportPptxTemplateForm = {
+          id,
+          name,
+          fileName: file.name,
+          fileDataUrl: `data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,${arrayBufferToBase64(buffer)}`,
+          fileUrl: null,
+          uploadedAt: new Date().toISOString(),
+          sizeBytes: file.size,
+          bookmarkNames: variables,
+          variableMappings: preservedMappings,
+          excludedVariableNames: [],
+        };
+        const pptxTemplates = prior
+          ? reportDefaults.pptxTemplates.map((template) => template.id === id ? uploadedTemplate : template)
+          : [...reportDefaults.pptxTemplates, uploadedTemplate];
+        const next = withCompanyDocumentTemplates(reportDefaults, "pptx", pptxTemplates);
+        setSelectedCompanyPptxTemplateId(id);
+        setReportDefaults(next);
+        setReportDefaultsDirty(true);
+        const saved = await persistReportDefaults(next);
+        if (!saved) {
+          // Never display a browser-only template as if it were saved for the
+          // company. The merge endpoint must only use persisted templates.
+          setReportDefaults(previousDefaults);
+          setReportDefaultsDirty(wasDirty);
+          setSelectedCompanyPptxTemplateId(previousSelection);
+          return;
+        }
+        if (saved) setStatus(mode === "new" ? "تم إرفاق قالب PowerPoint جديد للشركة." : "تم استبدال ملف قالب PowerPoint المحدد.");
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : "تعذر قراءة قالب PowerPoint.");
+      }
+    },
+    [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyPptxTemplateId],
+  );
 
-    downloadPptxFromPngSlides(
-      [{ dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height, title: "PowerPoint Template" }],
-      "spark-vision-report-template.pptx",
-      "Spark Vision PowerPoint Template",
-    );
-  }, []);
+  const updateCompanyDocumentTemplateMappings = useCallback(
+    (
+      format: "word" | "pptx",
+      variableMappings: CompanyReportTemplateVariableMappingForm[],
+      excludedVariableNames: string[],
+    ) => {
+      setReportDefaults((current) => {
+        const selectedId = format === "word" ? selectedCompanyWordTemplateId : selectedCompanyPptxTemplateId;
+        const templates = format === "word" ? current.wordTemplates : current.pptxTemplates;
+        if (!templates.some((template) => template.id === selectedId)) return current;
+        const nextTemplates = templates.map((template) =>
+          template.id === selectedId
+            ? { ...template, variableMappings, excludedVariableNames }
+            : template,
+        );
+        return withCompanyDocumentTemplates(current, format, nextTemplates);
+      });
+      setReportDefaultsDirty(true);
+    },
+    [selectedCompanyPptxTemplateId, selectedCompanyWordTemplateId],
+  );
+
+  const renameCompanyDocumentTemplate = useCallback((
+    format: "word" | "pptx",
+    name: string,
+    finalize = false,
+  ) => {
+    const selectedId = format === "word" ? selectedCompanyWordTemplateId : selectedCompanyPptxTemplateId;
+    setReportDefaults((current) => {
+      const templates = format === "word" ? current.wordTemplates : current.pptxTemplates;
+      const selected = templates.find((template) => template.id === selectedId);
+      if (!selected) return current;
+      const nextName = finalize
+        ? uniqueCompanyDocumentTemplateName(name, selected.fileName, templates, selectedId)
+        : name;
+      return withCompanyDocumentTemplates(
+        current,
+        format,
+        templates.map((template) => template.id === selectedId ? { ...template, name: nextName } : template),
+      );
+    });
+    setReportDefaultsDirty(true);
+  }, [selectedCompanyPptxTemplateId, selectedCompanyWordTemplateId]);
+
+  const removeCompanyPptxTemplate = useCallback(async () => {
+    const selected = reportDefaults.pptxTemplates.find((template) => template.id === selectedCompanyPptxTemplateId);
+    if (!selected) return;
+    if (!window.confirm(`سيتم حذف قالب PowerPoint «${selected.name}» من إعدادات الشركة. هل تريد المتابعة؟`)) return;
+    const previousDefaults = reportDefaults;
+    const wasDirty = reportDefaultsDirty;
+    const pptxTemplates = reportDefaults.pptxTemplates.filter((template) => template.id !== selected.id);
+    const next = withCompanyDocumentTemplates(reportDefaults, "pptx", pptxTemplates);
+    setSelectedCompanyPptxTemplateId(pptxTemplates[0]?.id ?? "");
+    setReportDefaults(next);
+    setReportDefaultsDirty(true);
+    const saved = await persistReportDefaults(next);
+    if (!saved) {
+      setReportDefaults(previousDefaults);
+      setReportDefaultsDirty(wasDirty);
+      setSelectedCompanyPptxTemplateId(selected.id);
+      return;
+    }
+    if (saved) setStatus(`تم حذف قالب PowerPoint «${selected.name}».`);
+  }, [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyPptxTemplateId]);
 
   const resetReportDefaults = useCallback(() => {
     if (!reportDefaultsBaseline) return;
@@ -2572,12 +3164,265 @@ export default function CompanyAdminDashboard({
     reportDefaults.letterhead.footerImageDataUrl,
     reportDefaults.letterhead.signatureStampDataUrl,
   ].some(Boolean);
-  const letterheadCatalogTemplates = hasLetterheadImages
-    ? [...LETTERHEAD_TEMPLATE_OPTIONS, COMPANY_LETTERHEAD_TEMPLATE_OPTION]
-    : LETTERHEAD_TEMPLATE_OPTIONS;
+  const letterheadCatalogTemplates = [
+    ...LETTERHEAD_TEMPLATE_OPTIONS,
+    COMPANY_LETTERHEAD_TEMPLATE_OPTION,
+  ];
   const letterheadPreviewTemplate = letterheadPreviewId
     ? (letterheadCatalogTemplates.find((item) => item.id === letterheadPreviewId) ?? null)
     : null;
+  const selectedSystemTemplate =
+    letterheadCatalogTemplates.find((item) => item.id === reportDefaults.letterhead.templateId) ??
+    LETTERHEAD_TEMPLATE_OPTIONS[0]!;
+
+  const reportSectionsEditor = (
+    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-l from-sky-50/80 via-white to-white px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0C447C] text-white shadow-sm shadow-sky-900/20">
+            <ClipboardList className="h-4.5 w-4.5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-[14px] font-black text-slate-900">محتوى وأقسام التقرير</h3>
+            <p className="mt-0.5 text-[11px] font-semibold leading-5 text-slate-500">
+              عدّل التعريفات المعتمدة وأضف أقساماً خاصة لتظهر في تقارير الشركة.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600">
+          <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
+            {reportDefaultsSectionGroups.length} مجموعات
+          </span>
+          <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
+            {reportDefaults.customSections.length} بنود مخصصة
+          </span>
+        </div>
+      </div>
+
+      {!reportDefaultsLoaded ? (
+        <div className="flex items-center justify-center py-16 text-slate-400">
+          <Loader2 className="h-7 w-7 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid min-h-[560px] lg:grid-cols-[238px_300px_minmax(0,1fr)]" dir="rtl">
+          <aside className="border-l border-slate-100 bg-slate-50/70 p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-black text-slate-700">مجموعات التقرير</span>
+              <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200">
+                {reportDefaultsSectionGroups.length}
+              </span>
+            </div>
+            <div className="mb-3 flex gap-1.5">
+              <Input
+                value={newReportDefaultsSectionTitle}
+                onChange={(event) => setNewReportDefaultsSectionTitle(event.target.value)}
+                placeholder="مجموعة جديدة"
+                className="h-8 rounded-lg border-slate-200 bg-white px-2 text-[11px] font-bold"
+              />
+              <Button
+                type="button"
+                size="icon"
+                className="h-8 w-8 shrink-0 rounded-lg bg-[#0C447C] hover:bg-[#0a3a66]"
+                onClick={addReportDefaultsSectionGroup}
+                title="إضافة مجموعة"
+                aria-label="إضافة مجموعة"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="space-y-1">
+              {reportDefaultsSectionGroups.map((section) => {
+                const active = section.id === activeReportDefaultsSection?.id;
+                return (
+                  <div key={section.id} className="group/section flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveReportDefaultsSectionId(section.id);
+                        setActiveReportDefaultsNodeId("");
+                      }}
+                      className={cn(
+                        "flex h-10 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border px-2.5 text-right text-[11px] font-black transition",
+                        active
+                          ? "border-sky-200 bg-white text-[#0C447C] shadow-sm"
+                          : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white",
+                      )}
+                    >
+                      <span className="truncate">{section.title}</span>
+                      <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] tabular-nums text-slate-500">
+                        {section.itemCount}
+                      </span>
+                    </button>
+                    {section.kind === "custom" ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0 rounded-lg text-rose-500 opacity-0 hover:bg-rose-50 hover:text-rose-700 group-hover/section:opacity-100 focus-visible:opacity-100"
+                        onClick={() => removeCustomReportDefaultsGroup(section.id)}
+                        title="حذف المجموعة"
+                        aria-label="حذف المجموعة"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+
+          <section className="border-l border-slate-100 bg-white p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-black text-slate-700">بنود المجموعة</span>
+              {activeReportDefaultsSection?.kind === "custom" ? (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black text-emerald-700">مخصصة</span>
+              ) : null}
+            </div>
+            {activeReportDefaultsSection?.kind === "custom" ? (
+              <Input
+                value={activeReportDefaultsSection.title}
+                onChange={(event) =>
+                  renameCustomReportDefaultsGroup(activeReportDefaultsSection.id, event.target.value)
+                }
+                className="mb-2 h-8 rounded-lg border-slate-200 text-[11px] font-black"
+                aria-label="اسم المجموعة"
+              />
+            ) : (
+              <div className="mb-2 flex h-8 items-center rounded-lg bg-slate-50 px-2 text-[11px] font-black text-slate-700">
+                {activeReportDefaultsSection?.title ?? "—"}
+              </div>
+            )}
+            <div className="mb-2 flex gap-1.5">
+              <Input
+                value={newReportDefaultsNodeTitle}
+                onChange={(event) => setNewReportDefaultsNodeTitle(event.target.value)}
+                placeholder="بند مخصص جديد"
+                className="h-8 rounded-lg border-slate-200 px-2 text-[11px] font-bold"
+              />
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="h-8 w-8 shrink-0 rounded-lg"
+                onClick={addReportDefaultsNode}
+                title="إضافة بند"
+                aria-label="إضافة بند"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="max-h-[442px] space-y-1 overflow-y-auto pe-0.5">
+              {activeReportDefaultsNodes.length > 0 ? (
+                activeReportDefaultsNodes.map((node) => {
+                  const active = node.id === activeReportDefaultsNode?.id;
+                  return (
+                    <button
+                      key={node.id}
+                      type="button"
+                      onClick={() => setActiveReportDefaultsNodeId(node.id)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-right text-[11px] font-bold transition",
+                        active
+                          ? "border-sky-200 bg-sky-50 text-[#0C447C]"
+                          : "border-slate-100 bg-white text-slate-600 hover:border-slate-200 hover:bg-slate-50",
+                      )}
+                    >
+                      <span className="line-clamp-2 min-w-0">{node.label}</span>
+                      {node.kind === "custom" ? (
+                        <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] text-emerald-700">جديد</span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-7 text-center text-[11px] font-bold text-slate-400">
+                  لا توجد بنود في هذه المجموعة بعد.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="min-w-0 bg-slate-50/30 p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-black text-slate-700">نص وتعريف البند</span>
+              {reportDefaultsDirty ? (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-700">تعديل غير محفوظ</span>
+              ) : (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-black text-emerald-700">محفوظ</span>
+              )}
+            </div>
+            {activeReportDefaultsNode ? (
+              <div className="flex min-h-[485px] flex-col gap-2">
+                {activeReportDefaultsNode.kind === "custom" ? (
+                  <div className="grid gap-2 sm:grid-cols-[92px_minmax(0,1fr)_auto]">
+                    <Input
+                      value={activeReportDefaultsNode.section.sectionNumber}
+                      onChange={(event) =>
+                        updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                          sectionNumber: event.target.value,
+                        })
+                      }
+                      placeholder="الرقم"
+                      dir="ltr"
+                      className="h-9 rounded-lg border-slate-200 text-[12px] font-bold"
+                    />
+                    <Input
+                      value={activeReportDefaultsNode.section.title}
+                      onChange={(event) =>
+                        updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                          title: event.target.value,
+                        })
+                      }
+                      placeholder="عنوان البند"
+                      className="h-9 rounded-lg border-slate-200 text-[12px] font-black"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 rounded-lg px-2 text-[11px] text-rose-600 hover:bg-rose-50"
+                      onClick={() => removeReportSection(activeReportDefaultsNode.section.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      حذف
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex min-h-9 items-center rounded-lg border border-slate-100 bg-white px-3 text-[12px] font-black text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                    {activeReportDefaultsNode.label}
+                  </div>
+                )}
+                <Textarea
+                  value={activeReportDefaultsNode.value}
+                  onChange={(event) => {
+                    if (activeReportDefaultsNode.kind === "field") {
+                      updateReportDefaultsField(
+                        activeReportDefaultsNode.fieldSection,
+                        activeReportDefaultsNode.fieldKey,
+                        event.target.value,
+                      );
+                    } else {
+                      updateReportDefaultsCustomSection(activeReportDefaultsNode.section.id, {
+                        body: event.target.value,
+                      });
+                    }
+                  }}
+                  rows={activeReportDefaultsNode.kind === "field" ? activeReportDefaultsNode.rows : 14}
+                  dir="rtl"
+                  className="min-h-[410px] flex-1 resize-none rounded-xl border-slate-200 bg-white px-3 py-2 text-[12.5px] font-medium leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100"
+                />
+              </div>
+            ) : (
+              <div className="flex min-h-[485px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white text-[12px] font-bold text-slate-400">
+                اختر بنداً لبدء التعديل.
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </section>
+  );
 
   if (!loading && backendUnavailable) {
     return (
@@ -2746,35 +3591,35 @@ export default function CompanyAdminDashboard({
         ) : null}
 
         <Tabs
-          defaultValue={reportDefaultsOnly ? "report-defaults" : "info"}
+          defaultValue={reportDefaultsOnly ? "word-template" : "info"}
           className="flex min-h-0 flex-col gap-4"
           dir="rtl"
         >
           {reportDefaultsOnly ? (
             <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
               <TabsTrigger
-                value="report-defaults"
+                value="word-template"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
-                أقسام التقرير
+                قوالب Word
+              </TabsTrigger>
+              <TabsTrigger
+                value="pptx-template"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                قوالب PowerPoint
               </TabsTrigger>
               <TabsTrigger
                 value="letterhead"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
-                الأكلاشية والقوالب
+                قوالب النظام والكلاشية
               </TabsTrigger>
               <TabsTrigger
-                value="ai-templates"
+                value="report-data-models"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
-                قالب الذكاء الاصطناعي
-              </TabsTrigger>
-              <TabsTrigger
-                value="word-template"
-                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                قالب ملف Word
+                نماذج بيانات التقرير
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -2796,6 +3641,12 @@ export default function CompanyAdminDashboard({
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 المقيمون والتوقيعات
+              </TabsTrigger>
+              <TabsTrigger
+                value="asset-descriptions"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                تصنيفات الأصول
               </TabsTrigger>
             </TabsList>
           )}
@@ -2821,6 +3672,33 @@ export default function CompanyAdminDashboard({
                         <p className="mt-1 text-lg font-bold text-slate-900">
                           {data.company?.employeeCount ?? data.users.length}
                         </p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50/80 p-4 ring-1 ring-slate-100 sm:col-span-2">
+                        <label htmlFor="company-commercial-registration" className="text-[11px] font-semibold text-slate-500">
+                          السجل التجاري للشركة
+                        </label>
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            id="company-commercial-registration"
+                            value={commercialRegistrationDraft}
+                            onChange={(event) => {
+                              setCommercialRegistrationDraft(event.target.value);
+                              setStatus(null);
+                            }}
+                            dir="ltr"
+                            className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-900 outline-none ring-[#0C447C]/20 focus:ring-2"
+                            placeholder="رقم السجل التجاري"
+                          />
+                          <Button
+                            type="button"
+                            className="h-11 shrink-0 rounded-xl bg-[#0C447C] px-4 hover:bg-[#0a3a66]"
+                            disabled={brandingBusy}
+                            onClick={() => void persistCompanyInfo()}
+                          >
+                            {brandingBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            حفظ السجل التجاري
+                          </Button>
+                        </div>
                       </div>
                     </div>
                     {data.company ? (
@@ -3158,6 +4036,12 @@ export default function CompanyAdminDashboard({
             </>
           ) : null}
 
+          {!reportDefaultsOnly ? (
+            <TabsContent value="asset-descriptions" className="mt-0 outline-none">
+              <CompanyAssetDescriptionsDashboard csrfToken={csrfToken} />
+            </TabsContent>
+          ) : null}
+
           <TabsContent value="report-defaults" className="mt-0 outline-none">
             <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
@@ -3419,30 +4303,39 @@ export default function CompanyAdminDashboard({
 
           <TabsContent value="letterhead" className="m-0 outline-none">
             <div className="m-0 space-y-3 p-0">
-              <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+              <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-[linear-gradient(120deg,#071f33_0%,#0C447C_62%,#0f6d91_100%)] px-4 py-3 text-white">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-[#f6b56d] ring-1 ring-white/15">
                       <Palette className="h-5 w-5" />
                     </span>
-                    <h2 className="text-[15px] font-black text-slate-900">الأكلاشية والقوالب</h2>
+                    <div className="min-w-0">
+                      <h2 className="text-[15px] font-black tracking-tight">استوديو التقرير النظامي</h2>
+                      <p className="mt-0.5 text-[11px] font-semibold leading-5 text-sky-100/90">
+                        قالب موحّد، أكلاشية الشركة، وتعريفات التقرير في مساحة واحدة.
+                      </p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <div className="hidden items-center gap-1.5 rounded-xl bg-white/10 px-2.5 py-1.5 text-[10px] font-bold ring-1 ring-white/10 sm:flex">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#f6b56d]" />
+                      {selectedSystemTemplate.title}
+                    </div>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-9 gap-1.5 rounded-xl text-[12px] font-black"
+                      className="h-9 gap-1.5 rounded-xl border-white/20 bg-white/10 text-[12px] font-black text-white hover:bg-white/20 hover:text-white"
                       onClick={() => setLetterheadImagesOpen(true)}
                     >
                       <ImageIcon className="h-3.5 w-3.5" />
-                      صور الأكلاشية
+                      الأكلاشية
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-9 gap-1.5 rounded-xl text-[12px] font-bold"
+                      className="h-9 gap-1.5 rounded-xl border-white/20 bg-white/10 text-[12px] font-bold text-white hover:bg-white/20 hover:text-white"
                       disabled={!reportDefaultsDirty || reportDefaultsSaving}
                       onClick={resetReportDefaults}
                     >
@@ -3452,7 +4345,7 @@ export default function CompanyAdminDashboard({
                     <Button
                       type="button"
                       size="sm"
-                      className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[12px] font-black hover:bg-[#0a3a66]"
+                      className="h-9 gap-1.5 rounded-xl bg-[#f37021] text-[12px] font-black text-white shadow-sm hover:bg-[#dd6317]"
                       disabled={!reportDefaultsDirty || reportDefaultsSaving}
                       onClick={() => void persistReportDefaults()}
                     >
@@ -3461,8 +4354,31 @@ export default function CompanyAdminDashboard({
                       ) : (
                         <Save className="h-3.5 w-3.5" />
                       )}
-                      حفظ
+                      حفظ التعديلات
                     </Button>
+                  </div>
+                </div>
+                <div className="grid divide-y divide-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0" dir="rtl">
+                  <div className="flex items-center gap-2 px-4 py-2.5">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-[#0C447C]"><Palette className="h-3.5 w-3.5" /></span>
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400">القالب المعتمد</p>
+                      <p className="max-w-[190px] truncate text-[11px] font-black text-slate-800">{selectedSystemTemplate.title}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-2.5">
+                    <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}><Stamp className="h-3.5 w-3.5" /></span>
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400">أكلاشية الشركة</p>
+                      <p className="text-[11px] font-black text-slate-800">{hasLetterheadImages ? "الصور جاهزة للاستخدام" : "لم تكتمل الصور بعد"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-2.5">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><ClipboardList className="h-3.5 w-3.5" /></span>
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-400">محتوى التقرير</p>
+                      <p className="text-[11px] font-black text-slate-800">{reportDefaultsSectionGroups.length} مجموعات · {reportDefaults.customSections.length} بنود خاصة</p>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -3472,190 +4388,257 @@ export default function CompanyAdminDashboard({
                   <Loader2 className="h-7 w-7 animate-spin" />
                 </div>
               ) : (
-                <>
-                  <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <h3 className="text-[14px] font-black text-slate-900">قوالب جاهزة للاستخدام</h3>
-                      <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">
-                        {letterheadCatalogTemplates.length}
-                      </Badge>
-                    </div>
-                    <div className="grid gap-3 lg:grid-cols-3">
-                      {letterheadCatalogTemplates.map((template) => {
-                        const isCompanyTemplate = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
-                        const previewImage = isCompanyTemplate
-                          ? reportDefaults.letterhead.coverImageDataUrl ||
-                            reportDefaults.letterhead.pageImageDataUrl ||
-                            reportDefaults.letterhead.landscapePageImageDataUrl
-                          : null;
-                        return (
-                          <div
-                            key={template.id}
-                            className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300"
-                          >
-                            <div className="relative h-32 bg-slate-50">
-                              {previewImage ? (
-                                <img src={previewImage} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                              ) : (
-                                <>
-                                  <div className={cn("absolute inset-x-0 top-0 h-3 bg-gradient-to-l", template.accentClass)} />
-                                  <div className="absolute inset-x-5 bottom-4 top-8 rounded-xl border border-slate-200 bg-white shadow-sm">
-                                    <div className={cn("h-8 rounded-t-xl bg-gradient-to-l", template.accentClass)} />
-                                    <div className="space-y-2 p-3">
-                                      <div className="h-2 w-2/3 rounded bg-slate-300" />
-                                      <div className="h-2 w-full rounded bg-slate-200" />
-                                      <div className="h-2 w-5/6 rounded bg-slate-200" />
-                                    </div>
-                                  </div>
-                                </>
+                <Tabs defaultValue="system-template" className="space-y-3" dir="rtl">
+                  <TabsList className="h-auto w-full justify-start gap-1 rounded-2xl border border-slate-200/80 bg-white p-1.5 shadow-sm md:w-auto">
+                    <TabsTrigger value="system-template" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
+                      قالب النظام
+                    </TabsTrigger>
+                    <TabsTrigger value="company-letterhead" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
+                      أكلاشية الشركة
+                    </TabsTrigger>
+                    <TabsTrigger value="report-sections" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
+                      أقسام وتعريفات التقرير
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="system-template" className="m-0 space-y-3 outline-none">
+                    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                      <div className="grid gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
+                        <div className="flex items-center justify-center border-b border-slate-100 bg-[radial-gradient(circle_at_50%_18%,#e0f2fe,transparent_58%),linear-gradient(135deg,#f8fafc,#eaf3f8)] p-5 lg:border-b-0 lg:border-l">
+                          <SystemReportTemplatePreview
+                            template={selectedSystemTemplate}
+                            letterhead={reportDefaults.letterhead}
+                            companyName={data?.company?.name ?? "شركة التقييم"}
+                            companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                          />
+                        </div>
+                        <div className="flex min-w-0 flex-col justify-center p-4 md:p-5">
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <Badge className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] text-[#0C447C] ring-1 ring-sky-100">القالب المعتمد للنظام</Badge>
+                            <Badge variant="secondary" className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] text-slate-600">{selectedSystemTemplate.badge}</Badge>
+                          </div>
+                          <h3 className="text-[18px] font-black tracking-tight text-slate-950">{selectedSystemTemplate.title}</h3>
+                          <p className="mt-1.5 max-w-2xl text-[12px] font-semibold leading-6 text-slate-500">{selectedSystemTemplate.description}</p>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button type="button" variant="outline" className="h-9 gap-1.5 rounded-xl text-[12px] font-black" onClick={() => setLetterheadPreviewId(selectedSystemTemplate.id)}>
+                              <Eye className="h-3.5 w-3.5" />
+                              معاينة كاملة
+                            </Button>
+                            <span className="inline-flex h-9 items-center rounded-xl bg-slate-50 px-3 text-[10.5px] font-bold text-slate-500 ring-1 ring-slate-100">
+                              يُستخدم تلقائياً للمشاريع التي لم تحدد قالباً، دون تغيير اختيار أي مشروع قائم.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-[14px] font-black text-slate-900">مكتبة قوالب النظام</h3>
+                          <p className="mt-0.5 text-[10.5px] font-semibold text-slate-500">اختر القالب المعتمد ليُحفظ فورًا ويُستخدم في التقارير الجديدة.</p>
+                        </div>
+                        <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">{letterheadCatalogTemplates.length} قوالب</Badge>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {letterheadCatalogTemplates.map((template) => {
+                          const isCompanyTemplate = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
+                          const selected = template.id === selectedSystemTemplate.id;
+                          return (
+                            <article
+                              key={template.id}
+                              className={cn(
+                                "overflow-hidden rounded-2xl border bg-white shadow-sm transition",
+                                selected ? "border-[#0C447C] ring-2 ring-[#0C447C]/10" : "border-slate-200 hover:border-slate-300",
                               )}
-                              <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
+                            >
+                              <div className="relative overflow-hidden bg-slate-100/80 py-3">
+                                <SystemReportTemplatePreview
+                                  template={template}
+                                  letterhead={reportDefaults.letterhead}
+                                  companyName={data?.company?.name ?? "شركة التقييم"}
+                                  companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                                />
+                                <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="secondary"
+                                    className="h-8 w-8 rounded-full bg-white/95 text-slate-800 shadow-sm hover:bg-white"
+                                    title="معاينة"
+                                    aria-label={`معاينة ${template.title}`}
+                                    onClick={() => setLetterheadPreviewId(template.id)}
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Badge className="rounded-full bg-white text-[10px] text-slate-800 shadow-sm">{template.badge}</Badge>
+                                </div>
+                              </div>
+                              <div className="p-3 text-right">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h4 className="min-w-0 truncate text-[13px] font-black text-slate-900">{template.title}</h4>
+                                  {selected ? (
+                                    <Badge className="gap-1 rounded-full bg-[#0C447C] px-2 py-0.5 text-[9px] text-white"><CheckCircle2 className="h-3 w-3" />معتمد</Badge>
+                                  ) : isCompanyTemplate ? (
+                                    <Badge variant="secondary" className={cn("rounded-full px-2 py-0.5 text-[9px]", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                                      {hasLetterheadImages ? "جاهزة" : "تحتاج صوراً"}
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1.5 min-h-10 text-[10.5px] font-semibold leading-5 text-slate-500">{template.description}</p>
                                 <Button
                                   type="button"
-                                  size="icon"
-                                  variant="secondary"
-                                  className="h-8 w-8 rounded-full bg-white/95 text-slate-800 shadow-sm hover:bg-white"
-                                  title="معاينة"
-                                  aria-label={`معاينة ${template.title}`}
-                                  onClick={() => setLetterheadPreviewId(template.id)}
+                                  variant={selected ? "outline" : "default"}
+                                  className={cn("mt-3 h-8 w-full gap-1.5 rounded-lg text-[10.5px] font-black", !selected && "bg-[#0C447C] hover:bg-[#0a3a66]")}
+                                  disabled={selected || reportDefaultsSaving}
+                                  onClick={() => void applySystemReportTemplate(template)}
                                 >
-                                  <Eye className="h-3.5 w-3.5" />
+                                  {selected ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Palette className="h-3.5 w-3.5" />}
+                                  {selected ? "القالب المعتمد" : "اعتماد كقالب النظام"}
                                 </Button>
-                                <Badge className="rounded-full bg-white text-[10px] text-slate-800 shadow-sm">
-                                  {template.badge}
-                                </Badge>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  </TabsContent>
+
+                  <TabsContent value="company-letterhead" className="m-0 outline-none">
+                    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                      <div className="grid lg:grid-cols-[minmax(0,1fr)_310px]">
+                        <div className="p-4 md:p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex gap-2.5">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Stamp className="h-5 w-5" /></span>
+                              <div>
+                                <h3 className="text-[15px] font-black text-slate-900">أكلاشية الشركة</h3>
+                                <p className="mt-1 max-w-xl text-[11px] font-semibold leading-5 text-slate-500">ارفع الغلاف والصفحات الداخلية والشعار والفوتر ليستخدمها التقرير عند اختيار «أكلاشية الشركة» من شاشة المشروع.</p>
                               </div>
                             </div>
-                            <div className="flex items-center justify-between gap-2 p-3">
-                              <h4 className="min-w-0 truncate text-right text-[13px] font-black text-slate-900">
-                                {template.title}
-                              </h4>
-                              {template.outputFormat === "pptx" ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 shrink-0 gap-1 rounded-xl px-2 text-[11px]"
-                                  onClick={downloadPowerPointTemplateSample}
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                  نموذج
-                                </Button>
-                              ) : null}
-                            </div>
+                            <Badge className={cn("rounded-full px-2.5 py-1 text-[10px]", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+                              {hasLetterheadImages ? "جاهزة للتطبيق" : "تحتاج تجهيزاً"}
+                            </Badge>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </section>
+                          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {[
+                              ["الغلاف", reportDefaults.letterhead.coverImageDataUrl],
+                              ["الصفحات الطولية", reportDefaults.letterhead.pageImageDataUrl],
+                              ["الصفحات بالعرض", reportDefaults.letterhead.landscapePageImageDataUrl],
+                              ["شعار التقرير", reportDefaults.letterhead.logoDataUrl],
+                              ["الفوتر", reportDefaults.letterhead.footerImageDataUrl],
+                              ["التوقيع والختم", reportDefaults.letterhead.signatureStampDataUrl],
+                            ].map(([label, value]) => (
+                              <div key={label} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
+                                <span className="text-[10.5px] font-bold text-slate-700">{label}</span>
+                                <span className={cn("h-2 w-2 shrink-0 rounded-full", value ? "bg-emerald-500" : "bg-slate-300")} title={value ? "مرفوع" : "غير مرفوع"} />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button type="button" className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[11px] font-black hover:bg-[#0a3a66]" onClick={() => setLetterheadImagesOpen(true)}>
+                              <Upload className="h-3.5 w-3.5" />
+                              إدارة صور الأكلاشية
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9 gap-1.5 rounded-xl text-[11px] font-black"
+                              disabled={!hasLetterheadImages}
+                              onClick={() => {
+                                updateLetterhead("templateId", COMPANY_LETTERHEAD_TEMPLATE_OPTION.id);
+                                updateLetterhead("outputFormat", "pdf");
+                                updateLetterhead("enabled", true);
+                                setStatus("تم اعتماد أكلاشية الشركة. احفظ التعديلات لتطبيقها في إعدادات الشركة.");
+                              }}
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              اعتماد الأكلاشية
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-center border-t border-slate-100 bg-[linear-gradient(135deg,#fff7ed,#fffbeb)] p-5 lg:border-r lg:border-t-0">
+                          <SystemReportTemplatePreview
+                            template={COMPANY_LETTERHEAD_TEMPLATE_OPTION}
+                            letterhead={reportDefaults.letterhead}
+                            companyName={data?.company?.name ?? "شركة التقييم"}
+                            companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                          />
+                        </div>
+                      </div>
+                    </section>
+                  </TabsContent>
 
-                </>
+                  <TabsContent value="report-sections" className="m-0 outline-none">
+                    {reportSectionsEditor}
+                  </TabsContent>
+                </Tabs>
               )}
             </div>
           </TabsContent>
 
           <TabsContent value="word-template" className="m-0 outline-none">
-            <div className="m-0 space-y-3 p-0">
-              <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                      <FileText className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <h2 className="text-[15px] font-black text-slate-900">قالب ملف Word</h2>
-                      <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
-                        قالب DOCX موحد للشركة يستخدمه دمج التقرير النهائي في مشاريع تقييم الآلات.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </section>
+            <CompanyReportDocumentTemplateDashboard
+              format="word"
+              templates={reportDefaults.wordTemplates}
+              reportDataModels={reportDefaults.reportDataModels}
+              selectedTemplateId={selectedCompanyWordTemplateId}
+              loading={!reportDefaultsLoaded}
+              saving={reportDefaultsSaving}
+              dirty={reportDefaultsDirty}
+              onSelect={setSelectedCompanyWordTemplateId}
+              onUploadNew={(file) => uploadCompanyWordTemplate(file, "new")}
+              onReplace={(file) => uploadCompanyWordTemplate(file, "replace")}
+              onRename={(name, finalize) => renameCompanyDocumentTemplate("word", name, finalize)}
+              onRemove={removeCompanyWordTemplate}
+              onChange={({ variableMappings, excludedVariableNames }) =>
+                updateCompanyDocumentTemplateMappings("word", variableMappings, excludedVariableNames)
+              }
+              onSave={() => void persistReportDefaults()}
+            />
+          </TabsContent>
 
-              {!reportDefaultsLoaded ? (
-                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
-                  <Loader2 className="h-7 w-7 animate-spin" />
-                </div>
-              ) : (
-                <section className="grid gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                  <label className="grid cursor-pointer place-items-center gap-3 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-5 text-center transition hover:border-emerald-300 hover:bg-emerald-50">
-                    <input
-                      type="file"
-                      accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      className="sr-only"
-                      disabled={reportDefaultsSaving}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] ?? null;
-                        event.target.value = "";
-                        if (file) void uploadCompanyWordTemplate(file);
-                      }}
-                    />
-                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
-                      {reportDefaultsSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-                    </span>
-                    <span className="text-[13px] font-black text-slate-900">
-                      {reportDefaults.wordTemplate ? "استبدال قالب Word" : "رفع قالب Word للشركة"}
-                    </span>
-                    <span className="text-[11px] font-semibold leading-5 text-slate-500">
-                      يقبل ملفات .docx فقط. سيتم حفظه مرة واحدة واستخدامه تلقائيا عند تنزيل تقرير Word.
-                    </span>
-                  </label>
+          <TabsContent value="pptx-template" className="m-0 outline-none">
+            <CompanyReportDocumentTemplateDashboard
+              format="pptx"
+              templates={reportDefaults.pptxTemplates}
+              reportDataModels={reportDefaults.reportDataModels}
+              selectedTemplateId={selectedCompanyPptxTemplateId}
+              loading={!reportDefaultsLoaded}
+              saving={reportDefaultsSaving}
+              dirty={reportDefaultsDirty}
+              onSelect={setSelectedCompanyPptxTemplateId}
+              onUploadNew={(file) => uploadCompanyPptxTemplate(file, "new")}
+              onReplace={(file) => uploadCompanyPptxTemplate(file, "replace")}
+              onRename={(name, finalize) => renameCompanyDocumentTemplate("pptx", name, finalize)}
+              onRemove={removeCompanyPptxTemplate}
+              onChange={({ variableMappings, excludedVariableNames }) =>
+                updateCompanyDocumentTemplateMappings("pptx", variableMappings, excludedVariableNames)
+              }
+              onSave={() => void persistReportDefaults()}
+            />
+          </TabsContent>
 
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                    {reportDefaults.wordTemplate ? (
-                      <div className="grid gap-3">
-                        <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-100 bg-white p-3">
-                          <div className="min-w-0 text-right">
-                            <p className="truncate text-[13px] font-black text-slate-900">
-                              {reportDefaults.wordTemplate.fileName}
-                            </p>
-                            <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                              {reportDefaults.wordTemplate.sizeBytes
-                                ? `${(reportDefaults.wordTemplate.sizeBytes / 1024 / 1024).toFixed(2)} MB`
-                                : "ملف محفوظ"}
-                              {" · "}
-                              {reportDefaults.wordTemplate.uploadedAt
-                                ? new Date(reportDefaults.wordTemplate.uploadedAt).toLocaleDateString("ar")
-                                : "بدون تاريخ"}
-                            </p>
-                          </div>
-                          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-                        </div>
-                        <div className="flex flex-wrap justify-end gap-1.5">
-                          <Badge className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-800">
-                            {reportDefaults.wordTemplate.bookmarkNames.length} متغير
-                          </Badge>
-                          {reportDefaults.wordTemplate.fileUrl ? (
-                            <Badge className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
-                              محفوظ على الشركة
-                            </Badge>
-                          ) : null}
-                        </div>
-                        {reportDefaults.wordTemplate.bookmarkNames.length > 0 ? (
-                          <p className="max-h-24 overflow-y-auto rounded-xl bg-white px-3 py-2 text-right text-[10.5px] font-semibold leading-5 text-slate-600">
-                            {reportDefaults.wordTemplate.bookmarkNames.slice(0, 40).join("، ")}
-                          </p>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 gap-2 rounded-xl text-[12px] font-black text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                          disabled={reportDefaultsSaving}
-                          onClick={() => void removeCompanyWordTemplate()}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          حذف قالب Word
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex min-h-48 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-4 text-center text-[12px] font-semibold leading-6 text-slate-500">
-                        لا يوجد قالب Word محفوظ للشركة حتى الآن.
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )}
-            </div>
+          <TabsContent value="report-data-models" className="m-0 outline-none">
+            {!reportDefaultsLoaded ? (
+              <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
+                <Loader2 className="h-7 w-7 animate-spin" />
+              </div>
+            ) : (
+              <CompanyReportDataModelDashboard
+                models={reportDefaults.reportDataModels}
+                saving={reportDefaultsSaving}
+                dirty={reportDefaultsDirty}
+                onChange={(models) => {
+                  setReportDefaults((current) => ({
+                    ...current,
+                    reportDataModels: normalizeReportDataModels(models),
+                  }));
+                  setReportDefaultsDirty(true);
+                }}
+                onSave={() => void persistReportDefaults()}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="ai-templates" className="m-0 outline-none">
@@ -4054,55 +5037,29 @@ export default function CompanyAdminDashboard({
           if (!open) setLetterheadPreviewId(null);
         }}
       >
-        <DialogContent className="max-w-3xl rounded-2xl border-slate-200 p-0" dir="rtl">
+        <DialogContent className="flex max-h-[92dvh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0" dir="rtl">
           <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
             <DialogTitle className="text-base font-black">
               {letterheadPreviewTemplate?.title ?? "معاينة القالب"}
             </DialogTitle>
+            {letterheadPreviewTemplate?.description ? (
+              <DialogDescription className="pt-1 text-right text-[11px] font-semibold leading-5 text-slate-500">
+                {letterheadPreviewTemplate.description}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
-          <div className="bg-slate-100 p-4">
-            <div className="mx-auto aspect-[210/297] max-h-[70vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              {letterheadPreviewTemplate?.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id &&
-              (reportDefaults.letterhead.coverImageDataUrl ||
-                reportDefaults.letterhead.pageImageDataUrl ||
-                reportDefaults.letterhead.landscapePageImageDataUrl) ? (
-                <img
-                  src={
-                    reportDefaults.letterhead.coverImageDataUrl ||
-                    reportDefaults.letterhead.pageImageDataUrl ||
-                    reportDefaults.letterhead.landscapePageImageDataUrl ||
-                    ""
-                  }
-                  alt=""
-                  className="h-full w-full object-cover"
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4 sm:p-6">
+            {letterheadPreviewTemplate ? (
+              <div className="mx-auto w-max rounded-xl border border-slate-200 bg-white shadow-xl">
+                <SystemReportTemplatePreview
+                  template={letterheadPreviewTemplate}
+                  letterhead={reportDefaults.letterhead}
+                  companyName={data?.company?.name ?? "شركة التقييم"}
+                  companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                  large
                 />
-              ) : (
-                <div className="relative h-full w-full bg-white">
-                  <div
-                    className={cn(
-                      "absolute inset-x-0 top-0 h-20 bg-gradient-to-l",
-                      letterheadPreviewTemplate?.accentClass ?? "from-sky-600 to-cyan-500",
-                    )}
-                  />
-                  <div className="absolute left-8 right-8 top-28 space-y-3">
-                    <div className="h-4 w-1/2 rounded bg-slate-300" />
-                    <div className="h-3 w-full rounded bg-slate-200" />
-                    <div className="h-3 w-11/12 rounded bg-slate-200" />
-                    <div className="h-3 w-10/12 rounded bg-slate-200" />
-                    <div className="mt-8 grid grid-cols-2 gap-3">
-                      <div className="h-24 rounded-lg bg-slate-100" />
-                      <div className="h-24 rounded-lg bg-slate-100" />
-                    </div>
-                  </div>
-                  <div className="absolute inset-x-0 bottom-0 h-12 bg-slate-100" />
-                  {letterheadPreviewTemplate?.outputFormat === "pptx" ? (
-                    <div className="absolute inset-8 flex items-center justify-center rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/70 text-lg font-black text-amber-800">
-                      16:9 PowerPoint
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
+              </div>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>

@@ -7,7 +7,39 @@ export type FlowSegment = {
   node: ReactNode;
   anchor: string | null;
   displayOnly?: boolean;
+  /** إزاحة نافذة القص داخل الكتلة الأصلية. صفر = بداية الكتلة. */
+  windowOffset?: number;
 };
+
+export function segmentPackKey(seg: Pick<FlowSegment, "blockIndex" | "windowOffset">): string {
+  return `${seg.blockIndex}:${Math.round(seg.windowOffset ?? 0)}`;
+}
+
+/** نوافذ متتالية تغطي [0, endH] دون ترك فجوة أو إسقاط ذيل الكتلة. */
+export function coverRangeWithWindows(
+  endH: number,
+  maxBodyPx: number,
+  extraCuts: number[] = [],
+): Array<{ offset: number; height: number }> {
+  const maxH = Math.max(1, maxBodyPx);
+  const lastCut = extraCuts.reduce((max, cut) => (cut > max ? cut : max), 0);
+  const end = Math.max(Math.max(1, endH), lastCut > 0 ? lastCut + maxH : Math.max(1, endH));
+  const points = [
+    ...new Set([0, ...extraCuts.filter((cut) => cut > 0.5 && cut < end - 0.5), end]),
+  ].sort((a, b) => a - b);
+
+  const windows: Array<{ offset: number; height: number }> = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    let start = points[i]!;
+    const limit = points[i + 1]!;
+    while (start < limit - 0.5) {
+      const height = Math.min(maxH, limit - start);
+      windows.push({ offset: start, height });
+      start += height;
+    }
+  }
+  return windows.length > 0 ? windows : [{ offset: 0, height: Math.min(maxH, end) }];
+}
 
 export type SectionChildGroup = {
   start: number;
@@ -20,18 +52,57 @@ export type SectionChildGroup = {
   clipOnly?: boolean;
 };
 
-function groupHeightInSection(section: HTMLElement, start: number, end: number): number {
-  const children = section.children;
-  const first = children[start];
-  const last = children[end];
-  if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return 1;
-  return Math.max(1, last.offsetTop + last.offsetHeight - first.offsetTop);
+function sectionChildren(section: HTMLElement): HTMLElement[] {
+  return Array.from(section.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
+}
+
+/**
+ * All slice offsets must be relative to the flow block, not to the hidden
+ * measurement canvas.  `offsetTop` is relative to an offset parent and can
+ * therefore contain the accumulated height of earlier report sections.  That
+ * made continuation pages jump too far down and appear empty.
+ */
+function topInBlock(blockEl: HTMLElement, element: HTMLElement): number {
+  return Math.max(0, element.getBoundingClientRect().top - blockEl.getBoundingClientRect().top);
+}
+
+function bottomInBlock(blockEl: HTMLElement, element: HTMLElement): number {
+  return Math.max(0, element.getBoundingClientRect().bottom - blockEl.getBoundingClientRect().top);
 }
 
 function childTopInBlock(blockEl: HTMLElement, section: HTMLElement, childIndex: number): number {
-  const child = section.children[childIndex];
-  if (!(child instanceof HTMLElement)) return section.offsetTop;
-  return section.offsetTop + child.offsetTop;
+  const child = sectionChildren(section)[childIndex];
+  return child ? topInBlock(blockEl, child) : topInBlock(blockEl, section);
+}
+
+/**
+ * Measures a complete visual group, including the gap/margin before the next
+ * child.  The visible report body is a flex column, so excluding these gaps
+ * would pack more content than an A4 sheet can actually hold.
+ */
+function groupHeightInSection(
+  blockEl: HTMLElement,
+  section: HTMLElement,
+  children: HTMLElement[],
+  start: number,
+  end: number,
+): number {
+  const startY = start === 0 ? 0 : childTopInBlock(blockEl, section, start);
+  const next = children[end + 1];
+  const endY = next ? topInBlock(blockEl, next) : Math.max(bottomInBlock(blockEl, section), bottomInBlock(blockEl, blockEl));
+  return Math.max(1, endY - startY);
+}
+
+function childVisualSpan(
+  blockEl: HTMLElement,
+  section: HTMLElement,
+  children: HTMLElement[],
+  index: number,
+): number {
+  const startY = childTopInBlock(blockEl, section, index);
+  const next = children[index + 1];
+  const endY = next ? topInBlock(blockEl, next) : Math.max(bottomInBlock(blockEl, section), bottomInBlock(blockEl, blockEl));
+  return Math.max(1, endY - startY);
 }
 
 export function measureSectionChildGroups(
@@ -39,10 +110,8 @@ export function measureSectionChildGroups(
   section: HTMLElement,
   maxBodyPx: number,
 ): SectionChildGroup[] {
-  const children = Array.from(section.children).filter(
-    (node): node is HTMLElement => node instanceof HTMLElement,
-  );
-  if (children.length <= 1) return [];
+  const children = sectionChildren(section);
+  if (children.length === 0) return [];
 
   const groups: SectionChildGroup[] = [];
   let groupStart = 0;
@@ -51,7 +120,7 @@ export function measureSectionChildGroups(
 
   const pushGroup = (start: number, end: number, cont: boolean, clipOnly = false) => {
     if (end < start) return;
-    const h = groupHeightInSection(section, start, end);
+    const h = groupHeightInSection(blockEl, section, children, start, end);
     groups.push({
       start,
       end,
@@ -64,9 +133,10 @@ export function measureSectionChildGroups(
 
   for (let i = 0; i < children.length; i += 1) {
     const child = children[i]!;
-    const childH = child.getBoundingClientRect().height;
+    const childH = childVisualSpan(blockEl, section, children, i);
 
     if (childH > maxBodyPx) {
+      const prefixHeight = groupHeight;
       if (groupHeight > 0) {
         pushGroup(groupStart, i - 1, isContinuation);
         isContinuation = true;
@@ -75,17 +145,26 @@ export function measureSectionChildGroups(
       }
       const childTop = childTopInBlock(blockEl, section, i);
       let yInChild = 0;
+      // Keep a section heading/intro group with the first slice of its large
+      // child.  Without this, the heading consumes a page by itself and the
+      // text starts on a visually disconnected continuation page.
+      let firstSliceCapacity =
+        prefixHeight > 0 ? Math.max(1, maxBodyPx - prefixHeight) : maxBodyPx;
       while (yInChild < childH - 0.5) {
-        const sliceH = Math.min(maxBodyPx, childH - yInChild);
+        const sliceH = Math.min(firstSliceCapacity, childH - yInChild);
         groups.push({
           start: i,
           end: i,
           height: sliceH,
           yOffsetInBlock: childTop + yInChild,
-          continuation: isContinuation || yInChild > 0,
+          // The first visible slice remains the live editor.  Only later
+          // continuation slices are display-only replicas, so a long custom
+          // section can still be edited from the page where its body begins.
+          continuation: yInChild > 0,
           clipOnly: true,
         });
-        yInChild += maxBodyPx;
+        yInChild += sliceH;
+        firstSliceCapacity = maxBodyPx;
         isContinuation = true;
       }
       groupStart = i + 1;
@@ -105,13 +184,14 @@ export function measureSectionChildGroups(
   }
 
   if (groupHeight > 0) pushGroup(groupStart, children.length - 1, isContinuation);
-  return groups.length > 1 ? groups : [];
+  return groups;
 }
 
 export function packFlowSegments(
   segments: FlowSegment[],
   maxBodyPx: number,
   forceBreakAfterBlock: ReadonlySet<number> = new Set(),
+  breakBeforeKeys: ReadonlySet<string> = new Set(),
 ): number[][] {
   if (segments.length === 0) return [[]];
 
@@ -130,6 +210,8 @@ export function packFlowSegments(
   for (let si = 0; si < segments.length; si += 1) {
     const seg = segments[si]!;
     const h = Math.max(1, seg.height);
+
+    if (breakBeforeKeys.has(segmentPackKey(seg)) && page.length > 0) flush();
 
     if (h > maxBodyPx) {
       flush();

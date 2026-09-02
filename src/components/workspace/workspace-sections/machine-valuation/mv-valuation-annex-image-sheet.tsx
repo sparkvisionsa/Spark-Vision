@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store";
 import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
 import type { MvReportPageOrientation } from "./mv-report-page-shell";
-import { MvReportPageShell } from "./mv-report-page-shell";
+import { ReportFlowPages } from "./mv-report-section-group";
 import { useReportViewportScale } from "./mv-report-viewport-scale";
 import { useMvI18n } from "./mv-i18n";
 type Approach = { id: string; label: string };
@@ -52,6 +52,7 @@ export function MvValuationAnnexImageSheet({
   image,
   vIdx,
   companyName,
+  commercialRegistration,
   logoSrc,
   footerLines,
   valuationImageWidth,
@@ -62,7 +63,6 @@ export function MvValuationAnnexImageSheet({
   forcedOrientation,
   onOrientationChange,
   onDelete,
-  insertedBlocksNode,
   titleNode,
 }: {
   projectId: string;
@@ -70,6 +70,7 @@ export function MvValuationAnnexImageSheet({
   image: MvValuationAccountingImage;
   vIdx: number;
   companyName: string;
+  commercialRegistration?: string;
   logoSrc: string | null;
   footerLines: string[];
   valuationImageWidth: number;
@@ -80,7 +81,6 @@ export function MvValuationAnnexImageSheet({
   forcedOrientation?: MvReportPageOrientation;
   onOrientationChange?: (orientation: MvReportPageOrientation) => void;
   onDelete?: () => void;
-  insertedBlocksNode?: ReactNode;
   titleNode?: ReactNode;
 }) {
   const { t, dir } = useMvI18n();
@@ -111,13 +111,15 @@ export function MvValuationAnnexImageSheet({
   };
 
   return (
-    <MvReportPageShell
-      variant="interior"
+    <ReportFlowPages
       orientation={orientation}
-      companyName={companyName}
-      logoSrc={logoSrc}
-      footerLines={footerLines}
-      draftWatermark={draftWatermark}
+      shellProps={{
+        companyName,
+        commercialRegistration,
+        logoSrc,
+        footerLines,
+        draftWatermark,
+      }}
     >
       <AnnexSectionShell
         id={vIdx === 0 ? "mv-annex-1" : `mv-annex-1-${vIdx}`}
@@ -155,7 +157,10 @@ export function MvValuationAnnexImageSheet({
           </div>
         }
       >
-        <figure className="flex min-h-[132mm] w-full items-start justify-center rounded-xl bg-white p-1 ring-1 ring-[#0C447C]/12">
+        <figure
+          className="flex w-full items-start justify-center rounded-xl bg-white p-1 ring-1 ring-[#0C447C]/12"
+          style={{ minHeight: orientation === "landscape" ? "118mm" : "154mm" }}
+        >
           <div
             className="flex w-full items-start justify-center"
             data-mv-annex-hq-wrap={previewSharpness > 1 ? "1" : undefined}
@@ -176,7 +181,11 @@ export function MvValuationAnnexImageSheet({
               className="object-contain"
               style={{
                 width: `${displayWidth}%`,
-                maxHeight: orientation === "landscape" ? "158mm" : "245mm",
+                // Keep room for the annex title, A4 header/footer and the
+                // physical page margins.  A taller image is scaled to fit;
+                // it is never allowed to run behind the footer or be cut in
+                // the PDF capture.
+                maxHeight: orientation === "landscape" ? "144mm" : "214mm",
                 height: "auto",
                 borderRadius: imageCornerRadius,
                 filter: imageShadowFilter,
@@ -187,8 +196,8 @@ export function MvValuationAnnexImageSheet({
               onLoad={onImgLoad}
             />
           </div>
-        </figure>        {insertedBlocksNode}
+        </figure>
       </AnnexSectionShell>
-    </MvReportPageShell>
+    </ReportFlowPages>
   );
 }
