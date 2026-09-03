@@ -1490,16 +1490,16 @@ export function MvValuationReportDocumentBody({
   const renderIdentityFooter = (tone: "cover" | "interior") => {
     const isCover = tone === "cover";
     const kickerClass = isCover
-      ? "text-[8px] font-extrabold text-[#e4c56a]"
-      : "text-[6.5px] font-extrabold text-[#6d8499]";
+      ? "text-[6.5px] font-extrabold leading-none text-[#e4c56a]"
+      : "text-[6px] font-extrabold leading-none text-[#6d8499]";
     const primaryClass = isCover
-      ? "min-w-0 break-words text-[12px] font-black leading-[1.3] text-white"
-      : "min-w-0 break-words text-[8.5px] font-black leading-[1.25] text-[#071929]";
+      ? "min-w-0 break-words text-[10px] font-black leading-[1.2] text-white"
+      : "min-w-0 break-words text-[8px] font-black leading-[1.2] text-[#071929]";
     const secondaryClass = isCover
-      ? "min-w-0 break-words text-[10px] font-semibold leading-snug text-white/85"
-      : "min-w-0 break-words text-[7.5px] font-semibold leading-snug text-[#3d556b]";
+      ? "min-w-0 break-words text-[7px] font-semibold leading-[1.15] text-white/80"
+      : "min-w-0 break-words text-[6.5px] font-semibold leading-[1.15] text-[#3d556b]";
     const colClass = cn(
-      "flex min-h-0 min-w-0 flex-col justify-center gap-0.5 px-2.5 text-right",
+      "flex min-h-0 min-w-0 flex-col justify-center gap-0.5 px-[2mm] text-right",
       "[&:not(:first-child)]:border-s",
       isCover ? "border-[#c9a227]/40" : "border-[#0C447C]/14",
     );
@@ -1527,7 +1527,7 @@ export function MvValuationReportDocumentBody({
         value={value}
         onChange={onChange}
         className={cn(
-          "inline min-w-0 px-0 py-0",
+          "block min-w-0 px-0 py-0",
           isCover && "focus:bg-white/10 focus:ring-[#c9a227]/35",
           className,
         )}
@@ -1540,12 +1540,12 @@ export function MvValuationReportDocumentBody({
     const metaLine = (label: string, value: ReactNode) => (
       <div className={cn("flex min-w-0 items-baseline gap-x-1", secondaryClass)}>
         <span className="shrink-0">{label}</span>
-        <span className="min-w-0 break-words">{value}</span>
+        <div className="min-w-0 flex-1 break-words">{value}</div>
       </div>
     );
 
     return (
-      <div className="grid h-full w-full min-w-0 grid-cols-3 overflow-hidden" dir="rtl">
+      <div className="grid h-full w-full min-w-0 grid-cols-4" dir="rtl">
         <section className={colClass}>
           {kicker("cover.companyName", "الشركة المقيمة")}
           <div className={primaryClass}>{companyName || "—"}</div>
@@ -1573,6 +1573,15 @@ export function MvValuationReportDocumentBody({
           )}
         </section>
         <section className={colClass}>
+          {kicker("cover.reportIssueDate", "تاريخ التقرير")}
+          {inlineValue(
+            reportIssueDateDisplay,
+            (value) => setTextOverride("reportIssueDateDisplay", value),
+            primaryClass,
+            "—",
+          )}
+        </section>
+        <section className={colClass}>
           {kicker("cover.reportReference", "الرقم المرجعي")}
           {inlineValue(
             referenceLabel,
@@ -1580,15 +1589,6 @@ export function MvValuationReportDocumentBody({
             cn(primaryClass, "[unicode-bidi:plaintext]"),
             "—",
             "ltr",
-          )}
-          {metaLine(
-            "تاريخ التقرير:",
-            inlineValue(
-              reportIssueDateDisplay,
-              (value) => setTextOverride("reportIssueDateDisplay", value),
-              secondaryClass,
-              "—",
-            ),
           )}
         </section>
       </div>

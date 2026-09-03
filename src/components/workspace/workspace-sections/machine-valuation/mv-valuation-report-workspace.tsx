@@ -152,6 +152,9 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
       min-height: 0 !important;
       overflow: hidden !important;
     }
+    [data-mv-report-footer] {
+      flex-shrink: 0 !important;
+    }
     [data-mv-report-sheet] * {
       -webkit-font-smoothing: antialiased !important;
     }
@@ -243,10 +246,12 @@ function assertReportSheetsFit(root: HTMLElement) {
 
   sheets.forEach((sheet, index) => {
     const body = sheet.querySelector<HTMLElement>("[data-mv-report-page-content]");
-    if (!body || body.clientHeight <= 0) return;
-    const overflowY = body.scrollHeight - body.clientHeight;
-    const overflowX = body.scrollWidth - body.clientWidth;
-    if (overflowY > 6 || overflowX > 6) {
+    const footer = sheet.querySelector<HTMLElement>("[data-mv-report-footer]");
+    const bodyOverflowY = body ? body.scrollHeight - body.clientHeight : 0;
+    const bodyOverflowX = body ? body.scrollWidth - body.clientWidth : 0;
+    const footerOverflowY = footer ? footer.scrollHeight - footer.clientHeight : 0;
+    const footerOverflowX = footer ? footer.scrollWidth - footer.clientWidth : 0;
+    if (bodyOverflowY > 6 || bodyOverflowX > 6 || footerOverflowY > 6 || footerOverflowX > 6) {
       overflowing.push(String(index + 1));
     }
   });

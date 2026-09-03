@@ -484,7 +484,7 @@ export function MvReportPageShell({
         ) : null}
         <div
           className={cn(
-            "relative z-[1] flex h-[297mm] flex-col",
+            "relative z-[1] flex h-[297mm] min-h-0 flex-col overflow-hidden",
             customCover ? "px-0 pb-0 pt-0" : "px-[4mm] pb-[7mm] pt-[9mm]",
           )}
           style={coverContentStyle}
@@ -494,10 +494,10 @@ export function MvReportPageShell({
             تخطيط الغلاف بنمط مستوحى من تقارير الجهات المهنية:
             • منطقة علوية (~45% من الارتفاع): لوجو الشركة + اسمها مركّزاً.
             • منطقة سفلية (~30%): محتوى ‎children‎ (عنوان التقرير + اسم العميل).
-            • شريط فوتر سفلي بثلاثة أعمدة (مخصّص عبر ‎coverFooterContent‎)
+            • شريط فوتر سفلي مضغوط بأربع خانات (مخصّص عبر ‎coverFooterContent‎)
               يحلّ محل ‎footerLines‎ الافتراضي عند تمريره.
           */}
-          <div className="flex flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {showCoverBrand ? (
               <div
                 className={cn(
@@ -566,15 +566,16 @@ export function MvReportPageShell({
             </div>
           </div>
           <footer
+            data-mv-report-footer
             className={cn(
-              "relative z-[1] mt-auto",
+              "relative z-[1] mt-auto shrink-0",
               coverFooterTextClass,
               footerImageSrc
                 ? "py-1 px-2 text-[9px] font-semibold leading-relaxed bg-transparent"
                 : coverFooterContent
                   ? isValueTechOfficial
-                    ? "border-t-2 border-[#c9a227] bg-[#031525]/92 px-3 py-2.5 text-white backdrop-blur-[2px]"
-                    : "border-t border-white/25 bg-black/25 px-3 py-2.5 text-white"
+                    ? "min-h-[11mm] border-t-2 border-[#c9a227] bg-[#031525]/92 px-[3mm] py-[1mm] text-white backdrop-blur-[2px]"
+                    : "min-h-[11mm] border-t border-white/25 bg-black/25 px-[3mm] py-[1mm] text-white"
                   : letterheadEnabled
                     ? "bg-transparent px-2 py-3 text-[9px] font-semibold leading-relaxed"
                     : darkCoverChrome
@@ -707,6 +708,7 @@ export function MvReportPageShell({
       </div>
 
       <footer
+        data-mv-report-footer
         className={cn(
           "relative z-[1] mt-auto shrink-0 overflow-hidden",
           customInteriorLetterhead
