@@ -9,9 +9,14 @@ function backendOriginForRewrite() {
 }
 
 // Keep a running `next dev` server from sharing (and occasionally corrupting)
-// the production build output. `next start` runs with NODE_ENV=production as
-// well, so it resolves the same directory produced by `next build`.
-const nextDistDir = process.env.NODE_ENV === "production" ? ".next-production" : ".next";
+// the local production build output. Vercel expects Next's conventional `.next`
+// directory while collecting deployment artifacts, so retain that default there.
+const nextDistDir =
+  process.env.VERCEL === "1"
+    ? ".next"
+    : process.env.NODE_ENV === "production"
+      ? ".next-production"
+      : ".next";
 
 const nextConfig: NextConfig = {
   distDir: nextDistDir,
