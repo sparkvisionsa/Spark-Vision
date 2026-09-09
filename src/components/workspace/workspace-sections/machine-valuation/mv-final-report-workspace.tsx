@@ -718,6 +718,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
           valuationImageUrls: [],
           clientImageUrls: [],
           alsoPdf: mode !== "file",
+          pdfOnly: mode !== "file",
           useStoredProjectState: true,
           imageLayout: buildMvWordImageLayout(project.reportData ?? {}),
         });
@@ -787,6 +788,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
           templateId: selectedPptxTemplateId,
           useStoredProjectState: true,
           alsoPdf: mode !== "file",
+          pdfOnly: mode !== "file",
           imageLayout: {
             assetImagesPerRow: normalizePptxImagesPerRow(
               project.reportData?.pptxAssetImagesPerRow,

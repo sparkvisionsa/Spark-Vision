@@ -12,6 +12,7 @@
     "lint": "next lint",
     "test:report-custom-fields": "node --import tsx --test tests/report-custom-fields.test.ts",
     "test:mv-nest-proxy": "node --import tsx --test tests/mv-nest-proxy.test.ts",
+    "test:mv-pdf-preview": "node --import tsx --test tests/mv-server-pdf-only.test.ts",
     "postinstall": "patch-package",
     "typecheck": "node -e \"const fs=require('fs'); fs.rmSync('tsconfig.tsbuildinfo',{force:true});\" && tsc --noEmit"
   },

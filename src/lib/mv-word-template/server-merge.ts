@@ -13,6 +13,8 @@ export type ServerWordMergeParams = {
   clientImageUrls?: string[];
   /** اطلب Word + PDF محوّل من نفس الملف (تنزيلان منفصلان، بدون ZIP) */
   alsoPdf?: boolean;
+  /** للمعاينة: أعد PDF فقط ولا تنقل ملف Word الكبير غير المستخدم. */
+  pdfOnly?: boolean;
   /** استخدم أحدث بيانات وصور محفوظة للمشروع مباشرة من الخادم. */
   useStoredProjectState?: boolean;
   imageLayout?: {
@@ -146,6 +148,7 @@ export async function mergeWordReportTemplateViaServer(
     imageLayout: params.imageLayout,
     assetImagesBase64: [],
     alsoPdf: params.alsoPdf === true,
+    pdfOnly: params.pdfOnly === true,
     useStoredProjectState,
   };
   // الوضع الافتراضي يقرأ أحدث نسخة من MongoDB لحظة الدمج، ولا يرسل كاش الصفحة.
@@ -185,6 +188,39 @@ export async function mergeWordReportTemplateViaServer(
   const pdfToken = response.headers.get("X-Word-Merge-Pdf-Token")?.trim() || "";
   const pdfErrorHeader = response.headers.get("X-Word-Merge-Pdf-Error");
   const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+  let headerPdfError: string | undefined;
+  if (pdfErrorHeader) {
+    try {
+      headerPdfError = decodeURIComponent(pdfErrorHeader);
+    } catch {
+      headerPdfError = pdfErrorHeader;
+    }
+  }
+
+  if (params.pdfOnly === true) {
+    const pdfBlob = await response.blob();
+    if (!contentType.includes("application/pdf")) {
+      throw new Error(
+        headerPdfError || "تعذر تحويل Word إلى PDF عبر Microsoft Office.",
+      );
+    }
+    return {
+      // لا يستخدم هذا الحقل في وضع المعاينة؛ إبقاؤه يحافظ على عقد الاستدعاءات القديمة.
+      blob: new Blob(),
+      pdfBlob,
+      pdfSource: "server",
+      mergeSource: "server",
+      mergeStats: {
+        variablesFilled: serverStats.variablesFilled,
+        variablesFound: serverStats.variablesFound,
+        assetImagesInserted: serverStats.assetImagesInserted,
+        valuationImagesInserted: serverStats.valuationImagesInserted,
+        clientImagesInserted: serverStats.clientImagesInserted,
+        warnings,
+      },
+    };
+  }
+
   const docxBlob = await response.blob();
 
   // رفض أي استجابة ZIP قديمة — ننزّل Word/PDF كملفين منفصلين فقط
@@ -194,15 +230,7 @@ export async function mergeWordReportTemplateViaServer(
 
   let pdfBlob: Blob | undefined;
   let pdfSource: "server" | "browser" | undefined;
-  let pdfError: string | undefined;
-
-  if (pdfErrorHeader) {
-    try {
-      pdfError = decodeURIComponent(pdfErrorHeader);
-    } catch {
-      pdfError = pdfErrorHeader;
-    }
-  }
+  let pdfError: string | undefined = headerPdfError;
 
   if (params.alsoPdf && pdfToken) {
     try {

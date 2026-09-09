@@ -11,6 +11,8 @@ export type ServerPptxMergeParams = {
   useStoredProjectState?: boolean;
   /** Request a PDF conversion of the merged PowerPoint. */
   alsoPdf?: boolean;
+  /** For preview: return the PDF itself instead of downloading the unused PPTX first. */
+  pdfOnly?: boolean;
   /** Optional current image layout for this merge. */
   imageLayout?: {
     assetImagesPerRow?: number;
@@ -82,6 +84,7 @@ export async function mergePptxReportTemplateViaServer(
     ...(params.templateId ? { templateId: params.templateId } : {}),
     useStoredProjectState: params.useStoredProjectState !== false,
     alsoPdf: params.alsoPdf === true,
+    pdfOnly: params.pdfOnly === true,
     imageLayout: params.imageLayout,
   };
 
@@ -105,19 +108,45 @@ export async function mergePptxReportTemplateViaServer(
 
   const pdfToken = response.headers.get("X-Pptx-Merge-Pdf-Token")?.trim() || "";
   const pdfErrorHeader = response.headers.get("X-Pptx-Merge-Pdf-Error");
+  const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+  let headerPdfError: string | undefined;
+  if (pdfErrorHeader) {
+    try {
+      headerPdfError = decodeURIComponent(pdfErrorHeader);
+    } catch {
+      headerPdfError = pdfErrorHeader;
+    }
+  }
+
+  if (params.pdfOnly === true) {
+    const pdfBlob = await response.blob();
+    if (!contentType.includes("application/pdf")) {
+      throw new Error(
+        headerPdfError || "تعذر تحويل PowerPoint إلى PDF عبر Microsoft Office.",
+      );
+    }
+    return {
+      blob: new Blob(),
+      pdfBlob,
+      pdfSource: "server",
+      mergeStats: {
+        variablesFound: Array.isArray(rawStats?.variablesFound)
+          ? rawStats.variablesFound.map(String)
+          : [],
+        variablesFilled: Number(rawStats?.variablesFilled ?? 0),
+        assetImagesInserted: Number(rawStats?.assetImagesInserted ?? 0),
+        assetImageMarkers: Number(rawStats?.assetImageMarkers ?? 0),
+        slidesAdded: Number(rawStats?.slidesAdded ?? 0),
+        warnings,
+      },
+    };
+  }
+
   const pptxBlob = await response.blob();
 
   let pdfBlob: Blob | undefined;
   let pdfSource: "server" | "browser" | undefined;
-  let pdfError: string | undefined;
-
-  if (pdfErrorHeader) {
-    try {
-      pdfError = decodeURIComponent(pdfErrorHeader);
-    } catch {
-      pdfError = pdfErrorHeader;
-    }
-  }
+  let pdfError: string | undefined = headerPdfError;
 
   if (params.alsoPdf && pdfToken) {
     try {
