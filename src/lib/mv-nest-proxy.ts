@@ -65,7 +65,6 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       "content-type",
       "content-disposition",
       "cache-control",
-      "content-length",
       "content-range",
       "accept-ranges",
       "location",
@@ -92,6 +91,8 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
       if (v) outHeaders.set(name, v);
     }
     if (!upstream.ok) {
+      const contentLength = upstream.headers.get("content-length");
+      if (contentLength) outHeaders.set("content-length", contentLength);
       const body = await upstream.arrayBuffer();
       return new NextResponse(body.byteLength > 0 ? body : null, {
         status: upstream.status,
@@ -99,6 +100,13 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
         headers: outHeaders,
       });
     }
+    // Keep generated Office/PDF documents as a real stream. In particular, do
+    // not forward Content-Length here: hosting platforms may otherwise buffer
+    // the entire response and reject reports larger than their function payload
+    // limit before the browser receives the first byte.
+    outHeaders.delete("content-length");
+    outHeaders.set("cache-control", "private, no-store, max-age=0");
+    outHeaders.set("x-accel-buffering", "no");
     // نوع ‎ReadableStream‎ في undici (‎stream/web‎) وDOM lib متطابقان بنيوياً وقت التشغيل
     // لكن من مصدرين مختلفين في تعريفات TypeScript — تحويل صريح آمن هنا.
     return new NextResponse(upstream.body as unknown as BodyInit | null, {

@@ -9,6 +9,11 @@ import { proxyMvPathToNest } from "@/lib/mv-nest-proxy";
  * لأن وجود مجلد ‎`projects/[pid]/`‎ قد يمنع الـ catch-all من مطابقة بعض العناوين.
  */
 export const runtime = "nodejs";
+// Word/PowerPoint assembly and Microsoft 365 conversion can take longer than
+// the platform default for image-heavy reports. This Route Handler streams the
+// file as soon as Nest responds, so it needs a matching execution allowance.
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 type RouteCtx = { params: Promise<{ path: string[] }> };
 
