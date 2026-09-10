@@ -18,8 +18,6 @@ import {
   Search,
   Settings,
   Users,
-  FileText,
-  Building,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LanguageContext } from "@/components/layout-provider";
@@ -64,7 +62,6 @@ const copy = {
     sidebarSignIn: "Sign in",
     sidebarRegister: "Register",
     sidebarOpenProfile: "Open profile",
-    sidebarReportSettings: "Report Settings",
     sidebarAccountMember: "Signed in",
     sidebarSectionTitle: "Value Tech Products",
     sidebarRealEstate: "Real Estate Valuation System",
@@ -76,7 +73,6 @@ const copy = {
     sidebarAssetInspection: "Asset Inspection System",
     sidebarClients: "Clients",
     sidebarSettings: "Settings",
-    sidebarCompany: "Company Directory",
     backToProducts: "Back to Products",
   },
   ar: {
@@ -86,7 +82,6 @@ const copy = {
     sidebarRegister: "إنشاء حساب",
     sidebarOpenProfile: "الملف الشخصي",
     sidebarAccountMember: "مسجّل الدخول",
-    sidebarReportSettings: "إعدادات التقرير",
     sidebarSectionTitle: "منتجات فاليو تك",
     sidebarRealEstate: "نظام تقييم العقارات",
     sidebarMachines: "نظام تقييم الآلات",
@@ -97,7 +92,6 @@ const copy = {
     sidebarTransactions: "المعاملات",
     sidebarClients: "العملاء",
     sidebarSettings: "الإعدادات",
-    sidebarCompany: "دليل الشركة",
     backToProducts: "العودة إلى المنتجات",
   },
 } as const;
@@ -112,8 +106,6 @@ const VALUE_TECH_SIDEBAR_ROUTES = [
   "/evaluation-source",
   "/clients",
   "/settings",
-  "/real-estate-valuation/report-settings",
-  "/company",
 ] as const;
 
 type ValueTechCopy = (typeof copy)["en"] | (typeof copy)["ar"];
@@ -682,37 +674,6 @@ export default function ValueTechShell({
                         <Settings className="h-4 w-4 text-slate-600" />
                         <span className={dark ? undefined : "text-black"}>
                           {t.sidebarSettings}
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive("/real-estate-valuation/report-settings")}
-                      className={
-                        isActive("/real-estate-valuation/report-settings") ? activeClass : idleClass
-                      }
-                    >
-                      <Link href="/real-estate-valuation/report-settings" className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-emerald-600" />
-                        <span className={dark ? undefined : "text-black"}>
-                          {t.sidebarReportSettings}
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  {/* Company link added here explicitly alongside Clients and Settings */}
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive("/company")}
-                      className={isActive("/company") ? activeClass : idleClass}
-                    >
-                      <Link href="/company" className="flex items-center gap-2">
-                        <Building className="h-4 w-4 text-blue-600" />
-                        <span className={dark ? undefined : "text-black"}>
-                          {t.sidebarCompany}
                         </span>
                       </Link>
                     </SidebarMenuButton>

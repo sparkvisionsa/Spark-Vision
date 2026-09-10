@@ -2250,10 +2250,10 @@ export function TransactionEvaluationPage({
           setEv(buildEvFromTxData(data));
           setIsDirty(true);
           setShowCopyModal(false);
-          setStatusMsg({
-            type: "ok",
-            text: lang === "ar" ? "تم نسخ البيانات بنجاح" : "Data copied successfully",
-          });
+          showStatusMsg(
+                      "ok",
+                      lang === "ar" ? "تم نسخ البيانات بنجاح" : "Data copied successfully",
+                    );
         })
         .catch(() =>
           setCopyError(lang === "ar" ? "فشل نسخ البيانات" : "Failed to copy data"),
@@ -2281,6 +2281,31 @@ export function TransactionEvaluationPage({
 
   const [isDirty, setIsDirty] = useState(false);
   const skipNextDirtyMark = useRef(true); // true while we're loading/hydrating ev programmatically
+
+  const statusMsgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showStatusMsg = useCallback(
+    (type: "ok" | "error" | "info", text: string, autoHide = true) => {
+      if (statusMsgTimeoutRef.current) {
+        clearTimeout(statusMsgTimeoutRef.current);
+        statusMsgTimeoutRef.current = null;
+      }
+      setStatusMsg({ type, text });
+      if (autoHide) {
+        statusMsgTimeoutRef.current = setTimeout(() => {
+          setStatusMsg({ type: "ok", text: "" });
+          statusMsgTimeoutRef.current = null;
+        }, 3500);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (statusMsgTimeoutRef.current) clearTimeout(statusMsgTimeoutRef.current);
+    };
+  }, []);
 
   // ── Investment entry helpers ──────────────────────────────────────────────────
 
@@ -2818,39 +2843,24 @@ export function TransactionEvaluationPage({
 
 
         useEffect(() => {
-          fetch(toApiUrl("/api/company/users"), {
-            credentials: "include",
-            cache: "no-store",
-          })
+          fetch(
+            toApiUrl("/api/company/report-defaults?productId=real-estate-valuation"),
+            { credentials: "include", cache: "no-store" },
+          )
             .then((r) => (r.ok ? r.json() : null))
             .then((data) => {
               if (!data) return;
-              const users = Array.isArray(data.users) ? data.users : [];
-              const reportOnly = Array.isArray(data.reportOnlySignatories)
-                ? data.reportOnlySignatories.filter((r: any) =>
-                    Array.isArray(r.productIds) &&
-                    r.productIds.includes("real-estate-valuation"),
-                  )
+              const rows = Array.isArray(data.reportSignatoryRows)
+                ? data.reportSignatoryRows
                 : [];
 
-              const opts: CompanySignatoryOption[] = [
-                ...users
-                  .filter((u: any) => u.valuationReportDisplayName)
-                  .map((u: any) => ({
-                    id: u.id,
-                    name: u.valuationReportDisplayName as string,
-                    jobTitle: (u.valuationReportJobTitle as string) ?? "",
-                    membershipNo: (u.valuationReportMembershipNo as string) ?? "",
-                    source: "user" as const,
-                  })),
-                ...reportOnly.map((r: any) => ({
-                  id: r.id,
-                  name: r.name as string,
-                  jobTitle: (r.jobTitle as string) ?? "",
-                  membershipNo: (r.membershipNo as string) ?? "",
-                  source: "reportOnly" as const,
-                })),
-              ];
+              const opts: CompanySignatoryOption[] = rows.map((r: any) => ({
+                id: r.id,
+                name: r.name as string,
+                jobTitle: (r.jobTitle as string) ?? "",
+                membershipNo: (r.membershipNo as string) ?? "",
+                source: r.isReportOnly ? ("reportOnly" as const) : ("user" as const),
+              }));
 
               setSignatories(opts);
             })
@@ -2886,7 +2896,7 @@ export function TransactionEvaluationPage({
   }, [isDirty]);
   const handleSave = async () => {
     setSaving(true);
-    setStatusMsg({ type: "info", text: t.saving });
+    showStatusMsg("info", t.saving, false);
     try {
       const evalData = {
         status: ev.status,
@@ -2937,10 +2947,10 @@ export function TransactionEvaluationPage({
       const updated = await res.json();
       setTx(updated);
       setIsDirty(false);
-      setStatusMsg({ type: "ok", text: t.savedOk });
+      showStatusMsg("ok", t.savedOk);
       onStatusSaved?.();
     } catch {
-      setStatusMsg({ type: "error", text: t.saveError });
+      showStatusMsg("error", t.saveError);
     } finally {
       setSaving(false);
     }
