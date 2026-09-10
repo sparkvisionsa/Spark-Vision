@@ -10,6 +10,7 @@ export type MvWordMergeStats = {
   assetImagesInserted: number;
   valuationImagesInserted: number;
   clientImagesInserted: number;
+  certificateImagesInserted: number;
   warnings: string[];
 };
 
@@ -31,6 +32,7 @@ export async function mergeWordReportTemplateSmart(params: {
   assetImageUrls: string[];
   valuationImageUrls: string[];
   clientImageUrls?: string[];
+  certificateImageUrls?: string[];
   alsoPdf?: boolean;
   useStoredProjectState?: boolean;
   imageLayout?: {
@@ -47,6 +49,7 @@ export async function mergeWordReportTemplateSmart(params: {
     assetImageUrls: params.assetImageUrls,
     valuationImageUrls: params.valuationImageUrls,
     clientImageUrls: params.clientImageUrls,
+    certificateImageUrls: params.certificateImageUrls,
     alsoPdf: params.alsoPdf === true,
     useStoredProjectState: params.useStoredProjectState,
     imageLayout: params.imageLayout,

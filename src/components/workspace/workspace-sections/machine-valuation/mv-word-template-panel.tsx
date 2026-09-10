@@ -46,6 +46,7 @@ export interface MvWordTemplatePanelProps {
   assetImageSources: MvWordTemplateImageSource[];
   valuationImageSources: MvWordTemplateImageSource[];
   clientImageSources?: MvWordTemplateImageSource[];
+  certificateImageSources?: MvWordTemplateImageSource[];
   onReportDataPatch: (patch: Partial<MvProjectReportData>) => void;
   onBeforeMerge?: () => Promise<void>;
   /**
@@ -176,6 +177,7 @@ export function MvWordTemplatePanel({
   assetImageSources,
   valuationImageSources,
   clientImageSources = [],
+  certificateImageSources = [],
   onReportDataPatch,
   onBeforeMerge,
   templateAvailability = "unknown",
@@ -206,7 +208,7 @@ export function MvWordTemplatePanel({
       ? companyTemplateFileName.trim()
       : t("report.wordTemplate.companyTemplate");
   const mergeImageCount =
-    assetImageSources.length + valuationImageSources.length + clientImageSources.length;
+    assetImageSources.length + valuationImageSources.length + clientImageSources.length + certificateImageSources.length;
   const mergeStartedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -301,6 +303,7 @@ export function MvWordTemplatePanel({
           assetImageSources,
           valuationImageSources,
           clientImageSources,
+          certificateImageSources,
           loadImages: false,
         });
 
@@ -312,6 +315,7 @@ export function MvWordTemplatePanel({
           assetImageUrls: assetImageSources.map((s) => s.url),
           valuationImageUrls: valuationImageSources.map((s) => s.url),
           clientImageUrls: clientImageSources.map((s) => s.url),
+          certificateImageUrls: certificateImageSources.map((s) => s.url),
           alsoPdf: false,
           useStoredProjectState: true,
           imageLayout,
@@ -330,7 +334,8 @@ export function MvWordTemplatePanel({
           mergeStats.variablesFilled > 0 ||
           mergeStats.assetImagesInserted > 0 ||
           mergeStats.valuationImagesInserted > 0 ||
-          mergeStats.clientImagesInserted > 0;
+          mergeStats.clientImagesInserted > 0 ||
+          mergeStats.certificateImagesInserted > 0;
 
         if (mergeStats.warnings.length > 0) {
           const warningDetail = mergeStats.warnings.join(" ");
@@ -395,6 +400,7 @@ export function MvWordTemplatePanel({
     [
       assetImageSources,
       clientImageSources,
+      certificateImageSources,
       displayNumber,
       imageLayout,
       onBeforeMerge,

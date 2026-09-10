@@ -31,7 +31,7 @@ export type CompanyReportTemplateVariableMappingForm = {
   id: string;
   /** The raw placeholder text, without << >> or « ». */
   variable: string;
-  /** A server-side catalogue field id, `static`, or `images.asset` / `images.valuation` / `images.client`. */
+  /** A server-side catalogue field id, `static`, or one of the report image sources. */
   sourceKey: string;
   staticValue?: string;
 };
@@ -123,6 +123,7 @@ export const REPORT_TEMPLATE_SOURCE_OPTIONS: TemplateSourceOption[] = [
   { value: "images.asset", label: "صور الأصول", group: "image" },
   { value: "images.valuation", label: "صور حسابات القيمة", group: "image" },
   { value: "images.client", label: "صور ملفات العميل", group: "image" },
+  { value: "images.certificate", label: "صور شهادة نظام الهيئة (قيمة)", group: "image" },
   { value: "field", label: "حقل مخصص من بيانات التقرير", group: "other" },
   { value: "static", label: "قيمة ثابتة يكتبها المستخدم", group: "other" },
 ];
@@ -158,6 +159,10 @@ const DEFAULT_BINDINGS: Record<string, string> = {
   "صورملفاتالعميل": "images.client",
   "clientImages": "images.client",
   "clientDocuments": "images.client",
+  "صور_شهادة_قيمة": "images.certificate",
+  "صور_شهادة_النظام": "images.certificate",
+  "sceCertificateImages": "images.certificate",
+  "certificateImages": "images.certificate",
 };
 
 function normalizeVariable(value: string): string {
@@ -945,6 +950,8 @@ export function CompanyReportDocumentTemplateDashboard({
                                       ? "صور حسابات القيمة"
                                       : chosenSource === "images.client"
                                         ? "صور ملفات العميل"
+                                        : chosenSource === "images.certificate"
+                                          ? "صور شهادة نظام الهيئة (قيمة)"
                                         : chosenSource
                                           ? "تلقائي من النظام"
                                           : "—"}

@@ -11,6 +11,7 @@ export type ServerWordMergeParams = {
   assetImageUrls: string[];
   valuationImageUrls: string[];
   clientImageUrls?: string[];
+  certificateImageUrls?: string[];
   /** اطلب Word + PDF محوّل من نفس الملف (تنزيلان منفصلان، بدون ZIP) */
   alsoPdf?: boolean;
   /** للمعاينة: أعد PDF فقط ولا تنقل ملف Word الكبير غير المستخدم. */
@@ -57,6 +58,10 @@ function parseMergeStats(response: Response, params: ServerWordMergeParams): {
       params.clientImageUrls?.length ?? 0,
       params.mergeInput.clientImages.length,
     ),
+    certificateImagesInserted: Math.max(
+      params.certificateImageUrls?.length ?? 0,
+      params.mergeInput.certificateImages?.length ?? 0,
+    ),
     variablesFound: [],
   };
   if (statsHeader) {
@@ -67,6 +72,7 @@ function parseMergeStats(response: Response, params: ServerWordMergeParams): {
         assetImagesInserted?: unknown;
         valuationImagesInserted?: unknown;
         clientImagesInserted?: unknown;
+        certificateImagesInserted?: unknown;
       };
       serverStats = {
         variablesFilled: Number(parsed.variablesFilled ?? 0),
@@ -76,6 +82,9 @@ function parseMergeStats(response: Response, params: ServerWordMergeParams): {
         ),
         clientImagesInserted: Number(
           parsed.clientImagesInserted ?? serverStats.clientImagesInserted,
+        ),
+        certificateImagesInserted: Number(
+          parsed.certificateImagesInserted ?? serverStats.certificateImagesInserted,
         ),
         variablesFound: Array.isArray(parsed.variablesFound)
           ? parsed.variablesFound.map(String)
@@ -136,10 +145,14 @@ export async function mergeWordReportTemplateViaServer(
   const assetImageUrls = compactUrlList(params.assetImageUrls);
   const valuationImageUrls = compactUrlList(params.valuationImageUrls);
   const clientImageUrls = compactUrlList(params.clientImageUrls);
+  const certificateImageUrls = compactUrlList(params.certificateImageUrls);
   const valuationImagesBase64 = params.mergeInput.valuationImages.map((item) =>
     arrayBufferToBase64(item.image),
   );
   const clientImagesBase64 = params.mergeInput.clientImages.map((item) =>
+    arrayBufferToBase64(item.image),
+  );
+  const certificateImagesBase64 = (params.mergeInput.certificateImages ?? []).map((item) =>
     arrayBufferToBase64(item.image),
   );
 
@@ -159,6 +172,8 @@ export async function mergeWordReportTemplateViaServer(
     if (valuationImageUrls.length > 0) body.valuationImageUrls = valuationImageUrls;
     if (clientImageUrls.length > 0) body.clientImageUrls = clientImageUrls;
     if (clientImagesBase64.length > 0) body.clientImagesBase64 = clientImagesBase64;
+    if (certificateImageUrls.length > 0) body.certificateImageUrls = certificateImageUrls;
+    if (certificateImagesBase64.length > 0) body.certificateImagesBase64 = certificateImagesBase64;
   }
 
   const response = await fetch(
@@ -216,6 +231,7 @@ export async function mergeWordReportTemplateViaServer(
         assetImagesInserted: serverStats.assetImagesInserted,
         valuationImagesInserted: serverStats.valuationImagesInserted,
         clientImagesInserted: serverStats.clientImagesInserted,
+        certificateImagesInserted: serverStats.certificateImagesInserted,
         warnings,
       },
     };
@@ -262,6 +278,7 @@ export async function mergeWordReportTemplateViaServer(
       assetImagesInserted: serverStats.assetImagesInserted,
       valuationImagesInserted: serverStats.valuationImagesInserted,
       clientImagesInserted: serverStats.clientImagesInserted,
+      certificateImagesInserted: serverStats.certificateImagesInserted,
       warnings,
     },
   };

@@ -68,12 +68,18 @@ import {
 } from "@/components/company-report-document-template-dashboard";
 import { CompanyAssetDescriptionsDashboard } from "@/components/company-asset-descriptions-dashboard";
 import { CompanyReportDataModelDashboard } from "@/components/company-report-data-model-dashboard";
+import { CompanyReportSectionModelDashboard } from "@/components/company-report-section-model-dashboard";
 import { MvReportPageShell } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-page-shell";
 import {
   createDefaultReportDataModel,
   normalizeReportDataModels,
   type MvReportDataModel,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
+import {
+  createDefaultReportSectionModel,
+  normalizeReportSectionModels,
+} from "@/components/workspace/workspace-sections/machine-valuation/mv-report-section-models";
+import type { MvCompanyReportSectionModel } from "@/components/workspace/workspace-sections/machine-valuation/types";
 import {
   Building2,
   CheckCircle2,
@@ -239,6 +245,7 @@ type CompanyReportDefaultsForm = {
   customGroups: CompanyReportCustomGroupForm[];
   customSections: CompanyReportCustomSectionForm[];
   reportDataModels: MvReportDataModel[];
+  reportSectionModels: MvCompanyReportSectionModel[];
   letterhead: CompanyReportLetterheadForm;
   aiTemplates: CompanyAiTemplateForm[];
   wordTemplates: CompanyReportWordTemplateForm[];
@@ -468,6 +475,7 @@ function emptyReportDefaults(): CompanyReportDefaultsForm {
     customGroups: [],
     customSections: [],
     reportDataModels: [createDefaultReportDataModel()],
+    reportSectionModels: [createDefaultReportSectionModel()],
     letterhead: emptyReportLetterhead(),
     aiTemplates: [],
     wordTemplates: [],
@@ -884,6 +892,9 @@ function normalizeReportDefaults(
     customGroups,
     customSections,
     reportDataModels: normalizeReportDataModels((raw as { reportDataModels?: unknown }).reportDataModels),
+    reportSectionModels: normalizeReportSectionModels(
+      (raw as { reportSectionModels?: unknown }).reportSectionModels,
+    ),
     letterhead: {
       enabled: letterheadRaw.enabled === true,
       templateId:
@@ -4570,7 +4581,19 @@ export default function CompanyAdminDashboard({
                   </TabsContent>
 
                   <TabsContent value="report-sections" className="m-0 outline-none">
-                    {reportSectionsEditor}
+                    <CompanyReportSectionModelDashboard
+                      models={reportDefaults.reportSectionModels}
+                      loading={!reportDefaultsLoaded}
+                      saving={reportDefaultsSaving}
+                      dirty={reportDefaultsDirty}
+                      onChange={(models) => {
+                        setReportDefaults((current) => ({
+                          ...current,
+                          reportSectionModels: normalizeReportSectionModels(models),
+                        }));
+                        setReportDefaultsDirty(true);
+                      }}
+                    />
                   </TabsContent>
                 </Tabs>
               )}

@@ -6,7 +6,9 @@ import {
   AlertTriangle,
   Box,
   CheckSquare,
+  ChevronDown,
   Clock,
+  Database,
   Download,
   FileDown,
   FileSpreadsheet,
@@ -54,6 +56,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
@@ -64,12 +67,13 @@ import {
 } from "./asset-import-panel";
 import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
+import { MvAssetDataTableModal } from "./mv-asset-data-table-modal";
 import {
   MvReportImagesSelectModal,
   type MvReportSelectAssetSection,
   type MvReportSelectUpdate,
 } from "./mv-report-images-select-modal";
-import { MvProjectReportHeader } from "./mv-simple-report-navigation";
+import { MvProjectReportHeader, MvSimpleReportStepNavigation } from "./mv-simple-report-navigation";
 import type { MvDriveFile, MvProject, MvProjectReportData, MvSubProject, PicAsset, PicAssetImage } from "./types"
 import {
   MV_WORKFLOW_SESSION,
@@ -1593,6 +1597,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [includeAssetImagesInReport, setIncludeAssetImagesInReport] = useState(true);
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
   const [creatingReportImagesPdf, setCreatingReportImagesPdf] = useState(false);
+  const [assetDataOpen, setAssetDataOpen] = useState(false);
   const reportSelectionPendingRef = useRef(0);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
   const [emptyReportSelectionWarningOpen, setEmptyReportSelectionWarningOpen] = useState(false);
@@ -6021,13 +6026,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const bulkActionsDropdown = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
+        <Button
           type="button"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+          variant="outline"
+          size="sm"
+          className="order-7 h-8 gap-1.5 border-slate-200 bg-white px-2.5 text-[11px] font-extrabold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 max-sm:flex-1 max-sm:justify-center"
           aria-label={t("assetImages.actions.bulkMenu")}
         >
-          <MoreVertical className="h-4 w-4" />
-        </button>
+          <MoreVertical className="h-3.5 w-3.5" />
+          {t("assetImages.actions.bulkMenu")}
+        </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52 text-right">
         <DropdownMenuItem
@@ -6041,25 +6049,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           {t("assetImages.actions.refresh")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => assetDownloadButtonRef.current?.click()}
-          className="cursor-pointer text-[12px]"
-        >
-          <Download className="h-4 w-4 text-emerald-700" />
-          {t("assetImages.actions.download")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void downloadSelectedReportImagesAsPdf()}
-          disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
-          className="cursor-pointer text-[12px]"
-        >
-          {creatingReportImagesPdf ? (
-            <Loader2 className="h-4 w-4 animate-spin text-rose-700" />
-          ) : (
-            <FileDown className="h-4 w-4 text-rose-700" />
-          )}
-          {t("assetImages.actions.downloadReportImagesPdf")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={deleteSelectedItems}
@@ -6163,7 +6152,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       </MvAssetImagesDownloadButton>
 
       <MvWorkflowPageScrollBody>
-      <div className="mx-auto max-w-7xl px-3 pt-1 pb-2 sm:px-5">
+      <div className="w-full px-2 py-2 sm:px-3">
           {assetImageListProgress.active || assetImageListProgress.partial ? (
             <div className="mt-1 mb-2 overflow-hidden rounded-lg border border-sky-100 bg-white shadow-sm" role="status" aria-live="polite">
               <div className="h-1 bg-sky-50">
@@ -6248,75 +6237,116 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   )}
                   dir={dir}
                 >
-                  <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto" dir={dir}>
-                    <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 xl:flex-nowrap" dir={dir}>
+                    <div className="contents">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-9 shrink-0 gap-2 border-emerald-200 bg-white px-3 text-[12px] font-extrabold text-emerald-900 hover:bg-emerald-50"
-                        onClick={() => setAssetImageFoldersModalOpen(true)}
+                        className="order-4 h-8 gap-1.5 border-sky-200 bg-white px-2.5 text-[11px] font-extrabold text-sky-800 hover:border-sky-300 hover:bg-sky-50 max-sm:flex-1 max-sm:justify-center"
+                        onClick={() => setAssetDataOpen(true)}
                       >
-                        <FileSpreadsheet className="h-4 w-4 shrink-0" />
-                        {t("assetImages.actions.createFolders")}
+                        <Database className="h-3.5 w-3.5 shrink-0" />
+                        {t("navigation.projectFolders.assetData")}
                       </Button>
-
-                      {activeCreateParentId ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={creatingPreviewFolder}
-                              className="h-9 shrink-0 gap-2 border-emerald-200 bg-white px-3 text-[12px] font-bold text-slate-800 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-40"
-                            >
-                              {creatingPreviewFolder ? (
-                                <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                              ) : (
-                                <FolderPlus className="h-4 w-4 text-emerald-600" />
-                              )}
-                              {t("assetImages.actions.create")}
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-52 text-right">
-                            <DropdownMenuItem
-                              disabled={creatingPreviewFolder}
-                              onSelect={(event) => {
-                                event.preventDefault();
-                                createFolderInActiveLocation();
-                              }}
-                              className="cursor-pointer text-[12px]"
-                            >
-                              <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
-                                <FolderPlus className="h-4 w-4" />
-                              </span>
-                              {t("assetImages.actions.regularFolder")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              disabled={creatingPreviewFolder}
-                              onSelect={(event) => {
-                                event.preventDefault();
-                                createAssetInActiveLocation();
-                              }}
-                              className="cursor-pointer text-[12px]"
-                            >
-                              <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
-                                <PackagePlus className="h-4 w-4" />
-                              </span>
-                              {t("assetImages.actions.assetFolder")}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : null}
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
-                            className="h-9 shrink-0 rounded-lg bg-[#0C447C] px-3 text-[12px] font-extrabold text-white hover:bg-[#0a3a66] sm:px-4"
+                            variant="outline"
+                            size="sm"
+                            className="order-5 h-8 gap-1.5 border-emerald-200 bg-white px-2.5 text-[11px] font-extrabold text-emerald-800 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 max-sm:flex-1 max-sm:justify-center"
+                            aria-label={t("assetImages.actions.download")}
                           >
-                            <Upload className="me-2 h-3.5 w-3.5 shrink-0" />
+                            <Download className="h-3.5 w-3.5 shrink-0" />
+                            {t("assetImages.actions.download")}
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-60 text-right">
+                          <DropdownMenuItem
+                            onSelect={() => assetDownloadButtonRef.current?.click()}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <Download className="h-4 w-4 text-emerald-700" />
+                            {t("assetImages.actions.downloadImagesZip")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => void downloadSelectedReportImagesAsPdf()}
+                            disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            {creatingReportImagesPdf ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-sky-700" />
+                            ) : (
+                              <FileDown className="h-4 w-4 text-sky-700" />
+                            )}
+                            {creatingReportImagesPdf
+                              ? t("assetImages.pdf.preparing")
+                              : t("assetImages.actions.downloadReportImagesPdf")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="order-1 h-8 gap-1.5 border-emerald-200 bg-white px-2.5 text-[11px] font-extrabold text-emerald-900 shadow-sm hover:border-emerald-400 hover:bg-emerald-50 max-sm:flex-1 max-sm:justify-center"
+                          >
+                            {creatingPreviewFolder ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-600" />
+                            ) : (
+                              <FolderPlus className="h-3.5 w-3.5 text-emerald-600" />
+                            )}
+                            {t("assetImages.actions.create")}
+                            <ChevronDown className="h-3.5 w-3.5 text-emerald-600" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-64 text-right">
+                          <DropdownMenuItem
+                            disabled={creatingPreviewFolder || !activeCreateParentId}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              createFolderInActiveLocation();
+                            }}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <FolderPlus className="h-4 w-4 text-emerald-700" />
+                            {t("assetImages.actions.regularFolder")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={creatingPreviewFolder || !activeCreateParentId}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              createAssetInActiveLocation();
+                            }}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <PackagePlus className="h-4 w-4 text-emerald-700" />
+                            {t("assetImages.actions.assetFolder")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => setAssetImageFoldersModalOpen(true)}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <FileSpreadsheet className="h-4 w-4 text-sky-700" />
+                            {t("assetImages.actions.createFolders")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            className="order-2 h-8 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-extrabold text-white hover:bg-[#0a3a66] max-sm:flex-1 max-sm:justify-center"
+                          >
+                            <Upload className="me-1.5 h-3.5 w-3.5 shrink-0" />
                             {t("assetImages.actions.uploadImagesOrFolders")}
                           </Button>
                         </DropdownMenuTrigger>
@@ -6346,7 +6376,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-9 shrink-0 gap-2 border-slate-200 bg-white px-3 text-[12px] font-extrabold text-slate-800 shadow-sm hover:border-emerald-300 hover:bg-emerald-50"
+                        className="order-6 h-8 gap-1.5 border-slate-200 bg-white px-2.5 text-[11px] font-extrabold text-slate-800 shadow-sm hover:border-emerald-300 hover:bg-emerald-50 max-sm:flex-1 max-sm:justify-center"
                         onClick={() => {
                           setAssetSearchQuery(appliedAssetSearch?.query ?? "");
                           setAssetSearchMode(appliedAssetSearch?.mode ?? "all");
@@ -6354,51 +6384,29 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                           setAssetSearchOpen(true);
                         }}
                       >
-                        <Search className="h-4 w-4 shrink-0 text-emerald-600" />
+                        <Search className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
                         {t("assetImages.actions.search")}
                       </Button>
                     </div>
 
-                    <div className="ms-auto flex shrink-0 items-center gap-2">
+                    <span className="order-2 hidden min-w-4 flex-1 self-stretch xl:block" aria-hidden />
+
+                    <div className="contents">
                       <Button
                         type="button"
                         size="sm"
-                        className="h-9 shrink-0 rounded-lg bg-emerald-700 px-3.5 text-[12px] font-black text-white shadow-sm hover:bg-emerald-800"
+                        className="order-3 h-8 gap-1.5 rounded-lg bg-emerald-700 px-2.5 text-[11px] font-black text-white shadow-sm hover:bg-emerald-800 max-sm:w-full max-sm:justify-center"
                         disabled={reportSelectionSaving}
                         onClick={() => setReportImagesSelectOpen(true)}
                       >
+                        <CheckSquare className="h-3.5 w-3.5" />
                         {t("assetImages.report.selectReportImages")}
+                        {reportSelectSelectedCount > 0 ? (
+                          <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+                            {numberFormatter.format(reportSelectSelectedCount)}
+                          </span>
+                        ) : null}
                       </Button>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 shrink-0 gap-2 rounded-lg border-rose-200 bg-white px-3 text-[12px] font-black text-rose-800 shadow-sm hover:bg-rose-50"
-                        disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
-                        onClick={() => void downloadSelectedReportImagesAsPdf()}
-                        title={t("assetImages.actions.downloadReportImagesPdfTitle")}
-                      >
-                        {creatingReportImagesPdf ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <FileDown className="h-3.5 w-3.5" />
-                        )}
-                        <span className="hidden xl:inline">
-                          {creatingReportImagesPdf
-                            ? t("assetImages.pdf.preparing")
-                            : t("assetImages.actions.downloadReportImagesPdf")}
-                        </span>
-                        <span className="xl:hidden">PDF</span>
-                      </Button>
-
-                      {reportSelectSelectedCount > 0 ? (
-                        <span className="flex h-9 shrink-0 items-center rounded-full bg-emerald-100 px-2.5 text-[11px] font-bold text-emerald-950">
-                          {t("assetImages.report.selectedCount", {
-                            count: numberFormatter.format(reportSelectSelectedCount),
-                          })}
-                        </span>
-                      ) : null}
 
                       {bulkActionsDropdown}
                     </div>
@@ -6412,7 +6420,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   </div>
                 </aside>
 
-                <main className="min-w-0 p-3 sm:p-4" dir={dir}>
+                <main className="min-w-0 p-2.5 sm:p-3" dir={dir}>
                   {!appliedAssetSearch ? activePathBar : null}
                   {appliedAssetSearch ? (
                     <div className="space-y-3">
@@ -6917,6 +6925,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       </div>
 
       </MvWorkflowPageScrollBody>
+      <MvSimpleReportStepNavigation projectId={projectId} activeStep="asset-images" />
 
       {activeAssetUploadJob ? (
         <MvUploadProgressToast
@@ -6976,6 +6985,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           </div>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MvAssetDataTableModal
+        open={assetDataOpen}
+        onOpenChange={setAssetDataOpen}
+        projectId={projectId}
+        projectName={projectName}
+      />
 
       <MvReportImagesSelectModal
         open={reportImagesSelectOpen}

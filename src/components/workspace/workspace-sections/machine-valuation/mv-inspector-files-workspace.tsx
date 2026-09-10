@@ -172,6 +172,7 @@ export function MvInspectorFilesPanel({
   locationOptions,
   className,
   onProjectLoaded,
+  onSaveAndClose,
 }: {
   projectId: string;
   initialProject?: MvProject | null;
@@ -181,6 +182,8 @@ export function MvInspectorFilesPanel({
   locationOptions?: MvProject["locations"];
   className?: string;
   onProjectLoaded?: (project: MvProject) => void;
+  /** يظهر في نافذة إرفاق ملفات الموقع لتأكيد اكتمال الرفع ثم إغلاق النافذة. */
+  onSaveAndClose?: () => void;
 }) {
   const { t, dir } = useMvI18n();
   const { toast } = useToast();
@@ -487,6 +490,9 @@ export function MvInspectorFilesPanel({
 
   const allSelected = visibleFiles.length > 0 && visibleFiles.every((f) => selectedIds.has(f.id));
   const someSelected = selectedIds.size > 0;
+  const hasPendingUploads = recording || uploadJobs.some(
+    (job) => job.state === "queued" || job.state === "uploading",
+  );
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const list = e.target.files ? Array.from(e.target.files) : [];
@@ -828,6 +834,20 @@ export function MvInspectorFilesPanel({
           </div>
         )}
       </div>
+
+      {embedded && onSaveAndClose ? (
+        <footer className="flex shrink-0 items-center justify-end border-t border-slate-200 bg-white px-3 py-2 sm:px-4">
+          <Button
+            type="button"
+            className="h-9 min-w-[10rem] gap-1.5 rounded-lg bg-emerald-700 px-4 text-[12px] font-bold text-white hover:bg-emerald-800"
+            disabled={hasPendingUploads}
+            onClick={onSaveAndClose}
+          >
+            {hasPendingUploads ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {hasPendingUploads ? t("inspector.files.waitForUpload") : t("inspector.files.saveAndClose")}
+          </Button>
+        </footer>
+      ) : null}
 
       {uploadJobs.length > 0 ? (
         <div

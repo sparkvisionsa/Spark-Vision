@@ -16,6 +16,7 @@ import Link from "@/components/prefetch-link";
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
 import AuthUserMenu from "@/components/auth-user-menu";
+import AuthModal from "@/components/auth-modal";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import {
   DropdownMenu,
@@ -88,10 +89,7 @@ function HubAuthPill() {
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const t = copy[language];
-
-  const openAuth = () => {
-    window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
-  };
+  const [openAuthModal, setOpenAuthModal] = useState(false);
 
   const hubTriggerClass =
     "vt-hub-user-pill h-auto shadow-none";
@@ -102,11 +100,18 @@ function HubAuthPill() {
 
   if (!user) {
     return (
-      <button type="button" onClick={openAuth} className="vt-hub-user-pill">
-        <UserCircle className="h-4 w-4 text-[#f5cd7b]" aria-hidden />
-        <span>{t.login}</span>
-        <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
-      </button>
+      <>
+        <button
+          type="button"
+          onClick={() => setOpenAuthModal(true)}
+          className="vt-hub-user-pill"
+        >
+          <UserCircle className="h-4 w-4 text-[#f5cd7b]" aria-hidden />
+          <span>{t.login}</span>
+          <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+        </button>
+        <AuthModal open={openAuthModal} onOpenChange={setOpenAuthModal} />
+      </>
     );
   }
 

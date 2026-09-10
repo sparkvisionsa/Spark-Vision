@@ -36,6 +36,7 @@ import {
 import {
   countProjectAssetImages,
   MvProjectReportHeader,
+  MvSimpleReportStepNavigation,
   mvSimpleReportStepHref,
   readVisitedSimpleReportSteps,
   type MvSimpleReportStepId,
@@ -1178,6 +1179,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
           </Tabs>
         </main>
       </MvWorkflowPageScrollBody>
+      <MvSimpleReportStepNavigation projectId={projectId} activeStep="final-report" />
 
       <Dialog
         open={layoutSettingsFormat !== null}

@@ -1196,6 +1196,8 @@ export interface MvValuationReportDocumentBodyProps {
   valuationAccountImages: MvValuationAccountingImage[];
   /** صور مستندات العميل من خطوة «ملفات العميل» — تُعرض في مرفق 3. */
   clientDocumentImages?: MvClientDocumentImage[];
+  /** صور شهادة التسجيل في بوابة «تقييم» — تُعرض في مرفق 4. */
+  sceCertificateImages?: MvClientDocumentImage[];
   /** عدد الصور في الصف/الارتفاع لمرفق 3 (1|2|3 → صفحة N×N). */
   clientDocumentsImagesPerRow?: 1 | 2 | 3;
   resolveImageSrc?: (src: string) => string;
@@ -1281,6 +1283,7 @@ export function MvValuationReportDocumentBody({
   onReportPageOrientationChange,
   valuationAccountImages,
   clientDocumentImages = [],
+  sceCertificateImages = [],
   clientDocumentsImagesPerRow = 2,
   resolveImageSrc,
   moveImage,
@@ -3219,7 +3222,7 @@ export function MvValuationReportDocumentBody({
               <Button
                 type="button"
                 className="mv-report-chrome mt-3 h-9 bg-[#0C447C] px-4 text-[11px] font-extrabold text-white"
-                onClick={() => navigate(`/machine-valuation/${projectId}/workflow/valuation`)}
+                onClick={() => navigate(`/machine-valuation/${projectId}/workflow/files#valuation`)}
               >
                 الانتقال إلى إجراءات التقييم
               </Button>
@@ -3406,7 +3409,7 @@ export function MvValuationReportDocumentBody({
                     <>
                       <button
                         type="button"
-                        onClick={() => navigate(`/machine-valuation/${projectId}/workflow/client-files`)}
+                        onClick={() => navigate(`/machine-valuation/${projectId}/workflow/files#client`)}
                         className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
                         title="إدارة ملفات العميل"
                       >
@@ -3470,7 +3473,7 @@ export function MvValuationReportDocumentBody({
                       type="button"
                       variant="outline"
                       className="mt-3 h-8 rounded-lg text-[11px] font-bold"
-                      onClick={() => navigate(`/machine-valuation/${projectId}/workflow/client-files`)}
+                      onClick={() => navigate(`/machine-valuation/${projectId}/workflow/files#client`)}
                     >
                       فتح ملفات العميل
                     </Button>
@@ -3519,7 +3522,7 @@ export function MvValuationReportDocumentBody({
 
       <ReportFlowPages
         shellProps={interiorShellProps}
-        measureRevision={`sce:${sceRegistrationHtml}`}
+        measureRevision={`sce:${sceRegistrationHtml}:${sceCertificateImages.map((image) => image.id).join(",")}`}
         measureEnvStyle={{
           ["--mv-paragraph-leading" as string]: String(paragraphLineHeight),
           ["--mv-heading-scale" as string]: String(headingScale),
@@ -3547,6 +3550,16 @@ export function MvValuationReportDocumentBody({
             />
             </div>
             <div className="mv-report-chrome shrink-0 print:hidden">
+              {sceCertificateImages.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/machine-valuation/${projectId}/workflow/files#certificate`)}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-sky-100 bg-white/95 px-2 text-[10.5px] font-black text-sky-900 shadow-sm transition hover:bg-sky-50"
+                >
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  إدارة شهادة قيمة
+                </button>
+              ) : (
               <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
@@ -3568,9 +3581,33 @@ export function MvValuationReportDocumentBody({
                 إرفاق صورة
               </button>
               </div>
+              )}
             </div>
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {sceCertificateImages.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {sceCertificateImages.map((image, index) => {
+                  const src = resolveClientDocumentImageSrc(projectId, image);
+                  return (
+                    <figure key={image.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      <div className="flex min-h-[180px] items-center justify-center bg-slate-50 p-2">
+                        {src ? (
+                          <img
+                            src={src}
+                            alt={image.name}
+                            className="max-h-[330px] max-w-full object-contain"
+                          />
+                        ) : null}
+                      </div>
+                      <figcaption className="border-t border-slate-100 px-2.5 py-1.5 text-[10px] font-bold text-slate-600">
+                        {index + 1}. {image.name}
+                      </figcaption>
+                    </figure>
+                  );
+                })}
+              </div>
+            ) : (
             <div
             tabIndex={0}
             onPaste={handleScePaste}
@@ -3596,6 +3633,7 @@ export function MvValuationReportDocumentBody({
               emptyHtml={EMPTY_RICH_HTML}
             />
             </div>
+            )}
             {insertedAfter("mv-annex-sce")}
           </div>
         </section>

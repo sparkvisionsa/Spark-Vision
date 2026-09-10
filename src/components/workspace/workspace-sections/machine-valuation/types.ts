@@ -53,6 +53,34 @@ export interface MvCompanyReportCustomSection {
   body: string;
 }
 
+/**
+ * A company-owned final-report model.  It is intentionally separate from the
+ * report-data model: the latter controls form fields, while this one controls
+ * the sections and definitions that are rendered in the finished report.
+ */
+export interface MvCompanyReportSectionModelItem {
+  id: string;
+  title: string;
+  body: string;
+  visibleInReport?: boolean;
+}
+
+export interface MvCompanyReportSectionModelSection {
+  id: string;
+  title: string;
+  sectionNumber?: string;
+  visibleInReport?: boolean;
+  items: MvCompanyReportSectionModelItem[];
+}
+
+export interface MvCompanyReportSectionModel {
+  id: string;
+  name: string;
+  visibleInReport?: boolean;
+  isDefault?: boolean;
+  sections: MvCompanyReportSectionModelSection[];
+}
+
 export interface MvCompanyReportLetterheadTemplate {
   enabled?: boolean;
   templateId?: string | null;
@@ -71,6 +99,7 @@ export interface MvCompanyReportDefaults {
   methodology?: MvCompanyReportMethodologyDefaults;
   assumptions?: MvCompanyReportAssumptionsDefaults;
   customSections?: MvCompanyReportCustomSection[];
+  reportSectionModels?: MvCompanyReportSectionModel[];
   letterhead?: MvCompanyReportLetterheadTemplate;
 }
 
@@ -144,6 +173,9 @@ export interface MvReportEditableSection {
    */
   insertAfterAnchorId?: string;
   companyDefaultSectionId?: string;
+  /** Source identity for a section hydrated from the selected company model. */
+  reportSectionModelId?: string;
+  reportSectionModelSectionId?: string;
 }
 
 export type MvReportInsertedBlockKind = "heading" | "paragraph" | "image";
@@ -176,6 +208,8 @@ export type MvReportPageOrientationPreference = "portrait" | "landscape";
 export interface MvProjectReportData {
   /** Company report-data model selected for this simplified project. */
   reportDataModelId?: string;
+  /** Company final-report content model selected once for this project. */
+  reportSectionModelId?: string;
   reportReference?: string;
   reportTitle?: string;
   assetSingularPlural?: string;
@@ -382,8 +416,12 @@ export interface MvProject {
   valuationAccountingWorkspace?: MvValuationAccountingStore;
   /** مستندات العميل (PDF/صور) لخطوة «ملفات العميل» ومرفق 3. */
   clientDocumentsWorkspace?: MvClientDocumentsStore;
+  /** شهادة التسجيل في نظام الهيئة «قيمة» (PDF/صور) لملحق 4. */
+  sceCertificateWorkspace?: MvClientDocumentsStore;
   /** عدد صور مستندات العميل (يُحسب في قائمة المشاريع). */
   clientDocumentImageCount?: number;
+  /** عدد صور شهادة قيمة (يُحسب في قائمة المشاريع). */
+  sceCertificateImageCount?: number;
 }
 
 /** يطابق حقول الأصل في الـ API لمجلدات الأصول تحت «2.صور المعاينة» */

@@ -14,6 +14,7 @@ export type MvWordMergeInput = {
   assetImages: MvWordMergeImageItem[];
   valuationImages: MvWordMergeImageItem[];
   clientImages: MvWordMergeImageItem[];
+  certificateImages?: MvWordMergeImageItem[];
 };
 
 export type MvWordTemplateVariableValues = Record<string, string>;

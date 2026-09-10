@@ -61,8 +61,6 @@ import {
   type AssetImportResult,
   type AssetImportSheetStat,
 } from "./asset-import-panel";
-import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { MV_PROJECTS_TABLE_PATH } from "./mv-home-routes";
 import {
   MvProjectReportHeader,
   readVisitedSimpleReportSteps,
@@ -1095,6 +1093,8 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
 
 interface MvValuationAccountingWorkspaceProps {
   projectId: string;
+  /** يعرض مساحة العمل داخل صفحة المرفقات من دون رأس مسار مستقل. */
+  embedded?: boolean;
 }
 
 type ValuationExcelCellValue = string | number | boolean | null;
@@ -2747,9 +2747,9 @@ function ValuationExcelCropGrid({
 
 export default function MvValuationAccountingWorkspace({
   projectId,
+  embedded = false,
 }: MvValuationAccountingWorkspaceProps) {
   const { t, dir } = useMvI18n();
-  const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const [project, setProject] = useState<MvProject | null>(null);
   const [store, setStore] = useState<MvValuationAccountingStore>(() =>
@@ -3081,8 +3081,8 @@ export default function MvValuationAccountingWorkspace({
     setStore(readValuationAccountingStore(projectId));
     void loadProject();
     const visited = readVisitedSimpleReportSteps(projectId);
-    if (!visited.includes("valuation-actions")) {
-      writeVisitedSimpleReportSteps(projectId, [...visited, "valuation-actions"]);
+    if (!visited.includes("report-files")) {
+      writeVisitedSimpleReportSteps(projectId, [...visited, "report-files"]);
     }
   }, [loadProject, projectId]);
 
@@ -4532,17 +4532,19 @@ export default function MvValuationAccountingWorkspace({
   }, [mediaIntrinsicSize.w, mediaIntrinsicSize.h, mediaLayoutFit, mediaPreviewZoom]);
 
   return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
-      <MvProjectReportHeader
-        compact
-        projectId={projectId}
-        project={project}
-        activeStep="valuation-actions"
-        breadcrumbs={[
-          { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: t("valuation.breadcrumb") },
-        ]}
-      />
+    <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", embedded && "bg-transparent")} dir={dir}>
+      {!embedded ? (
+        <MvProjectReportHeader
+          compact
+          projectId={projectId}
+          project={project}
+          activeStep="report-files"
+          breadcrumbs={[
+            { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
+            { label: t("valuation.breadcrumb") },
+          ]}
+        />
+      ) : null}
 
       {projectLoadError ? (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[11px] font-bold text-amber-900">
@@ -4559,7 +4561,7 @@ export default function MvValuationAccountingWorkspace({
       ) : null}
 
       <div className="shrink-0 border-b border-slate-200 bg-white/95">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3">
+        <div className={cn("mx-auto flex max-w-7xl flex-wrap items-center", embedded ? "gap-1.5 px-2 py-2 sm:px-3" : "gap-2 px-4 py-3")}>
           {MV_VALUATION_ACCOUNTING_APPROACHES.map((approach) => {
             const active = activeApproach === approach.id;
             const count = store.sources.filter((source) => source.approachId === approach.id).length;
@@ -4569,7 +4571,9 @@ export default function MvValuationAccountingWorkspace({
                 type="button"
                 onClick={() => setActiveApproach(approach.id)}
                 className={cn(
-                  "inline-flex h-10 min-w-[9rem] items-center justify-center gap-2 rounded-md border px-4 text-[13px] font-extrabold transition",
+                  embedded
+                    ? "inline-flex h-8 min-w-[7.25rem] items-center justify-center gap-1.5 rounded-md border px-2.5 text-[11px] font-extrabold transition"
+                    : "inline-flex h-10 min-w-[9rem] items-center justify-center gap-2 rounded-md border px-4 text-[13px] font-extrabold transition",
                   active
                     ? "border-slate-900 bg-slate-900 text-white shadow-sm"
                     : "border-slate-200 bg-white text-slate-700 hover:border-sky-300 hover:bg-sky-50",
@@ -4592,18 +4596,20 @@ export default function MvValuationAccountingWorkspace({
         </div>
       </div>
 
-      <MvWorkflowPageScrollBody className="pb-6 md:pb-8">
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5">
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-[18px] font-black text-slate-950">{t("valuation.title")}</h1>
-              <p className="mt-1 text-[12px] font-medium text-slate-500">
-                {t("valuation.subtitle", { approach: approachLabel(activeApproach) })}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-[12px] font-bold text-slate-700">
+      <MvWorkflowPageScrollBody className={embedded ? "pb-0" : "pb-6 md:pb-8"}>
+      <main className={cn("mx-auto max-w-7xl", embedded ? "space-y-2 px-2 py-2 sm:px-3" : "space-y-4 px-4 py-5")}>
+        <section className={cn("rounded-lg border border-slate-200 bg-white shadow-sm", embedded ? "p-3" : "p-4")}>
+          <div className={cn("flex flex-col gap-2 lg:flex-row lg:items-center", embedded ? "lg:justify-end" : "lg:justify-between") }>
+            {!embedded ? (
+              <div className="min-w-0">
+                <h1 className="text-[18px] font-black text-slate-950">{t("valuation.title")}</h1>
+                <p className="mt-1 text-[12px] font-medium text-slate-500">
+                  {t("valuation.subtitle", { approach: approachLabel(activeApproach) })}
+                </p>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <label className={cn("flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 font-bold text-slate-700", embedded ? "h-8 text-[11px]" : "h-9 gap-2 px-3 text-[12px]")}>
                 <Switch
                   checked={store.includeInReport}
                   onCheckedChange={(checked) => void handleIncludeInReport(checked)}
@@ -4612,7 +4618,7 @@ export default function MvValuationAccountingWorkspace({
                 {t("valuation.showImagesInReport")}
               </label>
 
-              <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4628,7 +4634,7 @@ export default function MvValuationAccountingWorkspace({
                   {t("valuation.uploadExcel")}
                 </label>
               </Button>
-              <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4644,7 +4650,7 @@ export default function MvValuationAccountingWorkspace({
                   {t("valuation.uploadPdf")}
                 </label>
               </Button>
-              <Button asChild size="sm" className="gap-1.5 bg-[#0C447C] hover:bg-[#0a3a66]">
+              <Button asChild size="sm" className={cn("gap-1.5 bg-[#0C447C] hover:bg-[#0a3a66]", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4664,7 +4670,7 @@ export default function MvValuationAccountingWorkspace({
           </div>
         </section>
 
-        <section className="grid gap-4">
+        <section className={cn("grid", embedded ? "gap-2" : "gap-4")}>
           {(() => {
             const approach =
               MV_VALUATION_ACCOUNTING_APPROACHES.find((item) => item.id === activeApproach) ??
@@ -4675,7 +4681,8 @@ export default function MvValuationAccountingWorkspace({
               <div
                 key={approach.id}
                 className={cn(
-                  "rounded-lg border bg-white p-4 shadow-sm transition",
+                  "rounded-lg border bg-white shadow-sm transition",
+                  embedded ? "p-3" : "p-4",
                   accountingImageDropActive
                     ? "border-sky-400 ring-2 ring-sky-100"
                     : "border-slate-200",
@@ -4704,7 +4711,7 @@ export default function MvValuationAccountingWorkspace({
                   void handleUpload("image", transfer.files);
                 }}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className={cn("flex flex-wrap items-center justify-between gap-2 border-b border-slate-100", embedded ? "hidden" : "pb-3")}>
                   <div>
                     <h2 className="text-[16px] font-black text-slate-950">{approach.label}</h2>
                     <p className="mt-1 text-[11px] font-bold text-slate-500">
@@ -4716,11 +4723,11 @@ export default function MvValuationAccountingWorkspace({
                 </div>
 
                 {sources.length === 0 ? (
-                  <div className="mt-4 rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-[12px] font-bold text-slate-500">
+                  <div className={cn("rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 text-center text-[11px] font-bold text-slate-500", embedded ? "mt-2 py-4" : "mt-4 px-4 py-6 text-[12px]")}>
                     ارفع ملف Excel أو PDF أو صورة من الأعلى، أو اسحب صوراً وأفلتها هنا.
                   </div>
                 ) : (
-                  <div className="mt-4 grid gap-4">
+                  <div className={cn("grid", embedded ? "mt-2 gap-2" : "mt-4 gap-4")}>
                     {sources.map((source) => {
                       const sourceImages = images.filter((image) => image.sourceId === source.id);
                       const autoBusy = autoExcelBusySourceIds.includes(source.id);
@@ -4860,18 +4867,6 @@ export default function MvValuationAccountingWorkspace({
           })()}
         </section>
 
-        <div className="flex flex-wrap justify-between gap-2">
-          <Button type="button" variant="outline" onClick={() => navigate(MV_PROJECTS_TABLE_PATH)}>
-            العودة لجدول المشاريع
-          </Button>
-          <Button
-            type="button"
-            className="bg-emerald-700 hover:bg-emerald-800"
-            onClick={() => navigate(`/machine-valuation/${projectId}/workflow/final-report`)}
-          >
-            الانتقال إلى إعداد التقرير
-          </Button>
-        </div>
       </main>
       </MvWorkflowPageScrollBody>
 

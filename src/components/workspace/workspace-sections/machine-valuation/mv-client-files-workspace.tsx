@@ -37,6 +37,11 @@ import {
   writeClientDocumentsStore,
 } from "./mv-client-documents-store";
 import {
+  emptySceCertificateStore,
+  readSceCertificateStore,
+  writeSceCertificateStore,
+} from "./mv-sce-certificate-store";
+import {
   readVisitedSimpleReportSteps,
   writeVisitedSimpleReportSteps,
 } from "./mv-simple-report-navigation";
@@ -44,19 +49,48 @@ import type { MvProject } from "./types";
 
 interface MvClientFilesWorkspaceProps {
   projectId: string;
+  kind?: "client" | "certificate";
+  /** يعرض مساحة العمل داخل صفحة المرفقات من دون رأس مسار مستقل. */
+  embedded?: boolean;
 }
 
 function cleanFileName(name: string) {
   return name.replace(/\.[^.]+$/i, "").trim() || name.trim() || "مستند";
 }
 
-export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorkspaceProps) {
+export default function MvClientFilesWorkspace({
+  projectId,
+  kind = "client",
+  embedded = false,
+}: MvClientFilesWorkspaceProps) {
   const { t, dir } = useMvI18n();
   const { toast } = useToast();
+  const isCertificate = kind === "certificate";
+  const workspaceField = isCertificate ? "sceCertificateWorkspace" : "clientDocumentsWorkspace";
+  const readWorkspaceStore = useCallback(
+    (id: string) => (isCertificate ? readSceCertificateStore(id) : readClientDocumentsStore(id)),
+    [isCertificate],
+  );
+  const writeWorkspaceStore = useCallback(
+    (id: string, value: MvClientDocumentsStore) =>
+      isCertificate ? writeSceCertificateStore(id, value) : writeClientDocumentsStore(id, value),
+    [isCertificate],
+  );
+  const emptyWorkspaceStore = useCallback(
+    () => (isCertificate ? emptySceCertificateStore() : emptyClientDocumentsStore()),
+    [isCertificate],
+  );
+  const workspaceTitle = isCertificate ? "شهادة نظام الهيئة (قيمة)" : t("clientFiles.title");
+  const workspaceBreadcrumb = isCertificate ? "شهادة نظام الهيئة (قيمة)" : t("clientFiles.breadcrumb");
+  const dropTitle = isCertificate ? "ارفع شهادة نظام الهيئة" : t("clientFiles.drop.title");
+  const dropHint = isCertificate
+    ? "ارفع ملف PDF أو صورة مباشرة. يحوّل النظام صفحات PDF إلى صور ويضيفها تلقائيًا إلى مرفق 4 في التقرير."
+    : t("clientFiles.drop.hint");
+  const galleryTitle = isCertificate ? "صور شهادة قيمة" : t("clientFiles.gallery.title");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<MvClientDocumentsStore | null>(null);
-  const storeRef = useRef<MvClientDocumentsStore>(emptyClientDocumentsStore());
+  const storeRef = useRef<MvClientDocumentsStore>(emptyWorkspaceStore());
   const stopFlagRef = useRef(false);
 
   const [project, setProject] = useState<MvProject | null>(() =>
@@ -66,7 +100,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
     () => readProjectSummaryCache(projectId, "summary")?.project == null,
   );
   const [projectError, setProjectError] = useState<string | null>(null);
-  const [store, setStore] = useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
+  const [store, setStore] = useState<MvClientDocumentsStore>(() => readWorkspaceStore(projectId));
   const [dropActive, setDropActive] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -82,8 +116,8 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
 
   useEffect(() => {
     const visited = readVisitedSimpleReportSteps(projectId);
-    if (!visited.includes("client-files")) {
-      writeVisitedSimpleReportSteps(projectId, [...visited, "client-files"]);
+    if (!visited.includes("report-files")) {
+      writeVisitedSimpleReportSteps(projectId, [...visited, "report-files"]);
     }
   }, [projectId]);
 
@@ -131,17 +165,17 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
   }, [loadProject]);
 
   const serverStoreKey = useMemo(
-    () => JSON.stringify(project?.clientDocumentsWorkspace ?? null),
-    [project?.clientDocumentsWorkspace],
+    () => JSON.stringify(project?.[workspaceField] ?? null),
+    [project, workspaceField],
   );
 
   useEffect(() => {
     if (!project || project._id !== projectId) return;
-    const local = readClientDocumentsStore(projectId);
-    const merged = mergeClientDocumentsStores(project.clientDocumentsWorkspace, local);
+    const local = readWorkspaceStore(projectId);
+    const merged = mergeClientDocumentsStores(project[workspaceField], local);
     setStore(merged);
-    writeClientDocumentsStore(projectId, merged);
-  }, [projectId, project?._id, serverStoreKey]);
+    writeWorkspaceStore(projectId, merged);
+  }, [projectId, project?._id, readWorkspaceStore, serverStoreKey, workspaceField, writeWorkspaceStore]);
 
   const flushToServer = useCallback(async (options?: { silent?: boolean }) => {
     if (serverSaveTimerRef.current) {
@@ -149,7 +183,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
       serverSaveTimerRef.current = null;
     }
     const snapshot =
-      pendingSaveRef.current ?? storeRef.current ?? readClientDocumentsStore(projectId);
+      pendingSaveRef.current ?? storeRef.current ?? readWorkspaceStore(projectId);
     pendingSaveRef.current = null;
     const payload = clientDocumentsStoreForApi({
       ...snapshot,
@@ -161,9 +195,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientDocumentsWorkspace: payload,
-        }),
+        body: JSON.stringify({ [workspaceField]: payload }),
       });
       if (res.ok) {
         try {
@@ -196,7 +228,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
       }
       return false;
     }
-  }, [projectId, toast, t]);
+  }, [projectId, readWorkspaceStore, toast, t, workspaceField]);
 
   const persistStore = useCallback(
     (
@@ -206,7 +238,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
       const syncMode = options?.sync ?? "debounce";
       setStore((current) => {
         const next = updater(current);
-        writeClientDocumentsStore(projectId, next);
+        writeWorkspaceStore(projectId, next);
         storeRef.current = next;
         pendingSaveRef.current = next;
         if (syncMode === "later") {
@@ -234,7 +266,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
         return next;
       });
     },
-    [projectId, flushToServer],
+    [projectId, flushToServer, writeWorkspaceStore],
   );
 
   useEffect(() => {
@@ -364,7 +396,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
         }
 
         pendingSaveRef.current =
-          pendingSaveRef.current ?? storeRef.current ?? readClientDocumentsStore(projectId);
+          pendingSaveRef.current ?? storeRef.current ?? readWorkspaceStore(projectId);
         const synced = await flushToServer({ silent: true });
         if (synced) {
           toast({
@@ -390,7 +422,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [persistStore, flushToServer, projectId, t, toast],
+    [persistStore, flushToServer, projectId, readWorkspaceStore, t, toast],
   );
 
   const removeImage = useCallback(
@@ -428,33 +460,37 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
   }
 
   return (
-    <MvWorkflowPageFrame className="bg-[var(--color-background-primary)]" dir={dir}>
-      <MvProjectReportHeader
-        compact
-        projectId={projectId}
-        project={project}
-        activeStep="client-files"
-        breadcrumbs={[
-          { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
-          { label: t("clientFiles.breadcrumb") },
-        ]}
-      />
+    <MvWorkflowPageFrame className={cn("bg-[var(--color-background-primary)]", embedded && "bg-transparent")} dir={dir}>
+      {!embedded ? (
+        <MvProjectReportHeader
+          compact
+          projectId={projectId}
+          project={project}
+          activeStep="report-files"
+          breadcrumbs={[
+            { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
+            { label: workspaceBreadcrumb },
+          ]}
+        />
+      ) : null}
 
-      <MvWorkflowPageScrollBody className="pb-8">
-        <main className="mx-auto w-full max-w-7xl space-y-5 px-3 py-5 sm:px-4">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <h1 className="text-[18px] font-black text-slate-950">{t("clientFiles.title")}</h1>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+      <MvWorkflowPageScrollBody className={embedded ? "pb-0" : "pb-8"}>
+        <main className={cn("mx-auto w-full max-w-7xl px-3 sm:px-4", embedded ? "space-y-2 px-2 py-2 sm:px-3" : "space-y-5 py-5")}>
+          <section className={cn("border border-slate-200 bg-white shadow-sm", embedded ? "rounded-xl p-3" : "rounded-2xl p-5")}>
+            <div className={cn("flex flex-col gap-2 sm:flex-row sm:items-start", embedded ? "sm:justify-end" : "sm:justify-between") }>
+              {!embedded ? (
+                <div className="min-w-0">
+                  <h1 className="text-[18px] font-black text-slate-950">{workspaceTitle}</h1>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9 gap-1.5 rounded-xl text-[12px] font-bold"
+                  className="h-8 gap-1.5 rounded-lg px-2.5 text-[11px] font-bold"
                   disabled={Boolean(busyLabel) || store.images.length === 0}
                   onClick={() => {
-                    persistStore(() => emptyClientDocumentsStore(), { sync: "now" });
+                    persistStore(() => emptyWorkspaceStore(), { sync: "now" });
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -462,7 +498,7 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
                 </Button>
                 <Button
                   type="button"
-                  className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[12px] font-bold hover:bg-[#0a3a66]"
+                  className="h-8 gap-1.5 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-bold hover:bg-[#0a3a66]"
                   disabled={Boolean(busyLabel)}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -511,7 +547,10 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
                 if (files?.length) void ingestFiles(files);
               }}
               className={cn(
-                "mt-4 flex min-h-[160px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-4 py-8 text-center transition",
+                cn(
+                  "flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-3 text-center transition",
+                  embedded ? "mt-2 min-h-[112px] py-4" : "mt-4 min-h-[160px] py-8",
+                ),
                 dropActive
                   ? "border-sky-400 bg-sky-50"
                   : "border-slate-300 bg-slate-50/70 hover:border-sky-300 hover:bg-sky-50/40",
@@ -520,8 +559,8 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
             >
               {busyLabel ? (
                 <>
-                  <Loader2 className="mb-2 h-7 w-7 animate-spin text-sky-700" />
-                  <p className="text-[13px] font-bold text-slate-800">{busyLabel}</p>
+                  <Loader2 className="mb-1.5 h-5 w-5 animate-spin text-sky-700" />
+                  <p className="text-[11px] font-bold text-slate-800">{busyLabel}</p>
                   {progress ? (
                     <p className="mt-1 text-[11px] font-semibold text-slate-500">
                       {progress.done}/{progress.total}
@@ -530,35 +569,39 @@ export default function MvClientFilesWorkspace({ projectId }: MvClientFilesWorks
                 </>
               ) : (
                 <>
-                  <div className="mb-3 flex items-center gap-2 text-sky-800">
-                    <FileText className="h-6 w-6" />
-                    <FileImage className="h-6 w-6" />
+                  <div className="mb-2 flex items-center gap-2 text-sky-800">
+                    <FileText className="h-5 w-5" />
+                    <FileImage className="h-5 w-5" />
                   </div>
-                  <p className="text-[13px] font-black text-slate-800">{t("clientFiles.drop.title")}</p>
-                  <p className="mt-1 max-w-md text-[11.5px] font-semibold leading-5 text-slate-500">
-                    {t("clientFiles.drop.hint")}
-                  </p>
+                  <p className="text-[11px] font-black text-slate-800">{dropTitle}</p>
+                  {!embedded ? (
+                    <p className="mt-1 max-w-md text-[11.5px] font-semibold leading-5 text-slate-500">
+                      {dropHint}
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-end justify-between gap-2">
-              <div>
-                <h2 className="text-[15px] font-black text-slate-900">{t("clientFiles.gallery.title")}</h2>
-                <p className="mt-0.5 text-[11.5px] font-semibold text-slate-500">
-                  {t("clientFiles.gallery.subtitle", { count: String(reportImages.length) })}
-                </p>
+          <section className={cn("border border-slate-200 bg-white shadow-sm", embedded ? "rounded-xl p-3" : "rounded-2xl p-5")}>
+            {!embedded ? (
+              <div className="mb-3 flex items-end justify-between gap-2">
+                <div>
+                  <h2 className="text-[15px] font-black text-slate-900">{galleryTitle}</h2>
+                  <p className="mt-0.5 text-[11.5px] font-semibold text-slate-500">
+                    {t("clientFiles.gallery.subtitle", { count: String(reportImages.length) })}
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {reportImages.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-10 text-center">
-                <p className="text-[13px] font-bold text-slate-600">{t("clientFiles.gallery.empty")}</p>
+              <div className={cn("rounded-lg border border-dashed border-slate-300 bg-slate-50/80 px-3 text-center", embedded ? "py-6" : "py-10")}>
+                <p className="text-[11px] font-bold text-slate-600">{t("clientFiles.gallery.empty")}</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div className={cn("grid grid-cols-2", embedded ? "gap-2" : "gap-3 sm:gap-4")}>
                 {reportImages.map((image, index) => {
                   const src = resolveClientDocumentImageSrc(projectId, image);
                   return (

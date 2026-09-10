@@ -1489,10 +1489,12 @@ export default function MvProjectsDashboard() {
         return next;
       });
       setCreateOpen(false);
-      setCreatedFlowProject(created);
-      setContactDataProject(created);
-      setContactDataForm([createProjectInspectionSiteForm(0)]);
-      setContactDataOpen(true);
+      setCreatedFlowProject(null);
+      setContactDataProject(null);
+      setAssetFoldersProject(null);
+      setContactDataOpen(false);
+      setAssetFoldersOpen(false);
+      navigate(`/machine-valuation/${created._id}/workflow/report-data`);
     } catch {
       toast({ variant: "destructive", description: t("errors.projects.createFailed") });
     } finally {
@@ -2397,6 +2399,11 @@ export default function MvProjectsDashboard() {
                 mergeProjectIntoList(project);
                 setInspectorFilesProject(project);
                 setContactDataProject((current) => (current?._id === project._id ? project : current));
+              }}
+              onSaveAndClose={() => {
+                setInspectorFilesOpen(false);
+                setInspectorFilesProject(null);
+                setInspectorFilesSiteId(null);
               }}
             />
           ) : (

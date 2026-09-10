@@ -229,14 +229,14 @@ export function MvTopBar({
         className={cn(
           "flex flex-wrap items-center justify-between",
           compact
-            ? "min-h-9 gap-2 px-3 py-1.5 md:min-h-10 md:px-4"
+            ? "min-h-10 gap-2 px-3 py-1 sm:flex-nowrap sm:px-4"
             : "min-h-12 gap-3 px-5 py-2 md:py-0",
         )}
       >
         <div
           className={cn(
-            "flex min-w-0 flex-wrap items-center",
-            compact ? "gap-1 text-[10px] leading-tight sm:text-[11px]" : "gap-2 text-[13px]",
+            "flex min-w-0 items-center",
+            compact ? "flex-1 gap-1 overflow-hidden text-[10px] leading-tight sm:gap-1.5 sm:text-[11px]" : "flex-wrap gap-2 text-[13px]",
           )}
         >
           {breadcrumbs.map((segment, index) => {
@@ -271,7 +271,7 @@ export function MvTopBar({
           {status ? <span className="me-2">{status}</span> : null}
         </div>
 
-        {topBarTrailing ? <div className="ms-auto">{topBarTrailing}</div> : null}
+        {topBarTrailing ? <div className="ms-auto shrink-0">{topBarTrailing}</div> : null}
       </div>
     </div>
   );

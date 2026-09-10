@@ -3,11 +3,10 @@ import type { MvProjectReportData } from "./types";
 export type MvSimpleReportStepId =
   | "report-data"
   | "asset-images"
-  | "valuation-actions"
-  | "client-files"
+  | "report-files"
   | "final-report";
 
-export const MV_SIMPLE_REPORT_STEP_COUNT = 5;
+export const MV_SIMPLE_REPORT_STEP_COUNT = 4;
 
 /** حقول «بيانات التقرير» الأساسية — يجب اكتمالها لاعتبار الخطوة منتهية (✓). */
 const SIMPLE_REPORT_DATA_REQUIRED_FIELDS = [
@@ -101,6 +100,7 @@ export type MvSimpleStepCompletionInput = {
   assetImageCount?: number;
   valuationAccountImageCount?: number;
   clientDocumentImageCount?: number;
+  sceCertificateImageCount?: number;
   visitedFinalReport?: boolean;
   /** توافق مع الاستدعاءات القديمة */
   visitedReportPreview?: boolean;
@@ -117,11 +117,12 @@ export function computeCompletedSimpleReportSteps(
   if (isAssetImagesStepComplete(input.assetImageCount ?? 0)) {
     done.push("asset-images");
   }
-  if (isValuationActionsStepComplete(input.valuationAccountImageCount ?? 0)) {
-    done.push("valuation-actions");
-  }
-  if (isClientFilesStepComplete(input.clientDocumentImageCount ?? 0)) {
-    done.push("client-files");
+  if (
+    isValuationActionsStepComplete(input.valuationAccountImageCount ?? 0) ||
+    isClientFilesStepComplete(input.clientDocumentImageCount ?? 0) ||
+    isClientFilesStepComplete(input.sceCertificateImageCount ?? 0)
+  ) {
+    done.push("report-files");
   }
   if (
     isFinalReportStepComplete(input.reportData, {
@@ -146,8 +147,10 @@ export function projectProgressPctFromProject(project: {
   picAssetCount?: number;
   valuationAccountImageCount?: number;
   clientDocumentImageCount?: number;
+  sceCertificateImageCount?: number;
   valuationAccountingWorkspace?: { images?: unknown[] } | null;
   clientDocumentsWorkspace?: { images?: unknown[] } | null;
+  sceCertificateWorkspace?: { images?: unknown[] } | null;
 }): number {
   if (typeof project.progressPct === "number" && Number.isFinite(project.progressPct)) {
     return Math.max(0, Math.min(100, Math.round(project.progressPct)));
@@ -163,12 +166,18 @@ export function projectProgressPctFromProject(project: {
     (Array.isArray(project.clientDocumentsWorkspace?.images)
       ? project.clientDocumentsWorkspace.images.length
       : 0);
+  const sceCertificateImageCount =
+    project.sceCertificateImageCount ??
+    (Array.isArray(project.sceCertificateWorkspace?.images)
+      ? project.sceCertificateWorkspace.images.length
+      : 0);
 
   return computeSimpleProjectProgressPct({
     reportData: project.reportData,
     assetImageCount: project.assetImageCount,
     valuationAccountImageCount,
     clientDocumentImageCount,
+    sceCertificateImageCount,
   });
 }
 

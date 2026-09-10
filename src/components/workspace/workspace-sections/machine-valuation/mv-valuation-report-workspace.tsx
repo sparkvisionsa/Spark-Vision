@@ -57,6 +57,7 @@ import type {
   MvCompanyAiReportTemplate,
   MvCompanyReportCustomSection,
   MvCompanyReportLetterheadTemplate,
+  MvCompanyReportSectionModel,
   MvProject,
   MvProjectReportData,
   MvReportPageOrientationPreference,
@@ -82,6 +83,11 @@ import {
   writeClientDocumentsStore,
   type MvClientDocumentsStore,
 } from "./mv-client-documents-store";
+import {
+  readSceCertificateStore,
+  writeSceCertificateStore,
+  type MvSceCertificateStore,
+} from "./mv-sce-certificate-store";
 import { MvReportExportMenu, type MvReportExportFormat } from "./mv-report-export-menu";
 import { MvWordTemplateModal, type MvReportTemplateTab } from "./mv-word-template-modal";
 import { buildMvWordImageLayout } from "./mv-word-template-settings";
@@ -117,6 +123,11 @@ import {
   normalizeReportTeam,
   type MvReportPreparerOption,
 } from "./mv-report-preparers";
+import {
+  getReportSectionModel,
+  materializeReportSectionModel,
+  normalizeReportSectionModels,
+} from "./mv-report-section-models";
 
 function applyMvReportCaptureClone(clonedDoc: Document) {
   const stableCaptureStyle = clonedDoc.createElement("style");
@@ -911,6 +922,12 @@ function normalizeEditableSections(raw: unknown): MvReportEditableSection[] {
         : {}),
       ...(typeof s.companyDefaultSectionId === "string" && s.companyDefaultSectionId.trim()
         ? { companyDefaultSectionId: s.companyDefaultSectionId.trim() }
+        : {}),
+      ...(typeof s.reportSectionModelId === "string" && s.reportSectionModelId.trim()
+        ? { reportSectionModelId: s.reportSectionModelId.trim() }
+        : {}),
+      ...(typeof s.reportSectionModelSectionId === "string" && s.reportSectionModelSectionId.trim()
+        ? { reportSectionModelSectionId: s.reportSectionModelSectionId.trim() }
         : {}),
     }));
 }
@@ -1818,6 +1835,8 @@ export default function MvValuationReportWorkspace({
     useState<MvValuationAccountingStore>(() => emptyValuationAccountingStore());
   const [clientDocumentsStore, setClientDocumentsStore] =
     useState<MvClientDocumentsStore>(() => readClientDocumentsStore(projectId));
+  const [sceCertificateStore, setSceCertificateStore] =
+    useState<MvSceCertificateStore>(() => readSceCertificateStore(projectId));
   const [companySignatories, setCompanySignatories] = useState<MvReportPreparerOption[]>([]);
   const [companyAdminMembershipNo, setCompanyAdminMembershipNo] = useState<string | null>(null);
   const [companyBrand, setCompanyBrand] = useState<{
@@ -1843,6 +1862,9 @@ export default function MvValuationReportWorkspace({
     assumptions: {},
   });
   const [companyDefaultSections, setCompanyDefaultSections] = useState<MvCompanyReportCustomSection[]>([]);
+  const [companyReportSectionModels, setCompanyReportSectionModels] =
+    useState<MvCompanyReportSectionModel[]>([]);
+  const reportSectionModelSyncRef = useRef<string | null>(null);
   const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
   const [companyDocumentTemplates, setCompanyDocumentTemplates] =
     useState<MvCompanyDocumentTemplatesAvailability>(UNKNOWN_COMPANY_DOCUMENT_TEMPLATES);
@@ -2317,6 +2339,7 @@ export default function MvValuationReportWorkspace({
               title?: string;
               body?: string;
             }>;
+            reportSectionModels?: unknown[];
             letterhead?: MvCompanyReportLetterheadTemplate | null;
             aiTemplates?: unknown[];
             wordTemplate?: unknown;
@@ -2365,6 +2388,9 @@ export default function MvValuationReportWorkspace({
               .filter((section) => section.title.trim() || section.body.trim())
           : [];
         setCompanyDefaultSections(customSections);
+        setCompanyReportSectionModels(
+          normalizeReportSectionModels(data.reportDefaults?.reportSectionModels),
+        );
         const rawLetterhead = data.reportDefaults?.letterhead;
         const image = (value: unknown): string | null => {
           if (typeof value !== "string") return null;
@@ -2407,6 +2433,10 @@ export default function MvValuationReportWorkspace({
     () => JSON.stringify(project?.clientDocumentsWorkspace ?? null),
     [project?.clientDocumentsWorkspace],
   );
+  const serverSceCertificateKey = useMemo(
+    () => JSON.stringify(project?.sceCertificateWorkspace ?? null),
+    [project?.sceCertificateWorkspace],
+  );
 
   useEffect(() => {
     if (!project) return;
@@ -2427,6 +2457,16 @@ export default function MvValuationReportWorkspace({
     );
     writeClientDocumentsStore(projectId, merged);
   }, [project, projectId, serverClientDocsKey]);
+
+  useEffect(() => {
+    if (!project) return;
+    const local = readSceCertificateStore(projectId);
+    const merged = mergeClientDocumentsStores(project.sceCertificateWorkspace, local);
+    setSceCertificateStore((prev) =>
+      JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged,
+    );
+    writeSceCertificateStore(projectId, merged);
+  }, [project, projectId, serverSceCertificateKey]);
 
   useEffect(() => {
     if (typeof window === "undefined" || loading) return;
@@ -2796,6 +2836,14 @@ export default function MvValuationReportWorkspace({
     () => withDraftDefaultReportData(project?.reportData),
     [project?.reportData],
   );
+  const selectedReportSectionModel = useMemo(
+    () =>
+      getReportSectionModel(
+        companyReportSectionModels,
+        reportData.reportSectionModelId,
+      ),
+    [companyReportSectionModels, reportData.reportSectionModelId],
+  );
   const draftMode = isReportDraftMode(reportData);
   const savedProjectTemplateId = project?.reportData?.reportTemplateId;
   const hasSavedProjectTemplate =
@@ -2845,6 +2893,10 @@ export default function MvValuationReportWorkspace({
   const clientDocumentImages = useMemo(
     () => clientDocumentImagesForReport(clientDocumentsStore),
     [clientDocumentsStore],
+  );
+  const sceCertificateImages = useMemo(
+    () => clientDocumentImagesForReport(sceCertificateStore),
+    [sceCertificateStore],
   );
 
   const persistValuationAccountingFromReport = useCallback(
@@ -2974,6 +3026,16 @@ export default function MvValuationReportWorkspace({
         .filter((row) => Boolean(row.url)),
     [clientDocumentImages, projectId],
   );
+  const wordTemplateCertificateImageSources = useMemo(
+    () =>
+      sceCertificateImages
+        .map((image) => ({
+          url: resolveClientDocumentImageSrc(projectId, image),
+          caption: image.name || image.sourceFileName,
+        }))
+        .filter((row) => Boolean(row.url)),
+    [projectId, sceCertificateImages],
+  );
 
   const isSimpleReport = (project?.reportType ?? "simple") === "simple";
 
@@ -2998,6 +3060,7 @@ export default function MvValuationReportWorkspace({
         assetImageSources: wordTemplateAssetImageSources,
         valuationImageSources: wordTemplateValuationImageSources,
         clientImageSources: wordTemplateClientImageSources,
+        certificateImageSources: wordTemplateCertificateImageSources,
         loadImages: false,
       });
       setPdfExportProgress(55);
@@ -3008,6 +3071,7 @@ export default function MvValuationReportWorkspace({
         assetImageUrls: wordTemplateAssetImageSources.map((s) => s.url),
         valuationImageUrls: wordTemplateValuationImageSources.map((s) => s.url),
         clientImageUrls: wordTemplateClientImageSources.map((s) => s.url),
+        certificateImageUrls: wordTemplateCertificateImageSources.map((s) => s.url),
         alsoPdf: false,
         useStoredProjectState: true,
         imageLayout: buildMvWordImageLayout(reportData),
@@ -3023,7 +3087,8 @@ export default function MvValuationReportWorkspace({
         mergeStats.variablesFilled > 0 ||
         mergeStats.assetImagesInserted > 0 ||
         mergeStats.valuationImagesInserted > 0 ||
-        mergeStats.clientImagesInserted > 0;
+        mergeStats.clientImagesInserted > 0 ||
+        mergeStats.certificateImagesInserted > 0;
       const warningDetail = mergeStats.warnings.filter(Boolean).join(" ");
       const successLabel = t("report.export.wordTemplate");
       toast({
@@ -3058,6 +3123,7 @@ export default function MvValuationReportWorkspace({
     toast,
     wordTemplateAssetImageSources,
     wordTemplateClientImageSources,
+    wordTemplateCertificateImageSources,
     wordTemplateValuationImageSources,
   ]);
 
@@ -3395,6 +3461,43 @@ export default function MvValuationReportWorkspace({
     });
   }, [companyDefaultSections, onReportDataPatch, project]);
 
+  /**
+   * A report-section model is copied into the project's editable report only
+   * when the chosen model (or its company definition) changes. Manual project
+   * sections are intentionally kept untouched.
+   */
+  useEffect(() => {
+    if (!project) return;
+    const modelId =
+      typeof reportData.reportSectionModelId === "string"
+        ? reportData.reportSectionModelId.trim()
+        : "";
+    const syncKey = modelId + ":" + JSON.stringify(selectedReportSectionModel ?? null);
+    if (reportSectionModelSyncRef.current === syncKey) return;
+    reportSectionModelSyncRef.current = syncKey;
+
+    setEditableSections((current) => {
+      const retained = current.filter(
+        (section) =>
+          !section.reportSectionModelId &&
+          !section.id.startsWith("report-model:"),
+      );
+      const generated = materializeReportSectionModel(selectedReportSectionModel);
+      const next = [...retained, ...generated];
+      if (JSON.stringify(current) === JSON.stringify(next)) return current;
+      onReportDataPatch({
+        reportSectionModelId: modelId || undefined,
+        reportEditableSections: next,
+      });
+      return next;
+    });
+  }, [
+    onReportDataPatch,
+    project,
+    reportData.reportSectionModelId,
+    selectedReportSectionModel,
+  ]);
+
   const saveReportSettingsNow = useCallback(async () => {
     const p = projectRef.current;
     if (!p) return;
@@ -3680,6 +3783,7 @@ export default function MvValuationReportWorkspace({
     onReportPageOrientationChange: updateReportPageOrientation,
     valuationAccountImages: orderedValuationImages,
     clientDocumentImages,
+    sceCertificateImages,
     clientDocumentsImagesPerRow: reportData.clientDocumentsImagesPerRow ?? 2,
     resolveImageSrc: resolveReportImageSrc,
     moveImage,
@@ -4324,6 +4428,39 @@ export default function MvValuationReportWorkspace({
                         </Button>
                       </div>
 
+                      <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-[10.5px] font-black text-slate-700">نموذج أقسام التقرير</span>
+                          <Badge className="rounded-full bg-sky-50 px-2 py-0.5 text-[9px] text-[#0C447C]">
+                            {selectedReportSectionModel?.name ?? "بدون نموذج"}
+                          </Badge>
+                        </div>
+                        <Select
+                          value={reportData.reportSectionModelId || "__no-report-section-model__"}
+                          onValueChange={(value) =>
+                            onReportDataPatch({
+                              reportSectionModelId:
+                                value === "__no-report-section-model__" ? "" : value,
+                            })
+                          }
+                        >
+                          <SelectTrigger className="h-8 rounded-lg border-slate-200 bg-white text-right text-[11px] font-black">
+                            <SelectValue placeholder="اختر نموذج الأقسام" />
+                          </SelectTrigger>
+                          <SelectContent className="z-[760]">
+                            <SelectItem value="__no-report-section-model__">بدون نموذج</SelectItem>
+                            {companyReportSectionModels.map((model) => (
+                              <SelectItem key={model.id} value={model.id}>
+                                {model.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1.5 text-[9.5px] leading-4 text-slate-500">
+                          يطبّق الاختيار مرة واحدة على هذا المشروع، مع الاحتفاظ بالأقسام التي أضفتها يدويًا.
+                        </p>
+                      </div>
+
                       <div className="grid gap-2">
                         {reportTemplateOptions.map((option) => {
                           const active = option.id === appliedReportTemplateId;
@@ -4698,6 +4835,7 @@ export default function MvValuationReportWorkspace({
           assetImageSources={wordTemplateAssetImageSources}
           valuationImageSources={wordTemplateValuationImageSources}
           clientImageSources={wordTemplateClientImageSources}
+          certificateImageSources={wordTemplateCertificateImageSources}
           onReportDataPatch={onReportDataPatch}
           onBeforeMerge={flushPendingReportDataForWord}
           templateAvailability={companyDocumentTemplates.word.status}

@@ -35,6 +35,7 @@ import { numberToArabicRiyalWords } from "./mv-arabic-number-words";
 import {
   countProjectAssetImages,
   MvProjectReportHeader,
+  MvSimpleReportStepNavigation,
   mvSimpleReportStepHref,
   readVisitedSimpleReportSteps,
   type MvSimpleReportStepId,
@@ -483,10 +484,14 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const markVisited = useCallback(
     (stepId: MvSimpleReportStepId) => {
+      const storedSteps = readVisitedSimpleReportSteps(projectId);
+      if (!storedSteps.includes(stepId)) {
+        writeVisitedSimpleReportSteps(projectId, [...storedSteps, stepId]);
+      }
       setVisitedSteps((current) => {
+        if (current.has(stepId)) return current;
         const next = new Set(current);
         next.add(stepId);
-        writeVisitedSimpleReportSteps(projectId, Array.from(next));
         return next;
       });
     },
@@ -1021,6 +1026,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
           )}
         </main>
       </MvWorkflowPageScrollBody>
+      <MvSimpleReportStepNavigation projectId={projectId} activeStep="report-data" />
 
       <MvCloneReportDataDialog
         open={cloneDialogOpen}
