@@ -22,6 +22,7 @@ import type {
   MvProject,
   MvProjectReportData,
   MvCompanyAiReportTemplate,
+  MvCompanyReportSectionModel,
   MvCompanyReportLetterheadTemplate,
   MvReportEditableSection,
   MvReportInsertedBlock,
@@ -30,9 +31,11 @@ import type {
 } from "./types";
 import {
   buildAiReportFlowChildren,
+  resolveReportModelText,
   type MvAiReportTopicKey,
   type MvAiVariableContext,
 } from "./mv-ai-report-sections";
+import { MV_DEFAULT_REPORT_SECTION_MODEL_ID } from "./mv-report-section-models";
 import type { MvReportTocRow } from "./mv-valuation-report-toc";
 import {
   MV_VALUATION_ACCOUNTING_APPROACHES,
@@ -232,6 +235,73 @@ function SectionShell({
         {headerExtra ? <div className="mv-report-chrome shrink-0 print:hidden">{headerExtra}</div> : null}
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+    </section>
+  );
+}
+
+type ReportModelFlowSectionData = {
+  id: string;
+  sectionNumber?: string;
+  title: string;
+  items: Array<{ id: string; title: string; body: string }>;
+};
+
+// These annexes have dedicated image sheets later in this document. Rendering
+// a text summary before them duplicates the images with an unhelpful count.
+const NATIVE_IMAGE_ANNEX_ANCHORS = new Set(["mv-annex-1", "mv-annex-2"]);
+
+/**
+ * Company report models are edited in the company settings, so their output
+ * should look like the native report — not like editable cards. Keeping the
+ * heading and each paragraph as direct section children also lets
+ * ReportFlowPages pack several sections on one sheet and split only at a
+ * sensible paragraph boundary when needed.
+ */
+function ReportModelFlowSection({ section }: { section: ReportModelFlowSectionData }) {
+  const showItemTitles = section.items.length > 1;
+  return (
+    <section
+      id={`custom:${section.id}`}
+      data-mv-report-insert-anchor={`custom:${section.id}`}
+      dir="rtl"
+      className="scroll-mt-4 text-right"
+    >
+      <div className="flex items-baseline gap-2 text-[#0a1f33]">
+        {section.sectionNumber ? (
+          <span dir="ltr" className="shrink-0 text-[13px] font-black tabular-nums text-[#0C447C]">
+            {section.sectionNumber}
+          </span>
+        ) : null}
+        <h2 className="text-[17px] font-black leading-snug sm:text-[19px]">{section.title}</h2>
+      </div>
+      <div className="my-2 h-[2px] w-full bg-[#0C447C]/75" />
+      {section.items.map((item) => {
+        const paragraphs = item.body
+          .split(/\n{2,}/)
+          .map((paragraph) => paragraph.trim())
+          .filter(Boolean);
+        return (
+          <div key={item.id}>
+            {showItemTitles ? (
+              <h3 className="mt-3 text-[13px] font-extrabold leading-6 text-slate-800">{item.title}</h3>
+            ) : null}
+            {paragraphs.length > 0 ? (
+              paragraphs.map((paragraph, index) => (
+                <p key={`${item.id}-${index}`} className="mb-2 text-[12.5px] font-medium leading-7 text-slate-800">
+                  {paragraph.split("\n").map((line, lineIndex) => (
+                    <Fragment key={lineIndex}>
+                      {lineIndex > 0 ? <br /> : null}
+                      {line}
+                    </Fragment>
+                  ))}
+                </p>
+              ))
+            ) : showItemTitles ? null : (
+              <p className="mb-2 text-[12.5px] font-medium leading-7 text-slate-800">{item.title}</p>
+            )}
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -1148,6 +1218,8 @@ export interface MvValuationReportDocumentBodyProps {
    * بدل الترتيب الافتراضي الثابت. انظر `buildAiReportFlowChildren`.
    */
   aiTemplate?: MvCompanyAiReportTemplate | null;
+  /** The company report-content model selected for this project. */
+  reportSectionModel?: MvCompanyReportSectionModel | null;
   reportFooterLines: string[];
   tocApproxPages: Record<string, string>;
   sectionGap: number;
@@ -1243,6 +1315,7 @@ export function MvValuationReportDocumentBody({
   companyBrand,
   letterheadTemplate,
   aiTemplate,
+  reportSectionModel,
   reportFooterLines: _reportFooterLines,
   tocApproxPages,
   sectionGap,
@@ -1302,6 +1375,26 @@ export function MvValuationReportDocumentBody({
   companyReportDefaults,
 }: MvValuationReportDocumentBodyProps) {
   const fallbackReferenceLabel = project?._id ? String(project._id).slice(-12) : projectId;
+  const isBuiltInDetailedModel = reportSectionModel?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID;
+  const builtInModelSectionByAnchor = new Map(
+    isBuiltInDetailedModel
+      ? reportSectionModel.sections
+          .filter((section) => section.systemAnchor)
+          .map((section) => [section.systemAnchor!, section] as const)
+      : [],
+  );
+  const isBuiltInModelAnchorVisible = (anchor: string) => {
+    if (!isBuiltInDetailedModel) return true;
+    const section = builtInModelSectionByAnchor.get(anchor);
+    return Boolean(
+      section && section.visibleInReport !== false && section.items.some((item) => item.visibleInReport !== false),
+    );
+  };
+  const usesIndependentReportSectionModel = Boolean(
+    reportSectionModel &&
+      reportSectionModel.visibleInReport !== false &&
+      reportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID,
+  );
   const textOverrides = reportData.reportTextOverrides ?? {};
   const hasTextOverride = (key: string) => Object.prototype.hasOwnProperty.call(textOverrides, key);
   const editableText = (key: string, fallback: string) => (hasTextOverride(key) ? textOverrides[key] ?? "" : fallback);
@@ -1744,7 +1837,13 @@ export function MvValuationReportDocumentBody({
    * layout naturally collapses (content beneath flows up). Bringing them back
    * is done from the navigation sidebar (when at least one is hidden).
    */
-  const hiddenAnchorIds = reportData.reportHiddenAnchorIds ?? [];
+  const userHiddenAnchorIds = reportData.reportHiddenAnchorIds ?? [];
+  // The eye in the model editor controls the actual system section as well as
+  // its table-of-contents row. Project-specific hiding remains additive.
+  const modelHiddenAnchorIds = isBuiltInDetailedModel
+    ? MV_REPORT_TOC_ROWS.filter((row) => !isBuiltInModelAnchorVisible(row.anchor)).map((row) => row.anchor)
+    : [];
+  const hiddenAnchorIds = Array.from(new Set([...userHiddenAnchorIds, ...modelHiddenAnchorIds]));
   const toggleHiddenAnchor = (anchorId: string, hidden: boolean) => {
     const current = reportData.reportHiddenAnchorIds ?? [];
     const next = hidden
@@ -1914,6 +2013,10 @@ export function MvValuationReportDocumentBody({
   );
 
   const editableHeading = (key: string, fallback: string, options?: { hideable?: boolean }) => {
+    const modelSection = isBuiltInDetailedModel ? builtInModelSectionByAnchor.get(key) : undefined;
+    const modelFallback = modelSection
+      ? `${modelSection.sectionNumber ? `${modelSection.sectionNumber} ` : ""}${modelSection.title}`.trim()
+      : fallback;
     const isAnchor =
       key.startsWith("mv-toc-") ||
       key.startsWith("mv-annex-") ||
@@ -1924,7 +2027,7 @@ export function MvValuationReportDocumentBody({
       <>
         <div className="group/section-heading relative">
           {sectionHeading(
-            editableText(`heading.${key}`, fallback),
+            editableText(`heading.${key}`, modelFallback),
             (value) => setTextOverride(`heading.${key}`, value),
           )}
           {hideable ? (
@@ -2867,12 +2970,41 @@ export function MvValuationReportDocumentBody({
         ? `${valuationAccountImages.length} صورة حسابات قيمة مرفقة في مرفق 1`
         : "",
     signatoryNamesText: preparerDisplayRows.map((row) => row.name).filter(Boolean).join("، "),
+    clientDocumentsCountText:
+      clientDocumentImages.length > 0 ? `${clientDocumentImages.length} مستند عميل مرفق` : "",
+    certificateImagesCountText:
+      sceCertificateImages.length > 0 ? `${sceCertificateImages.length} صورة شهادة تسجيل مرفقة` : "",
+    reportDataValues: reportData as Record<string, unknown>,
+    customFieldValues: Object.fromEntries(
+      (reportData.customFields ?? []).map((field) => [field.id, field.value ?? ""]),
+    ),
   };
   const aiFlow = buildAiReportFlowChildren({
     aiTemplate,
     topicSections,
     ctx: aiVariableContext,
   });
+  const modelFlowSections: ReportModelFlowSectionData[] = usesIndependentReportSectionModel
+    ? (reportSectionModel?.sections ?? [])
+        .filter(
+          (section) =>
+            section.visibleInReport !== false &&
+            section.items.some((item) => item.visibleInReport !== false) &&
+            !NATIVE_IMAGE_ANNEX_ANCHORS.has(section.systemAnchor ?? ""),
+        )
+        .map((section) => ({
+          id: `report-model:${reportSectionModel!.id}:${section.id}`,
+          sectionNumber: section.sectionNumber,
+          title: section.title,
+          items: section.items
+            .filter((item) => item.visibleInReport !== false)
+            .map((item) => ({
+              id: item.id,
+              title: item.title,
+              body: resolveReportModelText(item.body, aiVariableContext),
+            })),
+        }))
+    : [];
   const flowChildren: ReactNode[] = aiFlow?.nodes ?? defaultFlowChildren;
   /**
    * فهرس (TOC) مطابق تماماً لما يظهر فعلاً في المتن عند تفعيل قالب AI — بترقيم تسلسلي
@@ -2880,9 +3012,29 @@ export function MvValuationReportDocumentBody({
    * دوماً، بصرف النظر عمّا اختاره قالب AI فعلياً (وهو ما كان يجعل الفهرس مضللاً/غير
    * مطابق للمحتوى الحقيقي في التقرير).
    */
-  const tocRows: MvReportTocRow[] = aiFlow
-    ? aiFlow.tocRows.map((row, index) => ({ ...row, num: `${index + 1}.0` }))
-    : MV_REPORT_TOC_ROWS;
+  const tocRows: MvReportTocRow[] = usesIndependentReportSectionModel
+    ? (reportSectionModel?.sections ?? [])
+        .filter(
+          (section) =>
+            section.visibleInReport !== false && section.items.some((item) => item.visibleInReport !== false),
+        )
+        .map((section, index) => ({
+          num: section.sectionNumber || `${index + 1}.0`,
+          title: section.title,
+          anchor: NATIVE_IMAGE_ANNEX_ANCHORS.has(section.systemAnchor ?? "")
+            ? section.systemAnchor!
+            : `custom:report-model:${reportSectionModel!.id}:${section.id}`,
+        }))
+    : aiFlow
+      ? aiFlow.tocRows.map((row, index) => ({ ...row, num: `${index + 1}.0` }))
+      : MV_REPORT_TOC_ROWS
+          .filter((row) => !isBuiltInDetailedModel || isBuiltInModelAnchorVisible(row.anchor))
+          .map((row) => {
+            const modelSection = builtInModelSectionByAnchor.get(row.anchor);
+            return modelSection
+              ? { ...row, title: modelSection.title || row.title, num: modelSection.sectionNumber || row.num }
+              : row;
+          });
   const usesValueTechOfficialLayout =
     !aiFlow && (letterheadTemplate?.templateId ?? "default-report-template") === "default-report-template";
   const renderNarrativeFlow = (nodes: ReactNode[], groupId: string) => (
@@ -2904,6 +3056,18 @@ export function MvValuationReportDocumentBody({
       }}
     >
       {nodes}
+    </ReportFlowPages>
+  );
+  const renderIndependentModelFlow = () => (
+    <ReportFlowPages
+      shellProps={interiorShellProps}
+      measureRevision={`report-section-model:${reportSectionModel?.id ?? ""}:${JSON.stringify(reportSectionModel?.sections ?? [])}`}
+      measureEnvStyle={{
+        ["--mv-paragraph-leading" as string]: String(paragraphLineHeight),
+        ["--mv-heading-scale" as string]: String(headingScale),
+      }}
+    >
+      {modelFlowSections.map((section) => <ReportModelFlowSection key={section.id} section={section} />)}
     </ReportFlowPages>
   );
   return (
@@ -3086,7 +3250,7 @@ export function MvValuationReportDocumentBody({
         logoSrc={logoSrc}
         footerLines={identityFooterLines}
         draftWatermark={sheetDraft}
-        editableSections={editableSections}
+        editableSections={usesIndependentReportSectionModel ? [] : editableSections}
         rows={tocRows}
         tocApproxPages={tocApproxPages}
         onTocAnchorClick={onTocAnchorClick}
@@ -3100,7 +3264,7 @@ export function MvValuationReportDocumentBody({
 
       {boundary("report-toc")}
 
-      {usesValueTechOfficialLayout ? (
+      {!usesIndependentReportSectionModel && (usesValueTechOfficialLayout ? (
         <>
           <MvReportSectionDivider
             sequence={MV_REPORT_CHAPTERS[0].sequence}
@@ -3141,13 +3305,16 @@ export function MvValuationReportDocumentBody({
         </>
       ) : (
         renderNarrativeFlow(flowChildren, "primary")
-      )}
+      ))}
 
       {/* Legacy custom sections without a target anchor render at the very end,
           right before the annexes. */}
-      {editableSections
-        .filter((section) => !section.insertAfterAnchorId)
-        .map((section) => (
+      {usesIndependentReportSectionModel ? (
+        renderIndependentModelFlow()
+      ) : (
+        editableSections
+          .filter((section) => !section.insertAfterAnchorId)
+          .map((section) => (
           <CustomSectionShell
             key={section.id}
             section={section}
@@ -3163,7 +3330,8 @@ export function MvValuationReportDocumentBody({
             onRemove={() => removeEditableSection(section.id)}
             insertedAfter={insertedAfter}
           />
-        ))}
+          ))
+      )}
 
       {usesValueTechOfficialLayout ? (
         <MvReportSectionDivider

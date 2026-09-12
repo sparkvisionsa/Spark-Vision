@@ -76,7 +76,9 @@ import {
   type MvReportDataModel,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
 import {
+  MV_DEFAULT_REPORT_SECTION_MODEL_ID,
   createDefaultReportSectionModel,
+  createDetailedReportModelSections,
   normalizeReportSectionModels,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-section-models";
 import type { MvCompanyReportSectionModel } from "@/components/workspace/workspace-sections/machine-valuation/types";
@@ -885,6 +887,7 @@ function normalizeReportDefaults(
     rawTemplates.pptxTemplate,
     "pptx",
   );
+  const rawReportSectionModels = (raw as { reportSectionModels?: unknown }).reportSectionModels;
   return {
     scope: merge(base.scope, raw.scope as Partial<typeof base.scope> | undefined),
     methodology: merge(base.methodology, raw.methodology as Partial<typeof base.methodology> | undefined),
@@ -892,9 +895,14 @@ function normalizeReportDefaults(
     customGroups,
     customSections,
     reportDataModels: normalizeReportDataModels((raw as { reportDataModels?: unknown }).reportDataModels),
-    reportSectionModels: normalizeReportSectionModels(
-      (raw as { reportSectionModels?: unknown }).reportSectionModels,
-    ),
+    // A standard report model is always available. Earlier versions saved an
+    // empty array for companies that had not configured this feature yet.
+    reportSectionModels: (() => {
+      const models = Array.isArray(rawReportSectionModels)
+        ? normalizeReportSectionModels(rawReportSectionModels)
+        : [];
+      return models.length > 0 ? models : [createDefaultReportSectionModel()];
+    })(),
     letterhead: {
       enabled: letterheadRaw.enabled === true,
       templateId:
@@ -1168,6 +1176,166 @@ function buildReportDefaultsNodes(
     }));
 
   return [...fixedNodes, ...customNodes];
+}
+
+/**
+ * The standard model is a management view of the content already used by the
+ * system report. Its stable ids bind each item back to the company default
+ * that feeds the matching final-report paragraph.
+ */
+function buildStandardReportSectionModel(
+  defaults: CompanyReportDefaultsForm,
+  existing?: MvCompanyReportSectionModel,
+): MvCompanyReportSectionModel {
+  // The detailed system model is the real outline of the final report, not a
+  // small settings-only subset. Keep legacy field ids (scope/methodology/
+  // assumptions) inside their actual report sections so existing company
+  // defaults remain connected to the right paragraph.
+  const existingItems = new Map(
+    existing?.sections.flatMap((section) => section.items.map((item) => [item.id, item] as const)) ?? [],
+  );
+  const existingSectionsByAnchor = new Map(
+    existing?.sections
+      .filter((section) => section.systemAnchor)
+      .map((section) => [section.systemAnchor!, section] as const) ?? [],
+  );
+  const builtInSections = createDetailedReportModelSections().map((seed) => {
+    const existingSection =
+      existingSectionsByAnchor.get(seed.systemAnchor!) ?? existing?.sections.find((section) => section.id === seed.id);
+    return {
+      ...seed,
+      title: existingSection?.title || seed.title,
+      sectionNumber: existingSection?.sectionNumber || seed.sectionNumber,
+      visibleInReport: existingSection?.visibleInReport !== false,
+      items: seed.items.map((seedItem) => {
+        const existingItem = existingItems.get(seedItem.id);
+        const [group, field] = seedItem.id.split(":", 2);
+        const defaultBody =
+          (group === "scope" || group === "methodology" || group === "assumptions") && field
+            ? ((defaults[group] as Record<string, string>)[field] ?? "")
+            : seedItem.body;
+        return {
+          ...seedItem,
+          title: existingItem?.title || seedItem.title,
+          // A system paragraph continues to read from the company defaults
+          // until an administrator explicitly writes a replacement in the
+          // model editor.
+          body: existingItem?.overrideSystemContent ? existingItem.body : defaultBody,
+          visibleInReport: existingItem?.visibleInReport !== false,
+          ...(existingItem?.overrideSystemContent ? { overrideSystemContent: true } : {}),
+        };
+      }),
+    };
+  });
+
+  const customGroups = buildReportDefaultsSectionGroups(defaults)
+    .filter((group) => group.kind === "custom")
+    .map((group) => ({
+      id: `custom-group:${group.id}`,
+      title: existing?.sections.find((section) => section.id === `custom-group:${group.id}`)?.title || group.title,
+      visibleInReport:
+        existing?.sections.find((section) => section.id === `custom-group:${group.id}`)?.visibleInReport !== false,
+      items: defaults.customSections
+        .filter((section) => customReportSectionGroupId(section) === group.id)
+        .map((section) => {
+          const id = `custom:${section.id}`;
+          const existingItem = existing?.sections
+            .find((entry) => entry.id === `custom-group:${group.id}`)
+            ?.items.find((item) => item.id === id);
+          return {
+            id,
+            title: existingItem?.title || section.title,
+            body: section.body,
+            visibleInReport: existingItem?.visibleInReport !== false,
+          };
+        }),
+    }));
+
+  return {
+    id: MV_DEFAULT_REPORT_SECTION_MODEL_ID,
+    name:
+      existing?.name && existing.name !== "النموذج القياسي"
+        ? existing.name
+        : "نموذج تقرير مفصل",
+    // Keep the user's selected default.  This model starts as the default
+    // when no saved setting exists, but must not reclaim that status after a
+    // different report model is chosen from the dashboard.
+    isDefault: existing?.isDefault ?? true,
+    visibleInReport: existing?.visibleInReport !== false,
+    sections: [
+      ...builtInSections,
+      ...customGroups,
+      ...(existing?.sections.filter(
+        (section) =>
+          !REPORT_DEFAULTS_BUILT_IN_SECTIONS.some((group) => group.id === section.id) &&
+          !section.id.startsWith("custom-group:") &&
+          section.id !== "report-definitions" &&
+          !section.systemAnchor &&
+          !section.id.startsWith("system:"),
+      ) ?? []),
+    ],
+  };
+}
+
+function mergeStandardReportSectionModel(
+  current: CompanyReportDefaultsForm,
+  models: MvCompanyReportSectionModel[],
+): CompanyReportDefaultsForm {
+  const standard = models.find((model) => model.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID);
+  if (!standard) return { ...current, reportSectionModels: models };
+
+  const sourceItems = new Map(
+    standard.sections.flatMap((section) =>
+      section.items.map((item) => [item.id, { item, section }] as const),
+    ),
+  );
+  const enabled = standard.visibleInReport !== false;
+  const applyBuiltInGroup = (group: ReportDefaultsBuiltInSectionKey) => {
+    const values = { ...current[group] } as Record<string, string>;
+    for (const field of REPORT_DEFAULTS_BUILT_IN_SECTIONS.find((section) => section.id === group)?.fields ?? []) {
+      const source = sourceItems.get(`${group}:${field.key}`);
+      values[field.key] =
+        enabled && source?.section.visibleInReport !== false && source?.item.visibleInReport !== false
+          ? source?.item.body ?? ""
+          : "";
+    }
+    return values;
+  };
+
+  const nextCustomSections = current.customSections.flatMap((section) => {
+    const source = sourceItems.get(`custom:${section.id}`);
+    if (
+      !source ||
+      !enabled ||
+      source.section.visibleInReport === false ||
+      source.item.visibleInReport === false
+    ) return [];
+    const groupId = source.section.id.startsWith("custom-group:")
+      ? source.section.id.slice("custom-group:".length)
+      : customReportSectionGroupId(section);
+    return [{
+      ...section,
+      title: source.item.title.trim() || section.title,
+      body: source.item.body,
+      groupId,
+      groupTitle: source.section.title.trim() || section.groupTitle,
+    }];
+  });
+
+  const nextCustomGroups = current.customGroups.map((group) => {
+    const source = standard.sections.find((section) => section.id === `custom-group:${group.id}`);
+    return source ? { ...group, title: source.title.trim() || group.title } : group;
+  });
+
+  return {
+    ...current,
+    scope: applyBuiltInGroup("scope") as CompanyReportDefaultsForm["scope"],
+    methodology: applyBuiltInGroup("methodology") as CompanyReportDefaultsForm["methodology"],
+    assumptions: applyBuiltInGroup("assumptions") as CompanyReportDefaultsForm["assumptions"],
+    customGroups: nextCustomGroups,
+    customSections: nextCustomSections,
+    reportSectionModels: models,
+  };
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -1946,6 +2114,7 @@ export default function CompanyAdminDashboard({
   const [reportDefaultsSaving, setReportDefaultsSaving] = useState(false);
   const [reportDefaultsDirty, setReportDefaultsDirty] = useState(false);
   const [reportDefaultsBaseline, setReportDefaultsBaseline] = useState<CompanyReportDefaultsForm | null>(null);
+  const [reportStudioTab, setReportStudioTab] = useState("system-template");
   const [selectedCompanyWordTemplateId, setSelectedCompanyWordTemplateId] = useState("");
   const [selectedCompanyPptxTemplateId, setSelectedCompanyPptxTemplateId] = useState("");
   const reportDefaultsRef = useRef(reportDefaults);
@@ -2186,6 +2355,15 @@ export default function CompanyAdminDashboard({
     () => buildReportDefaultsSectionGroups(reportDefaults),
     [reportDefaults],
   );
+  const reportSectionModelsForEditor = useMemo(
+    () =>
+      reportDefaults.reportSectionModels.map((model) =>
+        model.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID
+          ? buildStandardReportSectionModel(reportDefaults, model)
+          : model,
+      ),
+    [reportDefaults],
+  );
   const activeReportDefaultsSection =
     reportDefaultsSectionGroups.find((section) => section.id === activeReportDefaultsSectionId) ??
     reportDefaultsSectionGroups[0];
@@ -2413,14 +2591,8 @@ export default function CompanyAdminDashboard({
     }
   }, [csrfToken]);
 
-  /**
-   * Selecting a system report template is an explicit adoption action, not a
-   * draft-only field edit.  Persist the exact next object so a reload cannot
-   * fall back to the previously saved template while the project still shows
-   * a different one.
-   */
   const applySystemReportTemplate = useCallback(
-    async (template: LetterheadTemplateOption) => {
+    (template: LetterheadTemplateOption) => {
       if (reportDefaultsSaving) return;
 
       const isCompanyLetterhead = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
@@ -2447,13 +2619,9 @@ export default function CompanyAdminDashboard({
       if (isCompanyLetterhead && !hasConfiguredCompanyLetterheadImages) {
         setLetterheadImagesOpen(true);
       }
-
-      const saved = await persistReportDefaults(next);
-      if (saved) {
-        setStatus(`تم اعتماد قالب «${template.title}» وحفظه كقالب النظام.`);
-      }
+      setStatus(`تم اختيار قالب «${template.title}». احفظ التعديلات لتطبيقه.`);
     },
-    [persistReportDefaults, reportDefaultsSaving],
+    [reportDefaultsSaving],
   );
 
   const analyzeAiTemplatePdf = useCallback(async () => {
@@ -4313,104 +4481,54 @@ export default function CompanyAdminDashboard({
           </TabsContent>
 
           <TabsContent value="letterhead" className="m-0 outline-none">
-            <div className="m-0 space-y-3 p-0">
-              <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 bg-[linear-gradient(120deg,#071f33_0%,#0C447C_62%,#0f6d91_100%)] px-4 py-3 text-white">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/12 text-[#f6b56d] ring-1 ring-white/15">
-                      <Palette className="h-5 w-5" />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="text-[15px] font-black tracking-tight">استوديو التقرير النظامي</h2>
-                      <p className="mt-0.5 text-[11px] font-semibold leading-5 text-sky-100/90">
-                        قالب موحّد، أكلاشية الشركة، وتعريفات التقرير في مساحة واحدة.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="hidden items-center gap-1.5 rounded-xl bg-white/10 px-2.5 py-1.5 text-[10px] font-bold ring-1 ring-white/10 sm:flex">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#f6b56d]" />
-                      {selectedSystemTemplate.title}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9 gap-1.5 rounded-xl border-white/20 bg-white/10 text-[12px] font-black text-white hover:bg-white/20 hover:text-white"
-                      onClick={() => setLetterheadImagesOpen(true)}
-                    >
-                      <ImageIcon className="h-3.5 w-3.5" />
-                      الأكلاشية
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9 gap-1.5 rounded-xl border-white/20 bg-white/10 text-[12px] font-bold text-white hover:bg-white/20 hover:text-white"
-                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
-                      onClick={resetReportDefaults}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      تراجع
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-9 gap-1.5 rounded-xl bg-[#f37021] text-[12px] font-black text-white shadow-sm hover:bg-[#dd6317]"
-                      disabled={!reportDefaultsDirty || reportDefaultsSaving}
-                      onClick={() => void persistReportDefaults()}
-                    >
-                      {reportDefaultsSaving ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
-                      حفظ التعديلات
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid divide-y divide-slate-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0" dir="rtl">
-                  <div className="flex items-center gap-2 px-4 py-2.5">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-[#0C447C]"><Palette className="h-3.5 w-3.5" /></span>
-                    <div>
-                      <p className="text-[9px] font-bold text-slate-400">القالب المعتمد</p>
-                      <p className="max-w-[190px] truncate text-[11px] font-black text-slate-800">{selectedSystemTemplate.title}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 px-4 py-2.5">
-                    <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}><Stamp className="h-3.5 w-3.5" /></span>
-                    <div>
-                      <p className="text-[9px] font-bold text-slate-400">أكلاشية الشركة</p>
-                      <p className="text-[11px] font-black text-slate-800">{hasLetterheadImages ? "الصور جاهزة للاستخدام" : "لم تكتمل الصور بعد"}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 px-4 py-2.5">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><ClipboardList className="h-3.5 w-3.5" /></span>
-                    <div>
-                      <p className="text-[9px] font-bold text-slate-400">محتوى التقرير</p>
-                      <p className="text-[11px] font-black text-slate-800">{reportDefaultsSectionGroups.length} مجموعات · {reportDefaults.customSections.length} بنود خاصة</p>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
+            <div className="m-0 p-0">
               {!reportDefaultsLoaded ? (
                 <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-16 text-slate-400 shadow-sm">
                   <Loader2 className="h-7 w-7 animate-spin" />
                 </div>
               ) : (
-                <Tabs defaultValue="system-template" className="space-y-3" dir="rtl">
-                  <TabsList className="h-auto w-full justify-start gap-1 rounded-2xl border border-slate-200/80 bg-white p-1.5 shadow-sm md:w-auto">
-                    <TabsTrigger value="system-template" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
-                      قالب النظام
-                    </TabsTrigger>
-                    <TabsTrigger value="company-letterhead" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
-                      أكلاشية الشركة
-                    </TabsTrigger>
-                    <TabsTrigger value="report-sections" className="rounded-xl px-3 py-2 text-[12px] font-bold data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm">
-                      أقسام وتعريفات التقرير
-                    </TabsTrigger>
-                  </TabsList>
+                <Tabs
+                  value={reportStudioTab}
+                  onValueChange={setReportStudioTab}
+                  className="grid grid-cols-[138px_minmax(0,1fr)] gap-2 sm:grid-cols-[164px_minmax(0,1fr)]"
+                  dir="rtl"
+                >
+                  <aside className="self-start lg:sticky lg:top-2">
+                    <TabsList className="flex h-auto w-full flex-col items-stretch gap-1 rounded-xl border border-slate-200 bg-slate-50/80 p-1 shadow-sm">
+                      <TabsTrigger value="system-template" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
+                        <Palette className="h-3.5 w-3.5 shrink-0" />
+                        قالب النظام
+                      </TabsTrigger>
+                      <TabsTrigger value="company-letterhead" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
+                        <Stamp className="h-3.5 w-3.5 shrink-0" />
+                        أكلاشية الشركة
+                      </TabsTrigger>
+                      <TabsTrigger value="report-sections" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
+                        <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                        أقسام وتعريفات التقرير
+                      </TabsTrigger>
+                    </TabsList>
+                    {reportDefaultsDirty ? (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[9px] font-bold leading-4 text-amber-800 sm:text-[10px]">
+                        توجد تعديلات غير محفوظة ← استخدم أيقونة الحفظ
+                      </div>
+                    ) : null}
+                  </aside>
+
+                  <div className="min-w-0">
+                    <div className="sticky top-2 z-20 mb-2 flex justify-end">
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-8 w-8 rounded-lg bg-[#0C447C] text-white shadow-md hover:bg-[#0a3a66]"
+                        disabled={!reportDefaultsDirty || reportDefaultsSaving}
+                        onClick={() => void persistReportDefaults()}
+                        title="حفظ التعديلات"
+                        aria-label="حفظ التعديلات"
+                      >
+                        {reportDefaultsSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      </Button>
+                    </div>
 
                   <TabsContent value="system-template" className="m-0 space-y-3 outline-none">
                     <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -4447,7 +4565,7 @@ export default function CompanyAdminDashboard({
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <h3 className="text-[14px] font-black text-slate-900">مكتبة قوالب النظام</h3>
-                          <p className="mt-0.5 text-[10.5px] font-semibold text-slate-500">اختر القالب المعتمد ليُحفظ فورًا ويُستخدم في التقارير الجديدة.</p>
+                          <p className="mt-0.5 text-[10.5px] font-semibold text-slate-500">اختر القالب ثم احفظه ليُستخدم في التقارير الجديدة.</p>
                         </div>
                         <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">{letterheadCatalogTemplates.length} قوالب</Badge>
                       </div>
@@ -4582,19 +4700,21 @@ export default function CompanyAdminDashboard({
 
                   <TabsContent value="report-sections" className="m-0 outline-none">
                     <CompanyReportSectionModelDashboard
-                      models={reportDefaults.reportSectionModels}
+                      models={reportSectionModelsForEditor}
+                      reportDataModels={reportDefaults.reportDataModels}
                       loading={!reportDefaultsLoaded}
                       saving={reportDefaultsSaving}
-                      dirty={reportDefaultsDirty}
+                      onSave={() => persistReportDefaults()}
                       onChange={(models) => {
-                        setReportDefaults((current) => ({
-                          ...current,
-                          reportSectionModels: normalizeReportSectionModels(models),
-                        }));
+                        const normalized = normalizeReportSectionModels(models);
+                        setReportDefaults((current) =>
+                          mergeStandardReportSectionModel(current, normalized),
+                        );
                         setReportDefaultsDirty(true);
                       }}
                     />
                   </TabsContent>
+                  </div>
                 </Tabs>
               )}
             </div>

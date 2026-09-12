@@ -124,6 +124,7 @@ import {
   type MvReportPreparerOption,
 } from "./mv-report-preparers";
 import {
+  MV_DEFAULT_REPORT_SECTION_MODEL_ID,
   getReportSectionModel,
   materializeReportSectionModel,
   normalizeReportSectionModels,
@@ -2844,6 +2845,19 @@ export default function MvValuationReportWorkspace({
       ),
     [companyReportSectionModels, reportData.reportSectionModelId],
   );
+  const visibleReportSectionModels = useMemo(
+    () => companyReportSectionModels.filter((model) => model.visibleInReport !== false),
+    [companyReportSectionModels],
+  );
+  const selectedReportSectionModelIsHidden = selectedReportSectionModel?.visibleInReport === false;
+  const projectReportSectionModelId =
+    typeof reportData.reportSectionModelId === "string" ? reportData.reportSectionModelId.trim() : "";
+  const hasProjectReportSectionModelSelection =
+    Boolean(projectReportSectionModelId) &&
+    companyReportSectionModels.some((model) => model.id === projectReportSectionModelId);
+  const reportSectionModelSelectValue = hasProjectReportSectionModelSelection
+    ? projectReportSectionModelId
+    : "__company-default-report-section-model__";
   const draftMode = isReportDraftMode(reportData);
   const savedProjectTemplateId = project?.reportData?.reportTemplateId;
   const hasSavedProjectTemplate =
@@ -3377,6 +3391,23 @@ export default function MvValuationReportWorkspace({
     [persistProjectReportData, sessionKey, t, toast],
   );
 
+  const selectReportSectionModelForProject = useCallback(
+    (value: string) => {
+      if (value === "__company-default-report-section-model__") {
+        // Clearing the project override makes this report follow whichever
+        // visible model the company has marked as its default.
+        onReportDataPatch({ reportSectionModelId: undefined });
+        return;
+      }
+      const model = companyReportSectionModels.find((entry) => entry.id === value);
+      if (!model || model.visibleInReport === false) return;
+      // This patch touches only the current project's report data; it never
+      // changes the company-level default model.
+      onReportDataPatch({ reportSectionModelId: model.id });
+    },
+    [companyReportSectionModels, onReportDataPatch],
+  );
+
   const flushPendingReportDataForWord = useCallback(async () => {
     if (!reportDataPersistTimerRef.current) return;
     window.clearTimeout(reportDataPersistTimerRef.current);
@@ -3437,29 +3468,69 @@ export default function MvValuationReportWorkspace({
     applyReportTemplateById(pendingReportTemplateId);
   }, [applyReportTemplateById, pendingReportTemplateId]);
 
+  /**
+   * Company-defined sections are a live part of the selected standard model,
+   * rather than a one-time copy.  This keeps renamed, removed, hidden, and
+   * edited definitions in sync when a simplified project's final report is
+   * opened again, while leaving genuinely manual project sections untouched.
+   */
   useEffect(() => {
-    if (!project || companyDefaultSections.length === 0) return;
+    if (!project || companyReportSectionModels.length === 0) return;
+    const isStandardModel = selectedReportSectionModel?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID;
+    const sources = isStandardModel ? companyDefaultSections : [];
+    const sourceById = new Map(sources.map((section) => [section.id, section]));
+
     setEditableSections((current) => {
-      const existing = new Set<string>();
-      for (const section of current) {
-        if (section.companyDefaultSectionId) existing.add(section.companyDefaultSectionId);
-        if (section.id.startsWith("company-default:")) existing.add(section.id.slice("company-default:".length));
+      const seen = new Set<string>();
+      let changed = false;
+      const next = current.flatMap((section) => {
+        const sourceId =
+          section.companyDefaultSectionId ??
+          (section.id.startsWith("company-default:")
+            ? section.id.slice("company-default:".length)
+            : "");
+        if (!sourceId) return [section];
+
+        const source = sourceById.get(sourceId);
+        if (!source) {
+          changed = true;
+          return [];
+        }
+        seen.add(source.id);
+        const synchronized = {
+          ...section,
+          companyDefaultSectionId: source.id,
+          sectionNumber: source.sectionNumber,
+          title: source.title || "بند إضافي",
+          body: source.body,
+        } satisfies MvReportEditableSection;
+        if (JSON.stringify(section) !== JSON.stringify(synchronized)) changed = true;
+        return [synchronized];
+      });
+
+      for (const source of sources) {
+        if (seen.has(source.id)) continue;
+        changed = true;
+        next.push({
+          id: `company-default:${source.id}`,
+          companyDefaultSectionId: source.id,
+          sectionNumber: source.sectionNumber,
+          title: source.title || "بند إضافي",
+          body: source.body,
+        });
       }
-      const additions = companyDefaultSections
-        .filter((section) => !existing.has(section.id))
-        .map((section) => ({
-          id: `company-default:${section.id}`,
-          companyDefaultSectionId: section.id,
-          sectionNumber: section.sectionNumber,
-          title: section.title || "بند إضافي",
-          body: section.body,
-        }));
-      if (additions.length === 0) return current;
-      const next = [...current, ...additions];
+
+      if (!changed) return current;
       onReportDataPatch({ reportEditableSections: next });
       return next;
     });
-  }, [companyDefaultSections, onReportDataPatch, project]);
+  }, [
+    companyDefaultSections,
+    companyReportSectionModels.length,
+    onReportDataPatch,
+    project,
+    selectedReportSectionModel?.id,
+  ]);
 
   /**
    * A report-section model is copied into the project's editable report only
@@ -3468,10 +3539,11 @@ export default function MvValuationReportWorkspace({
    */
   useEffect(() => {
     if (!project) return;
-    const modelId =
+    const requestedModelId =
       typeof reportData.reportSectionModelId === "string"
         ? reportData.reportSectionModelId.trim()
         : "";
+    const modelId = selectedReportSectionModel?.id ?? requestedModelId;
     const syncKey = modelId + ":" + JSON.stringify(selectedReportSectionModel ?? null);
     if (reportSectionModelSyncRef.current === syncKey) return;
     reportSectionModelSyncRef.current = syncKey;
@@ -3484,12 +3556,17 @@ export default function MvValuationReportWorkspace({
       );
       const generated = materializeReportSectionModel(selectedReportSectionModel);
       const next = [...retained, ...generated];
-      if (JSON.stringify(current) === JSON.stringify(next)) return current;
-      onReportDataPatch({
-        reportSectionModelId: modelId || undefined,
-        reportEditableSections: next,
-      });
-      return next;
+      const sectionsChanged = JSON.stringify(current) !== JSON.stringify(next);
+      // A blank project selection deliberately follows the company default.
+      // Only an explicit user choice writes `reportSectionModelId`, so a
+      // later change to the company default is reflected in every project
+      // that has not chosen its own model.
+      if (sectionsChanged) {
+        onReportDataPatch({
+          reportEditableSections: next,
+        });
+      }
+      return sectionsChanged ? next : current;
     });
   }, [
     onReportDataPatch,
@@ -3630,12 +3707,21 @@ export default function MvValuationReportWorkspace({
     };
 
     const sheets = collectSheets(root);
+    const activeTocAnchors =
+      selectedReportSectionModel && selectedReportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID
+        ? selectedReportSectionModel.sections
+            .filter(
+              (section) =>
+                section.visibleInReport !== false && section.items.some((item) => item.visibleInReport !== false),
+            )
+            .map((section) => `custom:report-model:${selectedReportSectionModel.id}:${section.id}`)
+        : MV_REPORT_TOC_ROWS.map((row) => row.anchor);
 
     const next: Record<string, string> = {};
-    for (const row of MV_REPORT_TOC_ROWS) {
-      const el = document.getElementById(row.anchor);
+    for (const anchor of activeTocAnchors) {
+      const el = document.getElementById(anchor);
       if (!el) {
-        next[row.anchor] = "—";
+        next[anchor] = "—";
         continue;
       }
       let idx = 0;
@@ -3645,7 +3731,7 @@ export default function MvValuationReportWorkspace({
           break;
         }
       }
-      next[row.anchor] = idx > 0 ? String(idx) : "—";
+      next[anchor] = idx > 0 ? String(idx) : "—";
     }
     setTocApproxPages((prev) => {
       const same =
@@ -3670,6 +3756,7 @@ export default function MvValuationReportWorkspace({
     includeValuationAccountImages,
     companyBrand.name,
     companyBrand.logoSrc,
+    selectedReportSectionModel,
   ]);
 
   /**
@@ -3797,6 +3884,7 @@ export default function MvValuationReportWorkspace({
     addEditableSection,
     moveEditableSectionTo,
     companyReportDefaults,
+    reportSectionModel: selectedReportSectionModel,
     onTocAnchorClick: (anchorId: string) => scrollToSection(anchorId as ReportSectionId),
   };
 
@@ -4060,6 +4148,44 @@ export default function MvValuationReportWorkspace({
                   </SelectContent>
                 </Select>
               </div>
+
+              {embeddedSystemReport ? (
+                <div className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50/60 px-2 shadow-sm sm:min-w-[220px] sm:max-w-[360px]">
+                  <ListTree className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
+                  <span className="hidden shrink-0 text-[10px] font-black text-[#0C447C] sm:inline">نموذج التقرير</span>
+                  <Select
+                    value={reportSectionModelSelectValue}
+                    onValueChange={selectReportSectionModelForProject}
+                  >
+                    <SelectTrigger
+                      className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-right text-[10.5px] font-black text-slate-800 shadow-none outline-none ring-0 focus:ring-0 [&>span]:truncate"
+                      title="اختيار نموذج أقسام التقرير"
+                    >
+                      <SelectValue placeholder="النموذج الافتراضي للشركة" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[760]">
+                      <SelectItem value="__company-default-report-section-model__">
+                        الافتراضي للشركة — {selectedReportSectionModel?.name ?? "بدون نموذج"}
+                      </SelectItem>
+                      {selectedReportSectionModelIsHidden && hasProjectReportSectionModelSelection ? (
+                        <SelectItem value={projectReportSectionModelId} disabled>
+                          {selectedReportSectionModel?.name ?? "النموذج المختار"} — مخفي
+                        </SelectItem>
+                      ) : null}
+                      {visibleReportSectionModels.length === 0 ? (
+                        <SelectItem value="__no-report-section-model__" disabled>
+                          لا يوجد نموذج ظاهر للتقرير
+                        </SelectItem>
+                      ) : null}
+                      {visibleReportSectionModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.name}{model.isDefault ? " — افتراضي" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
               {isSimpleReport && !embeddedSystemReport ? (
                 <>
@@ -4431,27 +4557,34 @@ export default function MvValuationReportWorkspace({
                       <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
                         <div className="mb-1.5 flex items-center justify-between gap-2">
                           <span className="text-[10.5px] font-black text-slate-700">نموذج أقسام التقرير</span>
-                          <Badge className="rounded-full bg-sky-50 px-2 py-0.5 text-[9px] text-[#0C447C]">
+                          <Badge
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[9px]",
+                              selectedReportSectionModelIsHidden
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-sky-50 text-[#0C447C]",
+                            )}
+                          >
                             {selectedReportSectionModel?.name ?? "بدون نموذج"}
                           </Badge>
                         </div>
                         <Select
-                          value={reportData.reportSectionModelId || "__no-report-section-model__"}
-                          onValueChange={(value) =>
-                            onReportDataPatch({
-                              reportSectionModelId:
-                                value === "__no-report-section-model__" ? "" : value,
-                            })
-                          }
+                          value={reportSectionModelSelectValue}
+                          onValueChange={selectReportSectionModelForProject}
                         >
                           <SelectTrigger className="h-8 rounded-lg border-slate-200 bg-white text-right text-[11px] font-black">
                             <SelectValue placeholder="اختر نموذج الأقسام" />
                           </SelectTrigger>
                           <SelectContent className="z-[760]">
-                            <SelectItem value="__no-report-section-model__">بدون نموذج</SelectItem>
-                            {companyReportSectionModels.map((model) => (
+                            <SelectItem value="__company-default-report-section-model__">
+                              الافتراضي للشركة — {selectedReportSectionModel?.name ?? "بدون نموذج"}
+                            </SelectItem>
+                            {visibleReportSectionModels.length === 0 ? (
+                              <SelectItem value="__no-report-section-model__" disabled>لا يوجد نموذج ظاهر للتقرير</SelectItem>
+                            ) : null}
+                            {visibleReportSectionModels.map((model) => (
                               <SelectItem key={model.id} value={model.id}>
-                                {model.name}
+                                {model.name}{model.isDefault ? " — افتراضي" : ""}
                               </SelectItem>
                             ))}
                           </SelectContent>

@@ -63,6 +63,8 @@ export interface MvCompanyReportSectionModelItem {
   title: string;
   body: string;
   visibleInReport?: boolean;
+  /** True only after an administrator intentionally replaces system text. */
+  overrideSystemContent?: boolean;
 }
 
 export interface MvCompanyReportSectionModelSection {
@@ -70,6 +72,8 @@ export interface MvCompanyReportSectionModelSection {
   title: string;
   sectionNumber?: string;
   visibleInReport?: boolean;
+  /** Existing system-report anchor used by the built-in detailed model. */
+  systemAnchor?: string;
   items: MvCompanyReportSectionModelItem[];
 }
 

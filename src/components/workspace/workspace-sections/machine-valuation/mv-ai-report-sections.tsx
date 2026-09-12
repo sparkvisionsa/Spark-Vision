@@ -165,7 +165,13 @@ export interface MvAiVariableContext {
   assetFolderLabelsText: string;
   assetImagesCountText: string;
   valuationImagesCountText: string;
+  clientDocumentsCountText?: string;
+  certificateImagesCountText?: string;
   signatoryNamesText: string;
+  /** Values selected from the company's report-data model. */
+  reportDataValues?: Record<string, unknown>;
+  /** Values of custom `field:<id>` report-data-model fields. */
+  customFieldValues?: Record<string, string>;
 }
 
 type VariableResolver = (ctx: MvAiVariableContext) => string | null | undefined;
@@ -211,8 +217,12 @@ const VARIABLE_RESOLVERS: Record<string, VariableResolver> = {
   assetfolders: (ctx) => ctx.assetFolderLabelsText,
   "project.assetimages": (ctx) => ctx.assetImagesCountText,
   assetimages: (ctx) => ctx.assetImagesCountText,
+  "images.asset": (ctx) => ctx.assetImagesCountText,
   "project.valuationaccountingworkspace.images": (ctx) => ctx.valuationImagesCountText,
   valuationcalculationimages: (ctx) => ctx.valuationImagesCountText,
+  "images.valuation": (ctx) => ctx.valuationImagesCountText,
+  "images.client": (ctx) => ctx.clientDocumentsCountText,
+  "images.certificate": (ctx) => ctx.certificateImagesCountText,
   "company.reportsignatoryrows": (ctx) => ctx.signatoryNamesText,
   signatories: (ctx) => ctx.signatoryNamesText,
   signatoryrows: (ctx) => ctx.signatoryNamesText,
@@ -221,10 +231,24 @@ const VARIABLE_RESOLVERS: Record<string, VariableResolver> = {
 /** يحل مصدر متغير AI واحد (مثل `project.clientName`) إلى قيمة نصية حقيقية، أو `null` إن كان المصدر غير معروف أو القيمة فارغة. */
 export function resolveAiVariable(source: string | undefined, ctx: MvAiVariableContext): string | null {
   if (!source) return null;
-  const resolver = VARIABLE_RESOLVERS[normalizeSourceKey(source)];
-  if (!resolver) return null;
-  const value = resolver(ctx);
+  const rawSource = source.trim();
+  if (rawSource.startsWith("field:")) {
+    const customValue = ctx.customFieldValues?.[rawSource.slice("field:".length).trim()];
+    return typeof customValue === "string" && customValue.trim() ? customValue.trim() : null;
+  }
+  const resolver = VARIABLE_RESOLVERS[normalizeSourceKey(rawSource)];
+  const directValue = resolver ? resolver(ctx) : ctx.reportDataValues?.[rawSource];
+  const value =
+    typeof directValue === "number" || typeof directValue === "string"
+      ? String(directValue)
+      : null;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Resolves {{project.clientName}}-style placeholders used by report models. */
+export function resolveReportModelText(template: string | undefined, ctx: MvAiVariableContext): string {
+  if (!template) return "";
+  return template.replace(/{{\s*([^{}]+?)\s*}}/g, (token, source: string) => resolveAiVariable(source, ctx) ?? token);
 }
 
 /**

@@ -7,7 +7,6 @@ import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store
 import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
 import type { MvReportPageOrientation } from "./mv-report-page-shell";
 import { ReportFlowPages } from "./mv-report-section-group";
-import { useReportViewportScale } from "./mv-report-viewport-scale";
 import { useMvI18n } from "./mv-i18n";
 type Approach = { id: string; label: string };
 
@@ -85,14 +84,12 @@ export function MvValuationAnnexImageSheet({
 }) {
   const { t, dir } = useMvI18n();
   const [autoOrientation, setAutoOrientation] = useState<MvReportPageOrientation>("landscape");
-  const viewScale = useReportViewportScale();
   const rawSrc = resolveValuationAccountingImageSrc(projectId, image);
   const imgSrc = resolveImageSrc ? resolveImageSrc(rawSrc) : rawSrc;
   const orientation = forcedOrientation ?? autoOrientation;
   const displayWidth = Math.min(100, Math.max(92, image.displayWidthPercent ?? valuationImageWidth));
   /** تعويض تصغير معاينة اللوحة لعرض الصورة بكثافة بكسل أعلى */
-  const previewSharpness =
-    viewScale > 0 && viewScale < 0.995 ? Math.min(2.5, 1 / viewScale) : 1;  const imageShadowFilter =
+  const imageShadowFilter =
     imageShadow > 0
       ? `drop-shadow(0 ${Math.max(1, imageShadow)}px ${Math.max(3, imageShadow * 4)}px rgba(15,23,42,${0.08 + imageShadow * 0.03}))`
       : "none";
@@ -158,22 +155,15 @@ export function MvValuationAnnexImageSheet({
         }
       >
         <figure
-          className="flex w-full items-start justify-center rounded-xl bg-white p-1 ring-1 ring-[#0C447C]/12"
-          style={{ minHeight: orientation === "landscape" ? "118mm" : "154mm" }}
+          className="flex w-full items-center justify-center overflow-hidden rounded-xl bg-white p-1 ring-1 ring-[#0C447C]/12"
+          style={{
+            // Keep the complete image inside the printable body.  The old
+            // minimum was lower than the image maximum, so tall sheets could
+            // flow to a second page and be clipped during PDF capture.
+            height: orientation === "landscape" ? "122mm" : "198mm",
+          }}
         >
-          <div
-            className="flex w-full items-start justify-center"
-            data-mv-annex-hq-wrap={previewSharpness > 1 ? "1" : undefined}
-            style={
-              previewSharpness > 1
-                ? {
-                    transform: `scale(${previewSharpness})`,
-                    transformOrigin: "top center",
-                    width: `${100 / previewSharpness}%`,
-                  }
-                : undefined
-            }
-          >
+          <div className="flex h-full w-full items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={imgSrc}
@@ -185,7 +175,8 @@ export function MvValuationAnnexImageSheet({
                 // physical page margins.  A taller image is scaled to fit;
                 // it is never allowed to run behind the footer or be cut in
                 // the PDF capture.
-                maxHeight: orientation === "landscape" ? "144mm" : "214mm",
+                maxHeight: orientation === "landscape" ? "116mm" : "190mm",
+                maxWidth: "100%",
                 height: "auto",
                 borderRadius: imageCornerRadius,
                 filter: imageShadowFilter,
