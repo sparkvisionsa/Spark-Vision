@@ -65,7 +65,11 @@ import {
   type AssetImportResult,
   normalizeImportResult,
 } from "./asset-import-panel";
-import { mvPicAssetImagesToPatchPayload, patchMvSubprojectPicAsset } from "./mv-pic-asset-panel";
+import {
+  mvPicAssetImagesToPatchPayload,
+  mvPicAssetImagesToReportSelectionPayload,
+  patchMvSubprojectPicAsset,
+} from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
 import { MvAssetDataTableModal } from "./mv-asset-data-table-modal";
 import {
@@ -2251,10 +2255,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
 
   const awaitingInitialListFetch = loading && files.length === 0;
-  const assetImageListPercent = assetImageListProgress.total > 0
-    ? Math.min(100, Math.round((assetImageListProgress.loaded / assetImageListProgress.total) * 100))
-    : 4;
-
   const driveFilesForUploadTree = useMemo(() => files.filter((f) => !f.picAssetId), [files]);
   const { root, foldersByPath } = useMemo(
     () => buildImageTree(driveFilesForUploadTree, t("assetImages.rootLabel")),
@@ -4245,7 +4245,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
-          images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
+          imageReportSelections: mvPicAssetImagesToReportSelectionPayload(
+            nextImages as PicAssetImage[],
+          ),
         });
         setPreviewPhotoFolders((prev) =>
           prev.map((r) => (r.sub._id === subProjectId ? { ...r, picAsset: updated } : r)),
@@ -4382,7 +4384,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       );
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
-          images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
+          imageReportSelections: mvPicAssetImagesToReportSelectionPayload(
+            nextImages as PicAssetImage[],
+          ),
         });
         setPreviewPhotoFolders((prev) =>
           prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
@@ -4439,7 +4443,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       );
       try {
         const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
-          images: mvPicAssetImagesToPatchPayload(nextImages as PicAssetImage[]),
+          imageReportSelections: mvPicAssetImagesToReportSelectionPayload(
+            nextImages as PicAssetImage[],
+          ),
         });
         setPreviewPhotoFolders((prev) =>
           prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
@@ -6030,11 +6036,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           type="button"
           variant="outline"
           size="sm"
-          className="order-7 h-8 gap-1.5 border-slate-200 bg-white px-2.5 text-[11px] font-extrabold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 max-sm:flex-1 max-sm:justify-center"
+          className="order-7 h-8 w-8 shrink-0 border-slate-200 bg-white p-0 text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
           aria-label={t("assetImages.actions.bulkMenu")}
+          title={t("assetImages.actions.bulkMenu")}
         >
-          <MoreVertical className="h-3.5 w-3.5" />
-          {t("assetImages.actions.bulkMenu")}
+          <MoreVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52 text-right">
@@ -6153,47 +6159,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       <MvWorkflowPageScrollBody>
       <div className="w-full px-2 py-2 sm:px-3">
-          {assetImageListProgress.active || assetImageListProgress.partial ? (
-            <div className="mt-1 mb-2 overflow-hidden rounded-lg border border-sky-100 bg-white shadow-sm" role="status" aria-live="polite">
-              <div className="h-1 bg-sky-50">
-                <div
-                  className={cn(
-                    "h-full bg-gradient-to-l from-sky-400 to-[#0C447C] transition-[width] duration-500",
-                    assetImageListProgress.active && "animate-pulse",
-                  )}
-                  style={{ width: `${assetImageListPercent}%` }}
-                />
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-[11px]">
-                <span className="flex items-center gap-2 font-semibold text-slate-700">
-                  {assetImageListProgress.active ? <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-700" /> : <RefreshCw className="h-3.5 w-3.5 text-sky-700" />}
-                  {assetImageListProgress.active
-                    ? assetImageListProgress.total > 0
-                      ? t("assetImages.progress.firstBatchShown")
-                      : t("assetImages.progress.firstBatchLoading")
-                    : t("assetImages.progress.partialKept")}
-                </span>
-                <span className="flex items-center gap-2">
-                  {assetImageListProgress.total > 0 ? (
-                    <b className="tabular-nums text-[#0C447C]">
-                      {numberFormatter.format(assetImageListProgress.loaded)} / {numberFormatter.format(assetImageListProgress.total)}
-                    </b>
-                  ) : null}
-                  {assetImageListProgress.partial ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-[10px] font-bold text-[#0C447C]"
-                      onClick={() => void loadImages("revalidate")}
-                    >
-                      {t("assetImages.progress.resumeNow")}
-                    </Button>
-                  ) : null}
-                </span>
-              </div>
-            </div>
-          ) : null}
           <section className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="m-0">
               <input
@@ -6925,6 +6890,44 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       </div>
 
       </MvWorkflowPageScrollBody>
+      {assetImageListProgress.active || assetImageListProgress.partial ? (
+        <div className="pointer-events-none fixed bottom-14 end-3 z-40 max-w-[calc(100vw-1.5rem)] sm:bottom-16 sm:end-4">
+          <div
+            className="pointer-events-auto flex h-8 max-w-full items-center gap-2 rounded-full border border-sky-100 bg-white/95 px-2.5 text-[10px] font-bold text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur"
+            role="status"
+            aria-live="polite"
+          >
+            {assetImageListProgress.active ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-sky-700" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5 shrink-0 text-sky-700" />
+            )}
+            <span className="max-w-56 truncate sm:max-w-80">
+              {assetImageListProgress.active
+                ? assetImageListProgress.total > 0
+                  ? t("assetImages.progress.firstBatchShown")
+                  : t("assetImages.progress.firstBatchLoading")
+                : t("assetImages.progress.partialKept")}
+            </span>
+            {assetImageListProgress.total > 0 ? (
+              <b className="shrink-0 tabular-nums text-[#0C447C]">
+                {numberFormatter.format(assetImageListProgress.loaded)} / {numberFormatter.format(assetImageListProgress.total)}
+              </b>
+            ) : null}
+            {assetImageListProgress.partial ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 shrink-0 px-1.5 text-[10px] font-bold text-[#0C447C] hover:bg-sky-50"
+                onClick={() => void loadImages("revalidate")}
+              >
+                {t("assetImages.progress.resumeNow")}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <MvSimpleReportStepNavigation projectId={projectId} activeStep="asset-images" />
 
       {activeAssetUploadJob ? (

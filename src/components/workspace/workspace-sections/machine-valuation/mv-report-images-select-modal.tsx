@@ -609,8 +609,9 @@ export function MvReportImagesSelectModal({
               <div className="space-y-5 pb-2">
                 {filteredSections.map((section) => {
                   const selectedCount = section.images.filter((image) => image.selected).length;
+                  const selectableImages = section.images.filter((image) => !image.disabled);
                   const allSelected =
-                    section.images.length > 0 && selectedCount === section.images.length;
+                    selectableImages.length > 0 && selectableImages.every((image) => image.selected);
                   return (
                     <section
                       key={section.id}
@@ -638,6 +639,8 @@ export function MvReportImagesSelectModal({
                           variant="outline"
                           size="sm"
                           className="h-8 shrink-0 rounded-lg text-[11px] font-bold"
+                          disabled={saving || selectableImages.length === 0}
+                          onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => setSectionSelection(section.id, !allSelected)}
                         >
                           {allSelected

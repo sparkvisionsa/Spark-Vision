@@ -132,7 +132,7 @@ export function MvSimpleReportStepNavigation({
   return (
     <nav
       className={cn(
-        "flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white/95 px-3 py-2 shadow-[0_-3px_12px_rgba(15,23,42,0.04)] backdrop-blur sm:px-4",
+        "flex shrink-0 items-center justify-between gap-1.5 border-t border-slate-200 bg-white/95 px-2 py-1 shadow-[0_-2px_8px_rgba(15,23,42,0.035)] backdrop-blur sm:px-3",
         className,
       )}
       dir={dir}
@@ -142,22 +142,22 @@ export function MvSimpleReportStepNavigation({
         type="button"
         variant="outline"
         size="sm"
-        className="h-8 max-w-[calc(50%-0.25rem)] gap-1.5 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
+        className="h-7 max-w-[calc(50%-0.25rem)] gap-1 rounded-md border-slate-200 bg-white px-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
         onClick={() => navigate(previousHref)}
         title={previousLabel}
       >
-        <BackIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <BackIcon className="h-3 w-3 shrink-0" aria-hidden />
         <span className="truncate">{previousLabel}</span>
       </Button>
       <Button
         type="button"
         size="sm"
-        className="h-8 max-w-[calc(50%-0.25rem)] gap-1.5 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-bold text-white hover:bg-[#0a3a66]"
+        className="h-7 max-w-[calc(50%-0.25rem)] gap-1 rounded-md bg-[#0C447C] px-2 text-[10px] font-bold text-white hover:bg-[#0a3a66]"
         onClick={() => navigate(nextHref)}
         title={nextLabel}
       >
         <span className="truncate">{nextLabel}</span>
-        <NextIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <NextIcon className="h-3 w-3 shrink-0" aria-hidden />
       </Button>
     </nav>
   );

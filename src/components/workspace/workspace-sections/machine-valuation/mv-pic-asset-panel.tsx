@@ -192,6 +192,32 @@ export function mvPicAssetImagesToPatchPayload(images: PicAssetImage[]): unknown
   });
 }
 
+/**
+ * حمولة اختيار التقرير لا تحتوي إلا على هوية الصورة وحالة ظهورها. لا نرسل
+ * المصفوفة المسطحة كحقل ‎images‎ حتى لا يستبدل الخادم كائن المصدر المصنّف
+ * (‎main/brand/details/other‎) القادم من تطبيق المعاينة.
+ */
+export function mvPicAssetImagesToReportSelectionPayload(images: PicAssetImage[]): unknown[] {
+  const selections: Record<string, unknown>[] = [];
+  for (const image of images) {
+    const includeInReport = (image as { includeInReport?: unknown }).includeInReport;
+    if (typeof includeInReport !== "boolean") continue;
+
+    if (isExternalPicImage(image)) {
+      const selection: Record<string, unknown> = { includeInReport };
+      if (image._id) selection._id = image._id;
+      if (image.url) selection.url = image.url;
+      if (Object.keys(selection).length > 1) selections.push(selection);
+      continue;
+    }
+
+    if ("fileId" in image && image.fileId) {
+      selections.push({ fileId: image.fileId, includeInReport });
+    }
+  }
+  return selections;
+}
+
 export async function patchMvSubprojectPicAsset(
   projectId: string,
   subProjectId: string,
