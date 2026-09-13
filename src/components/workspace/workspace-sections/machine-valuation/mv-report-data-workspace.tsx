@@ -530,6 +530,12 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   useEffect(() => {
     let cancelled = false;
+    // This workspace can stay mounted while the route changes. Do not let
+    // models (or an already open picker) from the previous project decide the
+    // initial state of the next one.
+    setReportDataModelsLoaded(false);
+    setModelChoiceOpen(false);
+    setPendingModelId("");
     setPreparersLoading(true);
     setPreparersLoaded(false);
     void mvFetchJson<{

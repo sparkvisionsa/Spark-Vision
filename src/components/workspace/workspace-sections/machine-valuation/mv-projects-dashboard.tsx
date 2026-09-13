@@ -1488,6 +1488,11 @@ export default function MvProjectsDashboard() {
         writeMvProjectsSessionCache(next);
         return next;
       });
+      // The report-data workspace is opened directly after creation, rather
+      // than through a project-card click (which normally seeds this cache).
+      // Seed it here as well so the workspace can immediately determine
+      // whether the new project needs the report-data model picker.
+      writeProjectSummaryCache(created._id, { project: created, subProjects: [] }, "report");
       setCreateOpen(false);
       setCreatedFlowProject(null);
       setContactDataProject(null);
