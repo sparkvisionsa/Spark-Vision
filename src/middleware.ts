@@ -7,6 +7,8 @@ import { NextResponse } from "next/server";
  * عنوان المتصفح يبقى كما هو (مثل /clients) — إعادة كتابة داخلية فقط.
  */
 const EXACT_REWRITES: [string, string][] = [
+  ["/support", "/w/support"],
+  ["/developer-requests", "/w/developer-requests"],
   ["/value-tech", "/w/vt"],
   ["/value-tech-app", "/w/value-tech-app"],
   ["/real-estate-valuation", "/w/real-estate-valuation"],
@@ -18,8 +20,8 @@ const EXACT_REWRITES: [string, string][] = [
   ["/settings/report", "/w/settings/report"]
 ];
 
-const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source"];
-const MV_STATIC_SEGMENTS = new Set(["projects", "company", "report-settings", "clients"]);
+const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source", "/real-estate-valuation", "/helper-tools", "/value-tech-app", "/asset-inventory", "/asset-inspection"];
+const MV_STATIC_SEGMENTS = new Set(["projects", "company", "report-settings", "clients", "support", "developer-requests"]);
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -136,14 +138,21 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/support",
+    "/developer-requests",
     "/value-tech",
     "/value-tech-app",
+    "/value-tech-app/:path*",
     "/real-estate-valuation",
+    "/real-estate-valuation/:path*",
     "/machine-valuation",
     "/machine-valuation/:path*",
     "/asset-inventory",
+    "/asset-inventory/:path*",
     "/asset-inspection",
+    "/asset-inspection/:path*",
     "/helper-tools",
+    "/helper-tools/:path*",
     "/clients",
     "/settings",
     "/settings/report",

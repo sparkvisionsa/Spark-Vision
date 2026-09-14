@@ -50,6 +50,9 @@ const nextConfig: NextConfig = {
   async rewrites() {
     const backendBaseUrl = backendOriginForRewrite();
     return {
+      beforeFiles: [
+        { source: "/api/realtime/:path*", destination: `${backendBaseUrl}/api/realtime/:path*` },
+      ],
       fallback: [
         {
           source: "/api/:path*",

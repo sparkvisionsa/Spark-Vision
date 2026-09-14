@@ -1,4 +1,5 @@
 "use client";
+import { useResourceRefresh } from "@/components/support/realtime-provider";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
@@ -2125,46 +2126,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loadAssetImportSummary, refreshAssetImageSources]);
 
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.EventSource === "undefined") return;
-
-    let refreshTimer: number | null = null;
-    let needsFolders = false;
-    let needsImages = false;
-
-    const flushRefresh = () => {
-      const runFolders = needsFolders;
-      const runImages = needsImages;
-      needsFolders = false;
-      needsImages = false;
-      refreshTimer = null;
-      if (runFolders) void loadPreviewPhotoFolders("revalidate");
-      if (runImages) void loadImages("revalidate");
-    };
-
-    const scheduleRefresh = (folders: boolean, images: boolean) => {
-      needsFolders ||= folders;
-      needsImages ||= images;
-      if (refreshTimer !== null) return;
-      refreshTimer = window.setTimeout(flushRefresh, 220);
-    };
-
-    const events = new EventSource(`/api/mv/projects/${encodeURIComponent(projectId)}/events`, {
-      withCredentials: true,
-    });
-    const onFoldersChanged = () => scheduleRefresh(true, false);
-    const onImagesChanged = () => scheduleRefresh(false, true);
-
-    events.addEventListener("asset-folders-changed", onFoldersChanged);
-    events.addEventListener("asset-images-changed", onImagesChanged);
-
-    return () => {
-      events.removeEventListener("asset-folders-changed", onFoldersChanged);
-      events.removeEventListener("asset-images-changed", onImagesChanged);
-      events.close();
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-    };
-  }, [loadImages, loadPreviewPhotoFolders, projectId]);
+  useResourceRefresh("mv", () => {
+    void loadPreviewPhotoFolders("revalidate");
+    void loadImages("revalidate");
+    void loadAssetImportSummary();
+    void refreshAssetImageSources();
+  }, projectId);
 
   useEffect(() => {
     return () => {

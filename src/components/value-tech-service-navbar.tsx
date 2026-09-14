@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import AuthUserMenu from "@/components/auth-user-menu";
 import AuthModal from "@/components/auth-modal";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import SupportNotifications from "@/components/support/support-notifications";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -252,6 +253,8 @@ function HubNavbar() {
           <HubAuthPill />
         </div>
 
+        <div className="hidden sm:block"><SupportNotifications dark /></div>
+
         <div className="flex items-center gap-1 sm:hidden">
           <Link
             href="/"
@@ -321,6 +324,7 @@ function HubNavbar() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <SupportNotifications dark />
           <HubAuthPill />
         </div>
       </div>
@@ -498,6 +502,7 @@ function DefaultNavbar() {
                   AR
                 </button>
               </div>
+              <SupportNotifications />
               <AuthUserMenu />
             </div>
 
@@ -527,6 +532,7 @@ function DefaultNavbar() {
             </div>
 
             <div className="sm:hidden">
+              <SupportNotifications />
               <AuthUserMenu />
             </div>
           </div>

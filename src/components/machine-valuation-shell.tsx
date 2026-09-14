@@ -3,6 +3,8 @@
 import { useEffect, type ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import { usePathname } from "next/navigation";
+import { SupportSidebarLinks } from "@/components/support/support-sidebar-links";
+import SupportNotifications from "@/components/support/support-notifications";
 
 /** مسار إعداد التقرير: تمرير داخلي فقط دون تحريك شريط الأدوات و«أقسام التقرير». */
 function isMvReportWorkspacePath(pathname: string) {
@@ -11,6 +13,7 @@ function isMvReportWorkspacePath(pathname: string) {
 
 /** صفحات بيانات التقرير / الخطوات / التقييم ضمن ‎/workflow‎ — عمود بارتفاع الشاشة وتمرير داخلي. */
 function isMvReportFlowChromePath(pathname: string) {
+  pathname = pathname.split(/[?#]/)[0]!;
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] !== "machine-valuation" || parts.length < 2) return false;
   if (
@@ -18,7 +21,7 @@ function isMvReportFlowChromePath(pathname: string) {
     parts[1] === "projects" ||
     parts[1] === "company" ||
     parts[1] === "report-settings" ||
-    parts[1] === "clients"
+    parts[1] === "clients" || parts[1] === "support" || parts[1] === "developer-requests"
   ) {
     return false;
   }
@@ -75,6 +78,7 @@ function userInitials(username: string) {
 
 /** مسارات تقييم الآلات: قائمة مشاريع، صفحات إدارة عامة، مشروع، مشروع فرعي */
 function parseMachineValuationPath(pathname: string) {
+  pathname = pathname.split(/[?#]/)[0]!;
   const segments = pathname.split("/").filter(Boolean);
   const isMv = segments[0] === "machine-valuation";
   if (!isMv) {
@@ -133,7 +137,7 @@ function parseMachineValuationPath(pathname: string) {
   }
   return {
     isProjectsList: false,
-    isProjectContext: true,
+    isProjectContext: segments[1] !== "support" && segments[1] !== "developer-requests",
     isCompanyPanel: false,
     isReportSettingsPanel: false,
     isClientsPanel: false,
@@ -275,6 +279,7 @@ function MachineSidebarNav() {
 
   return (
     <SidebarContent className="gap-0 overflow-x-hidden px-2 pb-3 pt-1">
+      <div className="flex justify-end px-1 pb-1"><SupportNotifications dark /></div>
       <SidebarGroup className="px-0 py-1">
         <SidebarGroupContent>
           <SidebarMenu className="gap-1">
@@ -361,6 +366,8 @@ function MachineSidebarNav() {
         </SidebarGroupContent>
       </SidebarGroup>
 
+      <SidebarSeparator className="mx-0 my-2 bg-white/10" />
+      <SupportSidebarLinks product="machine-valuation" dark />
     </SidebarContent>
   );
 }

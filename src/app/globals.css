@@ -1215,12 +1215,9 @@ body.vt-products-hub-active {
   isolation: isolate;
   display: flex;
   min-height: 100vh;
-  height: 100vh;
   min-height: 100dvh;
-  height: 100dvh;
-  max-height: 100dvh;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   background: #fffef9;
   color: #e8b85a;
 }
@@ -1248,22 +1245,11 @@ body.vt-products-hub-active {
 .vt-products-body {
   position: relative;
   z-index: 1;
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
   padding-top: var(--vt-hub-nav-offset, 3.65rem);
 }
 
 .vt-products-main {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding-inline: 1.25rem;
   padding-block: 0.75rem;
 }

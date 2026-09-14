@@ -22,6 +22,7 @@ import {
   EditTransactionModal,
 } from "@/components/ui/valuation-table";
 import { toApiUrl } from "@/lib/api-url";
+import { useResourceRefresh } from "@/components/support/realtime-provider";
 
 type View =
   | { name: "list" }
@@ -156,6 +157,7 @@ const RealEstateValuationSection = () => {
     const id = setInterval(fetchTransactions, 30_000);
     return () => clearInterval(id);
   }, [fetchTransactions]);
+  useResourceRefresh("transactions", fetchTransactions);
 
   useEffect(() => {
     const handler = () => setView({ name: "list" });

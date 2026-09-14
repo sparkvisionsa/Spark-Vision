@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useResourceRefresh } from "@/components/support/realtime-provider";
 import {
   ArrowDownWideNarrow,
   Check,
@@ -1312,6 +1313,8 @@ export default function MvProjectsDashboard() {
       setRefreshingList(false);
     }
   }, [projects.length, toast, t]);
+
+  useResourceRefresh("mv", () => { if (user && !authLoading) void fetchProjects({ forceRefresh: true }); });
 
   /** بعد انتهاء تحميل الجلسة (أو تغيّر المستخدم/الشركة) نعيد الجلب حتى تُطبَّق فلترة الخادم بالكوكيز الصحيحة. */
   useEffect(() => {

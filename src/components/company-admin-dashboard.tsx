@@ -58,8 +58,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { scanDocxTemplateVariables } from "@/lib/mv-word-template/template-variables";
-import { scanPptxTemplate } from "@/lib/mv-pptx-template";
+import { readReportTemplateUpload } from "@/lib/report-template-upload";
+import { mergeTemplateVariableMappings, normalizeTemplateVariableKey } from "@/lib/report-template-bindings";
 import {
   CompanyReportDocumentTemplateDashboard,
   suggestedTemplateBinding,
@@ -72,6 +72,7 @@ import { CompanyReportSectionModelDashboard } from "@/components/company-report-
 import { MvReportPageShell } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-page-shell";
 import {
   createDefaultReportDataModel,
+  getReportDataModel,
   normalizeReportDataModels,
   type MvReportDataModel,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
@@ -539,44 +540,6 @@ function normalizeCompanyTemplateVariableMappings(raw: unknown): CompanyReportTe
   });
 }
 
-function createCompanyTemplateMappingId() {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `template-variable-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function normalizeTemplateVariableKey(value: string): string {
-  return value.replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim().toLocaleLowerCase();
-}
-
-/** Keep prior links and seed safe suggested bindings for newly detected variables. */
-function mergeTemplateVariableMappings(opts: {
-  variables: string[];
-  previousMappings: CompanyReportTemplateVariableMappingForm[];
-  previousDetected: Set<string>;
-  nextDetected: Set<string>;
-}): CompanyReportTemplateVariableMappingForm[] {
-  const preserved = opts.previousMappings.filter((mapping) => {
-    const name = normalizeTemplateVariableKey(mapping.variable);
-    return opts.nextDetected.has(name) || !opts.previousDetected.has(name);
-  });
-  const seen = new Set(preserved.map((mapping) => normalizeTemplateVariableKey(mapping.variable)));
-  const seeded: CompanyReportTemplateVariableMappingForm[] = [];
-  for (const variable of opts.variables) {
-    const key = normalizeTemplateVariableKey(variable);
-    if (!variable.trim() || !key || seen.has(key)) continue;
-    const sourceKey = suggestedTemplateBinding(variable);
-    if (!sourceKey) continue;
-    seen.add(key);
-    seeded.push({
-      id: createCompanyTemplateMappingId(),
-      variable: variable.trim(),
-      sourceKey,
-    });
-  }
-  return [...preserved, ...seeded];
-}
-
 function normalizeCompanyDocumentTemplate(
   raw: unknown,
   format: "word" | "pptx",
@@ -602,6 +565,7 @@ function normalizeCompanyDocumentTemplate(
       ? data.id.trim()
       : `${format}-template-${index + 1}`,
     name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : fallbackName,
+    reportDataModelId: typeof data.reportDataModelId === "string" ? data.reportDataModelId : undefined,
     fileName,
     fileUrl,
     ...(fileDataUrl ? { fileDataUrl } : {}),
@@ -2790,20 +2754,11 @@ export default function CompanyAdminDashboard({
   );
 
   const uploadCompanyWordTemplate = useCallback(
-    async (file: File, mode: "new" | "replace") => {
-      if (!file.name.toLowerCase().endsWith(".docx")) {
-        setSubmitError("يرجى رفع ملف Word بصيغة .docx فقط.");
-        return;
-      }
-      if (file.size > 25 * 1024 * 1024) {
-        setSubmitError("حجم قالب Word يجب ألا يتجاوز 25MB.");
-        return;
-      }
+    async (file: File, mode: "new" | "replace", reportDataModelId: string): Promise<boolean> => {
       setSubmitError(null);
       setStatus(null);
       try {
-        const buffer = await file.arrayBuffer();
-        const templateVariables = scanDocxTemplateVariables(buffer);
+        const { buffer, variables: templateVariables } = await readReportTemplateUpload(file, "word");
         const previousDefaults = reportDefaults;
         const wasDirty = reportDefaultsDirty;
         const previousSelection = selectedCompanyWordTemplateId;
@@ -2812,7 +2767,7 @@ export default function CompanyAdminDashboard({
           : null;
         if (mode === "replace" && !previousTemplate) {
           setSubmitError("اختر قالب Word المراد استبداله أولاً.");
-          return;
+          return false;
         }
         const previousDetected = new Set(
           (previousTemplate?.bookmarkNames ?? []).map((name) => normalizeTemplateVariableKey(name)),
@@ -2825,6 +2780,7 @@ export default function CompanyAdminDashboard({
           previousMappings: previousTemplate?.variableMappings ?? [],
           previousDetected,
           nextDetected,
+          model: getReportDataModel(normalizeReportDataModels(reportDefaults.reportDataModels), reportDataModelId),
         });
         const id = previousTemplate?.id ?? newCompanyDocumentTemplateId("word");
         const name = previousTemplate?.name ?? uniqueCompanyDocumentTemplateName(
@@ -2835,6 +2791,7 @@ export default function CompanyAdminDashboard({
         const uploadedTemplate: CompanyReportWordTemplateForm = {
           id,
           name,
+          reportDataModelId,
           fileName: file.name,
           fileDataUrl: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${arrayBufferToBase64(buffer)}`,
           fileUrl: null,
@@ -2861,11 +2818,15 @@ export default function CompanyAdminDashboard({
           setReportDefaults(previousDefaults);
           setReportDefaultsDirty(wasDirty);
           setSelectedCompanyWordTemplateId(previousSelection);
-          return;
+          return false;
         }
-        if (saved) setStatus(mode === "new" ? "تم إرفاق قالب Word جديد للشركة." : "تم استبدال ملف قالب Word المحدد.");
+        const linked = preservedMappings.filter((mapping) => nextDetected.has(normalizeTemplateVariableKey(mapping.variable)) && mapping.sourceKey && mapping.sourceKey !== "field:").length;
+        const unlinked = templateVariables.length - linked;
+        setStatus(`تم رفع قالب Word وقراءة ${templateVariables.length} متغير. تم ربط ${linked} بمصادرها${unlinked ? `، ويتبقى ${unlinked} متغير يمكنك ربطه يدويًا من الجدول` : ""}.`);
+        return true;
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : "تعذر قراءة قالب Word.");
+        throw error;
       }
     },
     [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyWordTemplateId],
@@ -2894,35 +2855,20 @@ export default function CompanyAdminDashboard({
   }, [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyWordTemplateId]);
 
   const uploadCompanyPptxTemplate = useCallback(
-    async (file: File, mode: "new" | "replace") => {
-      if (!file.name.toLowerCase().endsWith(".pptx")) {
-        setSubmitError("يرجى رفع ملف PowerPoint بصيغة .pptx فقط.");
-        return;
-      }
-      if (file.size > 35 * 1024 * 1024) {
-        setSubmitError("حجم قالب PowerPoint يجب ألا يتجاوز 35MB.");
-        return;
-      }
+    async (file: File, mode: "new" | "replace", reportDataModelId: string): Promise<boolean> => {
       setSubmitError(null);
       setStatus(null);
       try {
-        const buffer = await file.arrayBuffer();
-        const scan = scanPptxTemplate(buffer);
+        const { buffer, variables } = await readReportTemplateUpload(file, "pptx");
         const previousDefaults = reportDefaults;
         const wasDirty = reportDefaultsDirty;
         const previousSelection = selectedCompanyPptxTemplateId;
-        const variables = [...new Set([
-          ...scan.variables,
-          // A number of legacy presentation templates use a visible image
-          // marker, rather than a text placeholder. Make it configurable too.
-          ...scan.assetImageMarkerNames,
-        ])];
         const prior = mode === "replace"
           ? reportDefaults.pptxTemplates.find((template) => template.id === selectedCompanyPptxTemplateId) ?? null
           : null;
         if (mode === "replace" && !prior) {
           setSubmitError("اختر قالب PowerPoint المراد استبداله أولاً.");
-          return;
+          return false;
         }
         const priorDetected = new Set(
           (prior?.bookmarkNames ?? []).map((name) => normalizeTemplateVariableKey(name)),
@@ -2935,6 +2881,7 @@ export default function CompanyAdminDashboard({
           previousMappings: prior?.variableMappings ?? [],
           previousDetected: priorDetected,
           nextDetected,
+          model: getReportDataModel(normalizeReportDataModels(reportDefaults.reportDataModels), reportDataModelId),
         });
         const id = prior?.id ?? newCompanyDocumentTemplateId("pptx");
         const name = prior?.name ?? uniqueCompanyDocumentTemplateName(
@@ -2945,6 +2892,7 @@ export default function CompanyAdminDashboard({
         const uploadedTemplate: CompanyReportPptxTemplateForm = {
           id,
           name,
+          reportDataModelId,
           fileName: file.name,
           fileDataUrl: `data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,${arrayBufferToBase64(buffer)}`,
           fileUrl: null,
@@ -2968,11 +2916,15 @@ export default function CompanyAdminDashboard({
           setReportDefaults(previousDefaults);
           setReportDefaultsDirty(wasDirty);
           setSelectedCompanyPptxTemplateId(previousSelection);
-          return;
+          return false;
         }
-        if (saved) setStatus(mode === "new" ? "تم إرفاق قالب PowerPoint جديد للشركة." : "تم استبدال ملف قالب PowerPoint المحدد.");
+        const linked = preservedMappings.filter((mapping) => nextDetected.has(normalizeTemplateVariableKey(mapping.variable)) && mapping.sourceKey && mapping.sourceKey !== "field:").length;
+        const unlinked = variables.length - linked;
+        setStatus(`تم رفع قالب PowerPoint وقراءة ${variables.length} متغير. تم ربط ${linked} بمصادرها${unlinked ? `، ويتبقى ${unlinked} متغير يمكنك ربطه يدويًا من الجدول` : ""}.`);
+        return true;
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : "تعذر قراءة قالب PowerPoint.");
+        throw error;
       }
     },
     [persistReportDefaults, reportDefaults, reportDefaultsDirty, selectedCompanyPptxTemplateId],
@@ -4730,8 +4682,8 @@ export default function CompanyAdminDashboard({
               saving={reportDefaultsSaving}
               dirty={reportDefaultsDirty}
               onSelect={setSelectedCompanyWordTemplateId}
-              onUploadNew={(file) => uploadCompanyWordTemplate(file, "new")}
-              onReplace={(file) => uploadCompanyWordTemplate(file, "replace")}
+              onUploadNew={(file, modelId) => uploadCompanyWordTemplate(file, "new", modelId)}
+              onReplace={(file, modelId) => uploadCompanyWordTemplate(file, "replace", modelId)}
               onRename={(name, finalize) => renameCompanyDocumentTemplate("word", name, finalize)}
               onRemove={removeCompanyWordTemplate}
               onChange={({ variableMappings, excludedVariableNames }) =>
@@ -4751,8 +4703,8 @@ export default function CompanyAdminDashboard({
               saving={reportDefaultsSaving}
               dirty={reportDefaultsDirty}
               onSelect={setSelectedCompanyPptxTemplateId}
-              onUploadNew={(file) => uploadCompanyPptxTemplate(file, "new")}
-              onReplace={(file) => uploadCompanyPptxTemplate(file, "replace")}
+              onUploadNew={(file, modelId) => uploadCompanyPptxTemplate(file, "new", modelId)}
+              onReplace={(file, modelId) => uploadCompanyPptxTemplate(file, "replace", modelId)}
               onRename={(name, finalize) => renameCompanyDocumentTemplate("pptx", name, finalize)}
               onRemove={removeCompanyPptxTemplate}
               onChange={({ variableMappings, excludedVariableNames }) =>

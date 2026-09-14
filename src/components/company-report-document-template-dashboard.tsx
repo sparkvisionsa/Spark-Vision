@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, FileText, Loader2, Plus, Presentation, Save, Search, Trash2, Upload } from "lucide-react";
+import { Check, ChevronDown, Copy, FileText, Loader2, Plus, Presentation, Save, Search, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +19,10 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { buildSuggestedTemplateVariables, normalizeTemplateVariableKey as normalizeVariable, REPORT_TEMPLATE_SOURCE_OPTIONS, suggestedTemplateBinding } from "@/lib/report-template-bindings";
 import {
   getReportDataModel,
+  MV_DEFAULT_REPORT_DATA_MODEL_ID,
   normalizeReportDataModels,
   type MvReportDataModel,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
@@ -41,6 +43,7 @@ export type CompanyReportDocumentTemplateForm = {
   id: string;
   /** Administrator-facing name; independent from the uploaded file name. */
   name: string;
+  reportDataModelId?: string;
   fileName: string;
   fileUrl: string | null;
   fileDataUrl?: string | null;
@@ -57,134 +60,7 @@ export type CompanyReportDocumentTemplateForm = {
   excludedVariableNames?: string[];
 };
 
-type TemplateSourceOption = {
-  value: string;
-  label: string;
-  group: "report" | "project" | "image" | "other";
-};
-
-/**
- * These identifiers deliberately match the value catalogue built on the
- * server. Keeping only identifiers in storage (rather than arbitrary object
- * paths) makes bindings safe to use for every company and project.
- */
-export const REPORT_TEMPLATE_SOURCE_OPTIONS: TemplateSourceOption[] = [
-  { value: "reportTitle", label: "عنوان التقرير", group: "report" },
-  { value: "reportReference", label: "الرقم المرجعي للتقرير", group: "report" },
-  { value: "reportIssueDate", label: "تاريخ إصدار التقرير", group: "report" },
-  { value: "clientName", label: "اسم العميل", group: "report" },
-  { value: "clientId", label: "رقم/هوية العميل", group: "report" },
-  { value: "clientEmail", label: "بريد العميل", group: "report" },
-  { value: "clientPhone", label: "هاتف العميل", group: "report" },
-  { value: "clientLegalType", label: "الصفة القانونية للعميل", group: "report" },
-  { value: "clientIdentity", label: "تعريف العميل", group: "report" },
-  { value: "clientActivity", label: "نشاط العميل", group: "report" },
-  { value: "clientRepresentativeName", label: "ممثل العميل", group: "report" },
-  { value: "clientRepresentativeRole", label: "صفة ممثل العميل", group: "report" },
-  { value: "intendedUsers", label: "المستخدمون المقصودون", group: "report" },
-  { value: "intendedUse", label: "الاستخدام المقصود", group: "report" },
-  { value: "assetSingularPlural", label: "وصف الأصل/الأصول", group: "report" },
-  { value: "assetSubjectDescription", label: "وصف الأصل محل التقييم", group: "report" },
-  { value: "assetDetailedDescription", label: "الوصف التفصيلي للأصل", group: "report" },
-  { value: "valuationMethod", label: "أسلوب التقييم", group: "report" },
-  { value: "valuationBasis", label: "أساس القيمة", group: "report" },
-  { value: "valuationBasisDefinition", label: "تعريف أساس القيمة", group: "report" },
-  { value: "valuationPurpose", label: "الغرض من التقييم", group: "report" },
-  { value: "valuationDate", label: "تاريخ التقييم", group: "report" },
-  { value: "agreementDate", label: "تاريخ الاتفاقية", group: "report" },
-  { value: "inspectionDate", label: "تاريخ المعاينة", group: "report" },
-  { value: "inspectionLocation", label: "مدينة/موقع المعاينة", group: "report" },
-  { value: "inspectionMapUrl", label: "رابط خريطة المعاينة", group: "report" },
-  { value: "valuePremise", label: "فرضية القيمة", group: "report" },
-  { value: "valuePremiseDefinition", label: "تعريف فرضية القيمة", group: "report" },
-  { value: "finalValue", label: "القيمة النهائية رقمياً", group: "report" },
-  { value: "finalValueWords", label: "القيمة النهائية كتابةً", group: "report" },
-  { value: "finalValueOpinion", label: "رأي القيمة النهائي", group: "report" },
-  { value: "currencyLabel", label: "العملة", group: "report" },
-  { value: "standardsVersion", label: "إصدار المعايير", group: "report" },
-  { value: "valuationFirmName", label: "اسم منشأة التقييم", group: "report" },
-  { value: "valuationFirmLicense", label: "ترخيص منشأة التقييم", group: "report" },
-  { value: "valuationFirmAddress", label: "عنوان منشأة التقييم", group: "report" },
-  { value: "leadValuerName", label: "اسم المقيم الرئيسي", group: "report" },
-  { value: "leadValuerTitle", label: "مسمى المقيم الرئيسي", group: "report" },
-  { value: "leadValuerMembershipNo", label: "عضوية المقيم الرئيسي", group: "report" },
-  { value: "scopeOfWorkDetails", label: "تفاصيل نطاق العمل", group: "report" },
-  { value: "useRestriction", label: "قيود الاستخدام", group: "report" },
-  { value: "externalSpecialistUse", label: "استخدام المختص الخارجي", group: "report" },
-  { value: "esgConsiderations", label: "اعتبارات ESG", group: "report" },
-  { value: "informationSources", label: "مصادر المعلومات", group: "report" },
-  { value: "methodologyRationale", label: "مبررات المنهجية", group: "report" },
-  { value: "costApproachDetails", label: "تفاصيل منهج التكلفة", group: "report" },
-  { value: "importantAssumptions", label: "الافتراضات المهمة", group: "report" },
-  { value: "generalAssumptions", label: "الافتراضات العامة", group: "report" },
-  { value: "specialAssumptions", label: "الافتراضات الخاصة", group: "report" },
-  { value: "projectName", label: "اسم المشروع", group: "project" },
-  { value: "displayNumber", label: "رقم المشروع", group: "project" },
-  { value: "images.asset", label: "صور الأصول", group: "image" },
-  { value: "images.valuation", label: "صور حسابات القيمة", group: "image" },
-  { value: "images.client", label: "صور ملفات العميل", group: "image" },
-  { value: "images.certificate", label: "صور شهادة نظام الهيئة (قيمة)", group: "image" },
-  { value: "field", label: "حقل مخصص من بيانات التقرير", group: "other" },
-  { value: "static", label: "قيمة ثابتة يكتبها المستخدم", group: "other" },
-];
-
-const DEFAULT_BINDINGS: Record<string, string> = {
-  "عنوان_التقرير": "reportTitle",
-  "العميل": "clientName",
-  "تاريخ_إصدار_التقرير": "reportIssueDate",
-  "الرقم_المرجعي": "reportReference",
-  "اسلوب_التقييم": "valuationMethod",
-  "أسلوب_التقييم": "valuationMethod",
-  "الغرض_من_التقييم": "valuationPurpose",
-  "اساس_القيمة": "valuationBasis",
-  "تاريخ_التقييم": "valuationDate",
-  "تاريخ_الاتفاقية": "agreementDate",
-  "تاريخ_المعاينة": "inspectionDate",
-  "نشاط_الشركة": "clientActivity",
-  "ممثل_العميل": "clientRepresentativeName",
-  "صفة": "clientRepresentativeRole",
-  "المدينة": "inspectionLocation",
-  "رابط_قوقل_ماب": "inspectionMapUrl",
-  "رأي_القيمة_رقما_وكتابة": "finalValueOpinion",
-  "مرفق الصور1": "images.asset",
-  "مرفق_الصور1": "images.asset",
-  "صور_الاصول": "images.asset",
-  "صور_الأصول": "images.asset",
-  "assetImages": "images.asset",
-  "assetImage": "images.asset",
-  "صور_حسابات_القيمة": "images.valuation",
-  "صورحساباتالقيمة": "images.valuation",
-  "valuationImages": "images.valuation",
-  "صور_ملفات_العميل": "images.client",
-  "صورملفاتالعميل": "images.client",
-  "clientImages": "images.client",
-  "clientDocuments": "images.client",
-  "صور_شهادة_قيمة": "images.certificate",
-  "صور_شهادة_النظام": "images.certificate",
-  "sceCertificateImages": "images.certificate",
-  "certificateImages": "images.certificate",
-};
-
-function normalizeVariable(value: string): string {
-  return value.replace(/[\u200e\u200f\u202a-\u202e]/g, "").trim().toLocaleLowerCase();
-}
-
-function normalizeMarkerVariable(value: string): string {
-  return normalizeVariable(value).replace(/[\s_:\-./]+/g, "");
-}
-
-export function suggestedTemplateBinding(variable: string): string {
-  const normalized = normalizeVariable(variable);
-  const direct = Object.entries(DEFAULT_BINDINGS).find(
-    ([key]) =>
-      normalizeVariable(key) === normalized ||
-      normalizeMarkerVariable(key) === normalizeMarkerVariable(variable),
-  )?.[1];
-  if (direct) return direct;
-  return REPORT_TEMPLATE_SOURCE_OPTIONS.some((option) => normalizeVariable(option.value) === normalized)
-    ? variable.trim()
-    : "";
-}
+export { REPORT_TEMPLATE_SOURCE_OPTIONS, suggestedTemplateBinding } from "@/lib/report-template-bindings";
 
 function sourceLabelForTemplate(
   value: string,
@@ -298,7 +174,7 @@ function TemplateDataSourcePicker({
             value ? "border-emerald-100" : "border-amber-200",
           )}
         >
-          <span className="min-w-0 truncate">{sourceLabelForTemplate(value, models)}</span>
+          <span className="min-w-0 truncate">{sourceLabelForTemplate(value, [activeModel, ...models])}</span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
@@ -394,6 +270,9 @@ type TemplateRow = {
   variable: string;
   mapping?: CompanyReportTemplateVariableMappingForm;
   detected: boolean;
+  suggestedSource?: string;
+  label?: string;
+  sectionTitle?: string;
 };
 
 export type CompanyReportDocumentTemplateDashboardProps = {
@@ -407,8 +286,8 @@ export type CompanyReportDocumentTemplateDashboardProps = {
   /** True when local mapping edits have not been persisted yet. */
   dirty?: boolean;
   onSelect: (templateId: string) => void;
-  onUploadNew: (file: File) => void | Promise<void>;
-  onReplace: (file: File) => void | Promise<void>;
+  onUploadNew: (file: File, modelId: string) => Promise<boolean>;
+  onReplace: (file: File, modelId: string) => Promise<boolean>;
   onRename: (name: string, finalize?: boolean) => void;
   onRemove: () => void | Promise<void>;
   onChange: (next: {
@@ -435,13 +314,24 @@ export function CompanyReportDocumentTemplateDashboard({
   onSave,
 }: CompanyReportDocumentTemplateDashboardProps) {
   const [newVariable, setNewVariable] = useState("");
+  const [preparingNewTemplate, setPreparingNewTemplate] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [copyNotice, setCopyNotice] = useState("");
   const models = useMemo(() => normalizeReportDataModels(reportDataModels), [reportDataModels]);
-  const [activeReportDataModelId, setActiveReportDataModelId] = useState(models[0]?.id ?? "");
-  const template = templates.find((item) => item.id === selectedTemplateId) ?? null;
+  const selectedTemplate = templates.find((item) => item.id === selectedTemplateId) ?? null;
+  const [activeReportDataModelId, setActiveReportDataModelId] = useState(selectedTemplate?.reportDataModelId ?? MV_DEFAULT_REPORT_DATA_MODEL_ID);
+  const template = preparingNewTemplate ? null : selectedTemplate;
+  const showingSuggestions = !template;
+  const busy = saving || uploading || loading;
+  const activeModel = getReportDataModel(models, activeReportDataModelId);
+  useEffect(() => {
+    if (!preparingNewTemplate) setActiveReportDataModelId(selectedTemplate?.reportDataModelId ?? MV_DEFAULT_REPORT_DATA_MODEL_ID);
+  }, [preparingNewTemplate, selectedTemplate?.id, selectedTemplate?.reportDataModelId]);
   useEffect(() => setNewVariable(""), [selectedTemplateId]);
   useEffect(() => {
     if (!models.some((model) => model.id === activeReportDataModelId)) {
-      setActiveReportDataModelId(models[0]?.id ?? "");
+      setActiveReportDataModelId(MV_DEFAULT_REPORT_DATA_MODEL_ID);
     }
   }, [activeReportDataModelId, models]);
   const isPptx = format === "pptx";
@@ -455,6 +345,11 @@ export function CompanyReportDocumentTemplateDashboard({
   const excluded = template?.excludedVariableNames ?? [];
 
   const rows = useMemo<TemplateRow[]>(() => {
+    if (showingSuggestions) {
+      return buildSuggestedTemplateVariables(activeModel).map((item) => ({
+        ...item, suggestedSource: item.sourceKey, detected: false,
+      }));
+    }
     const excludedSet = new Set(excluded.map(normalizeVariable));
     const mappingByVariable = new Map<string, CompanyReportTemplateVariableMappingForm>();
     for (const mapping of mappings) {
@@ -481,19 +376,55 @@ export function CompanyReportDocumentTemplateDashboard({
       output.push({ variable, mapping, detected: false });
     }
     return output.sort((a, b) => Number(b.detected) - Number(a.detected) || a.variable.localeCompare(b.variable, "ar"));
-  }, [detectedVariables, excluded, mappings]);
+  }, [activeModel, showingSuggestions, detectedVariables, excluded, mappings]);
 
   const hasConfiguredSource = (sourceKey: string) =>
     Boolean(sourceKey) && (!sourceKey.startsWith("field:") || Boolean(sourceKey.slice("field:".length).trim()));
   // Count only persisted/local mapping rows — never treat auto-suggestions as saved links.
-  const mappedCount = rows.filter((row) => hasConfiguredSource(row.mapping?.sourceKey ?? "")).length;
+  const mappedCount = rows.filter((row) => row.detected && hasConfiguredSource(row.mapping?.sourceKey ?? "")).length;
+
+  const startNewTemplate = () => {
+    setPreparingNewTemplate(true);
+    setActiveReportDataModelId(MV_DEFAULT_REPORT_DATA_MODEL_ID);
+    setNewVariable("");
+    setUploadError("");
+    setCopyNotice("");
+  };
+
+  const uploadTemplate = async (file: File, replace = false) => {
+    if (busy) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const saved = await (replace ? onReplace : onUploadNew)(file, activeModel.id);
+      if (saved) {
+        setPreparingNewTemplate(false);
+        setCopyNotice("");
+      } else {
+        setUploadError("تعذر حفظ القالب. راجع رسالة الخطأ وحاول رفعه مجددًا؛ ما زال النموذج المختار متاحًا.");
+      }
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "تعذر رفع القالب. حاول مجددًا.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const copyVariable = async (variable: string) => {
+    try {
+      await navigator.clipboard.writeText(`<<${variable}>>`);
+      setCopyNotice(`تم نسخ <<${variable}>>. الصقه في القالب على جهازك.`);
+    } catch {
+      setCopyNotice(`تعذر النسخ تلقائيًا. حدد المتغير <<${variable}>> وانسخه يدويًا.`);
+    }
+  };
 
   const saveButton = onSave ? (
     <Button
       type="button"
       size="sm"
       className="h-9 shrink-0 gap-1.5 rounded-lg bg-[#0C447C] px-3 text-[11px] font-black hover:bg-[#0a3a66] disabled:opacity-60"
-      disabled={saving || loading}
+      disabled={busy}
       onClick={() => void onSave()}
     >
       {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -507,7 +438,7 @@ export function CompanyReportDocumentTemplateDashboard({
     const nextItem: CompanyReportTemplateVariableMappingForm = {
       id: current?.id ?? createMappingId(),
       variable: current?.variable || variable.trim(),
-      sourceKey: current?.sourceKey ?? suggestedTemplateBinding(variable),
+      sourceKey: current?.sourceKey ?? suggestedTemplateBinding(variable, activeModel),
       staticValue: current?.staticValue,
       ...patch,
     };
@@ -539,7 +470,7 @@ export function CompanyReportDocumentTemplateDashboard({
         {
           id: createMappingId(),
           variable,
-          sourceKey: suggestedTemplateBinding(variable),
+          sourceKey: suggestedTemplateBinding(variable, activeModel),
         },
       ],
       excludedVariableNames: excluded,
@@ -566,9 +497,9 @@ export function CompanyReportDocumentTemplateDashboard({
 
           <div className="min-w-[210px] flex-[1_1_360px]">
             <Select
-              value={template?.id}
-              onValueChange={onSelect}
-              disabled={saving || templates.length === 0}
+              value={template?.id ?? ""}
+              onValueChange={(id) => { setPreparingNewTemplate(false); setUploadError(""); setCopyNotice(""); onSelect(id); }}
+              disabled={busy || templates.length === 0}
             >
               <SelectTrigger
                 className={cn(
@@ -578,7 +509,7 @@ export function CompanyReportDocumentTemplateDashboard({
                 aria-label="اختيار القالب"
               >
                 <span className={cn("min-w-0 flex-1 truncate text-right", !template && "text-slate-400")}>
-                  {template?.name ||
+                  {preparingNewTemplate ? "تجهيز قالب جديد" : template?.name ||
                     (templates.length
                       ? "اختر قالبًا"
                       : `لا توجد قوالب ${isPptx ? "PowerPoint" : "Word"}`)}
@@ -607,11 +538,22 @@ export function CompanyReportDocumentTemplateDashboard({
             {templates.length}/20
           </Badge>
 
-          <label
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black"
+            disabled={busy || reachedTemplateLimit}
+            onClick={startNewTemplate}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {reachedTemplateLimit ? "اكتمل العدد" : templates.length ? "أضف قالب آخر" : "أضف قالب جديد"}
+          </Button>
+
+          {preparingNewTemplate ? <label
             className={cn(
               "inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-black text-white shadow-sm transition",
               isPptx ? "bg-orange-500 hover:bg-orange-600" : "bg-emerald-600 hover:bg-emerald-700",
-              (saving || reachedTemplateLimit) && "pointer-events-none opacity-60",
+              (busy || reachedTemplateLimit) && "pointer-events-none opacity-60",
             )}
             title={`إرفاق قالب ${extension} جديد (حتى ${maxSizeLabel})`}
           >
@@ -623,16 +565,16 @@ export function CompanyReportDocumentTemplateDashboard({
                   : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               }
               className="sr-only"
-              disabled={saving || reachedTemplateLimit}
+              disabled={busy || reachedTemplateLimit}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.currentTarget.value = "";
-                if (file) void onUploadNew(file);
+                if (file) void uploadTemplate(file);
               }}
             />
-            <Plus className="h-3.5 w-3.5" />
-            {reachedTemplateLimit ? "اكتمل العدد" : "قالب جديد"}
-          </label>
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {uploading ? "جارٍ قراءة القالب وربطه…" : "رفع قالب جديد"}
+          </label> : null}
 
           {template ? (
             <span
@@ -655,13 +597,16 @@ export function CompanyReportDocumentTemplateDashboard({
         </div>
       </section>
 
+      {uploadError ? <p role="alert" className="border-t border-orange-200 bg-orange-50 px-3 py-3 text-xs font-semibold leading-6 text-orange-800">{uploadError}</p> : null}
+      {copyNotice ? <p role="status" className="border-t border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">{copyNotice}</p> : null}
+
       {loading ? (
         <div className="flex h-24 items-center justify-center border-t border-slate-100 bg-white text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
         </div>
-      ) : template ? (
+      ) : (
         <>
-          <section
+          {template ? <section
             className={cn(
               "border-t border-slate-100 px-2.5 py-2 sm:px-3",
               isPptx
@@ -688,7 +633,7 @@ export function CompanyReportDocumentTemplateDashboard({
                 aria-label="اسم القالب"
                 title="اسم القالب الظاهر في صفحة إعداد التقرير"
                 maxLength={160}
-                disabled={saving}
+                disabled={busy}
                 required
               />
               </label>
@@ -723,7 +668,7 @@ export function CompanyReportDocumentTemplateDashboard({
                   isPptx
                     ? "border-orange-200 text-orange-700 hover:bg-orange-50"
                     : "border-emerald-200 text-emerald-700 hover:bg-emerald-50",
-                  saving && "pointer-events-none opacity-60",
+                  busy && "pointer-events-none opacity-60",
                 )}
                 title={`استبدال الملف الحالي بملف ${extension} (حتى ${maxSizeLabel})`}
               >
@@ -735,11 +680,11 @@ export function CompanyReportDocumentTemplateDashboard({
                       : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   }
                   className="sr-only"
-                  disabled={saving}
+                  disabled={busy}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.currentTarget.value = "";
-                    if (file) void onReplace(file);
+                    if (file) void uploadTemplate(file, true);
                   }}
                 />
                 {saving ? (
@@ -754,7 +699,7 @@ export function CompanyReportDocumentTemplateDashboard({
                 type="button"
                 variant="ghost"
                 className="h-9 shrink-0 gap-1.5 rounded-lg px-2.5 text-[11px] font-black text-slate-400 hover:bg-rose-50 hover:text-rose-700"
-                disabled={saving}
+                disabled={busy}
                 onClick={() => void onRemove()}
                 title={`حذف ${formatTitle}`}
               >
@@ -762,6 +707,24 @@ export function CompanyReportDocumentTemplateDashboard({
                 <span className="hidden sm:inline">حذف</span>
               </Button>
             </div>
+          </section> : null}
+
+          <section className="border-t border-slate-100 bg-white px-3 py-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span id={`${format}-data-model-label`} className="text-xs font-bold text-slate-700">نموذج بيانات التقرير</span>
+              <Select value={activeModel.id} onValueChange={setActiveReportDataModelId} disabled={busy}>
+                <SelectTrigger aria-labelledby={`${format}-data-model-label`} className="h-9 w-64 bg-white text-xs font-bold"><SelectValue /></SelectTrigger>
+                <SelectContent dir="rtl">
+                  {models.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="mt-2 text-xs leading-6 text-slate-500">
+              {showingSuggestions
+                ? "انسخ المتغيرات التي تحتاجها وألصقها في القالب على جهازك. تظهر بالبرتقالي حتى ترفع القالب؛ تُقرأ المتغيرات الموجودة فيه وتُربط بمصادرها تلقائيًا."
+                : "المتغير الأخضر موجود في القالب ومربوط بمصدر بيانات. اختر مصدرًا للمتغير البرتقالي غير المربوط، ثم احفظ التعديلات."}
+              {showingSuggestions && !preparingNewTemplate ? " اضغط «أضف قالب جديد» لإظهار زر رفع القالب." : ""}
+            </p>
           </section>
 
           <section className="border-t border-slate-100 bg-white">
@@ -789,7 +752,7 @@ export function CompanyReportDocumentTemplateDashboard({
                 ) : null}
               </div>
 
-              <div className="order-1 flex min-w-[260px] flex-[1_1_360px] items-center justify-end gap-1.5 sm:max-w-md">
+              {!showingSuggestions ? <div className="order-1 flex min-w-[260px] flex-[1_1_360px] items-center justify-end gap-1.5 sm:max-w-md">
                 <Input
                   value={newVariable}
                   onChange={(event) => setNewVariable(event.target.value)}
@@ -802,7 +765,7 @@ export function CompanyReportDocumentTemplateDashboard({
                   placeholder="<<متغير_جديد>>"
                   aria-label="اسم المتغير الجديد"
                   className="h-8 min-w-0 rounded-lg text-[11px] shadow-none"
-                  disabled={saving}
+                  disabled={busy}
                   dir="ltr"
                 />
                 <Button
@@ -810,13 +773,13 @@ export function CompanyReportDocumentTemplateDashboard({
                   variant="outline"
                   size="sm"
                   className="h-8 shrink-0 gap-1 rounded-lg px-2.5 text-[10px] font-black"
-                  disabled={saving || !newVariable.trim()}
+                  disabled={busy || !newVariable.trim()}
                   onClick={addVariable}
                 >
                   <Plus className="h-3 w-3" />
                   إضافة
                 </Button>
-              </div>
+              </div> : null}
             </div>
 
             <div className="max-h-[560px] overflow-auto border-t border-slate-100">
@@ -842,7 +805,7 @@ export function CompanyReportDocumentTemplateDashboard({
                         colSpan={4}
                         className="h-20 text-center text-[11px] font-semibold text-slate-500"
                       >
-                        {"لم تُكتشف متغيرات؛ أضف متغيراً أو استبدل الملف بنسخة تحتوي على <<اسم_المتغير>>."}
+                        {showingSuggestions ? "لا توجد حقول في هذا النموذج. اختر نموذجًا آخر أو أضف حقولًا إلى نموذج بيانات التقرير." : "لم تُكتشف متغيرات؛ أضف متغيراً أو استبدل الملف بنسخة تحتوي على <<اسم_المتغير>>."}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -851,15 +814,15 @@ export function CompanyReportDocumentTemplateDashboard({
                         // bindings are hints — showing them as the Select value
                         // made reloads look unbound after the admin never saved.
                         const storedSourceKey = row.mapping?.sourceKey?.trim() ?? "";
-                        const suggested = !storedSourceKey ? suggestedTemplateBinding(row.variable) : "";
-                        const chosenSource = storedSourceKey;
+                        const suggested = !showingSuggestions && !storedSourceKey ? suggestedTemplateBinding(row.variable, activeModel) : "";
+                        const chosenSource = row.suggestedSource ?? storedSourceKey;
                         const manualCustomField =
                           storedSourceKey.startsWith("field:") &&
                           !isModelSourceKey(storedSourceKey, models);
-                        const sourceIsConfigured = hasConfiguredSource(storedSourceKey);
+                        const sourceIsConfigured = row.detected && hasConfiguredSource(storedSourceKey);
                         const mapping = row.mapping;
                         const suggestedLabel = suggested
-                          ? REPORT_TEMPLATE_SOURCE_OPTIONS.find((option) => option.value === suggested)?.label
+                          ? sourceLabelForTemplate(suggested, [activeModel, ...models])
                           : undefined;
                         return (
                           <TableRow
@@ -871,29 +834,35 @@ export function CompanyReportDocumentTemplateDashboard({
                                 <span
                                   className={cn(
                                     "h-2 w-2 shrink-0 rounded-full",
-                                    sourceIsConfigured ? "bg-emerald-500" : "bg-amber-400",
+                                    sourceIsConfigured ? "bg-emerald-500" : "bg-orange-400",
                                   )}
                                   title={sourceIsConfigured ? "مرتبط" : "غير مرتبط"}
                                 />
                                 <code
-                                  className="break-all rounded-md bg-slate-100 px-1.5 py-1 text-[10px] font-bold text-slate-700"
+                                  className={cn("select-text break-all rounded-md px-1.5 py-1 text-[10px] font-bold", sourceIsConfigured ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700")}
                                   dir="ltr"
                                 >
                                   {`<<${row.variable}>>`}
                                 </code>
-                                {!row.detected ? (
+                                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-slate-500" aria-label={`نسخ <<${row.variable}>>`} title="نسخ المتغير" onClick={() => void copyVariable(row.variable)}>
+                                  <Copy className="h-3.5 w-3.5" />
+                                </Button>
+                                {!row.detected && !showingSuggestions ? (
                                   <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[8px] font-black text-violet-700">
-                                    يدوي
+                                    غير موجود في القالب
                                   </span>
                                 ) : null}
                               </div>
                             </TableCell>
                             <TableCell className="px-3 py-1.5 align-middle">
-                              <TemplateDataSourcePicker
+                              {showingSuggestions ? <div className="text-[11px] font-bold text-slate-700">
+                                {row.label}
+                                <span className="mt-1 block text-[9px] font-normal text-slate-400">{row.sectionTitle}</span>
+                              </div> : <TemplateDataSourcePicker
                                 value={chosenSource}
                                 models={models}
                                 activeModelId={activeReportDataModelId}
-                                disabled={saving}
+                                disabled={busy}
                                 onModelChange={setActiveReportDataModelId}
                                 onChange={(value) =>
                                   updateMapping(row.variable, {
@@ -901,12 +870,12 @@ export function CompanyReportDocumentTemplateDashboard({
                                     staticValue: value === "static" ? mapping?.staticValue ?? "" : undefined,
                                   })
                                 }
-                              />
-                              {!sourceIsConfigured && suggestedLabel ? (
+                              />}
+                              {!showingSuggestions && !storedSourceKey && suggestedLabel ? (
                                 <button
                                   type="button"
                                   className="mt-1 text-[9px] font-bold text-sky-700 underline-offset-2 hover:underline disabled:opacity-50"
-                                  disabled={saving}
+                                  disabled={busy}
                                   onClick={() =>
                                     updateMapping(row.variable, { sourceKey: suggested })
                                   }
@@ -927,7 +896,7 @@ export function CompanyReportDocumentTemplateDashboard({
                                   }
                                   className="h-8 rounded-lg text-[10px] shadow-none"
                                   placeholder="اكتب القيمة الثابتة"
-                                  disabled={saving}
+                                  disabled={busy}
                                 />
                               ) : manualCustomField ? (
                                 <Input
@@ -939,7 +908,7 @@ export function CompanyReportDocumentTemplateDashboard({
                                   }
                                   className="h-8 rounded-lg text-[10px] shadow-none"
                                   placeholder="اسم حقل التقرير أو reportTextOverrides"
-                                  disabled={saving}
+                                  disabled={busy}
                                   dir="ltr"
                                 />
                               ) : (
@@ -959,17 +928,17 @@ export function CompanyReportDocumentTemplateDashboard({
                               )}
                             </TableCell>
                             <TableCell className="px-2 py-1.5 text-left align-middle">
-                              <Button
+                              {!showingSuggestions ? <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-slate-300 hover:bg-rose-50 hover:text-rose-700 group-hover:text-slate-400"
-                                disabled={saving}
+                                disabled={busy}
                                 onClick={() => removeRow(row)}
                                 title="حذف من لوحة الربط"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              </Button> : null}
                             </TableCell>
                           </TableRow>
                         );
@@ -980,22 +949,6 @@ export function CompanyReportDocumentTemplateDashboard({
             </div>
           </section>
         </>
-      ) : (
-        <div className="flex min-h-24 items-center justify-center gap-2 border-t border-slate-100 bg-white px-4 py-7 text-center text-[11px] font-semibold text-slate-500">
-          <span
-            className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-              isPptx ? "bg-orange-50 text-orange-600" : "bg-emerald-50 text-emerald-600",
-            )}
-          >
-            {icon}
-          </span>
-          <span>
-            {templates.length
-              ? "اختر قالباً من القائمة لإدارته."
-              : `أرفق أول ${formatTitle} من زر «قالب جديد».`}
-          </span>
-        </div>
       )}
     </div>
   );

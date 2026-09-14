@@ -4,6 +4,8 @@ import { useContext, useEffect } from "react";
 import Link from "@/components/prefetch-link";
 import { useRouter } from "next/navigation";
 import MachineValuationShell from "@/components/machine-valuation-shell";
+import { SupportSidebarLinks } from "@/components/support/support-sidebar-links";
+import { productFromPath } from "@/components/support/support-types";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
 import ValueTechServiceFooter from "@/components/value-tech-service-footer";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -681,6 +683,7 @@ export default function ValueTechShell({
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
+            <div className="px-2"><SupportSidebarLinks product={productFromPath(pathname)} dark={dark} /></div>
           </SidebarContent>
         </Sidebar>
 

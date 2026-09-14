@@ -67,6 +67,7 @@ export type MvPptxTemplateScan = {
   /** Raw labels of image placeholders, retained for configurable mappings. */
   assetImageMarkerNames: string[];
   slideCount: number;
+  hasContent: boolean;
 };
 
 export type MvPptxMergeStats = {
@@ -202,13 +203,16 @@ function findMarkersInSlide(xml: string): MarkerShape[] {
 /** Read variables and asset-image markers from all slides of a PPTX template. */
 export function scanPptxTemplate(buffer: ArrayBuffer): MvPptxTemplateScan {
   const zip = new PizZip(buffer);
+  if (!zip.file("ppt/presentation.xml")) throw new Error("ملف PowerPoint غير صالح أو غير مكتمل. أعد حفظه بصيغة .pptx ثم حاول مجددًا.");
   const variables = new Set<string>();
   const assetImageMarkerNames = new Set<string>();
   let assetImageMarkers = 0;
+  let hasContent = false;
   const paths = slidePaths(zip);
 
   for (const path of paths) {
     const xml = readZipText(zip, path);
+    hasContent ||= Boolean(textFromXml(xml).replace(/[\s\u200b-\u200f\u202a-\u202e]/g, "")) || /<p:(?:pic|graphicFrame)\b/.test(xml);
     for (const paragraph of xml.matchAll(PARAGRAPH_RE)) {
       const text = textFromXml(paragraph[0] ?? "");
       for (const match of text.matchAll(TEMPLATE_VARIABLE_RE)) {
@@ -222,7 +226,9 @@ export function scanPptxTemplate(buffer: ArrayBuffer): MvPptxTemplateScan {
     assetImageMarkers += markers.length;
     for (const marker of markers) {
       const name = normalizeTemplateName(marker.markerText);
-      if (name) assetImageMarkerNames.add(name);
+      // A delimited image variable is already in `variables`; do not add its
+      // surrounding brackets again as a second, unbindable dashboard row.
+      if (name && !Array.from(name.matchAll(TEMPLATE_VARIABLE_RE)).length) assetImageMarkerNames.add(name);
     }
   }
 
@@ -231,6 +237,7 @@ export function scanPptxTemplate(buffer: ArrayBuffer): MvPptxTemplateScan {
     assetImageMarkers,
     assetImageMarkerNames: [...assetImageMarkerNames],
     slideCount: paths.length,
+    hasContent,
   };
 }
 

@@ -40,6 +40,8 @@ const MvValuationShell = dynamic(() => import("./mv-valuation-shell"), {
 const MvClientFilesShell = dynamic(() => import("./mv-client-files-shell"), {
   loading: () => <MvRouteSkeleton />,
 });
+const SupportPage = dynamic(() => import("@/components/support/support-page"), { loading: () => <MvRouteSkeleton /> });
+const DeveloperRequestsPage = dynamic(() => import("@/components/support/developer-requests-page"), { loading: () => <MvRouteSkeleton /> });
 const MvSceCertificateShell = dynamic(() => import("./mv-sce-certificate-shell"), {
   loading: () => <MvRouteSkeleton />,
 });
@@ -54,6 +56,7 @@ const MvFinalReportWorkspace = dynamic(() => import("./mv-final-report-workspace
 });
 
 function parseMvPath(pathname: string) {
+  pathname = pathname.split(/[?#]/)[0]!;
   const base = "/machine-valuation";
   if (!pathname.startsWith(base)) return { view: "projects" as const, segments: [] };
 
@@ -61,6 +64,8 @@ function parseMvPath(pathname: string) {
   if (!rest) return { view: "projects" as const, segments: [] };
 
   const segments = rest.split("/").filter(Boolean);
+  if (segments[0] === "support") return { view: "support" as const, segments };
+  if (segments[0] === "developer-requests") return { view: "developer-requests" as const, segments };
   if (segments[0] === "dashboard") {
     return { view: "projects" as const, segments };
   }
@@ -149,6 +154,10 @@ export default function MachineValuationSection() {
   const route = useMemo(() => parseMvPath(pathname), [pathname]);
 
   switch (route.view) {
+    case "support":
+      return <SupportPage />;
+    case "developer-requests":
+      return <DeveloperRequestsPage />;
     case "company-admin":
       return <CompanyAdminDashboard variant="embedded" productId="machine-valuation" />;
     case "report-settings":

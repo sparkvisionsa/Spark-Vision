@@ -7,6 +7,8 @@ import ValueTechAccessGate from "@/components/value-tech-access-gate";
 
 const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentType<object> }>> = {
   vt: () => import("./workspace-sections/value-tech-hub"),
+  support: () => import("@/components/support/support-page"),
+  "developer-requests": () => import("@/components/support/developer-requests-page"),
   "value-tech-app": () => import("./workspace-sections/value-tech-app"),
   "real-estate-valuation": () => import("./workspace-sections/real-estate-valuation"),
   "machine-valuation": () => import("./workspace-sections/machine-valuation/index"),
@@ -22,10 +24,12 @@ const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentTy
 };
 
 const PREFIX_SECTIONS = new Set(["machine-valuation"]);
+const PRODUCT_SUPPORT_ROUTES = new Set(["real-estate-valuation", "helper-tools", "evaluation-source", "value-tech-app", "asset-inventory", "asset-inspection"]);
 
 function slugToKey(slug?: string[]): string {
   if (!slug || slug.length === 0) return "vt";
   const first = slug[0];
+  if (slug.length === 2 && PRODUCT_SUPPORT_ROUTES.has(first) && (slug[1] === "support" || slug[1] === "developer-requests")) return slug[1];
   if (PREFIX_SECTIONS.has(first)) return first;
   return slug.join("/");
 }
@@ -50,6 +54,7 @@ function MissingSection() {
 
 export function WorkspaceView({ slug }: { slug?: string[] }) {
   const key = slugToKey(slug);
+  const accessKey = slug?.length === 2 && PRODUCT_SUPPORT_ROUTES.has(slug[0]!) && (slug[1] === "support" || slug[1] === "developer-requests") ? slug[0]! : key;
   const loader = SECTION_LOADERS[key];
 
   const Section = useMemo(() => {
@@ -63,7 +68,7 @@ export function WorkspaceView({ slug }: { slug?: string[] }) {
   }, [key, loader]);
 
   return (
-    <ValueTechAccessGate sectionKey={key}>
+    <ValueTechAccessGate sectionKey={accessKey}>
       <ValueTechShell>
         <Section key={key} />
       </ValueTechShell>
