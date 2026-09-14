@@ -8,11 +8,14 @@ import {
   useRef,
 } from "react";
 
-import { Eye, Printer, UserCheck, FileDown, Paperclip, Pencil, MessageCircle, MoreVertical,
-        History, Copy, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ImageIcon,
-        Building2, User, Hash, Calendar, ArrowUpDown, AlertTriangle, X, Upload, File,
-        Trash2, CheckCircle2, Send, Download, Reply, Pin, GripVertical, Save, FileText,
-        Target, BookOpen, Layers, Users, GitBranch,Loader2, } from "lucide-react";
+import {
+  Eye, Printer, UserCheck, FileDown, Paperclip, Pencil, MessageCircle, MoreVertical,
+  History, Copy, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ImageIcon,
+  Building2, User, Hash, Calendar, ArrowUpDown, AlertTriangle, X, Upload, File,
+  Trash2, CheckCircle2, Send, Download, Reply, Pin, GripVertical, Save, FileText,
+  Target, BookOpen, Layers, Users, GitBranch, Loader2,
+} from "lucide-react";
+
 import { LanguageContext } from "@/components/layout-provider";
 import { cn } from "@/lib/utils";
 import { toApiUrl } from "@/lib/api-url";
@@ -524,7 +527,8 @@ function viewPdf(transactionId: string) {
 }
 
 /** Triggers a browser download */
-function downloadPdf(transactionId: string) {
+/** Triggers a browser download */
+function downloadPdf(transactionId: string, onStarted?: () => void) {
   const a = document.createElement("a");
   a.href = toApiUrl(
     `/api/transactions/${transactionId}/pdf?disposition=attachment`,
@@ -533,6 +537,7 @@ function downloadPdf(transactionId: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  onStarted?.();
 }
 
 // ─── Duplicate transaction ────────────────────────────────────────────────────
@@ -3666,6 +3671,7 @@ function ValuationTableRow({
   onEditTransaction,
   onAssignInspectors,
   onDuplicate,
+  onDownloadPdf,
   t,
 }: {
   row: ValuationRow;
@@ -3677,7 +3683,8 @@ function ValuationTableRow({
   onAssignInspectors: (row: ValuationRow) => void;
   onOpenImages: (row: ValuationRow) => void;
   onEditTransaction: (row: ValuationRow) => void;
-  onDuplicate: (row: ValuationRow) => void;
+    onDuplicate: (row: ValuationRow) => void;
+  onDownloadPdf: (id: string) => void;
   t: Copy;
 }) {
   const initials = row.assignment.requester
@@ -3810,7 +3817,7 @@ function ValuationTableRow({
           <ActionButton tooltip={t.viewReport} onClick={() => viewPdf(row.id)}>
             <Printer className="h-3.5 w-3.5" />
           </ActionButton>
-          <ActionButton tooltip={t.downloadPdf} onClick={() => downloadPdf(row.id)}>
+          <ActionButton tooltip={t.downloadPdf} onClick={() => onDownloadPdf(row.id)}>
             <FileDown className="h-3.5 w-3.5" />
           </ActionButton>
           <ActionButton
@@ -4040,6 +4047,12 @@ onFilteredCountChange,
   const language = langContext?.language ?? "ar";
   const isArabic = language === "ar";
   const t = copy[language];
+
+  // Download feedback (reuses the same visual pattern as duplicateMsg)
+  const [downloadMsg, setDownloadMsg] = useState<{
+    type: "ok" | "error";
+    text: string;
+  } | null>(null);
 
   const [rows, setRows] = useState<ValuationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4317,6 +4330,12 @@ onFilteredCountChange,
             {duplicateMsg.text}
           </div>
         )}
+        {downloadMsg && (
+          <div className="flex items-center gap-2 bg-cyan-50 px-4 py-2 text-xs font-semibold text-cyan-700">
+            <Download className="h-3.5 w-3.5" />
+            {downloadMsg.text}
+          </div>
+        )}
         {duplicatingId && !duplicateMsg && (
           <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 text-xs text-slate-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4388,6 +4407,15 @@ onFilteredCountChange,
                     onEditTransaction={handleOpenEdit}
                     onAssignInspectors={handleOpenInspectors}
                     onDuplicate={handleDuplicate}
+                    onDownloadPdf={(id) => {
+                      downloadPdf(id, () => {
+                        setDownloadMsg({
+                          type: "ok",
+                          text: isArabic ? "بدأ تحميل الملف..." : "Download started...",
+                        });
+                        setTimeout(() => setDownloadMsg(null), 4500);
+                      });
+                    }}
                     t={t}
                   />
                 ))}

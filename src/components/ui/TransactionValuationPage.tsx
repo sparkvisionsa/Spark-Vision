@@ -3262,6 +3262,7 @@ export function TransactionEvaluationPage({
               a.href = `/api/transactions/${transactionId}/pdf?disposition=attachment`;
               a.download = `valuation-${transactionId}.pdf`;
               a.click();
+              showStatusMsg("ok", lang === "ar" ? "بدأ تحميل الملف..." : "Download started...");
             }}
           />
           <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
