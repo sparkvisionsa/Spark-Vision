@@ -17,8 +17,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
     const connection = io(realtimeUrl || undefined, {
       path: "/api/realtime/socket.io", addTrailingSlash: false, withCredentials: true,
-      // The dedicated Next rewrite proxies both polling and WebSocket upgrades.
-      transports: ["polling", "websocket"],
+      // Vercel's API proxy supports Engine.IO polling but rejects WebSocket upgrades.
+      transports: ["polling"],
       reconnectionDelay: 1000, reconnectionDelayMax: 10_000,
     });
     setSocket(connection);
