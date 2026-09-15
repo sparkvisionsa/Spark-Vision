@@ -16,6 +16,8 @@ const FORWARD_HEADERS = [
   "if-none-match",
   "range",
   "x-csrf-token",
+  "x-upload-offset",
+  "x-upload-length",
   "x-request-id",
 ] as const;
 

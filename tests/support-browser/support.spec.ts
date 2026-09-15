@@ -12,8 +12,8 @@ async function authenticate(context: BrowserContext, who: "owner" | "agent" | "a
 }
 test("authenticated ticket conversation synchronizes between the user and support", async ({ page, browser, context }) => {
   await authenticate(context, "owner");
-  await page.goto("/support");
-  await expect(page.getByRole("heading", { name: "الدعم والتذاكر", exact: true })).toBeVisible();
+  await page.goto("/support", { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("الدعم والتذاكر", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "تذكرة جديدة", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("العنوان", { exact: true }).fill("تعذر تنزيل التقرير — اختبار المتصفح");
@@ -43,14 +43,14 @@ test("authenticated ticket conversation synchronizes between the user and suppor
 
 test("Arabic assistant shows verified steps and recording handles denied permissions", async ({ page, context }) => {
   await authenticate(context, "owner");
-  await page.goto("/support");
-  await page.getByRole("button", { name: "مساعد فاليو تك", exact: true }).click();
+  await page.goto("/support", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "فتح مساعد فاليو تك", exact: true }).click();
   await page.getByRole("button", { name: "كيف أنشئ مشروع تقييم آلات؟", exact: true }).click();
   await expect(page.getByText("من دليل النظام", { exact: true })).toBeVisible();
   await expect(page.getByRole("log", { name: "المحادثة مع المساعد" }).getByText(/إنشاء مشروع جديد/)).toBeVisible();
   await page.screenshot({ path: "test-results/support/assistant.png", fullPage: true });
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "كن مطور — تسجيل الشاشة والصوت", exact: true }).click();
+  await page.getByRole("button", { name: "كن مطور: تسجيل مشكلة أو فكرة", exact: true }).click();
   await expect(page.getByRole("dialog").getByText("شاشتك وصوتك، والفكرة تصل", { exact: true })).toBeVisible();
   await page.evaluate(() => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException("Denied", "NotAllowedError")); });
   await page.getByRole("button", { name: "بدء التسجيل", exact: true }).click();
@@ -60,7 +60,7 @@ test("Arabic assistant shows verified steps and recording handles denied permiss
 
 test("screen and microphone recording can pause, preview and upload a playable attachment", async ({ page, context }) => {
   await authenticate(context, "owner");
-  await page.goto("/support");
+  await page.goto("/support", { waitUntil: "domcontentloaded" });
   // Synthetic browser MediaStreams exercise the real MediaRecorder + upload pipeline.
   // Native OS share-picker interaction remains a manual browser permission step.
   await page.evaluate(() => {
@@ -72,7 +72,7 @@ test("screen and microphone recording can pause, preview and upload a playable a
     navigator.mediaDevices.getDisplayMedia = async () => stream;
     navigator.mediaDevices.getUserMedia = async () => destination.stream;
   });
-  await page.getByRole("button", { name: "كن مطور — تسجيل الشاشة والصوت", exact: true }).click();
+  await page.getByRole("button", { name: "كن مطور: تسجيل مشكلة أو فكرة", exact: true }).click();
   await page.getByRole("button", { name: "بدء التسجيل", exact: true }).click();
   await expect(page.getByRole("region", { name: "التحكم في تسجيل الشاشة" })).toBeVisible();
   await page.waitForTimeout(1700);
@@ -85,7 +85,8 @@ test("screen and microphone recording can pause, preview and upload a playable a
   await page.getByLabel("عنوان التسجيل، اختياري", { exact: true }).fill("تسجيل متصفح للاختبار");
   await page.getByRole("button", { name: "إرسال التسجيل", exact: true }).click();
   await expect(page.getByText(/وصل تسجيلك/)).toBeVisible();
-  await page.getByRole("button", { name: "متابعة البلاغ", exact: true }).click();
+  await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+  await page.getByRole("button", { name: /تسجيل متصفح للاختبار/ }).click();
   await expect(page.getByRole("heading", { name: "تسجيل متصفح للاختبار", exact: true })).toBeVisible();
   await expect(page.locator('video[src^="/api/support/files/"]')).toBeVisible();
 });

@@ -16,7 +16,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
     const connection = io(realtimeUrl || undefined, {
-      path: "/api/realtime/socket.io", withCredentials: true,
+      path: "/api/realtime/socket.io", addTrailingSlash: false, withCredentials: true,
       // The dedicated Next rewrite proxies both polling and WebSocket upgrades.
       transports: ["polling", "websocket"],
       reconnectionDelay: 1000, reconnectionDelayMax: 10_000,

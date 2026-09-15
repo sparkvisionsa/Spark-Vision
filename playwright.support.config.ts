@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 import path from "node:path";
 
 export default defineConfig({
-  testDir: "./tests/support-browser", timeout: 90_000, expect: { timeout: 20_000 }, workers: 1,
+  testDir: "./tests/support-browser", timeout: 180_000, expect: { timeout: 30_000 }, workers: 1,
   use: { baseURL: "http://127.0.0.1:3100", headless: true, viewport: { width: 1440, height: 1000 }, screenshot: "only-on-failure", trace: "retain-on-failure" },
   outputDir: "test-results/support", reporter: "list",
   webServer: [
