@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { useRealtime } from "./realtime-provider";
 import { useSupport } from "./support-provider";
-import { useSupportApi, supportError, uploadSupportFile } from "./support-api";
+import { SupportApiError, useSupportApi, supportError, uploadSupportFile } from "./support-api";
 import { SUPPORT_KINDS, SUPPORT_PRODUCTS, SUPPORT_STATUSES, type SupportAgent, type SupportFile, type SupportMessage, type SupportTicket } from "./support-types";
 import { cn } from "@/lib/utils";
 
@@ -23,13 +23,14 @@ function Attachment({ file }: { file: SupportFile }) {
   </div>;
 }
 
-export default function TicketThread({ id, onBack, onChanged }: { id: string; onBack: () => void; onChanged: () => void }) {
+export default function TicketThread({ id, onBack, onChanged, agentsVersion = 0 }: { id: string; onBack: () => void; onChanged: () => void; agentsVersion?: number }) {
   const api = useSupportApi(); const { user, csrfToken } = useAuthTracking(); const { socket, connected } = useRealtime(); const { summary, refresh } = useSupport();
   const [ticket, setTicket] = useState<SupportTicket | null>(null); const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [error, setError] = useState(""); const [loading, setLoading] = useState(true); const [more, setMore] = useState(false); const [olderLoading, setOlderLoading] = useState(false);
   const [text, setText] = useState(""); const [sending, setSending] = useState(false); const [uploading, setUploading] = useState(false); const [progress, setProgress] = useState(0);
   const [attachments, setAttachments] = useState<SupportFile[]>([]); const [agents, setAgents] = useState<SupportAgent[]>([]); const [typing, setTyping] = useState("");
   const [audit, setAudit] = useState(false); const [updating, setUpdating] = useState(false);
+  const [agentsError, setAgentsError] = useState(""); const [agentsLoading, setAgentsLoading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null); const scroller = useRef<HTMLDivElement>(null); const nearBottom = useRef(true);
   const requestId = useRef(crypto.randomUUID()); const lastTyping = useRef(0); const loadVersion = useRef(0); const uploadController = useRef<AbortController>();
   const callbacks = useRef({ onChanged, refresh }); callbacks.current = { onChanged, refresh };
@@ -38,7 +39,7 @@ export default function TicketThread({ id, onBack, onChanged }: { id: string; on
     try {
       const result = await api<{ ticket: SupportTicket; messages: SupportMessage[]; hasMore: boolean }>(`/tickets/${id}`);
       if (version !== loadVersion.current) return;
-      setTicket(result.ticket); setMore(result.hasMore); setError("");
+      setTicket(current => current && current.revision > result.ticket.revision ? current : result.ticket); setMore(result.hasMore); setError("");
       setMessages(current => {
         const latest = new Map(current.map(m => [m._id, m]));
         result.messages.forEach(m => latest.set(m._id, m));
@@ -49,10 +50,14 @@ export default function TicketThread({ id, onBack, onChanged }: { id: string; on
     finally { if (version === loadVersion.current) setLoading(false); }
   }, [api, id]);
   useEffect(() => { void load(); return () => { loadVersion.current++; uploadController.current?.abort(); }; }, [load]);
-  useEffect(() => {
+  const loadAgents = useCallback(async () => {
     if (!summary.staff) return;
-    void api<{ agents: SupportAgent[] }>("/agents").then(data => setAgents(data.agents)).catch(() => {});
+    setAgentsLoading(true); setAgentsError("");
+    try { const data = await api<{ agents: SupportAgent[] }>("/agents"); setAgents(data.agents); }
+    catch (cause) { setAgentsError(supportError(cause)); }
+    finally { setAgentsLoading(false); }
   }, [api, summary.staff]);
+  useEffect(() => { void loadAgents(); }, [loadAgents, agentsVersion]);
   useEffect(() => {
     if (!ticket) return;
     let timer: ReturnType<typeof setTimeout> | undefined; let typingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -100,8 +105,16 @@ export default function TicketThread({ id, onBack, onChanged }: { id: string; on
   const update = async (patch: object) => {
     if (!ticket || updating) return;
     setUpdating(true); setError("");
-    try { await api(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify({ ...patch, revision: Number.isInteger(ticket.revision) ? ticket.revision : 0 }) }); await load(true); callbacks.current.onChanged(); callbacks.current.refresh(); }
-    catch (cause) { setError(supportError(cause)); } finally { setUpdating(false); }
+    try {
+      const result = await api<{ ticket: SupportTicket }>(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify({ ...patch, revision: Number.isInteger(ticket.revision) ? ticket.revision : 0 }) });
+      // A socket-triggered reload can supersede load() below. Commit the saved
+      // revision now so the next assignment never uses the previous revision.
+      setTicket(current => current && current.revision > result.ticket.revision ? current : result.ticket);
+      await load(true); callbacks.current.onChanged(); callbacks.current.refresh();
+    } catch (cause) {
+      if (cause instanceof SupportApiError && cause.status === 409) await load(true);
+      setError(supportError(cause));
+    } finally { setUpdating(false); }
   };
   const older = async () => {
     if (olderLoading) return; setOlderLoading(true);
@@ -120,8 +133,9 @@ export default function TicketThread({ id, onBack, onChanged }: { id: string; on
       <h2 className="mt-1 truncate text-sm font-bold text-slate-800" title={ticket.subject}>{ticket.subject}</h2>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500"><span>{SUPPORT_PRODUCTS[ticket.product]}</span><span>·</span><span>{SUPPORT_KINDS[ticket.kind]}</span>{summary.staff && <><span>·</span><span>{ticket.companyName || "حساب شخصي"}</span><span dir="ltr">{ticket.ownerPhone}</span></>}<span className="ms-auto flex items-center gap-1"><span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-emerald-400" : "bg-amber-400")} />{connected ? "متصل" : "إعادة الاتصال…"}</span></div>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {summary.staff ? <><Button variant="outline" size="sm" className="h-7 gap-1 border-cyan-200 px-2 text-[11px] text-cyan-700 hover:bg-cyan-50" disabled={updating || ticket.assigneeId === user?.id} onClick={() => user?.id && void update({ assigneeId: user.id })}><UserCheck className="h-3.5 w-3.5" />إسناد لي</Button><select aria-label="حالة التذكرة" value={ticket.status} disabled={updating} onChange={e => void update({ status: e.target.value })} className="h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]">{Object.entries(SUPPORT_STATUSES).map(([key, label]) => <option key={key} value={key}>{key === "waiting_user" ? "بانتظار المستخدم" : label}</option>)}</select><select aria-label="إسناد التذكرة" value={ticket.assigneeId ?? ""} disabled={updating} onChange={e => void update({ assigneeId: e.target.value || null })} className="h-7 max-w-44 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]"><option value="">غير مسندة</option>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><select aria-label="أولوية التذكرة" value={ticket.priority} disabled={updating} onChange={e => void update({ priority: e.target.value })} className="h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]"><option value="normal">عادية</option><option value="high">مرتفعة</option><option value="urgent">عاجلة</option></select></> : <>{ticket.assigneeName && <span className="self-center text-[11px] text-slate-500">يتابعها: {ticket.assigneeName}</span>}<Button variant="outline" size="sm" className="ms-auto h-7 text-[11px]" disabled={updating} onClick={() => void update({ status: ticket.status === "closed" || ticket.status === "resolved" ? "open" : "closed" })}>{ticket.status === "closed" || ticket.status === "resolved" ? "إعادة فتح" : "إغلاق التذكرة"}</Button></>}
+        {summary.staff ? <><Button variant="outline" size="sm" className="h-7 gap-1 border-cyan-200 px-2 text-[11px] text-cyan-700 hover:bg-cyan-50" disabled={updating || ticket.assigneeId === user?.id} onClick={() => user?.id && void update({ assigneeId: user.id })}><UserCheck className="h-3.5 w-3.5" />إسناد لي</Button><select aria-label="حالة التذكرة" value={ticket.status} disabled={updating} onChange={e => void update({ status: e.target.value })} className="h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]">{Object.entries(SUPPORT_STATUSES).map(([key, label]) => <option key={key} value={key}>{key === "waiting_user" ? "بانتظار المستخدم" : label}</option>)}</select><select aria-label="إسناد التذكرة" value={ticket.assigneeId ?? ""} disabled={updating || agentsLoading || Boolean(agentsError)} onChange={e => void update({ assigneeId: e.target.value || null })} className="h-7 max-w-44 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]"><option value="">غير مسندة</option>{agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}{agent.phone && agent.phone !== agent.name ? ` · ${agent.phone}` : ""}</option>)}</select><select aria-label="أولوية التذكرة" value={ticket.priority} disabled={updating} onChange={e => void update({ priority: e.target.value })} className="h-7 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px]"><option value="normal">عادية</option><option value="high">مرتفعة</option><option value="urgent">عاجلة</option></select></> : <>{ticket.assigneeName && <span className="self-center text-[11px] text-slate-500">يتابعها: {ticket.assigneeName}</span>}<Button variant="outline" size="sm" className="ms-auto h-7 text-[11px]" disabled={updating} onClick={() => void update({ status: ticket.status === "closed" || ticket.status === "resolved" ? "open" : "closed" })}>{ticket.status === "closed" || ticket.status === "resolved" ? "إعادة فتح" : "إغلاق التذكرة"}</Button></>}
       </div>
+      {summary.staff && agentsError && <div role="alert" className="mt-2 flex items-center gap-2 text-xs text-rose-600"><span>تعذر تحميل فريق الدعم: {agentsError}</span><button type="button" onClick={() => void loadAgents()} disabled={agentsLoading} className="underline">إعادة المحاولة</button></div>}
       {audit && <div className="mt-2 max-h-36 space-y-1.5 overflow-y-auto rounded-lg bg-slate-50 p-2">{ticket.history.map((entry, i) => <div key={i} className="flex flex-wrap items-center gap-1 text-[10px] text-slate-500"><Check className="h-3 w-3 text-cyan-600" /><span>{entry.status ? SUPPORT_STATUSES[entry.status] : "تحديث الإسناد أو الأولوية"}</span>{entry.assigneeName && <span>· {entry.assigneeName}</span>}<span>· {entry.by}</span><time className="ms-auto text-slate-400">{date(entry.at)}</time></div>)}</div>}
     </div>
     <div ref={scroller} onScroll={e => { const el = e.currentTarget; nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100; }} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain bg-slate-50/70 p-3" role="log" aria-live="polite" aria-label="رسائل التذكرة">

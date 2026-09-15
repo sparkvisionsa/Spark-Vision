@@ -4,6 +4,8 @@ export const SUPPORT_KINDS = { ticket: "تذكرة دعم", bug: "بلاغ مص�
 export type SupportStatus = keyof typeof SUPPORT_STATUSES;
 export type SupportProduct = keyof typeof SUPPORT_PRODUCTS;
 export type SupportKind = keyof typeof SUPPORT_KINDS;
+export type SupportCounts = Partial<Record<SupportStatus, number>>;
+export type SupportTicketList = { tickets: SupportTicket[]; total: number; page: number; hasMore: boolean; counts: SupportCounts };
 export type SupportFile = { id: string; name: string; mime: string; size: number };
 export type SupportTicket = {
   _id: string; number: string; ownerId: string; ownerName: string; ownerPhone: string; companyId: string | null; companyName: string;
