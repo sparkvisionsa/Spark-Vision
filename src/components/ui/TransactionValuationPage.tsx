@@ -73,6 +73,13 @@ type AvailableServices = {
   electricityMetersCount: number | null;
 };
 
+const Z = {
+  header: 10,
+  wizardRail: 20,
+  fab: 400,
+  modal: 1000,
+};
+
 type CompanySignatoryOption = {
   id: string;
   name: string;
@@ -3145,7 +3152,7 @@ export function TransactionEvaluationPage({
         boxShadow: DS.shadow.md,
         position: "sticky" as const,
         top: 12,
-        zIndex: 60,
+        zIndex: Z.header,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
