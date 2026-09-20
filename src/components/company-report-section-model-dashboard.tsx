@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Copy, Eye, EyeOff, FolderPlus, Pencil, Plus, Save, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,7 @@ import {
   cloneReportSectionModel,
   createReportSectionModelItem,
   createReportSectionModelSection,
-  normalizeReportSectionModels,
+  resolveReportSectionModelDefaults,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-section-models";
 import { normalizeReportDataModels, type MvReportDataModel } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
 import { createReportCustomId } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-custom-fields";
@@ -118,7 +118,10 @@ export function CompanyReportSectionModelDashboard({
   onChange,
   onSave,
 }: Props) {
-  const normalized = useMemo(() => normalizeReportSectionModels(models), [models]);
+  // Text is rendered straight from the incoming models. Normalizing on every
+  // keystroke would trim the space just typed and refill a name that was just
+  // cleared, so the models are only cleaned when loaded and when saved.
+  const normalized = models;
   const normalizedReportDataModels = useMemo(
     () => normalizeReportDataModels(reportDataModels),
     [reportDataModels],
@@ -147,9 +150,19 @@ export function CompanyReportSectionModelDashboard({
     if (editingId && !normalized.some((model) => model.id === editingId)) setEditingId(null);
   }, [editingId, normalized]);
 
+  // An empty name is fine while typing, but saving drops any section or item
+  // without a title, so leaving a name field empty restores the previous name.
+  const nameBeforeEditRef = useRef<Record<string, string>>({});
+  const rememberName = (key: string, value: string) => {
+    nameBeforeEditRef.current[key] = value;
+  };
+  const finalizeName = (key: string, value: string, fallback: string) =>
+    value.trim() || nameBeforeEditRef.current[key]?.trim() || fallback;
+
   const active = normalized.find((model) => model.id === editingId) ?? null;
   const editorOpen = Boolean(editingId);
-  const commit = (next: MvCompanyReportSectionModel[]) => onChange(normalizeReportSectionModels(next));
+  const commit = (next: MvCompanyReportSectionModel[]) =>
+    onChange(resolveReportSectionModelDefaults(next));
   const setDefaultModel = (modelId: string) =>
     commit(
       normalized.map((model) => ({
@@ -388,6 +401,11 @@ export function CompanyReportSectionModelDashboard({
                 <Input
                   value={active.name}
                   onChange={(event) => patchModel(active.id, { name: event.target.value })}
+                  onFocus={(event) => rememberName(`model:${active.id}`, event.target.value)}
+                  onBlur={(event) => {
+                    const name = finalizeName(`model:${active.id}`, event.target.value, "نموذج تقرير");
+                    if (name !== active.name) patchModel(active.id, { name });
+                  }}
                   className="h-8 min-w-[180px] flex-1 rounded-md border-slate-200 bg-white text-[11px] font-black"
                   placeholder="اسم النموذج"
                   maxLength={160}
@@ -423,6 +441,11 @@ export function CompanyReportSectionModelDashboard({
                     <Input
                       value={section.title}
                       onChange={(event) => patchSection(section.id, { title: event.target.value })}
+                      onFocus={(event) => rememberName(`section:${section.id}`, event.target.value)}
+                      onBlur={(event) => {
+                        const title = finalizeName(`section:${section.id}`, event.target.value, "قسم جديد");
+                        if (title !== section.title) patchSection(section.id, { title });
+                      }}
                       placeholder="اسم القسم"
                       className="h-8 rounded-md border-slate-200 text-[11px] font-black"
                       maxLength={220}
@@ -453,6 +476,11 @@ export function CompanyReportSectionModelDashboard({
                           <Input
                             value={item.title}
                             onChange={(event) => patchItem(section.id, item.id, { title: event.target.value })}
+                            onFocus={(event) => rememberName(`item:${item.id}`, event.target.value)}
+                            onBlur={(event) => {
+                              const title = finalizeName(`item:${item.id}`, event.target.value, "بند جديد");
+                              if (title !== item.title) patchItem(section.id, item.id, { title });
+                            }}
                             placeholder="عنوان البند أو التعريف"
                             className="h-7 border-slate-200 bg-white text-[10.5px] font-bold"
                             maxLength={220}

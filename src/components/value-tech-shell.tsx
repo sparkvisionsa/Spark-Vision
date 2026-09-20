@@ -4,6 +4,7 @@ import { useContext, useEffect } from "react";
 import Link from "@/components/prefetch-link";
 import { useRouter } from "next/navigation";
 import MachineValuationShell from "@/components/machine-valuation-shell";
+import HelperToolsShell from "@/components/helper-tools-shell";
 import { SupportSidebarLinks } from "@/components/support/support-sidebar-links";
 import { productFromPath } from "@/components/support/support-types";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
@@ -12,6 +13,7 @@ import { useAuthTracking } from "@/components/auth-tracking-provider";
 import {
   ArrowLeft,
   Building2,
+  Car,
   ChevronLeft,
   ClipboardList,
   Cpu,
@@ -19,6 +21,7 @@ import {
   Library,
   Search,
   Settings,
+  Shapes,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,6 +72,11 @@ const copy = {
     sidebarRealEstate: "Real Estate Valuation System",
     sidebarMachines: "Machines Valuation System",
     sidebarSources: "Information Sources System",
+    sidebarSourcesHub: "Overview",
+    sidebarSourcesCars: "Cars",
+    sidebarSourcesRealEstate: "Real Estate Sources",
+    sidebarSourcesOther: "Other",
+    sidebarSectionSources: "Categories",
     sidebarApp: "Report Upload System",
     sidebarAssetInventory: "Asset Inventory System",
     sidebarTransactions: "Transactions",
@@ -76,6 +84,8 @@ const copy = {
     sidebarClients: "Clients",
     sidebarSettings: "Settings",
     backToProducts: "Back to Products",
+    products: "Products",
+    helperTools: "Helper Tools",
   },
   ar: {
     sidebarUserGuest: "ضيف",
@@ -88,6 +98,11 @@ const copy = {
     sidebarRealEstate: "نظام تقييم العقارات",
     sidebarMachines: "نظام تقييم الآلات",
     sidebarSources: "مصادر المعلومات",
+    sidebarSourcesHub: "نظرة عامة",
+    sidebarSourcesCars: "السيارات",
+    sidebarSourcesRealEstate: "مصادر العقارات",
+    sidebarSourcesOther: "أخرى",
+    sidebarSectionSources: "التصنيفات",
     sidebarApp: "نظام رفع التقارير",
     sidebarAssetInventory: "تطبيق حصر الأصول",
     sidebarAssetInspection: "تطبيق معاينة الأصول",
@@ -95,6 +110,8 @@ const copy = {
     sidebarClients: "العملاء",
     sidebarSettings: "الإعدادات",
     backToProducts: "العودة إلى المنتجات",
+    products: "المنتجات",
+    helperTools: "الأدوات المساعدة",
   },
 } as const;
 
@@ -157,6 +174,36 @@ const PRODUCT_ROUTES: ProductRoute[] = [
     iconColor: "text-orange-600",
   },
 ];
+
+const SOURCE_ROUTES = [
+  { href: "/evaluation-source", labelKey: "sidebarSourcesHub" as const, icon: Library, iconColor: "text-cyan-600" },
+  { href: "/evaluation-source/cars", labelKey: "sidebarSourcesCars" as const, icon: Car, iconColor: "text-emerald-600" },
+  { href: "/evaluation-source/real-estate", labelKey: "sidebarSourcesRealEstate" as const, icon: Building2, iconColor: "text-amber-600" },
+  { href: "/evaluation-source/other", labelKey: "sidebarSourcesOther" as const, icon: Shapes, iconColor: "text-sky-600" },
+];
+
+function isEvaluationSourcePath(pathname: string) {
+  return pathname === "/evaluation-source" || pathname.startsWith("/evaluation-source/");
+}
+
+function isRealEstateProductPath(pathname: string) {
+  return (
+    pathname === "/real-estate-valuation" ||
+    pathname.startsWith("/real-estate-valuation/") ||
+    pathname === "/clients" ||
+    pathname.startsWith("/clients/") ||
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/")
+  );
+}
+
+function isSourceHubPath(pathname: string) {
+  return (
+    pathname === "/evaluation-source" ||
+    pathname.startsWith("/evaluation-source/support") ||
+    pathname.startsWith("/evaluation-source/developer-requests")
+  );
+}
 
 /**
  * Dark, floating sidebar theme (matches machine-valuation-shell) — used only
@@ -499,14 +546,14 @@ export default function ValueTechShell({
   const isMachineValuationPage =
     pathname === "/machine-valuation" ||
     pathname.startsWith("/machine-valuation/");
-
+  const isEvaluationSourcePage = isEvaluationSourcePath(pathname);
+  const isRealEstateSidebar = isRealEstateProductPath(pathname);
 
   const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
+    href === "/evaluation-source" ? isSourceHubPath(pathname) : pathname === href || pathname.startsWith(href + "/");
 
-  // Dark theme only applies to the real-estate-valuation route; every other
-  // product page keeps the existing light sidebar styling.
-  const dark = isRealEstateValuationPage;
+  // Dark theme only applies to the real-estate-valuation product sidebar.
+  const dark = isRealEstateSidebar;
 
   const activeClass = dark
     ? "bg-white text-slate-950 shadow-[0_10px_24px_rgba(8,47,73,0.22)] font-semibold"
@@ -538,6 +585,10 @@ export default function ValueTechShell({
 
   if (isMachineValuationPage) {
     return <MachineValuationShell>{children}</MachineValuationShell>;
+  }
+
+  if (pathname === "/helper-tools" || pathname.startsWith("/helper-tools/")) {
+    return <HelperToolsShell>{children}</HelperToolsShell>;
   }
 
   return (
@@ -617,10 +668,12 @@ export default function ValueTechShell({
             {/* Current product */}
             <SidebarGroup>
               <SidebarGroupLabel className={groupLabelClass}>
-                {t.sidebarSectionTitle}
+                {isRealEstateSidebar ? t.sidebarRealEstate : isEvaluationSourcePage ? t.sidebarSources : t.sidebarSectionTitle}
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
+                  {isRealEstateSidebar ? (
+                    <>
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
@@ -680,6 +733,37 @@ export default function ValueTechShell({
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
+                    </>
+                  ) : isEvaluationSourcePage ? (
+                    SOURCE_ROUTES.map((route) => {
+                      const Icon = route.icon;
+                      const active = isActive(route.href);
+                      return (
+                        <SidebarMenuItem key={route.href}>
+                          <SidebarMenuButton asChild isActive={active} className={active ? activeClass : idleClass}>
+                            <Link href={route.href} className="flex items-center gap-2">
+                              <Icon className={cn("h-4 w-4", route.iconColor)} />
+                              <span className="text-black">{t[route.labelKey]}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })
+                  ) : (
+                    PRODUCT_ROUTES.filter((route) => isActive(route.href)).map((route) => {
+                      const Icon = route.icon;
+                      return (
+                        <SidebarMenuItem key={route.href}>
+                          <SidebarMenuButton asChild isActive className={activeClass}>
+                            <Link href={route.href} className="flex items-center gap-2">
+                              <Icon className={cn("h-4 w-4", route.iconColor)} />
+                              <span className="text-black">{t[route.labelKey]}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })
+                  )}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

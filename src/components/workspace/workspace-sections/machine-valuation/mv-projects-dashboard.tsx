@@ -56,6 +56,7 @@ import { MvDialogContent } from "./mv-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import { toApiUrl } from "@/lib/api-url";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import type {
@@ -175,7 +176,7 @@ function ProjectWorkspaceLink({
           writeProjectSummaryCache(
             projectId,
             { project, subProjects: [] },
-            "report",
+            "summary",
           );
         } catch {
           // best effort seed before navigation
@@ -1415,8 +1416,12 @@ export default function MvProjectsDashboard() {
     const normalizedQuery = projectQuery.trim().toLocaleLowerCase();
 
     const next = visibleProjects.filter((project) => {
-      if (normalizedQuery && !project.name.toLocaleLowerCase().includes(normalizedQuery)) {
-        return false;
+      if (normalizedQuery) {
+        const nameMatch = project.name.toLocaleLowerCase().includes(normalizedQuery);
+        const serial = (projectSerialLabel(project) ?? "").toLocaleLowerCase();
+        if (!nameMatch && !serial.includes(normalizedQuery)) {
+          return false;
+        }
       }
 
       if (statusFilter !== "all" && normalizeWorkflowStatus(project.workflowStatus) !== statusFilter) {
@@ -2032,7 +2037,7 @@ export default function MvProjectsDashboard() {
                 <table className="w-full min-w-[960px] table-fixed border-collapse text-right">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-black text-slate-500">
-                      <th className="w-[56px] px-2 py-3 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
+                      <th className="w-[120px] px-2 py-3 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
                       <th className="w-[28%] px-3 py-3">{t("projects.table.project")}</th>
                       <th className="w-[100px] px-2 py-3">{t("projects.table.status")}</th>
                       <th className="w-[120px] px-2 py-3">{t("projects.table.type")}</th>
@@ -2052,16 +2057,13 @@ export default function MvProjectsDashboard() {
                       const assetFolders = projectAssetFolderCount(project);
                       const subs = project.subProjectCount ?? 0;
 
-                      const displayNumber =
-                        typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
-                          ? project.displayNumber
-                          : null;
+                      const serialLabel = projectSerialLabel(project);
 
                       return (
                         <tr key={project._id} className="bg-white text-right transition-colors hover:bg-cyan-50/40">
                           <td className="px-2 py-4 text-center align-middle">
-                            <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[12px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
-                              {displayNumber == null ? notAvailable : numberFormatter.format(displayNumber)}
+                            <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[11px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100" dir="ltr">
+                              {serialLabel ?? notAvailable}
                             </span>
                           </td>
                           <td className="px-3 py-4 align-middle">
@@ -2159,18 +2161,15 @@ export default function MvProjectsDashboard() {
                     reportType === "simple" || reportType === "advanced"
                       ? reportTypeLabel(reportType, t, notAvailable)
                       : null;
-                  const mobileDisplayNumber =
-                    typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
-                      ? project.displayNumber
-                      : null;
+                  const mobileSerialLabel = projectSerialLabel(project);
 
                   return (
                     <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-cyan-200 hover:shadow-md">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex items-center gap-1.5">
-                            <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center rounded-lg bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100">
-                              #{mobileDisplayNumber == null ? notAvailable : numberFormatter.format(mobileDisplayNumber)}
+                            <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center rounded-lg bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100" dir="ltr">
+                              {mobileSerialLabel ?? notAvailable}
                             </span>
                           </div>
                           <ProjectWorkspaceLink

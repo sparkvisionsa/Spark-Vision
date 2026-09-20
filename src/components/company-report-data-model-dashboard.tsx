@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronsDownUp,
@@ -44,6 +44,14 @@ type Props = {
 };
 
 const MODEL_LIMIT = 12;
+const FALLBACK_MODEL_NAME = "نموذج بيانات التقرير";
+const FALLBACK_SECTION_TITLE = "قسم جديد";
+const FALLBACK_FIELD_LABEL = "حقل جديد";
+
+/** يُطبَّق عند مغادرة الحقل فقط: أثناء الكتابة يبقى النص كما كتبه المستخدم. */
+function finalizeText(value: string, fallback: string) {
+  return value.trim() || fallback;
+}
 
 export function CompanyReportDataModelDashboard({
   models,
@@ -52,39 +60,54 @@ export function CompanyReportDataModelDashboard({
   onChange,
   onSave,
 }: Props) {
-  const normalizedModels = useMemo(() => normalizeReportDataModels(models), [models]);
-  const [selectedId, setSelectedId] = useState(normalizedModels[0]?.id ?? "");
-  const selected = normalizedModels.find((model) => model.id === selectedId) ?? normalizedModels[0]!;
+  // Normalization trims text and refills empty names, so running it on every
+  // keystroke would swallow a trailing space and resurrect a deleted name.
+  // The draft is normalized only when models arrive from outside this editor.
+  const emittedModelsRef = useRef<MvReportDataModel[] | null>(null);
+  const [draftModels, setDraftModels] = useState(() => normalizeReportDataModels(models));
+  const [selectedId, setSelectedId] = useState(draftModels[0]?.id ?? "");
+  const selected = draftModels.find((model) => model.id === selectedId) ?? draftModels[0]!;
   // Keep the settings page compact on entry: sections are expanded only on
   // demand, or when the administrator adds a new section to edit it.
   const [openSectionIds, setOpenSectionIds] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!normalizedModels.some((model) => model.id === selectedId)) {
-      setSelectedId(normalizedModels[0]?.id ?? "");
+    if (models === emittedModelsRef.current) return;
+    setDraftModels(normalizeReportDataModels(models));
+  }, [models]);
+
+  useEffect(() => {
+    if (!draftModels.some((model) => model.id === selectedId)) {
+      setSelectedId(draftModels[0]?.id ?? "");
     }
-  }, [normalizedModels, selectedId]);
+  }, [draftModels, selectedId]);
 
   useEffect(() => {
     setOpenSectionIds([]);
   }, [selected.id]);
 
+  const commit = (next: MvReportDataModel[]) => {
+    emittedModelsRef.current = next;
+    setDraftModels(next);
+    onChange(next);
+  };
+
   const updateSelected = (updater: (model: MvReportDataModel) => MvReportDataModel) => {
-    onChange(normalizedModels.map((model) => (model.id === selected.id ? updater(model) : model)));
+    commit(draftModels.map((model) => (model.id === selected.id ? updater(model) : model)));
   };
 
   const addModel = () => {
-    if (normalizedModels.length >= MODEL_LIMIT) return;
+    if (draftModels.length >= MODEL_LIMIT) return;
     const next = cloneReportDataModel(selected);
-    onChange([...normalizedModels, next]);
+    commit([...draftModels, next]);
     setSelectedId(next.id);
   };
 
   const removeSelected = () => {
     if (selected.isDefault) return;
     if (!window.confirm(`حذف نموذج «${selected.name}»؟`)) return;
-    const next = normalizedModels.filter((model) => model.id !== selected.id);
-    onChange(next);
+    const next = draftModels.filter((model) => model.id !== selected.id);
+    commit(next);
     setSelectedId(next[0]?.id ?? "");
   };
 
@@ -139,14 +162,14 @@ export function CompanyReportDataModelDashboard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary" className="h-8 rounded-lg bg-slate-100 px-2.5 text-[10px] font-black text-slate-600">
-            {normalizedModels.length}/{MODEL_LIMIT}
+            {draftModels.length}/{MODEL_LIMIT}
           </Badge>
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="h-8 gap-1 rounded-lg px-2.5 text-[10px] font-black"
-            disabled={saving || normalizedModels.length >= MODEL_LIMIT}
+            disabled={saving || draftModels.length >= MODEL_LIMIT}
             onClick={addModel}
           >
             <Copy className="h-3.5 w-3.5" />
@@ -169,7 +192,7 @@ export function CompanyReportDataModelDashboard({
         <aside className="border-b border-slate-100 bg-slate-50/70 p-2 lg:border-b-0 lg:border-l">
           <p className="px-1.5 pb-1 text-[10px] font-black tracking-wide text-slate-400">النماذج المحفوظة</p>
           <div className="flex gap-1.5 overflow-x-auto pb-1 lg:flex-col lg:overflow-y-auto">
-            {normalizedModels.map((model) => {
+            {draftModels.map((model) => {
               const active = model.id === selected.id;
               const fieldCount = model.sections.reduce((sum, section) => sum + section.fields.length, 0);
               return (
@@ -206,7 +229,12 @@ export function CompanyReportDataModelDashboard({
               <Input
                 value={selected.name}
                 onChange={(event) => updateSelected((model) => ({ ...model, name: event.target.value.slice(0, 160) }))}
+                onBlur={() => {
+                  const name = finalizeText(selected.name, FALLBACK_MODEL_NAME);
+                  if (name !== selected.name) updateSelected((model) => ({ ...model, name }));
+                }}
                 className="h-9 rounded-lg border-slate-200 bg-white text-[12px] font-black text-slate-900 shadow-none"
+                placeholder={FALLBACK_MODEL_NAME}
                 disabled={saving}
                 maxLength={160}
               />
@@ -267,8 +295,13 @@ export function CompanyReportDataModelDashboard({
                   <Input
                     value={section.title}
                     onChange={(event) => updateSection(section.id, (current) => ({ ...current, title: event.target.value.slice(0, 180) }))}
+                    onBlur={() => {
+                      const title = finalizeText(section.title, FALLBACK_SECTION_TITLE);
+                      if (title !== section.title) updateSection(section.id, (current) => ({ ...current, title }));
+                    }}
                     className="h-7 min-w-[150px] flex-1 rounded-md border-slate-200 bg-white text-[10px] font-black shadow-none"
                     aria-label="اسم القسم"
+                    placeholder={FALLBACK_SECTION_TITLE}
                     disabled={saving}
                     maxLength={180}
                   />
@@ -331,8 +364,13 @@ export function CompanyReportDataModelDashboard({
                           <Input
                             value={field.label}
                             onChange={(event) => updateField(section.id, field.id, (current) => ({ ...current, label: event.target.value.slice(0, 180) }))}
+                            onBlur={() => {
+                              const label = finalizeText(field.label, FALLBACK_FIELD_LABEL);
+                              if (label !== field.label) updateField(section.id, field.id, (current) => ({ ...current, label }));
+                            }}
                             className="h-7 rounded-md border-slate-200 text-[10px] font-bold shadow-none"
                             aria-label="اسم الحقل"
+                            placeholder={FALLBACK_FIELD_LABEL}
                             disabled={saving}
                             maxLength={180}
                           />

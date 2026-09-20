@@ -19,6 +19,7 @@ import AuthUserMenu from "@/components/auth-user-menu";
 import AuthModal from "@/components/auth-modal";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import SupportNotifications from "@/components/support/support-notifications";
+import SupportNavMenu from "@/components/support/support-nav-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +39,9 @@ const copy = {
     sources: "Information Sources System",
     inventory: "Asset Inventory System",
     inspection: "Asset Inspection System",
+    helpers: "Helper Tools",
     products: "Products",
+    soon: "Coming soon",
     language: "Language",
     login: "Login",
   },
@@ -53,11 +56,70 @@ const copy = {
     sources: "نظام مصادر المعلومات",
     inventory: "نظام حصر الأصول",
     inspection: "نظام معاينة الأصول",
+    helpers: "الأدوات المساعدة",
     products: "المنتجات",
+    soon: "قريبًا",
     language: "اللغة",
     login: "تسجيل الدخول",
   },
 } as const;
+
+type NavProduct = { href: string; label: string; soon?: boolean };
+
+function navProducts(t: (typeof copy)["ar"] | (typeof copy)["en"]): NavProduct[] {
+  return [
+    { href: "/machine-valuation", label: t.machines },
+    { href: "/real-estate-valuation", label: t.realEstate },
+    { href: "/helper-tools", label: t.helpers },
+    { href: "/evaluation-source", label: t.sources },
+    { href: "/asset-inventory", label: t.inventory, soon: true },
+    { href: "/asset-inspection", label: t.inspection, soon: true },
+    { href: "/value-tech-app", label: t.reports, soon: true },
+  ];
+}
+
+function ProductNavItems({
+  products,
+  soonLabel,
+  close,
+  onOpen,
+  itemClassName,
+  soonClassName,
+}: {
+  products: NavProduct[];
+  soonLabel: string;
+  close: () => void;
+  onOpen: (href: string) => void;
+  itemClassName: string;
+  soonClassName?: string;
+}) {
+  return (
+    <>
+      {products.map((product) => (
+        <DropdownMenuItem
+          key={product.href}
+          disabled={product.soon}
+          className={cn(itemClassName, product.soon && soonClassName)}
+          onSelect={(event) => {
+            event.preventDefault();
+            if (product.soon) return;
+            close();
+            onOpen(product.href);
+          }}
+        >
+          <span className="flex w-full items-center justify-between gap-3">
+            <span>{product.label}</span>
+            {product.soon ? (
+              <span className="shrink-0 rounded-full bg-yellow-400 px-1.5 py-0.5 text-[9px] font-extrabold leading-none text-yellow-950">
+                {soonLabel}
+              </span>
+            ) : null}
+          </span>
+        </DropdownMenuItem>
+      ))}
+    </>
+  );
+}
 
 function HubLanguageSwitcher() {
   const langContext = useContext(LanguageContext);
@@ -167,14 +229,7 @@ function HubNavbar() {
     setProductsMobileOpen(false);
   }, [pathname]);
 
-  const productRoutes = [
-    { href: "/machine-valuation", label: t.machines },
-    { href: "/real-estate-valuation", label: t.realEstate },
-    { href: "/value-tech-app", label: t.reports },
-    { href: "/evaluation-source", label: t.sources },
-    { href: "/asset-inventory", label: t.inventory },
-    { href: "/asset-inspection", label: t.inspection },
-  ];
+  const productRoutes = navProducts(t);
 
   const isHubHome = pathname === "/value-tech";
   const isProductsSection = productRoutes.some(
@@ -182,21 +237,14 @@ function HubNavbar() {
   );
 
   const productMenuItems = (close: () => void) => (
-    <>
-      {productRoutes.map((product) => (
-        <DropdownMenuItem
-          key={product.href}
-          className="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-          onSelect={(e) => {
-            e.preventDefault();
-            close();
-            router.push(product.href);
-          }}
-        >
-          {product.label}
-        </DropdownMenuItem>
-      ))}
-    </>
+    <ProductNavItems
+      products={productRoutes}
+      soonLabel={t.soon}
+      close={close}
+      onOpen={(href) => router.push(href)}
+      itemClassName="cursor-pointer text-[13px] text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
+      soonClassName="cursor-default opacity-80 focus:bg-transparent focus:text-[#f5cd7b]"
+    />
   );
 
   const hubProductsMenuClass =
@@ -243,6 +291,10 @@ function HubNavbar() {
               {productMenuItems(() => setProductsDesktopOpen(false))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <div className="hidden sm:block">
+            <SupportNavMenu variant="hub" />
+          </div>
         </nav>
 
         <div className="hidden sm:block">
@@ -324,6 +376,7 @@ function HubNavbar() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <SupportNavMenu variant="hub" compact />
           <SupportNotifications dark />
           <HubAuthPill />
         </div>
@@ -348,14 +401,7 @@ function DefaultNavbar() {
     setProductsMobileOpen(false);
   }, [pathname]);
 
-  const productRoutes = [
-    { href: "/machine-valuation", label: t.machines },
-    { href: "/real-estate-valuation", label: t.realEstate },
-    { href: "/value-tech-app", label: t.reports },
-    { href: "/evaluation-source", label: t.sources },
-    { href: "/asset-inventory", label: t.inventory },
-    { href: "/asset-inspection", label: t.inspection },
-  ];
+  const productRoutes = navProducts(t);
 
   const isValueTechRoute =
     pathname.startsWith("/value-tech") ||
@@ -378,19 +424,14 @@ function DefaultNavbar() {
           {t.home}
         </span>
       </DropdownMenuItem>
-      {productRoutes.map((product) => (
-        <DropdownMenuItem
-          key={product.href}
-          className="cursor-pointer text-[13px]"
-          onSelect={(e) => {
-            e.preventDefault();
-            close();
-            router.push(product.href);
-          }}
-        >
-          {product.label}
-        </DropdownMenuItem>
-      ))}
+      <ProductNavItems
+        products={productRoutes}
+        soonLabel={t.soon}
+        close={close}
+        onOpen={(href) => router.push(href)}
+        itemClassName="cursor-pointer text-[13px]"
+        soonClassName="cursor-default opacity-80"
+      />
     </>
   );
 
@@ -457,7 +498,7 @@ function DefaultNavbar() {
               </DropdownMenu>
             </div>
 
-            <div className="flex sm:hidden">
+            <div className="flex items-center gap-1 sm:hidden">
               <DropdownMenu
                 modal={false}
                 open={productsMobileOpen}
@@ -465,7 +506,7 @@ function DefaultNavbar() {
               >
                 <DropdownMenuTrigger
                   aria-label={t.products}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 outline-none transition-colors duration-150 hover:bg-slate-100 hover:text-slate-950"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white outline-none transition-colors duration-150 hover:bg-slate-800"
                 >
                   <LayoutGrid className="h-[18px] w-[18px]" />
                 </DropdownMenuTrigger>
@@ -473,8 +514,13 @@ function DefaultNavbar() {
                   {productMenuItems(() => setProductsMobileOpen(false))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <SupportNavMenu compact className="bg-yellow-400 text-yellow-950 hover:bg-yellow-300 hover:text-yellow-950" />
             </div>
           </nav>
+
+          <div className="hidden sm:block">
+            <SupportNavMenu />
+          </div>
 
           <div className="flex-1 min-w-0" />
 
@@ -531,7 +577,7 @@ function DefaultNavbar() {
               </DropdownMenu>
             </div>
 
-            <div className="sm:hidden">
+            <div className="flex items-center gap-1 sm:hidden">
               <SupportNotifications />
               <AuthUserMenu />
             </div>

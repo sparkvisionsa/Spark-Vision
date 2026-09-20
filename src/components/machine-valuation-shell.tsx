@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "@/components/prefetch-link";
 import { usePathname } from "next/navigation";
-import { SupportSidebarLinks } from "@/components/support/support-sidebar-links";
+import { useSupport } from "@/components/support/support-provider";
+import { developerRequestsHref, supportHref } from "@/components/support/support-types";
 import SupportNotifications from "@/components/support/support-notifications";
 
 /** مسار إعداد التقرير: تمرير داخلي فقط دون تحريك شريط الأدوات و«أقسام التقرير». */
@@ -21,6 +22,7 @@ function isMvReportFlowChromePath(pathname: string) {
     parts[1] === "projects" ||
     parts[1] === "company" ||
     parts[1] === "report-settings" ||
+    parts[1] === "settings" ||
     parts[1] === "clients" || parts[1] === "support" || parts[1] === "developer-requests"
   ) {
     return false;
@@ -30,12 +32,21 @@ function isMvReportFlowChromePath(pathname: string) {
 }
 import {
   ArrowLeft,
+  ArrowRight,
+  Boxes,
   Building2,
+  ChevronDown,
   ChevronLeft,
   ClipboardList,
   FolderKanban,
+  Headset,
+  History,
+  ListOrdered,
+  LogIn,
+  Settings,
   Users,
   Wrench,
+  type LucideIcon,
 } from "lucide-react";
 import ValueTechServiceNavbar from "@/components/value-tech-service-navbar";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -51,7 +62,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -61,6 +71,12 @@ import {
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-inpage-navigation";
 import { MvExperienceBoundary } from "@/components/workspace/workspace-sections/machine-valuation/mv-experience-boundary";
 import { useMvI18n } from "@/components/workspace/workspace-sections/machine-valuation/mv-i18n";
+import {
+  MV_SETTINGS_SECTIONS,
+  resolveSettingsSection,
+  type MvSettingsSection,
+} from "@/components/workspace/workspace-sections/machine-valuation/mv-settings-nav";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 function openAuthModal() {
   window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
@@ -76,158 +92,90 @@ function userInitials(username: string) {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
+const MV_PANEL_SEGMENTS = [
+  "dashboard",
+  "projects",
+  "settings",
+  "company",
+  "report-settings",
+  "clients",
+  "support",
+  "developer-requests",
+];
+
 /** مسارات تقييم الآلات: قائمة مشاريع، صفحات إدارة عامة، مشروع، مشروع فرعي */
 function parseMachineValuationPath(pathname: string) {
-  pathname = pathname.split(/[?#]/)[0]!;
-  const segments = pathname.split("/").filter(Boolean);
-  const isMv = segments[0] === "machine-valuation";
-  if (!isMv) {
-    return {
-      isProjectsList: false,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      isReportSettingsPanel: false,
-      isClientsPanel: false,
-    };
-  }
-  if (segments.length <= 1) {
-    return {
-      isProjectsList: true,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      isReportSettingsPanel: false,
-      isClientsPanel: false,
-    };
-  }
-  if (segments[1] === "dashboard" || segments[1] === "projects") {
-    return {
-      isProjectsList: true,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      isReportSettingsPanel: false,
-      isClientsPanel: false,
-    };
-  }
-  if (segments[1] === "company") {
-    return {
-      isProjectsList: false,
-      isProjectContext: false,
-      isCompanyPanel: true,
-      isReportSettingsPanel: false,
-      isClientsPanel: false,
-    };
-  }
-  if (segments[1] === "report-settings") {
-    return {
-      isProjectsList: false,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      isReportSettingsPanel: true,
-      isClientsPanel: false,
-    };
-  }
-  if (segments[1] === "clients") {
-    return {
-      isProjectsList: false,
-      isProjectContext: false,
-      isCompanyPanel: false,
-      isReportSettingsPanel: false,
-      isClientsPanel: true,
-    };
-  }
+  const segments = pathname.split(/[?#]/)[0]!.split("/").filter(Boolean);
+  const panel = segments[0] === "machine-valuation" ? segments[1] ?? "dashboard" : null;
+  const settingsSection: MvSettingsSection | null =
+    panel === "company"
+      ? "general"
+      : panel === "report-settings"
+        ? "report"
+        : panel === "settings"
+          ? resolveSettingsSection(segments[2])
+          : null;
+
   return {
-    isProjectsList: false,
-    isProjectContext: segments[1] !== "support" && segments[1] !== "developer-requests",
-    isCompanyPanel: false,
-    isReportSettingsPanel: false,
-    isClientsPanel: false,
+    isProjectsList: panel === "dashboard" || panel === "projects",
+    isProjectContext: panel !== null && !MV_PANEL_SEGMENTS.includes(panel),
+    isSettingsPanel: settingsSection != null,
+    settingsSection,
+    isClientsPanel: panel === "clients",
+    isSupportPanel: panel === "support",
+    isDeveloperRequestsPanel: panel === "developer-requests",
   };
 }
 
+const MV_NAV_ACTIVE = "bg-white font-semibold text-slate-950 shadow-[0_8px_18px_rgba(8,47,73,0.28)]";
+const MV_NAV_IDLE = "text-slate-300 hover:bg-white/10 hover:text-white";
+
 function MachineSidebarAccount() {
-  const { t, isArabic } = useMvI18n();
-  const { user, profile, loading } = useAuthTracking();
+  const { t } = useMvI18n();
+  const { user, loading } = useAuthTracking();
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
+  const row = "flex h-9 w-full items-center gap-2 rounded-lg px-1.5 text-[12px] transition hover:bg-white/10";
 
   if (loading) {
     return (
-      <div className={cn("flex items-center gap-2", collapsed && "justify-center")} aria-busy="true">
-        <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/10" />
-        {!collapsed ? <div className="h-3 min-w-0 flex-1 animate-pulse rounded bg-white/10" /> : null}
+      <div className={cn(row, collapsed && "justify-center px-0")} aria-busy="true">
+        <span className="h-6 w-6 shrink-0 animate-pulse rounded-full bg-white/10" />
+        {!collapsed ? <span className="h-2.5 min-w-0 flex-1 animate-pulse rounded bg-white/10" /> : null}
       </div>
     );
   }
 
-  if (user) {
-    const displayName = user.phone?.trim() || user.username;
-    const subtitle = profile?.email?.trim() || user.email?.trim();
-    const avatar = (
-      <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-white"
-        aria-hidden
-      >
-        {userInitials(displayName)}
-      </div>
-    );
-
-    if (collapsed) {
-      return (
-        <Link href="/profile" title={displayName} className="flex justify-center rounded-lg p-0.5 hover:bg-white/10">
-          {avatar}
-        </Link>
-      );
-    }
-
-    return (
-      <Link href="/profile" className="flex items-center gap-2 rounded-lg px-0.5 py-0.5 transition hover:bg-white/10">
-        {avatar}
-        <div className="min-w-0 flex-1 text-end">
-          <p className="truncate text-[12px] font-semibold text-white">{displayName}</p>
-          {subtitle ? (
-            <p className="truncate text-[10px] text-slate-400">{subtitle}</p>
-          ) : null}
-        </div>
-      </Link>
-    );
-  }
-
-  const guestAvatar = (
-    <div
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-slate-200"
-      aria-hidden
-    >
-      {isArabic ? "ز" : "G"}
-    </div>
-  );
-
-  if (collapsed) {
+  if (!user) {
     return (
       <button
         type="button"
         onClick={() => openAuthModal()}
         title={t("shell.auth.signIn")}
-        className="flex w-full justify-center rounded-lg p-0.5 hover:bg-white/10"
+        className={cn(row, "font-semibold text-cyan-200/90 hover:text-white", collapsed && "justify-center px-0")}
       >
-        {guestAvatar}
+        <LogIn className="h-4 w-4 shrink-0" aria-hidden />
+        {!collapsed ? <span className="truncate">{t("shell.auth.signIn")}</span> : null}
       </button>
     );
   }
 
+  const displayName = user.phone?.trim() || user.username;
+
   return (
-    <div className="flex items-center gap-2">
-      {guestAvatar}
-      <div className="min-w-0 flex-1 text-end">
-        <p className="text-[12px] font-semibold text-white">{t("shell.account.guest")}</p>
-        <button
-          type="button"
-          onClick={() => openAuthModal()}
-          className="mt-0.5 text-[10px] font-semibold text-cyan-200/90 hover:text-white hover:underline"
-        >
-          {t("shell.auth.signIn")}
-        </button>
-      </div>
-    </div>
+    <Link
+      href="/profile"
+      title={displayName}
+      className={cn(row, "text-slate-200 hover:text-white", collapsed && "justify-center px-0")}
+    >
+      <span
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-semibold text-white"
+        aria-hidden
+      >
+        {userInitials(displayName)}
+      </span>
+      {!collapsed ? <span className="min-w-0 flex-1 truncate font-medium">{displayName}</span> : null}
+    </Link>
   );
 }
 
@@ -236,138 +184,272 @@ function MachineSidebarBrand() {
   const { state, isMobile } = useSidebar();
   const collapsed = !isMobile && state === "collapsed";
 
-  if (collapsed) {
-    return (
-      <div className="flex justify-center">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-cyan-200">
-          <Wrench className="h-3.5 w-3.5" />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-cyan-200">
-        <Wrench className="h-3.5 w-3.5" />
-      </div>
-      <p className="min-w-0 flex-1 truncate text-end text-[13px] font-semibold text-white">{t("shell.brandTitle")}</p>
+    <div className={cn("flex h-10 items-center gap-2 px-1.5", collapsed && "justify-center px-0")}>
+      <span
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-400/15 text-cyan-200"
+        aria-hidden
+      >
+        <Wrench className="h-4 w-4" />
+      </span>
+      {!collapsed ? (
+        <>
+          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{t("shell.brandTitle")}</p>
+          <SupportNotifications dark />
+        </>
+      ) : null}
     </div>
   );
 }
 
+/** رابط المنتجات: أول عنصر في الشريط الجانبي، بأيقونة منتجات بدل سهم الرجوع. */
+function MachineSidebarProductsLink() {
+  const { t } = useMvI18n();
+  const { state, isMobile } = useSidebar();
+  const collapsed = !isMobile && state === "collapsed";
+
+  return (
+    <SidebarMenu className="gap-0">
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          size="sm"
+          tooltip={collapsed ? t("navigation.products") : undefined}
+          className={cn("h-9 rounded-lg px-1.5 text-[12px]", MV_NAV_IDLE)}
+        >
+          <Link href="/value-tech#products">
+            <Boxes className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden />
+            <span className="truncate">{t("navigation.products")}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
+type MachineNavItem = {
+  key: string;
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  active: boolean;
+  /** يعرض سهم الرجوع قبل الأيقونة عندما تكون الصفحة الحالية خارج هذا القسم. */
+  back?: boolean;
+  tooltip?: string;
+  badge?: number;
+};
+
+function MachineNavLinks({ items }: { items: MachineNavItem[] }) {
+  const { isArabic } = useMvI18n();
+  const { state, isMobile } = useSidebar();
+  const collapsed = !isMobile && state === "collapsed";
+  const BackArrow = isArabic ? ArrowRight : ArrowLeft;
+
+  return (
+    <SidebarMenu className="gap-0.5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const label = item.tooltip ?? item.label;
+
+        return (
+          <SidebarMenuItem key={item.key}>
+            <SidebarMenuButton
+              asChild
+              isActive={item.active}
+              tooltip={collapsed ? label : undefined}
+              className={cn("h-10 rounded-lg px-1.5 text-[12px]", item.active ? MV_NAV_ACTIVE : MV_NAV_IDLE)}
+            >
+              <Link href={item.href} title={item.tooltip}>
+                {item.back ? <BackArrow className="h-4 w-4 shrink-0 text-cyan-300" aria-hidden /> : null}
+                <Icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    item.back && "group-data-[collapsible=icon]:hidden",
+                    item.active ? "text-slate-900" : "text-slate-400",
+                  )}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {item.badge ? (
+                  <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-cyan-500 px-1.5 text-[10px] font-semibold text-white group-data-[collapsible=icon]:hidden">
+                    {item.badge > 99 ? "99+" : item.badge}
+                  </span>
+                ) : null}
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </SidebarMenu>
+  );
+}
+
+const SETTINGS_SECTION_ICONS = {
+  general: Building2,
+  report: ClipboardList,
+  "serial-numbering": ListOrdered,
+} as const;
 
 function MachineSidebarNav() {
   const { t } = useMvI18n();
   const { currentPath } = useMvInPageNavigation();
-  const pathname = currentPath;
+  const { summary } = useSupport();
+  const { user } = useAuthTracking();
+  const { state, isMobile } = useSidebar();
+  const collapsed = !isMobile && state === "collapsed";
   const {
     isProjectsList,
     isProjectContext,
-    isCompanyPanel,
-    isReportSettingsPanel,
+    isSettingsPanel,
+    settingsSection,
     isClientsPanel,
-  } = parseMachineValuationPath(pathname);
-  const { state, isMobile } = useSidebar();
-  const collapsed = !isMobile && state === "collapsed";
+    isSupportPanel,
+    isDeveloperRequestsPanel,
+  } = parseMachineValuationPath(currentPath);
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsPanel);
+  const isCompanyAdmin = user?.role === "company_admin";
 
-  const activeNav =
-    "bg-white text-slate-950 shadow-[0_10px_24px_rgba(8,47,73,0.22)] font-semibold";
-  const idleNav = "text-slate-300 hover:bg-white/10 hover:text-white";
+  useEffect(() => {
+    if (isSettingsPanel) setSettingsOpen(true);
+  }, [isSettingsPanel]);
 
-  const projectsNavActive = isProjectsList || isProjectContext;
+  const settingsItems = isCompanyAdmin
+    ? MV_SETTINGS_SECTIONS
+    : MV_SETTINGS_SECTIONS.filter((item) => item.key === "general");
+
+  const workspaceItems: MachineNavItem[] = [
+    {
+      key: "projects",
+      href: "/machine-valuation/projects",
+      label: t("navigation.projects"),
+      icon: FolderKanban,
+      active: isProjectsList || isProjectContext,
+      back: !isProjectsList,
+      tooltip: isProjectsList ? undefined : t("navigation.backToProjects"),
+    },
+  ];
+
+  const afterSettingsItems: MachineNavItem[] = [
+    {
+      key: "clients",
+      href: "/machine-valuation/clients",
+      label: t("navigation.clients"),
+      icon: Users,
+      active: isClientsPanel,
+    },
+  ];
+
+  const supportItems: MachineNavItem[] = [
+    {
+      key: "support",
+      href: supportHref("machine-valuation"),
+      label: t("navigation.support"),
+      icon: Headset,
+      active: isSupportPanel,
+      badge: summary.unread,
+    },
+    {
+      key: "developer-requests",
+      href: developerRequestsHref("machine-valuation"),
+      label: t("navigation.developerRequests"),
+      icon: History,
+      active: isDeveloperRequestsPanel,
+    },
+  ];
 
   return (
-    <SidebarContent className="gap-0 overflow-x-hidden px-2 pb-3 pt-1">
-      <div className="flex justify-end px-1 pb-1"><SupportNotifications dark /></div>
-      <SidebarGroup className="px-0 py-1">
+    <SidebarContent className="gap-0 overflow-x-hidden p-1.5">
+      <SidebarGroup className="p-0">
         <SidebarGroupContent>
-          <SidebarMenu className="gap-1">
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild size="sm" className="h-9 rounded-lg text-[12px] text-slate-300 hover:bg-white/10 hover:text-white">
-                <Link href="/value-tech#products" className="flex items-center gap-2">
-                  <ArrowLeft className="h-3.5 w-3.5 rotate-180 text-cyan-300" />
-                  <span>{t("navigation.products")}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <MachineNavLinks items={workspaceItems} />
+          {collapsed ? (
+            <SidebarMenu className="mt-0.5 gap-0.5">
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isSettingsPanel}
+                  tooltip={t("navigation.settings")}
+                  className={cn("h-10 rounded-lg px-1.5 text-[12px]", isSettingsPanel ? MV_NAV_ACTIVE : MV_NAV_IDLE)}
+                >
+                  <Link href="/machine-valuation/settings">
+                    <Settings
+                      className={cn("h-4 w-4 shrink-0", isSettingsPanel ? "text-slate-900" : "text-slate-400")}
+                      aria-hidden
+                    />
+                    <span className="truncate">{t("navigation.settings")}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          ) : (
+            <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen} className="mt-0.5">
+              <SidebarMenu className="gap-0.5">
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      isActive={isSettingsPanel}
+                      className={cn("h-10 rounded-lg px-1.5 text-[12px]", isSettingsPanel ? MV_NAV_ACTIVE : MV_NAV_IDLE)}
+                    >
+                      <Settings
+                        className={cn("h-4 w-4 shrink-0", isSettingsPanel ? "text-slate-900" : "text-slate-400")}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1 truncate">{t("navigation.settings")}</span>
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 transition-transform",
+                          settingsOpen && "rotate-180",
+                          isSettingsPanel ? "text-slate-700" : "text-slate-400",
+                        )}
+                        aria-hidden
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                </SidebarMenuItem>
+              </SidebarMenu>
+              <CollapsibleContent>
+                <div className="ms-3 me-1 mt-1 rounded-lg bg-black/30 p-1 ring-1 ring-inset ring-black/25">
+                  <SidebarMenu className="gap-px">
+                    {settingsItems.map((item) => {
+                      const Icon = SETTINGS_SECTION_ICONS[item.key];
+                      const active = settingsSection === item.key;
+                      return (
+                        <SidebarMenuItem key={item.key}>
+                          <SidebarMenuButton
+                            asChild
+                            size="sm"
+                            isActive={active}
+                            className={cn(
+                              "h-7 rounded-md px-1.5 text-[10.5px] font-medium [&>svg]:size-3",
+                              active
+                                ? "bg-white/90 font-semibold text-slate-950 shadow-none hover:bg-white hover:text-slate-950"
+                                : "text-slate-400 hover:bg-white/10 hover:text-slate-100",
+                            )}
+                          >
+                            <Link href={item.href}>
+                              <Icon
+                                className={cn("h-3 w-3 shrink-0", active ? "text-slate-800" : "text-slate-500")}
+                                aria-hidden
+                              />
+                              <span className="min-w-0 flex-1 truncate leading-tight">{t(item.labelKey)}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </SidebarMenu>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+          <MachineNavLinks items={afterSettingsItems} />
         </SidebarGroupContent>
       </SidebarGroup>
-
-      <SidebarSeparator className="mx-0 my-2 bg-white/10" />
-
-      <SidebarGroup className="px-0 py-1">
+      <SidebarGroup className="-mx-1.5 w-auto border-t border-white/10 px-1.5 py-0">
         <SidebarGroupContent>
-          <SidebarMenu className="gap-1.5">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={projectsNavActive}
-                size="sm"
-                tooltip={collapsed ? t("navigation.projects") : undefined}
-                className={cn(
-                  "h-10 rounded-lg text-[12px]",
-                  projectsNavActive ? activeNav : idleNav,
-                )}
-              >
-                <Link href="/machine-valuation/projects" className="flex items-center gap-2">
-                  <FolderKanban className="h-3.5 w-3.5 shrink-0 text-amber-300" />
-                  <span className="truncate">{t("navigation.projects")}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={isCompanyPanel}
-                size="sm"
-                tooltip={collapsed ? t("navigation.generalSettings") : undefined}
-                className={cn("h-10 rounded-lg text-[12px]", isCompanyPanel ? activeNav : idleNav)}
-              >
-                <Link href="/machine-valuation/company" className="flex items-center gap-2">
-                  <Building2 className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-                  <span className="truncate">{t("navigation.generalSettings")}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={isReportSettingsPanel}
-                size="sm"
-                tooltip={collapsed ? t("navigation.reportSettings") : undefined}
-                className={cn("h-10 rounded-lg text-[12px]", isReportSettingsPanel ? activeNav : idleNav)}
-              >
-                <Link href="/machine-valuation/report-settings" className="flex items-center gap-2">
-                  <ClipboardList className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
-                  <span className="truncate">{t("navigation.reportSettings")}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={isClientsPanel}
-                size="sm"
-                tooltip={collapsed ? t("navigation.clients") : undefined}
-                className={cn("h-10 rounded-lg text-[12px]", isClientsPanel ? activeNav : idleNav)}
-              >
-                <Link href="/machine-valuation/clients" className="flex items-center gap-2">
-                  <Users className="h-3.5 w-3.5 shrink-0 text-violet-300" />
-                  <span className="truncate">{t("navigation.clients")}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <MachineNavLinks items={supportItems} />
         </SidebarGroupContent>
       </SidebarGroup>
-
-      <SidebarSeparator className="mx-0 my-2 bg-white/10" />
-      <SupportSidebarLinks product="machine-valuation" dark />
     </SidebarContent>
   );
 }
@@ -381,6 +463,7 @@ function MachineWorkspace({ children }: { children: ReactNode }) {
   const reportFlowChrome = isMvReportFlowChromePath(pathname);
   const useColumnLock = reportWorkspaceLocked || reportFlowChrome;
   const widePanel =
+    pathname.includes("/machine-valuation/settings") ||
     pathname.includes("/machine-valuation/company") ||
     pathname.includes("/machine-valuation/report-settings") ||
     pathname.includes("/machine-valuation/clients");
@@ -457,12 +540,6 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
   const { dir, isArabic } = useMvI18n();
   const { navigate, isMachineValuationPath } = useMvInPageNavigation();
 
-  useEffect(() => {
-    void import("@/components/workspace/workspace-sections/machine-valuation/mv-workflow-chunk-prefetch").then(
-      (mod) => mod.prefetchMvWorkflowChunks({ eager: true }),
-    );
-  }, []);
-
   return (
     <MvExperienceBoundary>
     <div
@@ -509,10 +586,14 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
           collapsible="icon"
           className="top-14 z-20 border-0 bg-transparent text-slate-100 shadow-none"
         >
-          <SidebarHeader className="m-2 rounded-lg border border-white/10 bg-slate-950 px-3 py-2.5">
-            <MachineSidebarBrand />
-            <div className="my-2 h-px bg-white/10 group-data-[collapsible=icon]:hidden" />
-            <MachineSidebarAccount />
+          <SidebarHeader className="gap-0 p-0">
+            <div className="border-b border-white/10 p-1.5">
+              <MachineSidebarProductsLink />
+            </div>
+            <div className="border-b border-white/10 p-1.5">
+              <MachineSidebarBrand />
+              <MachineSidebarAccount />
+            </div>
           </SidebarHeader>
 
           <MachineSidebarNav />

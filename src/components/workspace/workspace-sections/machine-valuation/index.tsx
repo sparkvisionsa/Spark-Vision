@@ -1,11 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useMemo, type ComponentType } from "react";
 import { isMvMainWorkflowSlug } from "./mv-main-workflow-model";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { useMvI18n } from "./mv-i18n";
 import { MvPageLoading } from "./mv-ui";
+import { loadClientChunk } from "@/lib/load-client-chunk";
+import { resolveSettingsSection, resolveSettingsTab } from "./mv-settings-nav";
 
 /** هيكل خفيف أثناء تحميل مقطع ديناميكي — دون تغطية كاملة للشاشة (يختلف عن PageTransitionLoader لجذر الـ workspace). */
 function MvRouteSkeleton() {
@@ -13,47 +15,27 @@ function MvRouteSkeleton() {
   return <MvPageLoading label={t("index.openingWorkspace")} />;
 }
 
-const ProjectsList = dynamic(() => import("./projects-list"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const ClientsPage = dynamic(() => import("@/components/clients/clients-page"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const CompanyAdminDashboard = dynamic(() => import("@/components/company-admin-dashboard"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvDriveExplorer = dynamic(() => import("./mv-drive-explorer"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvInspectorFilesWorkspace = dynamic(() => import("./mv-inspector-files-workspace"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const SubProjectDetail = dynamic(() => import("./sub-project-detail"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvWorkflowShell = dynamic(() => import("./mv-workflow-shell"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvValuationShell = dynamic(() => import("./mv-valuation-shell"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvClientFilesShell = dynamic(() => import("./mv-client-files-shell"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const SupportPage = dynamic(() => import("@/components/support/support-page"), { loading: () => <MvRouteSkeleton /> });
-const DeveloperRequestsPage = dynamic(() => import("@/components/support/developer-requests-page"), { loading: () => <MvRouteSkeleton /> });
-const MvSceCertificateShell = dynamic(() => import("./mv-sce-certificate-shell"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvReportFilesHub = dynamic(() => import("./mv-report-files-hub"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvReportDataWorkspace = dynamic(() => import("./mv-report-data-workspace"), {
-  loading: () => <MvRouteSkeleton />,
-});
-const MvFinalReportWorkspace = dynamic(() => import("./mv-final-report-workspace"), {
-  loading: () => <MvRouteSkeleton />,
-});
+function lazyPage<T extends { default: ComponentType<any> }>(loader: () => Promise<T>) {
+  return dynamic(() => loadClientChunk(loader), {
+    loading: () => <MvRouteSkeleton />,
+  });
+}
+
+const ProjectsList = lazyPage(() => import("./projects-list"));
+const ClientsPage = lazyPage(() => import("@/components/clients/clients-page"));
+const MvSettingsHub = lazyPage(() => import("./mv-settings-hub"));
+const MvDriveExplorer = lazyPage(() => import("./mv-drive-explorer"));
+const MvInspectorFilesWorkspace = lazyPage(() => import("./mv-inspector-files-workspace"));
+const SubProjectDetail = lazyPage(() => import("./sub-project-detail"));
+const MvWorkflowShell = lazyPage(() => import("./mv-workflow-shell"));
+const MvValuationShell = lazyPage(() => import("./mv-valuation-shell"));
+const MvClientFilesShell = lazyPage(() => import("./mv-client-files-shell"));
+const SupportPage = lazyPage(() => import("@/components/support/support-page"));
+const DeveloperRequestsPage = lazyPage(() => import("@/components/support/developer-requests-page"));
+const MvSceCertificateShell = lazyPage(() => import("./mv-sce-certificate-shell"));
+const MvReportFilesHub = lazyPage(() => import("./mv-report-files-hub"));
+const MvReportDataWorkspace = lazyPage(() => import("./mv-report-data-workspace"));
+const MvFinalReportWorkspace = lazyPage(() => import("./mv-final-report-workspace"));
 
 function parseMvPath(pathname: string) {
   pathname = pathname.split(/[?#]/)[0]!;
@@ -73,11 +55,26 @@ function parseMvPath(pathname: string) {
     if (segments.length === 1) return { view: "projects" as const, segments };
     return { view: "projects" as const, segments };
   }
+  if (segments[0] === "settings") {
+    const settingsSection = resolveSettingsSection(segments[1]);
+    const settingsTab = resolveSettingsTab(settingsSection, segments[2]);
+    return { view: "settings" as const, settingsSection, settingsTab, segments };
+  }
   if (segments.length === 1 && segments[0] === "company") {
-    return { view: "company-admin" as const, segments };
+    return {
+      view: "settings" as const,
+      settingsSection: "general" as const,
+      settingsTab: "info",
+      segments,
+    };
   }
   if (segments.length === 1 && segments[0] === "report-settings") {
-    return { view: "report-settings" as const, segments };
+    return {
+      view: "settings" as const,
+      settingsSection: "report" as const,
+      settingsTab: "word-template",
+      segments,
+    };
   }
   if (segments.length === 1 && segments[0] === "clients") {
     return { view: "clients" as const, segments };
@@ -158,10 +155,13 @@ export default function MachineValuationSection() {
       return <SupportPage />;
     case "developer-requests":
       return <DeveloperRequestsPage />;
-    case "company-admin":
-      return <CompanyAdminDashboard variant="embedded" productId="machine-valuation" />;
-    case "report-settings":
-      return <CompanyAdminDashboard variant="embedded" mode="report-defaults" productId="machine-valuation" />;
+    case "settings":
+      return (
+        <MvSettingsHub
+          section={route.settingsSection ?? "general"}
+          tab={route.settingsTab ?? "info"}
+        />
+      );
     case "clients":
       return <ClientsPage productId="machine-valuation" />;
     case "workflow":

@@ -9,6 +9,7 @@ import { useSupport } from "./support-provider";
 import { SupportApiError, useSupportApi, supportError, uploadSupportFile } from "./support-api";
 import { SUPPORT_KINDS, SUPPORT_PRODUCTS, SUPPORT_STATUSES, type SupportAgent, type SupportFile, type SupportMessage, type SupportTicket } from "./support-types";
 import { cn } from "@/lib/utils";
+import { SeekableVideo } from "@/components/seekable-video";
 
 const date = (raw: string) => new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(raw));
 export function StatusBadge({ status }: { status: SupportTicket["status"] }) {
@@ -17,7 +18,7 @@ export function StatusBadge({ status }: { status: SupportTicket["status"] }) {
 function Attachment({ file }: { file: SupportFile }) {
   const url = `/api/support/files/${file.id}`;
   return <div className="mt-2 overflow-hidden rounded-lg border border-slate-200/60 bg-white/90 text-slate-700">
-    {file.mime.startsWith("video/") && <video controls playsInline preload="metadata" src={url} className="max-h-64 w-full bg-slate-950" aria-label={file.name} />}
+    {file.mime.startsWith("video/") && <SeekableVideo src={url} className="max-h-64 w-full bg-slate-950" aria-label={file.name} />}
     {file.mime.startsWith("image/") && <a href={url} target="_blank" rel="noopener noreferrer"><img src={url} alt={file.name} loading="lazy" className="max-h-56 w-full object-contain" /></a>}
     <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50"><Download className="h-3 w-3 shrink-0" /><span className="truncate">{file.name}</span><span className="ms-auto shrink-0 text-slate-400">{(file.size / 1024 / 1024).toFixed(1)} MB</span></a>
   </div>;

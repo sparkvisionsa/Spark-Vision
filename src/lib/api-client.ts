@@ -30,7 +30,7 @@ export async function apiClient<T>(path: string, options: ApiClientOptions = {})
   });
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
+    let message = `تعذر تنفيذ الطلب (${response.status}). حاول مرة أخرى.`;
     try {
       const payload = (await response.json()) as { message?: string };
       if (payload?.message) {

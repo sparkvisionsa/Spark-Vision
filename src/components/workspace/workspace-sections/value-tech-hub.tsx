@@ -21,7 +21,7 @@ type ProductCard = {
   title: string;
   description: string;
   icon: LucideIcon;
-  status?: string;
+  soon?: boolean;
 };
 
 const copy = {
@@ -45,10 +45,10 @@ const copy = {
         icon: Building2,
       },
       {
-        href: "/value-tech-app",
-        title: "Report Upload System",
-        description: "Manage valuation reports and submissions through the desktop application.",
-        icon: LayoutGrid,
+        href: "/helper-tools",
+        title: "Helper Tools",
+        description: "Screen capture, PDF conversion, and Saudi riyal number wording.",
+        icon: FileCog,
       },
       {
         href: "/evaluation-source",
@@ -61,18 +61,21 @@ const copy = {
         title: "Asset Inventory",
         description: "Count, classify, and track organization assets accurately.",
         icon: ClipboardList,
+        soon: true,
       },
       {
         href: "/asset-inspection",
         title: "Asset Inspection",
         description: "Document asset condition and field inspection data.",
         icon: Search,
+        soon: true,
       },
       {
-        href: "/helper-tools",
-        title: "Helper Tools",
-        description: "Fast local tools for PDF conversion and Saudi riyal number wording.",
-        icon: FileCog,
+        href: "/value-tech-app",
+        title: "Report Upload System",
+        description: "Manage valuation reports and submissions through the desktop application.",
+        icon: LayoutGrid,
+        soon: true,
       },
     ] satisfies ProductCard[],
   },
@@ -95,10 +98,10 @@ const copy = {
         icon: Building2,
       },
       {
-        href: "/value-tech-app",
-        title: "نظام رفع التقارير",
-        description: "إدارة تقارير التقييم ورفعها من خلال تطبيق سطح المكتب.",
-        icon: LayoutGrid,
+        href: "/helper-tools",
+        title: "الأدوات المساعدة",
+        description: "تصوير الشاشة وتحويل الملفات وتفقيط المبالغ.",
+        icon: FileCog,
       },
       {
         href: "/evaluation-source",
@@ -111,18 +114,21 @@ const copy = {
         title: "تطبيق حصر الأصول",
         description: "حصر وتصنيف وتتبع أصول المنشأة بدقة.",
         icon: ClipboardList,
+        soon: true,
       },
       {
         href: "/asset-inspection",
         title: "تطبيق معاينة الأصول",
         description: "توثيق حالة الأصول وبيانات المعاينة الميدانية.",
         icon: Search,
+        soon: true,
       },
       {
-        href: "/helper-tools",
-        title: "الأدوات المساعدة",
-        description: "أدوات محلية سريعة لتحويل الملفات وتفقيط  .",
-        icon: FileCog,
+        href: "/value-tech-app",
+        title: "نظام رفع التقارير",
+        description: "إدارة تقارير التقييم ورفعها من خلال تطبيق سطح المكتب.",
+        icon: LayoutGrid,
+        soon: true,
       },
     ] satisfies ProductCard[],
   },
@@ -142,12 +148,18 @@ function ProductCardTile({
   index: number;
 }) {
   const Icon = product.icon;
+  const soon = Boolean(product.soon);
 
   const body = (
     <div
-      className="relative z-[1] flex h-full min-h-[9rem] flex-col p-5 sm:min-h-[9.25rem] sm:p-6"
+      className="z-[1] flex h-full min-h-[9rem] flex-col p-5 sm:min-h-[9.25rem] sm:p-6"
       dir={isArabic ? "rtl" : "ltr"}
     >
+      {soon ? (
+        <span className="vt-product-soon-ribbon" aria-hidden>
+          {soonLabel}
+        </span>
+      ) : null}
       <div className="flex items-start gap-4">
         <div className="vt-product-icon-ring">
           <Icon className="vt-product-icon" strokeWidth={1.65} aria-hidden />
@@ -155,9 +167,7 @@ function ProductCardTile({
 
         <div className="min-w-0 flex-1 space-y-2 pt-0.5">
           <h2 className="vt-product-title sm:text-[1.02rem]">{product.title}</h2>
-          {product.status ? (
-            <span className="vt-product-soon-badge">{product.status ?? soonLabel}</span>
-          ) : null}
+          {soon ? <span className="vt-product-soon-badge">{soonLabel}</span> : null}
           <p className="line-clamp-2 text-xs leading-5 text-slate-500">{product.description}</p>
         </div>
       </div>
@@ -168,15 +178,17 @@ function ProductCardTile({
           isArabic ? "justify-end" : "justify-start",
         )}
       >
-        <span className="vt-product-navigate">
-          {navigateLabel}
-          <ArrowUpRight
-            className={cn(
-              "h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
-              isArabic && "-scale-x-100 group-hover:translate-x-[-2px]",
-            )}
-            aria-hidden
-          />
+        <span className={cn("vt-product-navigate", soon && "vt-product-navigate--soon")}>
+          {soon ? soonLabel : navigateLabel}
+          {soon ? null : (
+            <ArrowUpRight
+              className={cn(
+                "h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
+                isArabic && "-scale-x-100 group-hover:translate-x-[-2px]",
+              )}
+              aria-hidden
+            />
+          )}
         </span>
       </div>
     </div>
@@ -184,7 +196,20 @@ function ProductCardTile({
 
   const className = cn(
     "group vt-product-card text-start motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1",
+    soon && "vt-product-card--soon",
   );
+
+  if (soon) {
+    return (
+      <article
+        style={{ animationDelay: `${index * 50}ms` }}
+        className={className}
+        aria-label={`${product.title} — ${soonLabel}`}
+      >
+        {body}
+      </article>
+    );
+  }
 
   return (
     <Link

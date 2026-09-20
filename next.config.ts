@@ -47,6 +47,14 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  webpack: (config, { isServer }) => {
+    // Dev compiles of large client modules (company-admin-dashboard) can exceed
+    // Webpack's default 120s script timeout and surface as ChunkLoadError.
+    if (!isServer) {
+      config.output = { ...config.output, chunkLoadTimeout: 5 * 60 * 1000 };
+    }
+    return config;
+  },
   async rewrites() {
     const backendBaseUrl = backendOriginForRewrite();
     return {

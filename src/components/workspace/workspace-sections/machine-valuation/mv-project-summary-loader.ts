@@ -59,6 +59,13 @@ function normalizePayload(
   };
 }
 
+function isFullReportDataPayload(project: MvProject): boolean {
+  const data = project.reportData;
+  // مسار GET الكامل يُرجع customFields كمصفوفة دائماً بعد sanitize.
+  // بطاقة قائمة المشاريع لا تتضمن هذا المفتاح، لذلك لا تُستخدم كبيانات تقرير جاهزة.
+  return Boolean(data && typeof data === "object" && Array.isArray(data.customFields));
+}
+
 function isProjectNewerThan(
   candidate: MvProject,
   baseline: MvProject,
@@ -126,6 +133,28 @@ export function writeProjectSummaryCache(
   if (mode === "report") {
     const cached = readProjectSummaryCache(projectId, "report");
     if (cached && isProjectNewerThan(cached.project, data.project)) return;
+    const incomingModelId = data.project.reportData?.reportDataModelId?.trim() ?? "";
+    const cachedModelId = cached?.project.reportData?.reportDataModelId?.trim() ?? "";
+    if (cached && isFullReportDataPayload(cached.project) && !isFullReportDataPayload(data.project)) {
+      return;
+    }
+    if (!incomingModelId && cachedModelId) {
+      data = {
+        ...data,
+        project: {
+          ...data.project,
+          reportData: {
+            ...(cached?.project.reportData ?? {}),
+            ...(data.project.reportData ?? {}),
+            reportDataModelId: cachedModelId,
+          },
+        },
+      };
+    }
+    if (!isFullReportDataPayload(data.project)) {
+      // لا تزرع بطاقة القائمة في كاش طلب التقرير حتى لا تُحجب بيانات النموذج المحفوظة.
+      return;
+    }
   }
 
   const payload = normalizePayload(projectId, mode, data);
@@ -192,9 +221,11 @@ export async function loadProjectSummary(
 
   if (!options.forceRefresh) {
     const local = readProjectSummaryCache(projectId, mode);
+    const reportCacheIsStub = mode === "report" && local != null && !isFullReportDataPayload(local.project);
     // لا تزرع ملخصاً بلا مجلدات — غالباً بقايا وضع التقرير القديم، وتمنع ظهور صور الأصول
     const shouldSeed =
       local &&
+      !reportCacheIsStub &&
       (mode === "report" || local.subProjects.length > 0 || (local.project.subProjectCount ?? 0) === 0);
     if (local && shouldSeed) {
       seedMvApiCache(
@@ -203,6 +234,9 @@ export async function loadProjectSummary(
         15_000,
         10 * 60_000,
       );
+    }
+    if (reportCacheIsStub) {
+      options = { ...options, forceRefresh: true };
     }
   }
 

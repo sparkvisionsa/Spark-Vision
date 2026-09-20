@@ -211,7 +211,11 @@ async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
       message?: string;
       error?: string;
     };
-    throw new ApiRequestError(body.message ?? body.error ?? "Request failed", response.status, body.error);
+    throw new ApiRequestError(
+      body.message ?? body.error ?? "تعذر تنفيذ الطلب. حاول مرة أخرى.",
+      response.status,
+      body.error,
+    );
   }
   return (await response.json()) as T;
 }

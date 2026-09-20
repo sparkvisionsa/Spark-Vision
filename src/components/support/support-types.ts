@@ -18,7 +18,7 @@ export type SupportMessage = { _id: string; ticketId: string; senderId: string; 
 export type SupportNotification = { _id: string; ticketId: string; channel: "support" | "developer"; event: "created" | "message" | "status" | "assignment"; title: string; body: string; createdAt: string; readAt: string | null };
 export type SupportSummary = { staff: boolean; superAdmin: boolean; online: boolean; unread: number; notificationUnread: number; counts: Partial<Record<SupportStatus, number>> };
 export type SupportArticle = { id: string; title: string; product: string; href: string; intro: string; steps: string[]; targets?: string[] };
-export type AssistantAnswer = { answer: string; steps: string[]; handoff: boolean; sources: SupportArticle[]; mode: "ai" | "guide" };
+export type AssistantAnswer = { answer: string; steps: string[]; handoff: boolean; sources: SupportArticle[]; mode: "ai" | "guide"; related?: string[] };
 export type SupportAgent = { id: string; name: string; phone?: string; superAdmin: boolean };
 export function productFromPath(path: string): SupportProduct {
   const segment = path.split("/").filter(Boolean)[0];

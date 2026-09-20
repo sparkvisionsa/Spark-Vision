@@ -21,7 +21,8 @@ import {
   subscribeMvLoading,
 } from "./mv-loading-state";
 import { useMvI18n } from "./mv-i18n";
-import { prefetchMvWorkflowChunks } from "./mv-workflow-chunk-prefetch";
+import { prefetchMvWorkflowChunks, shouldPrefetchMvWorkflowChunks } from "./mv-workflow-chunk-prefetch";
+import { isChunkLoadError, MV_CHUNK_RELOAD_KEY } from "@/lib/load-client-chunk";
 
 type BoundaryProps = {
   children: ReactNode;
@@ -30,10 +31,18 @@ type BoundaryProps = {
 
 type BoundaryState = {
   error: Error | null;
+  reloading: boolean;
 };
 
 function MvRenderErrorFallback({ onRetry }: { onRetry: () => void }) {
   const { t, dir } = useMvI18n();
+  const [retrying, setRetrying] = useState(false);
+
+  const retry = () => {
+    if (retrying) return;
+    setRetrying(true);
+    onRetry();
+  };
 
   return (
     <main className="flex min-h-[min(70vh,680px)] w-full items-center justify-center px-4 py-12" dir={dir}>
@@ -46,8 +55,13 @@ function MvRenderErrorFallback({ onRetry }: { onRetry: () => void }) {
           {t("shell.error.unexpectedBody")}
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-          <Button type="button" onClick={onRetry} className="rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800">
-            <RefreshCw className="h-4 w-4" />
+          <Button
+            type="button"
+            onClick={retry}
+            disabled={retrying}
+            className="rounded-xl bg-slate-950 px-5 text-white hover:bg-slate-800"
+          >
+            <RefreshCw className={cn("h-4 w-4", retrying && "animate-spin")} />
             {t("common.retry")}
           </Button>
           <Button asChild variant="outline" className="rounded-xl border-slate-200 bg-white px-5">
@@ -59,27 +73,69 @@ function MvRenderErrorFallback({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function MvChunkRecoveryReset() {
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(MV_CHUNK_RELOAD_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  return null;
+}
+
 class MvRenderErrorBoundary extends Component<BoundaryProps, BoundaryState> {
-  state: BoundaryState = { error: null };
+  state: BoundaryState = { error: null, reloading: false };
 
   static getDerivedStateFromError(error: Error): BoundaryState {
-    return { error };
+    let reloading = false;
+    try {
+      reloading =
+        typeof window !== "undefined" &&
+        isChunkLoadError(error) &&
+        sessionStorage.getItem(MV_CHUNK_RELOAD_KEY) !== "1";
+    } catch {
+      reloading = false;
+    }
+    return { error, reloading };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[machine-valuation] render failed", error, info.componentStack);
+    if (typeof window === "undefined" || !isChunkLoadError(error)) return;
+    try {
+      if (sessionStorage.getItem(MV_CHUNK_RELOAD_KEY) === "1") return;
+      sessionStorage.setItem(MV_CHUNK_RELOAD_KEY, "1");
+      window.location.reload();
+    } catch {
+      /* ignore */
+    }
   }
 
   componentDidUpdate(previous: BoundaryProps) {
     if (this.state.error && previous.resetKey !== this.props.resetKey) {
-      this.setState({ error: null });
+      this.setState({ error: null, reloading: false });
     }
   }
 
-  private retry = () => this.setState({ error: null });
+  private retry = () => {
+    if (this.state.error && isChunkLoadError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
+    this.setState({ error: null, reloading: false });
+  };
 
   render() {
-    if (!this.state.error) return this.props.children;
+    if (this.state.reloading) return null;
+    if (!this.state.error) {
+      return (
+        <>
+          <MvChunkRecoveryReset />
+          {this.props.children}
+        </>
+      );
+    }
     return <MvRenderErrorFallback onRetry={this.retry} />;
   }
 }
@@ -168,7 +224,6 @@ function useStableLoadingVisibility(active: boolean) {
   useEffect(() => {
     if (active) {
       if (visible) return;
-      // تأخير بسيط حتى لا تومض الشاشة عند التنقل السريع جداً
       const showTimer = window.setTimeout(() => {
         shownAtRef.current = performance.now();
         setVisible(true);
@@ -178,7 +233,6 @@ function useStableLoadingVisibility(active: boolean) {
 
     if (!visible) return;
     const elapsed = performance.now() - shownAtRef.current;
-    // إخفاء أسرع بعد انتهاء التحميل (كان 460ms)
     const hideTimer = window.setTimeout(() => setVisible(false), Math.max(0, 220 - elapsed));
     return () => window.clearTimeout(hideTimer);
   }, [active, visible]);
@@ -233,11 +287,7 @@ export function MvExperienceBoundary({ children }: { children: ReactNode }) {
   const { currentPath } = useMvInPageNavigation();
 
   useEffect(() => {
-    prefetchMvWorkflowChunks({ eager: true });
-  }, []);
-
-  useEffect(() => {
-    if (currentPath.includes("/workflow/") || /\/machine-valuation\/[^/]+(\/|$)/.test(currentPath)) {
+    if (shouldPrefetchMvWorkflowChunks(currentPath)) {
       prefetchMvWorkflowChunks({ eager: true });
     }
   }, [currentPath]);

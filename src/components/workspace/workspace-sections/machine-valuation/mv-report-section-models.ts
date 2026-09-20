@@ -247,10 +247,19 @@ export function normalizeReportSectionModels(value: unknown): MvCompanyReportSec
     );
   }
 
-  // A hidden model must never become the automatic choice for a new project.
-  // Keep a valid explicit default when it is visible; otherwise use the first
-  // visible model, falling back to the first model only when every model is
-  // intentionally hidden.
+  return resolveReportSectionModelDefaults(models);
+}
+
+/**
+ * A hidden model must never become the automatic choice for a new project.
+ * Keeps a valid explicit default when it is visible; otherwise uses the first
+ * visible model, falling back to the first model only when every model is
+ * intentionally hidden. Editable text is left untouched, so this is safe to
+ * run while an administrator is still typing.
+ */
+export function resolveReportSectionModelDefaults(
+  models: MvCompanyReportSectionModel[],
+): MvCompanyReportSectionModel[] {
   const declaredDefaultIndex = models.findIndex(
     (model) => model.isDefault && model.visibleInReport !== false,
   );

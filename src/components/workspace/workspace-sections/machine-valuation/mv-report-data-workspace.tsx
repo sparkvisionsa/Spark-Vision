@@ -288,6 +288,13 @@ interface MvReportDataWorkspaceProps {
   projectId: string;
 }
 
+function resolvedReportDataModelId(data: MvProjectReportData | undefined | null): string {
+  const explicit = data?.reportDataModelId?.trim() ?? "";
+  if (explicit) return explicit;
+  const fromField = (data?.customFields ?? []).find((field) => field.modelId?.trim())?.modelId?.trim();
+  return fromField ?? "";
+}
+
 function reportDataLooksFilled(data: MvProjectReportData): boolean {
   return Boolean(
     data.reportTitle?.trim() ||
@@ -591,13 +598,17 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   useEffect(() => {
     if (!project || !reportDataModelsLoaded) return;
-    const selectedId = reportData.reportDataModelId?.trim() ?? "";
-    const selectedIsAvailable = reportDataModels.some((model) => model.id === selectedId);
-    if (selectedIsAvailable) {
+    const selectedId = resolvedReportDataModelId(reportData) || resolvedReportDataModelId(project.reportData);
+    if (selectedId) {
       const selectedModel = getReportDataModel(reportDataModels, selectedId);
       if (reportDataNeedsModelMaterialization(reportData, selectedModel)) {
         setReportData((current) => applyReportDataModel(current, selectedModel));
       }
+      setModelChoiceOpen(false);
+      return;
+    }
+    // بطاقة القائمة لا تحتوي بيانات التقرير الكاملة — لا تُظهر اختيار النموذج قبل التحميل.
+    if (!Array.isArray(project.reportData?.customFields)) {
       setModelChoiceOpen(false);
       return;
     }

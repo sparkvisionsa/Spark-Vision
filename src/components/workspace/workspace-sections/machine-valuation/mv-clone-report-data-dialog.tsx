@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import { MvDialogContent } from "./mv-dialog";
 import { useMvI18n } from "./mv-i18n";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
@@ -14,7 +15,7 @@ import { MvBusyPercentOverlay } from "./mv-busy-percent-overlay";
 import { useMvBusyPercent } from "./use-mv-busy-percent";
 import type { MvProject } from "./types";
 
-type ProjectListRow = Pick<MvProject, "_id" | "name" | "displayNumber" | "updatedAt" | "reportType">;
+type ProjectListRow = Pick<MvProject, "_id" | "name" | "displayNumber" | "referenceNumber" | "updatedAt" | "reportType">;
 
 export function MvCloneReportDataDialog({
   open,
@@ -27,7 +28,7 @@ export function MvCloneReportDataDialog({
   currentProjectId: string;
   onCloned: (project: MvProject) => void;
 }) {
-  const { t, isArabic, dir } = useMvI18n();
+  const { t, dir } = useMvI18n();
   const busy = useMvBusyPercent();
   const [projects, setProjects] = useState<ProjectListRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,16 +76,10 @@ export function MvCloneReportDataDialog({
     if (!q) return projects;
     return projects.filter((project) => {
       const name = (project.name || "").toLocaleLowerCase();
-      const serial =
-        typeof project.displayNumber === "number" ? String(project.displayNumber) : "";
+      const serial = (projectSerialLabel(project) ?? "").toLocaleLowerCase();
       return name.includes(q) || serial.includes(q);
     });
   }, [projects, query]);
-
-  const numberFormatter = useMemo(
-    () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
-    [isArabic],
-  );
 
   const handleSelect = async (sourceId: string) => {
     if (cloningId) return;
@@ -163,10 +158,7 @@ export function MvCloneReportDataDialog({
               <ul className="divide-y divide-slate-100">
                 {filtered.map((project) => {
                   const busy = cloningId === project._id;
-                  const serial =
-                    typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
-                      ? numberFormatter.format(project.displayNumber)
-                      : null;
+                  const serial = projectSerialLabel(project);
                   const label = project.name || t("projects.table.project");
                   return (
                     <li key={project._id} className="min-w-0">

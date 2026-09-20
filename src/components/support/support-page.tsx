@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useSupport } from "./support-provider";
 import { useRealtime } from "./realtime-provider";
 import { useSupportApi, supportError } from "./support-api";
+import { SUPPORT_SUBJECT_MAX, SUPPORT_SUBJECT_MIN, SUPPORT_TEXT_MAX, ticketSubjectIssue, ticketTextIssue } from "./support-validation";
 import { SUPPORT_KINDS, SUPPORT_PRODUCTS, SUPPORT_STATUSES, productFromPath, type SupportAgent, type SupportCounts, type SupportProduct, type SupportTicket, type SupportTicketList } from "./support-types";
 import TicketThread, { StatusBadge } from "./ticket-thread";
 import { cn } from "@/lib/utils";
@@ -18,15 +19,18 @@ function NewTicket({ open, onOpenChange, product, onCreated }: { open: boolean; 
   const [selectedProduct, setProduct] = useState(product); const [priority, setPriority] = useState("normal"); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const clientId = useRef(crypto.randomUUID());
   useEffect(() => { if (open) setProduct(product); }, [open, product]);
+  const subjectIssue = ticketSubjectIssue(subject); const textIssue = ticketTextIssue(text);
   const submit = async () => {
-    if (busy || subject.trim().length < 3 || !text.trim()) return;
+    if (busy) return;
+    // الحقل الناقص يُشرح للمستخدم بدل زر معطّل بلا سبب ظاهر.
+    if (subjectIssue || textIssue) { setError(subjectIssue || textIssue); return; }
     setBusy(true); setError("");
     try {
       const result = await api<{ ticket: SupportTicket }>("/tickets", { method: "POST", body: JSON.stringify({ subject: subject.trim(), text: text.trim(), priority, product: selectedProduct, page: window.location.pathname, clientId: clientId.current }) });
       onCreated(result.ticket); onOpenChange(false); setSubject(""); setText(""); clientId.current = crypto.randomUUID();
     } catch (cause) { setError(supportError(cause)); } finally { setBusy(false); }
   };
-  return <Dialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}><DialogContent dir="rtl" className="max-w-lg gap-3 rounded-2xl p-4"><DialogTitle className="flex items-center gap-2 text-base"><Headset className="h-5 w-5 text-cyan-600" />تذكرة جديدة</DialogTitle><DialogDescription className="sr-only">ارسل طلباً لفريق الدعم؛ تُضاف بيانات الشركة والحساب تلقائياً</DialogDescription><form onSubmit={e => { e.preventDefault(); void submit(); }} className="space-y-3"><label className="block space-y-1 text-xs text-slate-500"><span>العنوان</span><Input autoFocus value={subject} onChange={e => setSubject(e.target.value)} minLength={3} maxLength={160} required disabled={busy} placeholder="كيف نساعدك؟" className="h-9" /></label><label className="block space-y-1 text-xs text-slate-500"><span>الرسالة</span><Textarea value={text} onChange={e => setText(e.target.value)} required maxLength={8000} rows={4} disabled={busy} placeholder="اكتب طلبك أو المشكلة التي واجهتك…" className="resize-none" /></label><div className="flex gap-2"><select aria-label="المنتج" value={selectedProduct} onChange={e => setProduct(e.target.value as SupportProduct)} disabled={busy} className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs">{Object.entries(SUPPORT_PRODUCTS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select aria-label="الأولوية" value={priority} onChange={e => setPriority(e.target.value)} disabled={busy} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="normal">عادية</option><option value="high">مرتفعة</option><option value="urgent">عاجلة</option></select></div>{error && <p role="alert" className="text-xs text-rose-600">{error}</p>}<Button type="submit" disabled={busy || subject.trim().length < 3 || !text.trim()} className="h-9 w-full bg-cyan-600 hover:bg-cyan-700">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}فتح التذكرة</Button></form></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}><DialogContent dir="rtl" className="max-w-lg gap-3 rounded-2xl p-4"><DialogTitle className="flex items-center gap-2 text-base"><Headset className="h-5 w-5 text-cyan-600" />تذكرة جديدة</DialogTitle><DialogDescription className="sr-only">ارسل طلباً لفريق الدعم؛ تُضاف بيانات الشركة والحساب تلقائياً</DialogDescription><form noValidate onSubmit={e => { e.preventDefault(); void submit(); }} className="space-y-3"><label className="block space-y-1 text-xs text-slate-500"><span>العنوان</span><Input autoFocus value={subject} onChange={e => setSubject(e.target.value)} aria-invalid={Boolean(subject && subjectIssue)} aria-describedby="new-ticket-subject-hint" minLength={SUPPORT_SUBJECT_MIN} maxLength={SUPPORT_SUBJECT_MAX} required disabled={busy} placeholder="كيف نساعدك؟" className="h-9" /><p id="new-ticket-subject-hint" className={cn("text-[11px] leading-5", subject && subjectIssue ? "text-amber-700" : "text-slate-400")}>{subject && subjectIssue ? subjectIssue : `من ${SUPPORT_SUBJECT_MIN} إلى ${SUPPORT_SUBJECT_MAX} حرفاً`}</p></label><label className="block space-y-1 text-xs text-slate-500"><span>الرسالة</span><Textarea value={text} onChange={e => setText(e.target.value)} required maxLength={SUPPORT_TEXT_MAX} rows={4} disabled={busy} placeholder="اكتب طلبك أو المشكلة التي واجهتك…" className="resize-none" /></label><div className="flex gap-2"><select aria-label="المنتج" value={selectedProduct} onChange={e => setProduct(e.target.value as SupportProduct)} disabled={busy} className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs">{Object.entries(SUPPORT_PRODUCTS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select aria-label="الأولوية" value={priority} onChange={e => setPriority(e.target.value)} disabled={busy} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"><option value="normal">عادية</option><option value="high">مرتفعة</option><option value="urgent">عاجلة</option></select></div>{error && <p role="alert" className="text-xs text-rose-600">{error}</p>}<Button type="submit" disabled={busy} className="h-9 w-full bg-cyan-600 hover:bg-cyan-700">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}فتح التذكرة</Button></form></DialogContent></Dialog>;
 }
 function AgentManagement({ open, onOpenChange, onChanged }: { open: boolean; onOpenChange: (value: boolean) => void; onChanged: () => void }) {
   const api = useSupportApi(); const [agents, setAgents] = useState<SupportAgent[]>([]); const [phone, setPhone] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
@@ -39,7 +43,7 @@ function AgentManagement({ open, onOpenChange, onChanged }: { open: boolean; onO
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent dir="rtl" className="max-w-md gap-3 rounded-2xl p-4"><DialogTitle className="text-base">فريق الدعم</DialogTitle><DialogDescription className="text-xs">موظف الدعم يستطيع متابعة تذاكر جميع الشركات ومرفقاتها.</DialogDescription><form onSubmit={e => { e.preventDefault(); void change({ phone: phone.trim() }, true); }} className="flex gap-2"><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="رقم الهاتف أو اسم مستخدم موجود" aria-label="رقم موظف الدعم" className="h-9" maxLength={60} /><Button type="submit" size="icon" disabled={busy || phone.trim().length < 3} className="h-9 w-9 shrink-0" aria-label="إضافة موظف دعم"><UserPlus className="h-4 w-4" /></Button></form>{error && <p role="alert" className="text-xs text-rose-600">{error}</p>}<div className="max-h-64 space-y-1 overflow-y-auto">{agents.map(agent => <div key={agent.id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 text-xs"><ShieldCheck className="h-4 w-4 text-cyan-600" /><span>{agent.name}</span><span className="text-slate-400" dir="ltr">{agent.phone}</span>{agent.superAdmin ? <span className="ms-auto text-[10px] text-violet-600">مالك النظام</span> : <button disabled={busy} onClick={() => void change({ userId: agent.id }, false)} className="ms-auto rounded p-1 text-rose-500 hover:bg-rose-50" aria-label={`إلغاء صلاحية ${agent.name}`}><X className="h-3.5 w-3.5" /></button>}</div>)}</div></DialogContent></Dialog>;
 }
 
-export default function SupportPage({ mode = "support", embedded = false, productOverride }: { mode?: "support" | "developer"; embedded?: boolean; productOverride?: SupportProduct }) {
+export default function SupportPage({ mode = "support", embedded = false, productOverride, compose = false }: { mode?: "support" | "developer"; embedded?: boolean; productOverride?: SupportProduct; compose?: boolean }) {
   const api = useSupportApi(); const pathname = usePathname(); const query = useSearchParams();
   const { summary, refresh, openRecorder, openAssistant } = useSupport(); const { socket } = useRealtime();
   const developer = mode === "developer";
@@ -51,9 +55,17 @@ export default function SupportPage({ mode = "support", embedded = false, produc
   const [counts, setCounts] = useState<SupportCounts>({});
   const [search, setSearch] = useState(""); const [debounced, setDebounced] = useState(""); const [mine, setMine] = useState(false);
   const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [hasMore, setHasMore] = useState(false); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
-  const [newOpen, setNewOpen] = useState(false); const [agentsOpen, setAgentsOpen] = useState(false); const version = useRef(0);
+  const [newOpen, setNewOpen] = useState(compose && !developer); const [agentsOpen, setAgentsOpen] = useState(false); const version = useRef(0);
   const [agentsVersion, setAgentsVersion] = useState(0);
   useEffect(() => { const id = query.get("ticket"); if (id) setSelected(id); }, [query]);
+  useEffect(() => {
+    if (developer) return;
+    if (compose || query.get("new") === "1") setNewOpen(true);
+    if (query.get("new") !== "1" || embedded) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("new");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
+  }, [compose, developer, embedded, query]);
   useEffect(() => { const timer = setTimeout(() => { setDebounced(search); setPage(1); }, 300); return () => clearTimeout(timer); }, [search]);
   const load = useCallback(async (quiet = false) => {
     const run = ++version.current;

@@ -27,7 +27,7 @@ async function apiJson<T>(url: string, csrfToken: string, init?: RequestInit): P
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
-    throw new Error(body.message || body.error || "Request failed");
+    throw new Error(body.message || body.error || "تعذر تنفيذ الطلب. حاول مرة أخرى.");
   }
   return (await response.json()) as T;
 }

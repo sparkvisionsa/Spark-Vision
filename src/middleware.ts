@@ -21,7 +21,7 @@ const EXACT_REWRITES: [string, string][] = [
 ];
 
 const PREFIX_REWRITES = ["/machine-valuation", "/evaluation-source", "/real-estate-valuation", "/helper-tools", "/value-tech-app", "/asset-inventory", "/asset-inspection"];
-const MV_STATIC_SEGMENTS = new Set(["projects", "company", "report-settings", "clients", "support", "developer-requests"]);
+const MV_STATIC_SEGMENTS = new Set(["projects", "settings", "company", "report-settings", "clients", "support", "developer-requests"]);
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

@@ -107,10 +107,20 @@ import {
   Wand2,
 } from "lucide-react";
 
-console.log("company-admin-dashboard.tsx LOADED");
-
 export type CompanyAdminDashboardVariant = "standalone" | "embedded";
 export type CompanyAdminDashboardMode = "general" | "report-defaults";
+
+/**
+ * تبويبات كل وضع بترتيب ظهورها؛ الأول هو النشط عند فتح الصفحة. الرابطان
+ * «إعدادات عامة» و«بيانات إعداد التقرير النهائي» يعرضان هذه اللوحة نفسها،
+ * فلا يصلح ترك التبويب النشط لحالة داخلية قد تحمل تبويب الوضع الآخر.
+ */
+const GENERAL_TABS = ["info", "users", "signatories", "asset-descriptions"] as const;
+const REPORT_DEFAULTS_TABS = ["word-template", "pptx-template", "letterhead", "report-data-models"] as const;
+
+function tabsForMode(mode: CompanyAdminDashboardMode): readonly string[] {
+  return mode === "report-defaults" ? REPORT_DEFAULTS_TABS : GENERAL_TABS;
+}
 
 type CompanyInfo = {
   id: string;
@@ -663,6 +673,10 @@ function prepareCompanyDocumentTemplatesForSave(
   const pptxTemplates = normalizeCompanyDocumentTemplateList(current.pptxTemplates, current.pptxTemplate, "pptx");
   return {
     ...current,
+    // Editor drafts keep the text exactly as typed, so the models are cleaned
+    // here — once, on the way to the server.
+    reportDataModels: normalizeReportDataModels(current.reportDataModels),
+    reportSectionModels: normalizeReportSectionModels(current.reportSectionModels),
     wordTemplates,
     pptxTemplates,
     wordTemplate: wordTemplates[0] ?? null,
@@ -894,17 +908,26 @@ type ReportDefaultsField = {
   label: string;
   helper?: string;
   rows?: number;
+  /** الحد الأقصى للأحرف كما يتحقّق منه الخادم؛ يمنع تجاوزه بدل رفض الحفظ. */
+  limit: number;
 };
+
+/** حدود البنود الإضافية كما في `updateCompanyReportDefaultsSchema` على الخادم. */
+const REPORT_DEFAULTS_CUSTOM_BODY_LIMIT = 50_000;
+const REPORT_DEFAULTS_CUSTOM_TITLE_LIMIT = 220;
+const REPORT_DEFAULTS_CUSTOM_SECTION_NUMBER_LIMIT = 40;
 
 const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   {
     key: "complianceStatement",
+    limit: 4000,
     label: "3.0 الالتزام بمعايير التقييم",
     helper: "بيان امتثال التقييم لمعايير IVS وأنظمة الهيئة السعودية للمقيمين المعتمدين (تقييم).",
     rows: 5,
   },
   {
     key: "independenceStatement",
+    limit: 4000,
     label: "4.0 الاستقلالية وعدم تضارب المصالح",
     helper:
       "إقرار باستقلالية فريق التقييم — يدعم تعويض {companyName} باسم الشركة تلقائياً عند العرض.",
@@ -912,12 +935,14 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "intendedUseStatement",
+    limit: 4000,
     label: "11.0 الغرض من استخدام التقرير",
     helper: "نص افتراضي يصف الجهة المستفيدة وغرض الاستخدام من التقرير.",
     rows: 4,
   },
   {
     key: "scopeOfWorkDetails",
+    limit: 6000,
     label: "9.0 نطاق العمل",
     helper:
       "ما يتم الاتفاق عليه قبل البدء: المقابلات والمعاينة وأبحاث السوق ومراجعة المستندات وما إلى ذلك.",
@@ -925,36 +950,42 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
   },
   {
     key: "valuationBasisDefinition",
+    limit: 4000,
     label: "12.0 أساس القيمة — التعريف الكامل",
     helper: "تعريف القيمة السوقية أو ما يماثلها وفق معايير IVS 2025.",
     rows: 5,
   },
   {
     key: "valuePremiseDefinition",
+    limit: 2000,
     label: "13.0 فرضية القيمة — المرجع المعياري",
     helper: "نص قصير يحيل إلى مرجع IVS لفرضية القيمة.",
     rows: 2,
   },
   {
     key: "useRestriction",
+    limit: 4000,
     label: "14.0 قيود استخدام التقرير ونشره",
     helper: "تحديد الأطراف المصرّح لها بالاستخدام وحدود نشر التقرير.",
     rows: 5,
   },
   {
     key: "externalSpecialistUse",
+    limit: 4000,
     label: "15.0 الاستعانة بأخصائيين خارجيين",
     helper: "بيان مدى الاعتماد على متخصصين خارج فريق التقييم.",
     rows: 4,
   },
   {
     key: "esgConsiderations",
+    limit: 4000,
     label: "16.0 العوامل البيئية والاجتماعية",
     helper: "أثر العوامل البيئية والاجتماعية على رأي القيمة.",
     rows: 4,
   },
   {
     key: "informationSources",
+    limit: 6000,
     label: "18.0 مصادر المعلومات",
     helper: "المدخلات من العميل، أبحاث السوق، المصادر العامة والمتخصصة، إلخ.",
     rows: 6,
@@ -964,47 +995,55 @@ const REPORT_DEFAULTS_SCOPE_FIELDS: ReportDefaultsField[] = [
 const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
   {
     key: "assetSubjectDescription",
+    limit: 4000,
     label: "19.0 الأصل محل التقييم — وصف عام",
     helper: "نص افتراضي يلي العنوان «19.0 الأصل محل التقييم»؛ يُستبدل تلقائياً بالقيم الديناميكية للمشروع.",
     rows: 4,
   },
   {
     key: "assetDetailedDescription",
+    limit: 6000,
     label: "19.1 الوصف الجزئي",
     helper: "نص افتراضي يلي العنوان «19.1 الوصف الجزئي» — يُحال إلى المرفقات للتفاصيل.",
     rows: 5,
   },
   {
     key: "methodologyRationale",
+    limit: 6000,
     label: "24.0 منهجية التقييم",
     rows: 6,
   },
   {
     key: "costApproachDetails",
+    limit: 6000,
     label: "25.0 تطبيق أسلوب التقييم (السوق / التكلفة / الدخل)",
     helper: "نص افتراضي يصف الأسلوب المعتمد وتطبيقه — يتغير العنوان تلقائياً في التقرير حسب «أسلوب التقييم» المختار في بيانات المشروع.",
     rows: 7,
   },
   {
     key: "salvageValueDescription",
+    limit: 4000,
     label: "25.1 القيمة المتبقية",
     helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 5,
   },
   {
     key: "physicalDepreciationDescription",
+    limit: 6000,
     label: "25.2 الإهلاك المادي",
     helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 7,
   },
   {
     key: "functionalObsolescenceDescription",
+    limit: 4000,
     label: "25.3 التقادم الوظيفي",
     helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 4,
   },
   {
     key: "economicObsolescenceDescription",
+    limit: 4000,
     label: "25.4 التقادم الاقتصادي",
     helper: "تظهر تلقائياً في التقرير فقط مع أسلوب التكلفة.",
     rows: 4,
@@ -1014,12 +1053,14 @@ const REPORT_DEFAULTS_METHODOLOGY_FIELDS: ReportDefaultsField[] = [
 const REPORT_DEFAULTS_ASSUMPTIONS_FIELDS: ReportDefaultsField[] = [
   {
     key: "generalAssumptions",
+    limit: 6000,
     label: "افتراضات عامة",
     helper: "افتراضات مهمة عامة تنطبق على كل تقرير — يمكن استبدالها لكل مشروع عند الحاجة.",
     rows: 10,
   },
   {
     key: "specialAssumptions",
+    limit: 4000,
     label: "افتراضات خاصة",
     helper: "افتراضات إضافية ترتبط بطبيعة مشاريع الشركة.",
     rows: 6,
@@ -1044,6 +1085,7 @@ type ReportDefaultsNode =
       kind: "field";
       label: string;
       rows: number;
+      limit: number;
       fieldSection: ReportDefaultsBuiltInSectionKey;
       fieldKey: string;
       value: string;
@@ -1052,6 +1094,7 @@ type ReportDefaultsNode =
       id: string;
       kind: "custom";
       label: string;
+      limit: number;
       section: CompanyReportCustomSectionForm;
       value: string;
     };
@@ -1123,6 +1166,7 @@ function buildReportDefaultsNodes(
           kind: "field" as const,
           label: field.label,
           rows: field.rows ?? 5,
+          limit: field.limit,
           fieldSection: section.builtInKey!,
           fieldKey: field.key,
           value: defaults[section.builtInKey!][field.key as keyof (typeof defaults)[typeof section.builtInKey]] ?? "",
@@ -1135,6 +1179,7 @@ function buildReportDefaultsNodes(
       id: item.id,
       kind: "custom" as const,
       label: item.sectionNumber ? `${item.sectionNumber} - ${item.title || "بند جديد"}` : item.title || "بند جديد",
+      limit: REPORT_DEFAULTS_CUSTOM_BODY_LIMIT,
       section: item,
       value: item.body,
     }));
@@ -1168,8 +1213,11 @@ function buildStandardReportSectionModel(
       existingSectionsByAnchor.get(seed.systemAnchor!) ?? existing?.sections.find((section) => section.id === seed.id);
     return {
       ...seed,
-      title: existingSection?.title || seed.title,
-      sectionNumber: existingSection?.sectionNumber || seed.sectionNumber,
+      // Nullish, not falsy: a name cleared in the editor must stay cleared
+      // until the administrator leaves the field, otherwise the seed text
+      // reappears on the next keystroke.
+      title: existingSection?.title ?? seed.title,
+      sectionNumber: existingSection?.sectionNumber ?? seed.sectionNumber,
       visibleInReport: existingSection?.visibleInReport !== false,
       items: seed.items.map((seedItem) => {
         const existingItem = existingItems.get(seedItem.id);
@@ -1180,7 +1228,7 @@ function buildStandardReportSectionModel(
             : seedItem.body;
         return {
           ...seedItem,
-          title: existingItem?.title || seedItem.title,
+          title: existingItem?.title ?? seedItem.title,
           // A system paragraph continues to read from the company defaults
           // until an administrator explicitly writes a replacement in the
           // model editor.
@@ -1196,7 +1244,7 @@ function buildStandardReportSectionModel(
     .filter((group) => group.kind === "custom")
     .map((group) => ({
       id: `custom-group:${group.id}`,
-      title: existing?.sections.find((section) => section.id === `custom-group:${group.id}`)?.title || group.title,
+      title: existing?.sections.find((section) => section.id === `custom-group:${group.id}`)?.title ?? group.title,
       visibleInReport:
         existing?.sections.find((section) => section.id === `custom-group:${group.id}`)?.visibleInReport !== false,
       items: defaults.customSections
@@ -1208,7 +1256,7 @@ function buildStandardReportSectionModel(
             ?.items.find((item) => item.id === id);
           return {
             id,
-            title: existingItem?.title || section.title,
+            title: existingItem?.title ?? section.title,
             body: section.body,
             visibleInReport: existingItem?.visibleInReport !== false,
           };
@@ -1218,9 +1266,9 @@ function buildStandardReportSectionModel(
   return {
     id: MV_DEFAULT_REPORT_SECTION_MODEL_ID,
     name:
-      existing?.name && existing.name !== "النموذج القياسي"
-        ? existing.name
-        : "نموذج تقرير مفصل",
+      existing?.name === undefined || existing.name === "النموذج القياسي"
+        ? "نموذج تقرير مفصل"
+        : existing.name,
     // Keep the user's selected default.  This model starts as the default
     // when no saved setting exists, but must not reclaim that status after a
     // different report model is chosen from the dashboard.
@@ -1365,18 +1413,9 @@ async function apiJson<T>(url: string, csrfToken: string, init?: RequestInit): P
     },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as {
-      message?: string;
-      error?: string;
-      details?: { formErrors?: string[]; fieldErrors?: Record<string, string[] | string> };
-    };
-    const fieldErrs = body.details?.fieldErrors;
-    const fieldMsg =
-      fieldErrs &&
-      Object.entries(fieldErrs)
-        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-        .join(" — ");
-    throw new Error(fieldMsg || body.message || body.error || "Request failed");
+    // الخادم يرسل رسالة عربية تشرح الحقل والقاعدة، فتُعرض كما هي.
+    const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+    throw new Error(body.message || body.error || "تعذر حفظ البيانات. حاول مرة أخرى.");
   }
   return (await response.json()) as T;
 }
@@ -2020,10 +2059,14 @@ export default function CompanyAdminDashboard({
   variant,
   mode = "general",
   productId,
+  tab,
+  hideTabList = false,
 }: {
   variant: CompanyAdminDashboardVariant;
   mode?: CompanyAdminDashboardMode;
   productId?: ValueTechProductId;
+  tab?: string;
+  hideTabList?: boolean;
 }) {
   const { user, profile, csrfToken, loading, backendUnavailable, updateProfile } = useAuthTracking();
   const [data, setData] = useState<{
@@ -2149,6 +2192,21 @@ export default function CompanyAdminDashboard({
 
   const reportDefaultsOnly = mode === "report-defaults";
   const isCompanyAdmin = user?.role === "company_admin";
+
+  const modeTabs = tabsForMode(mode);
+  const [activeTab, setActiveTab] = useState<string>(
+    tab && modeTabs.includes(tab) ? tab : modeTabs[0]!,
+  );
+  useEffect(() => {
+    const nextTabs = tabsForMode(mode);
+    if (tab && nextTabs.includes(tab)) {
+      setActiveTab(tab);
+      return;
+    }
+    setActiveTab(nextTabs[0]!);
+  }, [mode, tab]);
+  // حماية إضافية للعرض الأول بعد تغيّر الوضع وقبل تنفيذ التأثير أعلاه.
+  const currentTab = modeTabs.includes(activeTab) ? activeTab : modeTabs[0]!;
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -3495,6 +3553,7 @@ export default function CompanyAdminDashboard({
                         })
                       }
                       placeholder="الرقم"
+                      maxLength={REPORT_DEFAULTS_CUSTOM_SECTION_NUMBER_LIMIT}
                       dir="ltr"
                       className="h-9 rounded-lg border-slate-200 text-[12px] font-bold"
                     />
@@ -3506,6 +3565,7 @@ export default function CompanyAdminDashboard({
                         })
                       }
                       placeholder="عنوان البند"
+                      maxLength={REPORT_DEFAULTS_CUSTOM_TITLE_LIMIT}
                       className="h-9 rounded-lg border-slate-200 text-[12px] font-black"
                     />
                     <Button
@@ -3540,9 +3600,22 @@ export default function CompanyAdminDashboard({
                     }
                   }}
                   rows={activeReportDefaultsNode.kind === "field" ? activeReportDefaultsNode.rows : 14}
+                  maxLength={activeReportDefaultsNode.limit}
                   dir="rtl"
                   className="min-h-[410px] flex-1 resize-none rounded-xl border-slate-200 bg-white px-3 py-2 text-[12.5px] font-medium leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100"
                 />
+                <p
+                  className={cn(
+                    "text-[11px] font-bold",
+                    activeReportDefaultsNode.value.length >= activeReportDefaultsNode.limit
+                      ? "text-amber-700"
+                      : "text-slate-400",
+                  )}
+                >
+                  {activeReportDefaultsNode.value.length >= activeReportDefaultsNode.limit
+                    ? `بلغت الحد الأقصى ${activeReportDefaultsNode.limit} حرفاً لهذا البند؛ اختصر النص لإكمال الحفظ.`
+                    : `${activeReportDefaultsNode.value.length} من ${activeReportDefaultsNode.limit} حرفاً`}
+                </p>
               </div>
             ) : (
               <div className="flex min-h-[485px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white text-[12px] font-bold text-slate-400">
@@ -3689,6 +3762,7 @@ export default function CompanyAdminDashboard({
           variant === "embedded" ? "max-w-[1400px]" : "max-w-[1200px]",
         )}
       >
+        {hideTabList ? null : (
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-[#0C447C] text-white shadow-md shadow-sky-900/15">
@@ -3704,6 +3778,7 @@ export default function CompanyAdminDashboard({
             </div>
           </div>
         </div>
+        )}
 
         {loadError ? (
           <p className="mb-4 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -3722,11 +3797,12 @@ export default function CompanyAdminDashboard({
         ) : null}
 
         <Tabs
-          defaultValue={reportDefaultsOnly ? "word-template" : "info"}
+          value={currentTab}
+          onValueChange={setActiveTab}
           className="flex min-h-0 flex-col gap-4"
           dir="rtl"
         >
-          {reportDefaultsOnly ? (
+          {hideTabList ? null : reportDefaultsOnly ? (
             <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
               <TabsTrigger
                 value="word-template"
@@ -4372,6 +4448,7 @@ export default function CompanyAdminDashboard({
                                 })
                               }
                               placeholder="رقم"
+                              maxLength={REPORT_DEFAULTS_CUSTOM_SECTION_NUMBER_LIMIT}
                               dir="ltr"
                               className="h-9 rounded-lg border-slate-200 text-[12px] font-bold"
                             />
@@ -4383,6 +4460,7 @@ export default function CompanyAdminDashboard({
                                 })
                               }
                               placeholder="عنوان البند"
+                              maxLength={REPORT_DEFAULTS_CUSTOM_TITLE_LIMIT}
                               className="h-9 rounded-lg border-slate-200 text-[12px] font-black"
                             />
                             <Button
@@ -4417,9 +4495,22 @@ export default function CompanyAdminDashboard({
                             }
                           }}
                           rows={activeReportDefaultsNode.kind === "field" ? activeReportDefaultsNode.rows : 14}
+                          maxLength={activeReportDefaultsNode.limit}
                           dir="rtl"
                           className="min-h-[390px] flex-1 resize-none rounded-xl border-slate-200 bg-white px-3 py-2 text-[12.5px] font-medium leading-7 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-100"
                         />
+                        <p
+                          className={cn(
+                            "text-[11px] font-bold",
+                            activeReportDefaultsNode.value.length >= activeReportDefaultsNode.limit
+                              ? "text-amber-700"
+                              : "text-slate-400",
+                          )}
+                        >
+                          {activeReportDefaultsNode.value.length >= activeReportDefaultsNode.limit
+                            ? `بلغت الحد الأقصى ${activeReportDefaultsNode.limit} حرفاً لهذا البند؛ اختصر النص لإكمال الحفظ.`
+                            : `${activeReportDefaultsNode.value.length} من ${activeReportDefaultsNode.limit} حرفاً`}
+                        </p>
                       </div>
                     ) : (
                       <div className="flex min-h-[500px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[12px] font-bold text-slate-400">
@@ -4442,37 +4533,42 @@ export default function CompanyAdminDashboard({
                 <Tabs
                   value={reportStudioTab}
                   onValueChange={setReportStudioTab}
-                  className="grid grid-cols-[138px_minmax(0,1fr)] gap-2 sm:grid-cols-[164px_minmax(0,1fr)]"
+                  className="flex min-h-0 flex-col gap-4"
                   dir="rtl"
                 >
-                  <aside className="self-start lg:sticky lg:top-2">
-                    <TabsList className="flex h-auto w-full flex-col items-stretch gap-1 rounded-xl border border-slate-200 bg-slate-50/80 p-1 shadow-sm">
-                      <TabsTrigger value="system-template" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
-                        <Palette className="h-3.5 w-3.5 shrink-0" />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0 flex-1 border-b border-slate-200">
+                    <TabsList className="h-auto w-full justify-start gap-0 rounded-none bg-transparent p-0 sm:w-auto">
+                      <TabsTrigger
+                        value="system-template"
+                        className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
+                      >
                         قالب النظام
                       </TabsTrigger>
-                      <TabsTrigger value="company-letterhead" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
-                        <Stamp className="h-3.5 w-3.5 shrink-0" />
+                      <TabsTrigger
+                        value="company-letterhead"
+                        className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
+                      >
                         أكلاشية الشركة
                       </TabsTrigger>
-                      <TabsTrigger value="report-sections" className="h-auto justify-start gap-1.5 whitespace-normal rounded-lg px-2 py-2 text-right text-[10px] font-bold leading-4 text-slate-600 data-[state=active]:bg-[#0C447C] data-[state=active]:text-white data-[state=active]:shadow-sm sm:text-[11px]">
-                        <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                      <TabsTrigger
+                        value="report-sections"
+                        className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
+                      >
                         أقسام وتعريفات التقرير
                       </TabsTrigger>
                     </TabsList>
-                    {reportDefaultsDirty ? (
-                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[9px] font-bold leading-4 text-amber-800 sm:text-[10px]">
-                        توجد تعديلات غير محفوظة ← استخدم أيقونة الحفظ
-                      </div>
-                    ) : null}
-                  </aside>
-
-                  <div className="min-w-0">
-                    <div className="sticky top-2 z-20 mb-2 flex justify-end">
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      {reportDefaultsDirty ? (
+                        <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
+                          توجد تعديلات غير محفوظة
+                        </span>
+                      ) : null}
                       <Button
                         type="button"
                         size="icon"
-                        className="h-8 w-8 rounded-lg bg-[#0C447C] text-white shadow-md hover:bg-[#0a3a66]"
+                        className="h-9 w-9 rounded-xl bg-[#0C447C] text-white shadow-md hover:bg-[#0a3a66]"
                         disabled={!reportDefaultsDirty || reportDefaultsSaving}
                         onClick={() => void persistReportDefaults()}
                         title="حفظ التعديلات"
@@ -4481,6 +4577,9 @@ export default function CompanyAdminDashboard({
                         {reportDefaultsSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                       </Button>
                     </div>
+                  </div>
+
+                  <div className="min-w-0">
 
                   <TabsContent value="system-template" className="m-0 space-y-3 outline-none">
                     <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -4658,10 +4757,9 @@ export default function CompanyAdminDashboard({
                       saving={reportDefaultsSaving}
                       onSave={() => persistReportDefaults()}
                       onChange={(models) => {
-                        const normalized = normalizeReportSectionModels(models);
-                        setReportDefaults((current) =>
-                          mergeStandardReportSectionModel(current, normalized),
-                        );
+                        // Store the editor draft as-is; normalizing here would
+                        // trim the text while the administrator is still typing.
+                        setReportDefaults((current) => mergeStandardReportSectionModel(current, models));
                         setReportDefaultsDirty(true);
                       }}
                     />
@@ -4725,10 +4823,9 @@ export default function CompanyAdminDashboard({
                 saving={reportDefaultsSaving}
                 dirty={reportDefaultsDirty}
                 onChange={(models) => {
-                  setReportDefaults((current) => ({
-                    ...current,
-                    reportDataModels: normalizeReportDataModels(models),
-                  }));
+                  // Store the editor draft as-is; normalizing here would trim
+                  // the text while the administrator is still typing.
+                  setReportDefaults((current) => ({ ...current, reportDataModels: models }));
                   setReportDefaultsDirty(true);
                 }}
                 onSave={() => void persistReportDefaults()}
