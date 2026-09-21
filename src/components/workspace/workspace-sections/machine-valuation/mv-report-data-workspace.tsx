@@ -77,6 +77,7 @@ import {
   normalizeReportDataModels,
   type MvReportDataModel,
 } from "./mv-report-data-models";
+import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 import { systemArabicFont as reportFont } from "@/lib/system-fonts";
 
@@ -166,12 +167,17 @@ const EMPTY_REPORT_DATA: MvProjectReportData = {
   customSections: [],
 };
 
-function normalizeReportData(data: MvProjectReportData | undefined | null): MvProjectReportData {
+function normalizeReportData(
+  data: MvProjectReportData | undefined | null,
+  project?: Pick<MvProject, "referenceNumber" | "displayNumber"> | null,
+): MvProjectReportData {
   const finalValue =
     typeof data?.finalValue === "number" && Number.isFinite(data.finalValue) ? data.finalValue : null;
+  const serialReference = projectSerialLabel(project ?? {}) ?? "";
   return {
     ...EMPTY_REPORT_DATA,
     ...(data ?? {}),
+    reportReference: (data?.reportReference ?? "").trim() || serialReference,
     assetSingularPlural:
       data?.assetSingularPlural?.trim() || DEFAULT_ASSET_SINGULAR_PLURAL,
     assetSubjectDescription:
@@ -340,7 +346,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     () => new Set(["report-data"]),
   );
   const [reportData, setReportData] = useState<MvProjectReportData>(() =>
-    normalizeReportData(initialCached?.project.reportData),
+    normalizeReportData(initialCached?.project.reportData, initialCached?.project),
   );
   const [editableProjectName, setEditableProjectName] = useState(() => initialCached?.project.name ?? "");
   const [machineClients, setMachineClients] = useState<MachineClient[]>([]);
@@ -445,7 +451,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       );
       if (!projectNameDirtyRef.current) setEditableProjectName(payload.project.name ?? "");
       if (!reportDataDirtyRef.current) {
-        const nextReportData = normalizeReportData(payload.project.reportData);
+        const nextReportData = normalizeReportData(payload.project.reportData, payload.project);
         setReportData(nextReportData);
         setOpenSections(createMvReportCollapsibleState(false));
       }
@@ -474,7 +480,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     setSubProjects(cached?.project?._id === projectId ? cached.subProjects : []);
     if (cached?.project?._id === projectId) {
       setEditableProjectName(cached.project.name ?? "");
-      setReportData(normalizeReportData(cached.project.reportData));
+      setReportData(normalizeReportData(cached.project.reportData, cached.project));
       setOpenSections(createMvReportCollapsibleState(false));
     } else {
       setEditableProjectName("");
@@ -764,13 +770,16 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     pendingNavigationRef.current = null;
 
     const sourceReportData = reportDataOverride ?? reportData;
-    const normalizedData = normalizeReportData({
-      ...sourceReportData,
-      finalValueWords:
-        sourceReportData.finalValue == null
-          ? ""
-          : numberToArabicRiyalWords(sourceReportData.finalValue),
-    });
+    const normalizedData = normalizeReportData(
+      {
+        ...sourceReportData,
+        finalValueWords:
+          sourceReportData.finalValue == null
+            ? ""
+            : numberToArabicRiyalWords(sourceReportData.finalValue),
+      },
+      project,
+    );
 
     try {
       setSaving(true);
@@ -794,7 +803,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       };
       setProject(updated);
       setEditableProjectName(updated.name);
-      setReportData(normalizeReportData(updated.reportData));
+      setReportData(normalizeReportData(updated.reportData, updated));
       setInvalidFieldKeys(new Set());
       setMissingFieldLabels([]);
       markClean();
@@ -868,10 +877,10 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     if (!window.confirm(t("reportData.reset.confirm"))) return;
     reportDataDirtyRef.current = true;
     markDirty();
-    setReportData(applyReportDataModel(normalizeReportData(null), activeReportDataModel));
+    setReportData(applyReportDataModel(normalizeReportData(null, project), activeReportDataModel));
     setOpenSections(createMvReportCollapsibleState(true));
     toast({ description: t("reportData.reset.done") });
-  }, [activeReportDataModel, markDirty, t, toast]);
+  }, [activeReportDataModel, markDirty, project, t, toast]);
 
   const handleProjectNameChange = useCallback(
     (value: string) => {
@@ -919,7 +928,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         );
         return merged;
       });
-      setReportData(normalizeReportData(updated.reportData));
+      setReportData(normalizeReportData(updated.reportData, updated));
       markClean();
       invalidateMvApiCache("projects:");
       invalidateMvApiCache(`project-summary:${projectId}`);

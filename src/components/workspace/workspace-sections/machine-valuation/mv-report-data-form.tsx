@@ -52,6 +52,7 @@ import {
 } from "./mv-report-preparers";
 import type { MvProject, MvProjectReportData, MvReportTeamMember } from "./types";
 import type { MvReportDataModel } from "./mv-report-data-models";
+import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import {
   MvReportAddFieldModal,
   MvReportAddSectionModal,
@@ -730,7 +731,7 @@ export function MvReportDataForm({
             </ReportField>
             <ReportField label={modelFieldLabel("reportReference", t("reportData.fields.reference"))} invalid={fieldInvalid("reportReference")} hidden={!showModelField("reportReference")}>
               <Input
-                value={reportData.reportReference ?? ""}
+                value={reportData.reportReference?.trim() || projectSerialLabel(project) || ""}
                 onChange={(event) => onReportDataChange({ reportReference: event.target.value })}
                 className={cn(inputClass, "text-left")}
                 dir="ltr"

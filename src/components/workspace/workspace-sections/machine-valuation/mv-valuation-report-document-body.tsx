@@ -643,6 +643,36 @@ function textValue(value: string | number | null | undefined, fallback = "غير
   return text || fallback;
 }
 
+function isProjectIdFallbackLabel(value: string, projectId: string): boolean {
+  const trimmed = value.trim();
+  const id = projectId.trim();
+  if (!trimmed || !id) return false;
+  return trimmed === id || trimmed === id.slice(-12) || trimmed === id.slice(-8);
+}
+
+/**
+ * الرقم المرجعي على الغلاف = حقل بيانات التقرير (المتسلسل القابل للتعديل)،
+ * وليس مقطع معرّف Mongo الذي كان يظهر كرقم عشوائي.
+ */
+function resolveCoverReportReference(args: {
+  reportReference?: string | null;
+  projectReferenceNumber?: string | null;
+  displayNumber?: number | null;
+  textOverride?: string | null;
+  projectId?: string | null;
+}): string {
+  const fromForm = (args.reportReference ?? "").trim();
+  if (fromForm) return fromForm;
+  const fromSerial = (args.projectReferenceNumber ?? "").trim();
+  if (fromSerial) return fromSerial;
+  if (typeof args.displayNumber === "number" && Number.isFinite(args.displayNumber)) {
+    return String(args.displayNumber);
+  }
+  const override = (args.textOverride ?? "").trim();
+  if (override && !isProjectIdFallbackLabel(override, args.projectId ?? "")) return override;
+  return "";
+}
+
 /**
  * يُستخرج رقم عضوية المقيم المعتمد للغلاف من:
  * 1) بيانات المشروع ‎leadValuerMembershipNo‎
@@ -1374,7 +1404,6 @@ export function MvValuationReportDocumentBody({
   onReportDataPatch,
   companyReportDefaults,
 }: MvValuationReportDocumentBodyProps) {
-  const fallbackReferenceLabel = project?._id ? String(project._id).slice(-12) : projectId;
   const isBuiltInDetailedModel = reportSectionModel?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID;
   const builtInModelSectionByAnchor = new Map(
     isBuiltInDetailedModel
@@ -1497,7 +1526,13 @@ export function MvValuationReportDocumentBody({
       placeholder="—"
     />
   );
-  const referenceLabel = editableText("reportReference", textValue(reportData.reportReference, fallbackReferenceLabel));
+  const referenceLabel = resolveCoverReportReference({
+    reportReference: reportData.reportReference,
+    projectReferenceNumber: project?.referenceNumber,
+    displayNumber: project?.displayNumber,
+    textOverride: hasTextOverride("reportReference") ? textOverrides.reportReference : null,
+    projectId: project?._id ? String(project._id) : projectId,
+  });
   const reportTitle = editableText("reportTitle", textValue(reportData.reportTitle, "تقرير تقييم معدات وآلات"));
   const { logoSrc, commercialRegistration: companyCommercialRegistration } = companyBrand;
   const companyName = editableText("valuationFirmName", textValue(reportData.valuationFirmName, companyBrand.name));
@@ -1681,7 +1716,16 @@ export function MvValuationReportDocumentBody({
           {kicker("cover.reportReference", "الرقم المرجعي")}
           {inlineValue(
             referenceLabel,
-            (value) => setTextOverride("reportReference", value),
+            (value) => {
+              const nextOverrides = { ...textOverrides };
+              if (Object.prototype.hasOwnProperty.call(nextOverrides, "reportReference")) {
+                delete nextOverrides.reportReference;
+              }
+              onReportDataPatch({
+                reportReference: value,
+                reportTextOverrides: nextOverrides,
+              });
+            },
             cn(primaryClass, "[unicode-bidi:plaintext]"),
             "—",
             "ltr",
