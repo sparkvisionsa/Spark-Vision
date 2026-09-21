@@ -21,6 +21,7 @@ export interface MvReportExportMenuProps {
   onExport: (format: MvReportExportFormat) => void;
   variant?: "toolbar" | "preview";
   className?: string;
+  hiddenFormats?: MvReportExportFormat[];
 }
 
 export function MvReportExportMenu({
@@ -29,6 +30,7 @@ export function MvReportExportMenu({
   onExport,
   variant = "toolbar",
   className,
+  hiddenFormats = [],
 }: MvReportExportMenuProps) {
   const { t } = useMvI18n();
   const exporting = exportingFormat != null;
@@ -70,7 +72,8 @@ export function MvReportExportMenu({
     },
   ];
 
-  const activeOption = formatOptions.find((opt) => opt.id === exportingFormat);
+  const visibleFormatOptions = formatOptions.filter((option) => !hiddenFormats.includes(option.id));
+  const activeOption = visibleFormatOptions.find((opt) => opt.id === exportingFormat);
 
   return (
     <DropdownMenu modal={false}>
@@ -99,12 +102,12 @@ export function MvReportExportMenu({
           {!exporting ? <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-85" /> : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="z-[760] min-w-[12.5rem] rounded-xl p-1.5">
+      <DropdownMenuContent align="end" className="z-[980] min-w-[12.5rem] rounded-xl p-1.5">
         <DropdownMenuLabel className="px-2 py-1 text-[10px] font-black text-slate-500">
           {t("report.exportMenu.chooseFormat")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {formatOptions.map((opt) => {
+        {visibleFormatOptions.map((opt) => {
           const Icon = opt.icon;
           const isActive = exportingFormat === opt.id;
           return (

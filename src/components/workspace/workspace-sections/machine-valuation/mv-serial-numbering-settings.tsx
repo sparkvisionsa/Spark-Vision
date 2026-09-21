@@ -4,15 +4,16 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { Check, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { toApiUrl } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_REFERENCE_NUMBER_PATTERN,
   formatReferenceNumber,
+  inspectPrefixLettersInput,
   sanitizePrefixLetters,
   sanitizeReferenceNumberPattern,
+  type PrefixLettersIssue,
   type ReferenceNumberPattern,
   type ReferencePrefixKind,
   type ReferenceValueType,
@@ -43,6 +44,68 @@ async function serialApi<T>(url: string, csrfToken: string, init?: RequestInit):
     throw new Error(body.message || body.error || "تعذر حفظ البيانات. حاول مرة أخرى.");
   }
   return body;
+}
+
+function SettingsChoice({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  offLabel,
+  onLabel,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  offLabel: string;
+  onLabel: string;
+}) {
+  return (
+    <div className="border-t border-slate-100 py-3">
+      <p id={`${id}-label`} className="text-[13px] font-medium text-slate-700">
+        {label}
+      </p>
+      {hint ? <p className="mt-1 text-[11px] leading-5 text-slate-500">{hint}</p> : null}
+      <div
+        role="radiogroup"
+        aria-labelledby={`${id}-label`}
+        dir="ltr"
+        className="mt-2 grid max-w-[12.5rem] grid-cols-2 gap-0.5 rounded-lg bg-slate-100 p-0.5"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!value}
+          onClick={() => onChange(false)}
+          className={cn(
+            "h-7 rounded-md text-[11px] font-semibold transition",
+            !value
+              ? "bg-white text-slate-900 shadow-sm ring-1 ring-black/5"
+              : "text-slate-500 hover:bg-white/60 hover:text-slate-800",
+          )}
+        >
+          {offLabel}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value}
+          onClick={() => onChange(true)}
+          className={cn(
+            "h-7 rounded-md text-[11px] font-semibold transition",
+            value
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-500 hover:bg-white/60 hover:text-slate-800",
+          )}
+        >
+          {onLabel}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function SettingsRow({
@@ -76,6 +139,7 @@ export default function MvSerialNumberingSettings() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [lettersIssue, setLettersIssue] = useState<PrefixLettersIssue | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -87,6 +151,7 @@ export default function MvSerialNumberingSettings() {
       setPattern(sanitizeReferenceNumberPattern(payload.settings?.referenceNumber));
       setCurrentCounter(payload.currentCounter ?? 0);
       setNextSequence(payload.nextSequence ?? 1);
+      setLettersIssue(null);
       setLoaded(true);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : t("settingsHub.loadFailed"));
@@ -105,10 +170,38 @@ export default function MvSerialNumberingSettings() {
     pattern.hasPrefix && prefixKinds.includes("letters") && !pattern.prefixLetters.trim();
   const prefixKindsMissing = pattern.hasPrefix && prefixKinds.length === 0;
 
+  const prefixLettersError =
+    lettersIssue === "arabic"
+      ? t("settingsHub.prefixLettersArabic")
+      : lettersIssue === "digits"
+        ? t("settingsHub.prefixLettersDigits")
+        : lettersIssue === "invalid"
+          ? t("settingsHub.prefixLettersInvalid")
+          : lettersIssue === "tooLong"
+            ? t("settingsHub.prefixLettersTooLong")
+            : null;
+
   const updatePattern = (patch: Partial<ReferenceNumberPattern>) => {
     setPattern((current) => sanitizeReferenceNumberPattern({ ...current, ...patch }));
     setStatus(null);
     setSubmitError(null);
+  };
+
+  const onPrefixLettersChange = (raw: string) => {
+    const issue = inspectPrefixLettersInput(raw);
+    setLettersIssue(issue);
+    updatePattern({ prefixLetters: sanitizePrefixLetters(raw) });
+    if (issue) {
+      setSubmitError(
+        issue === "arabic"
+          ? t("settingsHub.prefixLettersArabic")
+          : issue === "digits"
+            ? t("settingsHub.prefixLettersDigits")
+            : issue === "invalid"
+              ? t("settingsHub.prefixLettersInvalid")
+              : t("settingsHub.prefixLettersTooLong"),
+      );
+    }
   };
 
   const togglePrefixKind = (kind: ReferencePrefixKind) => {
@@ -125,6 +218,10 @@ export default function MvSerialNumberingSettings() {
     }
     if (prefixMissing) {
       setSubmitError(t("settingsHub.prefixLettersRequired"));
+      return;
+    }
+    if (lettersIssue) {
+      setSubmitError(prefixLettersError);
       return;
     }
     setBusy(true);
@@ -175,7 +272,7 @@ export default function MvSerialNumberingSettings() {
           type="button"
           size="sm"
           className="h-8 shrink-0 gap-1.5 rounded-lg bg-[#0C447C] px-3 text-[12px] font-semibold hover:bg-[#0a3a66]"
-          disabled={busy || !loaded}
+          disabled={busy || !loaded || Boolean(lettersIssue)}
           onClick={() => void save()}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -235,25 +332,17 @@ export default function MvSerialNumberingSettings() {
             />
           </SettingsRow>
 
-          <SettingsRow label={t("settingsHub.hasPrefix")} htmlFor="reference-has-prefix">
-            <div className="flex items-center gap-2" dir="ltr">
-              <span className={cn("text-[10px] font-bold", pattern.hasPrefix ? "text-slate-400" : "text-slate-600")}>
-                {t("settingsHub.off")}
-              </span>
-              <Switch
-                id="reference-has-prefix"
-                checked={pattern.hasPrefix}
-                onCheckedChange={(checked) => updatePattern({ hasPrefix: checked })}
-                dir="ltr"
-                className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-slate-300"
-              />
-              <span className={cn("text-[10px] font-bold", pattern.hasPrefix ? "text-emerald-700" : "text-slate-400")}>
-                {t("settingsHub.on")}
-              </span>
-            </div>
-          </SettingsRow>
+          <SettingsChoice
+            id="reference-has-prefix"
+            label={t("settingsHub.hasPrefix")}
+            value={pattern.hasPrefix}
+            onChange={(hasPrefix) => updatePattern({ hasPrefix })}
+            offLabel={t("settingsHub.off")}
+            onLabel={t("settingsHub.on")}
+          />
 
           {pattern.hasPrefix ? (
+            <>
             <SettingsRow label={t("settingsHub.prefixKind")}>
               <div className="flex flex-col gap-2">
                 <div className="flex flex-wrap gap-1.5">
@@ -290,21 +379,40 @@ export default function MvSerialNumberingSettings() {
                   })}
                 </div>
                 {prefixKinds.includes("letters") ? (
-                  <Input
-                    id="reference-prefix-letters"
-                    value={pattern.prefixLetters}
-                    onChange={(event) =>
-                      updatePattern({ prefixLetters: sanitizePrefixLetters(event.target.value) })
-                    }
-                    placeholder="NX"
-                    className="h-8 w-28 rounded-lg text-left text-[13px] font-semibold tracking-wide"
-                    dir="ltr"
-                    maxLength={8}
-                    aria-label={t("settingsHub.prefixLetters")}
-                  />
+                  <div className="space-y-1.5">
+                    <Input
+                      id="reference-prefix-letters"
+                      value={pattern.prefixLetters}
+                      onChange={(event) => onPrefixLettersChange(event.target.value)}
+                      placeholder="SV"
+                      className={cn(
+                        "h-8 w-28 rounded-lg text-left text-[13px] font-semibold tracking-wide",
+                        prefixLettersError && "border-rose-400 ring-2 ring-rose-100 focus-visible:ring-rose-200",
+                      )}
+                      dir="ltr"
+                      aria-invalid={Boolean(prefixLettersError) || undefined}
+                      aria-describedby={prefixLettersError ? "reference-prefix-letters-error" : undefined}
+                      aria-label={t("settingsHub.prefixLetters")}
+                    />
+                    {prefixLettersError ? (
+                      <p id="reference-prefix-letters-error" className="text-[12px] font-semibold text-rose-700" role="alert">
+                        {prefixLettersError}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </SettingsRow>
+            <SettingsChoice
+              id="reference-separate-prefix"
+              label={t("settingsHub.separatePrefix")}
+              hint={t("settingsHub.separatePrefixHint")}
+              value={pattern.separatePrefix}
+              onChange={(separatePrefix) => updatePattern({ separatePrefix })}
+              offLabel={t("settingsHub.off")}
+              onLabel={t("settingsHub.on")}
+            />
+            </>
           ) : null}
         </div>
       )}

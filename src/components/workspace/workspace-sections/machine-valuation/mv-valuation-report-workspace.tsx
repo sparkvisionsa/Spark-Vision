@@ -4277,6 +4277,7 @@ export default function MvValuationReportWorkspace({
                 disabled={exportActionsDisabled}
                 exportingFormat={exportingFormat}
                 onExport={handleReportExport}
+                hiddenFormats={embeddedSystemReport ? ["docx-template"] : undefined}
               />
 
               <Button
@@ -5044,6 +5045,7 @@ export default function MvValuationReportWorkspace({
               disabled={exportActionsDisabled}
               exportingFormat={exportingFormat}
               onExport={handleReportExport}
+              hiddenFormats={embeddedSystemReport ? ["docx-template"] : undefined}
               className="self-end sm:self-auto"
             />
           </DialogHeader>

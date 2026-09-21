@@ -14,6 +14,8 @@ export type ReferenceNumberPattern = {
   hasPrefix: boolean;
   prefixKinds: ReferencePrefixKind[];
   prefixLetters: string;
+  /** عند true تُدرج شرطة (-) بين أجزاء البادئة والرقم المتسلسل. */
+  separatePrefix: boolean;
 };
 
 export type CompanySerialNumberingSettings = {
@@ -26,6 +28,7 @@ export const DEFAULT_REFERENCE_NUMBER_PATTERN: ReferenceNumberPattern = {
   hasPrefix: false,
   prefixKinds: ["letters"],
   prefixLetters: "",
+  separatePrefix: false,
 };
 
 const MAX_LENGTH = 12;
@@ -42,9 +45,23 @@ function isPrefixKind(value: unknown): value is ReferencePrefixKind {
 export function sanitizePrefixLetters(value: unknown): string {
   if (typeof value !== "string") return "";
   return value
-    .replace(/[^A-Za-z0-9]/g, "")
+    .replace(/[^A-Za-z]/g, "")
     .toUpperCase()
     .slice(0, MAX_PREFIX_LETTERS);
+}
+
+export type PrefixLettersIssue = "arabic" | "digits" | "invalid" | "tooLong";
+
+const ARABIC_LETTER_RE =
+  /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+export function inspectPrefixLettersInput(raw: string): PrefixLettersIssue | null {
+  if (!raw) return null;
+  if (ARABIC_LETTER_RE.test(raw)) return "arabic";
+  if (/\d/.test(raw)) return "digits";
+  if (/[^A-Za-z]/.test(raw)) return "invalid";
+  if (raw.length > MAX_PREFIX_LETTERS) return "tooLong";
+  return null;
 }
 
 function uniquePrefixKinds(values: unknown[]): ReferencePrefixKind[] {
@@ -78,6 +95,7 @@ export function sanitizeReferenceNumberPattern(raw: unknown): ReferenceNumberPat
     hasPrefix: source.hasPrefix === true,
     prefixKinds,
     prefixLetters: sanitizePrefixLetters(source.prefixLetters),
+    separatePrefix: source.separatePrefix === true,
   };
 }
 
@@ -117,6 +135,10 @@ function twoDigit(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+function prefixGlue(pattern: ReferenceNumberPattern) {
+  return pattern.separatePrefix ? "-" : "";
+}
+
 export function resolveReferencePrefix(pattern: ReferenceNumberPattern, at: Date = new Date()): string {
   if (!pattern.hasPrefix) return "";
   const kinds =
@@ -133,7 +155,7 @@ export function resolveReferencePrefix(pattern: ReferenceNumberPattern, at: Date
       if (letters) parts.push(letters);
     }
   }
-  return parts.join("-");
+  return parts.join(prefixGlue(pattern));
 }
 
 export function formatReferenceNumber(
@@ -143,7 +165,9 @@ export function formatReferenceNumber(
 ): string {
   const body = encodeSerialBody(pattern, sequence);
   const prefix = resolveReferencePrefix(pattern, at);
-  return prefix ? `${prefix}-${body}` : body;
+  if (!prefix) return body;
+  const glue = prefixGlue(pattern);
+  return glue ? `${prefix}${glue}${body}` : `${prefix}${body}`;
 }
 
 export function projectSerialLabel(project: {

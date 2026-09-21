@@ -395,7 +395,7 @@ export interface MvProject {
    * ثابت بعد الإنشاء؛ يُستخدم كمعرّف مرئي للتقرير.
    */
   displayNumber?: number | null;
-  /** الرقم المرجعي المنسّق حسب إعدادات الشركة، مثل NX-000001. */
+  /** الرقم المرجعي المنسّق حسب إعدادات الشركة، مثل SV000001. */
   referenceNumber?: string | null;
   createdAt: string;
   updatedAt: string;

@@ -169,6 +169,10 @@ export default function HelperToolsModal({
         className="flex h-[min(92dvh,920px)] w-[min(96vw,1440px)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-slate-200 p-0 shadow-2xl"
         onInteractOutside={(event) => {
           if (active || starting) event.preventDefault();
+          const target = event.target as HTMLElement | null;
+          if (target?.closest("[role='alertdialog'], [data-radix-alert-dialog-overlay]")) {
+            event.preventDefault();
+          }
         }}
         onEscapeKeyDown={(event) => {
           if (active || starting) event.preventDefault();
