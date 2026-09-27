@@ -3,8 +3,10 @@
 import React, { useEffect, useState, useContext, useRef, useCallback } from "react";
 import { toApiUrl } from "@/lib/api-url";
 import { useSidebar } from "@/components/ui/sidebar";
-import { SettlementRow } from "./SettlementComparison";
-import { SettlementComparison } from "./SettlementComparison";
+import { SettlementRow, SettlementComparison } from "./SettlementComparison";
+import { DCFSection, totalDCFValue, computeDCFEntry, emptyDCFEntry, type DCFEntry } from "./DCFSection";
+import { RentalValueSection, totalRentalValue, computeRentalEntry, type RentalEntry } from "./RentalValueSection";
+import { ResidualValueSection, computeResidualEntry, totalResidualValue, type ResidualEntry } from "./ResidualValueSection";
 import {
   AppraiserOpinionSection,
   emptyAppraiserData,
@@ -2197,9 +2199,6 @@ export function TransactionEvaluationPage({
   }>({ type: "ok", text: "" });
   const [saving, setSaving] = useState(false);
   const [investmentTitle, setInvestmentTitle] = useState("");
-  const [rvlForm, setRvlForm] = useState({ landSpace: "", rvlId: "" });
-  const [dcfForm, setDcfForm] = useState({ title: "", num: "", date: "" });
-  const [rvForm, setRvForm] = useState({ title: "" });
   const [ev, setEv] = useState(emptyEval());
   const [settlementNumCols] = useState(3);
   const [settlementNotes, setSettlementNotes] = useState(
@@ -3018,6 +3017,9 @@ export function TransactionEvaluationPage({
     { key: "comparison",   label: t.secComparison,                                  icon: <Map size={14} /> },
     { key: "replacement",  label: t.secReplacement,                                 icon: <Wrench size={14} /> },
     { key: "investment",   label: lang === "ar" ? "التحليل الاستثماري" : "Investment Analysis", icon: <BarChart2 size={14} /> },
+    { key: "residual",     label: lang === "ar" ? "القيمة المتبقية" : "Residual Value",         icon: <Scale size={14} /> },
+    { key: "dcf",          label: lang === "ar" ? "التدفقات النقدية (DCF)" : "DCF",              icon: <BarChart2 size={14} /> },
+    { key: "rental",       label: lang === "ar" ? "القيمة الإيجارية" : "Rental Value",           icon: <Building2 size={14} /> },
     { key: "methods",      label: t.secMethods,                                     icon: <BarChart2 size={14} /> },
     { key: "appraiser",    label: t.secAppraiser,                                   icon: <UserCheck size={14} /> },
     { key: "report",       label: lang === "ar" ? "التقرير والمعدين" : "Report & Authors", icon: <ScrollText size={14} /> },
@@ -5426,1227 +5428,76 @@ export function TransactionEvaluationPage({
         })}
       </SectionCard>
 
-      {/* ── Residual Value ──────────────────────────────────────────────────────── */}
-      <SectionCard
-        title={lang === "ar" ? "القيمة المتبقية" : "Residual Value"}
-        accentColor="#0e7490"
-        icon={<Scale size={14} />}
-        lang={lang}
+      </>
+      )}
+      {activeStep === 10 && (
+      <>
 
-      >
-        {/* Add entry form */}
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "flex-end",
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          {(() => {
-            return (
-              <>
-                <Field
-                  label={
-                    lang === "ar" ? "مساحة الموقع العام الخام" : "Raw Land Area"
-                  }
-                >
-                  <Input
-                    type="text"
-                    dir="ltr"
-                    value={rvlForm.landSpace}
-                    onChange={(e) =>
-                      setRvlForm((f) => ({ ...f, landSpace: e.target.value }))
-                    }
-                  />
-                </Field>
-                <Field label={lang === "ar" ? "النوع" : "Type"}>
-                  <Select
-                    value={rvlForm.rvlId}
-                    onChange={(e) =>
-                      setRvlForm((f) => ({ ...f, rvlId: e.target.value }))
-                    }
-                  >
-                    <option value="" disabled>
-                      {lang === "ar"
-                        ? "الرجاء اختيار نوع القيمة المتبقية"
-                        : "Select residual value type"}
-                    </option>
-                    <option value="1">
-                      {lang === "ar" ? "أرض تطويرية" : "Developmental Land"}
-                    </option>
-                    <option value="2">
-                      {lang === "ar" ? "مبنى" : "Building"}
-                    </option>
-                  </Select>
-                </Field>
-                <div style={{ paddingBottom: 2 }}>
-                  <button
-                    type="button"
-                    disabled={!rvlForm.landSpace || !rvlForm.rvlId}
-                    onClick={() => {
-                      setEv((p) => ({
-                        ...p,
-                        residualValueEntries: [
-                          ...p.residualValueEntries,
-                          { ...rvlForm, id: Date.now() },
-                        ],
-                      }));
-                      setRvlForm({ landSpace: "", rvlId: "" });
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "8px 14px",
-                      background: DS.green,
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: DS.radius.md,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      opacity: !rvlForm.landSpace || !rvlForm.rvlId ? 0.4 : 1,
-                    }}
-                  >
-                    + {lang === "ar" ? "إضافة" : "Add"}
-                  </button>
-                </div>
-              </>
-            );
-          })()}
-        </div>
+{/* ── Residual Value ──────────────────────────────────────────────────────── */}
+<SectionCard
+  title={lang === "ar" ? "القيمة المتبقية" : "Residual Value"}
+  accentColor="#0e7490"
+  icon={<Scale size={14} />}
+  lang={lang}
+>
+  <ResidualValueSection
+    lang={lang}
+    entries={ev.residualValueEntries as ResidualEntry[]}
+    onEntriesChange={(entries) => setEv((p) => ({ ...p, residualValueEntries: entries }))}
+    marketValueTotal={(() => {
+      const manualTotal = parseFloat(ev.methodsMarket.marketMethodTotal);
+      if (manualTotal > 0) return manualTotal;
+      const meterPrice = parseFloat(ev.methodsMarket.marketMeterPrice) || settlNetMeter;
+      const area = parseFloat(ev.methodsMarket.propertyAreaMethod) || parseFloat(ev.assetInfo.propertyArea) || 0;
+      return meterPrice * area;
+    })()}
+    rentalValueTotal={totalRentalValue(ev.rentalValueEntries as RentalEntry[])}
+  />
+</SectionCard>
 
-        {/* Entries table */}
-        {ev.residualValueEntries.length > 0 && (
-          <div
-            style={{
-              overflowX: "auto",
-              borderRadius: DS.radius.md,
-              border: `1px solid ${DS.border}`,
-            }}
-          >
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 12,
-              }}
-            >
-              <thead>
-                <tr>
-                  {[
-                    "#",
-                    lang === "ar" ? "المساحة" : "Area",
-                    lang === "ar" ? "النوع" : "Type",
-                    lang === "ar" ? "حذف" : "Delete",
-                  ].map((h, i) => (
-                    <th key={i} style={thS}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ev.residualValueEntries.map((row: any, idx: number) => (
-                  <tr key={row.id ?? idx}>
-                    <td
-                      style={{
-                        ...tdS,
-                        textAlign: "center",
-                        color: DS.textMuted,
-                      }}
-                    >
-                      {idx + 1}
-                    </td>
-                    <td
-                      style={{ ...tdS, direction: "ltr", textAlign: "right" }}
-                    >
-                      {row.landSpace}
-                    </td>
-                    <td style={tdS}>
-                      {row.rvlId === "1"
-                        ? lang === "ar"
-                          ? "أرض تطويرية"
-                          : "Developmental Land"
-                        : lang === "ar"
-                          ? "مبنى"
-                          : "Building"}
-                    </td>
-                    <td style={{ ...tdS, textAlign: "center" }}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEv((p) => ({
-                            ...p,
-                            residualValueEntries: p.residualValueEntries.filter(
-                              (_: any, i: number) => i !== idx,
-                            ),
-                          }))
-                        }
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: DS.red,
-                          cursor: "pointer",
-                          fontSize: 16,
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
+      </>
+      )}
+      {activeStep === 11 && (
+      <>
 
-      {/* ── DCF ─────────────────────────────────────────────────────────────────── */}
-      <SectionCard
-        title={
-          lang === "ar"
-            ? "التدفقات النقدية المخصومة (DCF)"
-            : "Discounted Cash Flow (DCF)"
-        }
-        accentColor="#0e7490"
-        icon={<BarChart2 size={14} />}
-        lang={lang}
+{/* ── DCF ─────────────────────────────────────────────────────────────────── */}
+<SectionCard
+  title={lang === "ar" ? "التدفقات النقدية المخصومة (DCF)" : "Discounted Cash Flow (DCF)"}
+  accentColor="#0e7490"
+  icon={<BarChart2 size={14} />}
+  lang={lang}
+>
+  <DCFSection
+    lang={lang}
+    entries={ev.dcfEntries as DCFEntry[]}
+    onEntriesChange={(entries) => setEv((p) => ({ ...p, dcfEntries: entries }))}
+  />
+</SectionCard>
 
-      >
-        {/* Add entry form */}
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "flex-end",
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          {(() => {
-            return (
-              <>
-                <Field label={lang === "ar" ? "العنوان" : "Title"}>
-                  <Input
-                    value={dcfForm.title}
-                    onChange={(e) =>
-                      setDcfForm((f) => ({ ...f, title: e.target.value }))
-                    }
-                  />
-                </Field>
-                <Field
-                  label={
-                    lang === "ar" ? "عدد سنوات الاستثمار" : "Investment Years"
-                  }
-                >
-                  <Input
-                    type="text"
-                    dir="ltr"
-                    value={dcfForm.num}
-                    onChange={(e) =>
-                      setDcfForm((f) => ({ ...f, num: e.target.value }))
-                    }
-                  />
-                </Field>
-                <Field
-                  label={
-                    lang === "ar"
-                      ? "تاريخ بداية الاستثمار"
-                      : "Investment Start Date"
-                  }
-                >
-                  <Input
-                    type="date"
-                    value={dcfForm.date}
-                    onChange={(e) =>
-                      setDcfForm((f) => ({ ...f, date: e.target.value }))
-                    }
-                  />
-                </Field>
-                <div style={{ paddingBottom: 2 }}>
-                  <button
-                    type="button"
-                    disabled={!dcfForm.title}
-                    onClick={() => {
-                      setEv((p) => ({
-                        ...p,
-                        dcfEntries: [
-                          ...p.dcfEntries,
-                          { ...dcfForm, id: Date.now() },
-                        ],
-                      }));
-                      setDcfForm({ title: "", num: "", date: "" });
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "8px 14px",
-                      background: DS.green,
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: DS.radius.md,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      opacity: !dcfForm.title ? 0.4 : 1,
-                    }}
-                  >
-                    + {lang === "ar" ? "إضافة" : "Add"}
-                  </button>
-                </div>
-              </>
-            );
-          })()}
-        </div>
+      </>
+      )}
+      {activeStep === 12 && (
+      <>
 
-        {/* Entries table */}
-        {ev.dcfEntries.length > 0 && (
-          <div
-            style={{
-              overflowX: "auto",
-              borderRadius: DS.radius.md,
-              border: `1px solid ${DS.border}`,
-            }}
-          >
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 12,
-              }}
-            >
-              <thead>
-                <tr>
-                  {[
-                    "#",
-                    lang === "ar" ? "العنوان" : "Title",
-                    lang === "ar" ? "عدد السنوات" : "Years",
-                    lang === "ar" ? "تاريخ البداية" : "Start Date",
-                    lang === "ar" ? "حذف" : "Delete",
-                  ].map((h, i) => (
-                    <th key={i} style={thS}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ev.dcfEntries.map((row: any, idx: number) => (
-                  <tr
-                    key={row.id ?? idx}
-                    style={{
-                      background: idx % 2 === 0 ? DS.surface : DS.surfaceAlt,
-                    }}
-                  >
-                    <td
-                      style={{
-                        ...tdS,
-                        textAlign: "center",
-                        color: DS.textMuted,
-                      }}
-                    >
-                      {idx + 1}
-                    </td>
-                    <td style={{ ...tdS, fontWeight: 600 }}>{row.title}</td>
-                    <td
-                      style={{ ...tdS, direction: "ltr", textAlign: "right" }}
-                    >
-                      {row.num || "—"}
-                    </td>
-                    <td style={tdS}>{row.date || "—"}</td>
-                    <td style={{ ...tdS, textAlign: "center" }}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEv((p) => ({
-                            ...p,
-                            dcfEntries: p.dcfEntries.filter(
-                              (_: any, i: number) => i !== idx,
-                            ),
-                          }))
-                        }
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: DS.red,
-                          cursor: "pointer",
-                          fontSize: 16,
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
+{/* ── Rental Value ────────────────────────────────────────────────────────── */}
+<SectionCard
+  title={lang === "ar" ? "القيمة الإيجارية" : "Rental Value"}
+  accentColor="#0e7490"
+  icon={<Building2 size={14} />}
+  lang={lang}
+>
+  <RentalValueSection
+    lang={lang}
+    entries={ev.rentalValueEntries as RentalEntry[]}
+    onEntriesChange={(entries) => setEv((p) => ({ ...p, rentalValueEntries: entries }))}
+    defaultSubjectArea={ev.assetInfo.propertyArea}
+  />
+</SectionCard>
 
-      {/* ── Rental Value ─────────────────────────────────────────────────────────── */}
-      <SectionCard
-        title={lang === "ar" ? "القيمة الإيجارية" : "Rental Value"}
-        accentColor="#0e7490"
-        icon={<Building2 size={14} />}
-        lang={lang}
-
-      >
-        {/* Add entry form */}
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "flex-end",
-            marginBottom: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          {(() => {
-            return (
-              <>
-                <Field label={lang === "ar" ? "العنوان" : "Title"}>
-                  <Input
-                    value={rvForm.title}
-                    onChange={(e) => setRvForm({ title: e.target.value })}
-                  />
-                </Field>
-                <div style={{ paddingBottom: 2 }}>
-                  <button
-                    type="button"
-                    disabled={!rvForm.title}
-                    onClick={() => {
-                      setEv((p) => ({
-                        ...p,
-                        rentalValueEntries: [
-                          ...p.rentalValueEntries,
-                          {
-                            id: Date.now(),
-                            title: rvForm.title,
-                            lines: [],
-                            // capitalization analysis fields
-                            vacancyRate: "",
-                            maintenanceRate: "",
-                            capitalizationRate: "",
-                            // market extraction comparables
-                            marketComps: [],
-                          },
-                        ],
-                      }));
-                      setRvForm({ title: "" });
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "8px 14px",
-                      background: DS.green,
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: DS.radius.md,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      opacity: !rvForm.title ? 0.4 : 1,
-                    }}
-                  >
-                    + {lang === "ar" ? "إضافة" : "Add"}
-                  </button>
-                </div>
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Render each rental value entry (mirrors the Capitalization HTML) */}
-        {ev.rentalValueEntries.map((entry: any, entryIdx: number) => (
-          <div
-            key={entry.id ?? entryIdx}
-            style={{
-              border: `1px solid ${DS.border}`,
-              borderRadius: DS.radius.md,
-              marginBottom: 20,
-              overflow: "hidden",
-            }}
-          >
-            {/* Entry header */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "10px 14px",
-                background: DS.surfaceAlt,
-                borderBottom: `1px solid ${DS.border}`,
-              }}
-            >
-              <span
-                style={{ fontWeight: 700, fontSize: 14, color: DS.primary }}
-              >
-                {lang === "ar" ? "المبنى:" : "Building:"} {entry.title}
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  setEv((p) => ({
-                    ...p,
-                    rentalValueEntries: p.rentalValueEntries.filter(
-                      (_: any, i: number) => i !== entryIdx,
-                    ),
-                  }))
-                }
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: DS.red,
-                  cursor: "pointer",
-                  fontSize: 18,
-                  fontWeight: 700,
-                }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ padding: "14px" }}>
-              {/* Lines table */}
-              <div
-                style={{
-                  overflowX: "auto",
-                  borderRadius: DS.radius.sm,
-                  border: `1px solid ${DS.border}`,
-                  marginBottom: 14,
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    fontSize: 12,
-                  }}
-                >
-                  <thead>
-                    <tr>
-                      {[
-                        lang === "ar" ? "النوع" : "Type",
-                        lang === "ar" ? "العدد/المساحة" : "Count/Area",
-                        lang === "ar" ? "سعر المتر/الوحدة" : "Price/Unit",
-                        lang === "ar" ? "القيمة الإيجارية" : "Rental Value",
-                        lang === "ar" ? "ملاحظات" : "Notes",
-                        lang === "ar" ? "ضمن الرسملة" : "In Capitalization",
-                        lang === "ar" ? "حذف" : "Delete",
-                      ].map((h, i) => (
-                        <th key={i} style={thS}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(entry.lines ?? []).map((line: any, lineIdx: number) => {
-                      const total =
-                        (parseFloat(line.space) || 0) *
-                        (parseFloat(line.value) || 0) *
-                        (parseFloat(line.multiplier) || 1);
-                      return (
-                        <tr
-                          key={lineIdx}
-                          style={{
-                            background:
-                              lineIdx % 2 === 0 ? DS.surface : DS.surfaceAlt,
-                          }}
-                        >
-                          <td style={tdS}>
-                            <input
-                              type="text"
-                              value={line.title ?? ""}
-                              onChange={(e) => {
-                                const updated = entry.lines.map(
-                                  (l: any, i: number) =>
-                                    i === lineIdx
-                                      ? { ...l, title: e.target.value }
-                                      : l,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={cellInputS}
-                            />
-                          </td>
-                          <td style={tdS}>
-                            <input
-                              type="text"
-                              dir="ltr"
-                              value={line.space ?? ""}
-                              onChange={(e) => {
-                                const updated = entry.lines.map(
-                                  (l: any, i: number) =>
-                                    i === lineIdx
-                                      ? { ...l, space: e.target.value }
-                                      : l,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={cellInputS}
-                            />
-                          </td>
-                          <td style={tdS}>
-                            <input
-                              type="text"
-                              dir="ltr"
-                              value={line.value ?? ""}
-                              onChange={(e) => {
-                                const updated = entry.lines.map(
-                                  (l: any, i: number) =>
-                                    i === lineIdx
-                                      ? { ...l, value: e.target.value }
-                                      : l,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={cellInputS}
-                            />
-                          </td>
-                          <td
-                            style={{
-                              ...tdS,
-                              fontVariantNumeric: "tabular-nums",
-                              textAlign: "right",
-                              direction: "ltr",
-                              fontWeight: 600,
-                              color: DS.primary,
-                            }}
-                          >
-                            {total > 0
-                              ? total.toLocaleString("en-US", {
-                                  maximumFractionDigits: 0,
-                                })
-                              : "—"}
-                          </td>
-                          <td style={tdS}>
-                            <input
-                              type="text"
-                              value={line.notes ?? ""}
-                              onChange={(e) => {
-                                const updated = entry.lines.map(
-                                  (l: any, i: number) =>
-                                    i === lineIdx
-                                      ? { ...l, notes: e.target.value }
-                                      : l,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={cellInputS}
-                            />
-                          </td>
-                          <td style={{ ...tdS, textAlign: "center" }}>
-                            <input
-                              type="checkbox"
-                              checked={line.inCapitalization ?? true}
-                              onChange={(e) => {
-                                const updated = entry.lines.map(
-                                  (l: any, i: number) =>
-                                    i === lineIdx
-                                      ? {
-                                          ...l,
-                                          inCapitalization: e.target.checked,
-                                        }
-                                      : l,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={{ accentColor: DS.primary }}
-                            />
-                          </td>
-                          <td style={{ ...tdS, textAlign: "center" }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = entry.lines.filter(
-                                  (_: any, i: number) => i !== lineIdx,
-                                );
-                                setEv((p) => ({
-                                  ...p,
-                                  rentalValueEntries: p.rentalValueEntries.map(
-                                    (en: any, i: number) =>
-                                      i === entryIdx
-                                        ? { ...en, lines: updated }
-                                        : en,
-                                  ),
-                                }));
-                              }}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                color: DS.red,
-                                cursor: "pointer",
-                                fontSize: 15,
-                              }}
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: DS.surfaceAlt }}>
-                      <td colSpan={3} style={{ ...tdS, fontWeight: 700 }}>
-                        {lang === "ar" ? "المجموع" : "Total"}
-                      </td>
-                      <td
-                        colSpan={4}
-                        style={{
-                          ...tdS,
-                          fontWeight: 700,
-                          color: DS.primary,
-                          direction: "ltr",
-                          textAlign: "right",
-                        }}
-                      >
-                        {(entry.lines ?? [])
-                          .reduce(
-                            (s: number, l: any) =>
-                              s +
-                              (parseFloat(l.space) || 0) *
-                                (parseFloat(l.value) || 0) *
-                                (parseFloat(l.multiplier) || 1),
-                            0,
-                          )
-                          .toLocaleString("en-US", {
-                            maximumFractionDigits: 0,
-                          })}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              {/* Add line button */}
-              <button
-                type="button"
-                onClick={() => {
-                  const newLine = {
-                    title: "",
-                    space: "",
-                    value: "",
-                    notes: "",
-                    inCapitalization: true,
-                    multiplier: "1",
-                  };
-                  setEv((p) => ({
-                    ...p,
-                    rentalValueEntries: p.rentalValueEntries.map(
-                      (en: any, i: number) =>
-                        i === entryIdx
-                          ? { ...en, lines: [...(en.lines ?? []), newLine] }
-                          : en,
-                    ),
-                  }));
-                }}
-                style={{ ...linkBtnS, color: DS.green }}
-              >
-                + {lang === "ar" ? "بند جديد" : "New Line"}
-              </button>
-
-              {/* Capitalization analysis */}
-              <div
-                style={{
-                  marginTop: 16,
-                  borderTop: `1px solid ${DS.border}`,
-                  paddingTop: 14,
-                }}
-              >
-                {/* Market extraction comparables */}
-                <h6
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: DS.primary,
-                    marginBottom: 10,
-                  }}
-                >
-                  {lang === "ar"
-                    ? "طريقة الاستخلاص من السوق:"
-                    : "Market Extraction Method:"}
-                </h6>
-                <div
-                  style={{
-                    overflowX: "auto",
-                    borderRadius: DS.radius.sm,
-                    border: `1px solid ${DS.border}`,
-                    marginBottom: 10,
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 12,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {[
-                          lang === "ar" ? "البند" : "Item",
-                          lang === "ar" ? "دخل العقار" : "Property Income",
-                          lang === "ar" ? "قيمة العقار" : "Property Value",
-                          lang === "ar" ? "معدل الرسملة" : "Cap Rate",
-                          lang === "ar" ? "ملاحظات" : "Notes",
-                          lang === "ar" ? "حذف" : "Delete",
-                        ].map((h, i) => (
-                          <th key={i} style={thS}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(entry.marketComps ?? []).map(
-                        (comp: any, compIdx: number) => {
-                          const capRate =
-                            comp.propertyValue && comp.income
-                              ? (
-                                  (parseFloat(comp.income) /
-                                    parseFloat(comp.propertyValue)) *
-                                  100
-                                ).toFixed(2)
-                              : "—";
-                          return (
-                            <tr
-                              key={compIdx}
-                              style={{
-                                background:
-                                  compIdx % 2 === 0
-                                    ? DS.surface
-                                    : DS.surfaceAlt,
-                              }}
-                            >
-                              <td style={tdS}>
-                                <input
-                                  type="text"
-                                  value={comp.title ?? ""}
-                                  onChange={(e) => {
-                                    const u = entry.marketComps.map(
-                                      (c: any, i: number) =>
-                                        i === compIdx
-                                          ? { ...c, title: e.target.value }
-                                          : c,
-                                    );
-                                    setEv((p) => ({
-                                      ...p,
-                                      rentalValueEntries:
-                                        p.rentalValueEntries.map(
-                                          (en: any, i: number) =>
-                                            i === entryIdx
-                                              ? { ...en, marketComps: u }
-                                              : en,
-                                        ),
-                                    }));
-                                  }}
-                                  style={cellInputS}
-                                />
-                              </td>
-                              <td style={tdS}>
-                                <input
-                                  type="text"
-                                  dir="ltr"
-                                  value={comp.income ?? ""}
-                                  onChange={(e) => {
-                                    const u = entry.marketComps.map(
-                                      (c: any, i: number) =>
-                                        i === compIdx
-                                          ? { ...c, income: e.target.value }
-                                          : c,
-                                    );
-                                    setEv((p) => ({
-                                      ...p,
-                                      rentalValueEntries:
-                                        p.rentalValueEntries.map(
-                                          (en: any, i: number) =>
-                                            i === entryIdx
-                                              ? { ...en, marketComps: u }
-                                              : en,
-                                        ),
-                                    }));
-                                  }}
-                                  style={cellInputS}
-                                />
-                              </td>
-                              <td style={tdS}>
-                                <input
-                                  type="text"
-                                  dir="ltr"
-                                  value={comp.propertyValue ?? ""}
-                                  onChange={(e) => {
-                                    const u = entry.marketComps.map(
-                                      (c: any, i: number) =>
-                                        i === compIdx
-                                          ? {
-                                              ...c,
-                                              propertyValue: e.target.value,
-                                            }
-                                          : c,
-                                    );
-                                    setEv((p) => ({
-                                      ...p,
-                                      rentalValueEntries:
-                                        p.rentalValueEntries.map(
-                                          (en: any, i: number) =>
-                                            i === entryIdx
-                                              ? { ...en, marketComps: u }
-                                              : en,
-                                        ),
-                                    }));
-                                  }}
-                                  style={cellInputS}
-                                />
-                              </td>
-                              <td
-                                style={{
-                                  ...tdS,
-                                  fontWeight: 600,
-                                  color: DS.primary,
-                                  textAlign: "center",
-                                }}
-                              >
-                                {capRate}
-                                {capRate !== "—" ? "%" : ""}
-                              </td>
-                              <td style={tdS}>
-                                <input
-                                  type="text"
-                                  value={comp.notes ?? ""}
-                                  onChange={(e) => {
-                                    const u = entry.marketComps.map(
-                                      (c: any, i: number) =>
-                                        i === compIdx
-                                          ? { ...c, notes: e.target.value }
-                                          : c,
-                                    );
-                                    setEv((p) => ({
-                                      ...p,
-                                      rentalValueEntries:
-                                        p.rentalValueEntries.map(
-                                          (en: any, i: number) =>
-                                            i === entryIdx
-                                              ? { ...en, marketComps: u }
-                                              : en,
-                                        ),
-                                    }));
-                                  }}
-                                  style={cellInputS}
-                                />
-                              </td>
-                              <td style={{ ...tdS, textAlign: "center" }}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const u = entry.marketComps.filter(
-                                      (_: any, i: number) => i !== compIdx,
-                                    );
-                                    setEv((p) => ({
-                                      ...p,
-                                      rentalValueEntries:
-                                        p.rentalValueEntries.map(
-                                          (en: any, i: number) =>
-                                            i === entryIdx
-                                              ? { ...en, marketComps: u }
-                                              : en,
-                                        ),
-                                    }));
-                                  }}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: DS.red,
-                                    cursor: "pointer",
-                                    fontSize: 15,
-                                  }}
-                                >
-                                  ✕
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        },
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newComp = {
-                      title: "",
-                      income: "",
-                      propertyValue: "",
-                      notes: "",
-                    };
-                    setEv((p) => ({
-                      ...p,
-                      rentalValueEntries: p.rentalValueEntries.map(
-                        (en: any, i: number) =>
-                          i === entryIdx
-                            ? {
-                                ...en,
-                                marketComps: [
-                                  ...(en.marketComps ?? []),
-                                  newComp,
-                                ],
-                              }
-                            : en,
-                      ),
-                    }));
-                  }}
-                  style={{ ...linkBtnS, color: DS.green, marginBottom: 14 }}
-                >
-                  + {lang === "ar" ? "بند جديد" : "New Item"}
-                </button>
-
-                {/* Capitalization calculator */}
-                <div
-                  style={{
-                    background: DS.surfaceAlt,
-                    border: `1px solid ${DS.border}`,
-                    borderRadius: DS.radius.md,
-                    padding: 14,
-                  }}
-                >
-                  {(() => {
-                    const totalRental = (entry.lines ?? [])
-                      .filter((l: any) => l.inCapitalization !== false)
-                      .reduce(
-                        (s: number, l: any) =>
-                          s +
-                          (parseFloat(l.space) || 0) *
-                            (parseFloat(l.value) || 0) *
-                            (parseFloat(l.multiplier) || 1),
-                        0,
-                      );
-                    const vacancyAmt =
-                      totalRental * (parseFloat(entry.vacancyRate) / 100 || 0);
-                    const actualIncome = totalRental - vacancyAmt;
-                    const maintenanceAmt =
-                      actualIncome *
-                      (parseFloat(entry.maintenanceRate) / 100 || 0);
-                    const noi = actualIncome - maintenanceAmt;
-                    const capRate = parseFloat(entry.capitalizationRate) || 0;
-                    const propertyValue =
-                      capRate > 0 ? noi / (capRate / 100) : 0;
-
-                    const updateEntry = (field: string, val: string) =>
-                      setEv((p) => ({
-                        ...p,
-                        rentalValueEntries: p.rentalValueEntries.map(
-                          (en: any, i: number) =>
-                            i === entryIdx ? { ...en, [field]: val } : en,
-                        ),
-                      }));
-
-                    return (
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          fontSize: 13,
-                        }}
-                      >
-                        <tbody>
-                          {[
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "إجمالي دخل العقار المتوقع"
-                                  : "Expected Gross Income",
-                              value: totalRental.toLocaleString("en-US", {
-                                maximumFractionDigits: 0,
-                              }),
-                              readOnly: true,
-                              field: null,
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "خسائر الاشغار (%)"
-                                  : "Vacancy Loss (%)",
-                              value: entry.vacancyRate ?? "",
-                              readOnly: false,
-                              field: "vacancyRate",
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "إجمالي الدخل الفعلي"
-                                  : "Effective Gross Income",
-                              value: actualIncome.toLocaleString("en-US", {
-                                maximumFractionDigits: 0,
-                              }),
-                              readOnly: true,
-                              field: null,
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "نسبة الصيانة والتشغيل (%)"
-                                  : "Operating Expense Ratio (%)",
-                              value: entry.maintenanceRate ?? "",
-                              readOnly: false,
-                              field: "maintenanceRate",
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "صافي الدخل التشغيلي"
-                                  : "Net Operating Income",
-                              value: noi.toLocaleString("en-US", {
-                                maximumFractionDigits: 0,
-                              }),
-                              readOnly: true,
-                              field: null,
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "معدل الرسملة (%)"
-                                  : "Capitalization Rate (%)",
-                              value: entry.capitalizationRate ?? "",
-                              readOnly: false,
-                              field: "capitalizationRate",
-                            },
-                            {
-                              label:
-                                lang === "ar"
-                                  ? "قيمة العقار"
-                                  : "Property Value",
-                              value:
-                                propertyValue > 0
-                                  ? propertyValue.toLocaleString("en-US", {
-                                      maximumFractionDigits: 0,
-                                    })
-                                  : "—",
-                              readOnly: true,
-                              field: null,
-                              highlight: true,
-                            },
-                          ].map(
-                            (
-                              { label, value, readOnly, field, highlight },
-                              ri,
-                            ) => (
-                              <tr
-                                key={ri}
-                                style={{
-                                  background: highlight
-                                    ? DS.primaryLight
-                                    : ri % 2 === 0
-                                      ? DS.surface
-                                      : DS.surfaceAlt,
-                                }}
-                              >
-                                <td
-                                  style={{
-                                    ...tdS,
-                                    fontWeight: 600,
-                                    color: highlight ? DS.primary : DS.text,
-                                  }}
-                                >
-                                  {label}
-                                </td>
-                                <td style={tdS}>
-                                  {readOnly ? (
-                                    <div
-                                      style={{
-                                        padding: "5px 8px",
-                                        fontVariantNumeric: "tabular-nums",
-                                        direction: "ltr",
-                                        textAlign: "right",
-                                        fontWeight: highlight ? 700 : 500,
-                                        color: highlight ? DS.primary : DS.text,
-                                        fontSize: highlight ? 14 : 13,
-                                      }}
-                                    >
-                                      {value}
-                                    </div>
-                                  ) : (
-                                    <input
-                                      type="text"
-                                      dir="ltr"
-                                      value={value}
-                                      onChange={(e) =>
-                                        field &&
-                                        updateEntry(field, e.target.value)
-                                      }
-                                      style={{
-                                        ...cellInputS,
-                                        textAlign: "right",
-                                      }}
-                                    />
-                                  )}
-                                </td>
-                              </tr>
-                            ),
-                          )}
-                        </tbody>
-                      </table>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          </div>
-        ))}
-            </SectionCard>
 
             </>
             )}
-            {activeStep === 10 && (
+            {activeStep === 13 && (
             <>
 
       {/* ── Valuation Methods ────────────────────────────────────────────────────── */}
@@ -8151,350 +7002,183 @@ export function TransactionEvaluationPage({
         {/* ── Tab: القيمة المتبقية ── */}
         {activeVmTab === "vm-r" && (
           <div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
+            <h4 style={{ fontSize: 13, fontWeight: 700, color: DS.primary, marginBottom: 12, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ display: "block", width: 3, height: 14, background: DS.primary, borderRadius: 2 }} />
               {t.vmResidual}:
             </h4>
-            <div
-              style={{
-                overflowX: "auto",
-                borderRadius: DS.radius.md,
-                border: `1px solid ${DS.border}`,
-                marginBottom: 20,
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: DS.surfaceAlt }}>
-                    {[
-                      lang === "ar" ? "الاسم" : "Name",
-                      lang === "ar"
-                        ? "اجمالي قيمة العقار"
-                        : "Total Property Value",
-                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
-                    ].map((h, i) => (
-                      <th key={i} style={thS}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td
-                      colSpan={3}
-                      style={{
-                        ...tdS,
-                        textAlign: "center",
-                        color: DS.textLight,
-                        padding: 20,
-                      }}
-                    >
-                      {lang === "ar" ? "لا توجد بيانات" : "No data"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
-              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
-            </h4>
-            <GridFields tight>
-              <Field
-                label={
-                  lang === "ar" ? "إجمالي قيمة الأصل" : "Total Asset Value"
-                }
-              >
-                <Input readOnly value="" />
-              </Field>
-              <Field label={t.usageReason} full>
-                <Textarea
-                  rows={4}
-                  placeholder={
-                    lang === "ar"
-                      ? "أدخل سبب الاستخدام..."
-                      : "Enter reason for use..."
-                  }
-                />
-              </Field>
-            </GridFields>
+            {ev.residualValueEntries.length === 0 ? (
+              <div style={{ textAlign: "center", color: DS.textLight, padding: 20, border: `1px solid ${DS.border}`, borderRadius: DS.radius.md, marginBottom: 20 }}>
+                {lang === "ar"
+                  ? "لا توجد بيانات — أضف تقييماً في قسم القيمة المتبقية أعلاه"
+                  : "No data — add an assessment in the Residual Value section above"}
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", borderRadius: DS.radius.md, border: `1px solid ${DS.border}`, marginBottom: 20 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: DS.surfaceAlt }}>
+                      {[
+                        lang === "ar" ? "الاسم" : "Name",
+                        lang === "ar" ? "ناتج التطوير (GDV)" : "GDV",
+                        lang === "ar" ? "إجمالي التكاليف" : "Total Costs",
+                        lang === "ar" ? "القيمة المتبقية" : "Residual Value",
+                      ].map((h, i) => (
+                        <th key={i} style={thS}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ev.residualValueEntries as ResidualEntry[]).map((entry) => {
+                      const c = computeResidualEntry(entry);
+                      return (
+                        <tr key={entry.id}>
+                          <td style={{ ...tdS, fontWeight: 600 }}>{entry.title}</td>
+                          <td style={{ ...tdS, direction: "ltr", textAlign: "right" }}>
+                            {c.gdv > 0 ? c.gdv.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
+                          </td>
+                          <td style={{ ...tdS, direction: "ltr", textAlign: "right" }}>
+                            {c.totalDevelopmentCosts + c.developerProfit > 0
+                              ? (c.totalDevelopmentCosts + c.developerProfit).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                              : "—"}
+                          </td>
+                          <td style={{ ...tdS, fontWeight: 700, color: c.totalValue >= 0 ? DS.primary : DS.red, direction: "ltr", textAlign: "right" }}>
+                            {c.totalValue !== 0 ? c.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {ev.residualValueEntries.length > 1 && (
+                    <tfoot>
+                      <tr style={{ background: DS.surfaceAlt }}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{lang === "ar" ? "الإجمالي" : "Total"}</td>
+                        <td style={tdS} />
+                        <td style={tdS} />
+                        <td style={{ ...tdS, fontWeight: 700, color: DS.primary, direction: "ltr", textAlign: "right" }}>
+                          {totalResidualValue(ev.residualValueEntries as ResidualEntry[]).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         )}
 
         {/* ── Tab: DCF ── */}
         {activeVmTab === "vm-d" && (
           <div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
+            <h4 style={{ fontSize: 13, fontWeight: 700, color: DS.primary, marginBottom: 12, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ display: "block", width: 3, height: 14, background: DS.primary, borderRadius: 2 }} />
               {t.vmDcf}:
             </h4>
-            <div
-              style={{
-                overflowX: "auto",
-                borderRadius: DS.radius.md,
-                border: `1px solid ${DS.border}`,
-                marginBottom: 20,
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: DS.surfaceAlt }}>
-                    {[
-                      lang === "ar" ? "الاسم" : "Name",
-                      lang === "ar" ? "اجمالي الدخل" : "Total Income",
-                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
-                    ].map((h, i) => (
-                      <th key={i} style={thS}>
-                        {h}
-                      </th>
+            {ev.dcfEntries.length === 0 ? (
+              <div style={{ textAlign: "center", color: DS.textLight, padding: 20, border: `1px solid ${DS.border}`, borderRadius: DS.radius.md }}>
+                {lang === "ar" ? "لا توجد بيانات — أضف سيناريو في قسم DCF أعلاه" : "No data — add a scenario in the DCF section above"}
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", borderRadius: DS.radius.md, border: `1px solid ${DS.border}`, marginBottom: 20 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: DS.surfaceAlt }}>
+                      {[lang === "ar" ? "الاسم" : "Name", lang === "ar" ? "قيمة الأصل (DCF)" : "DCF Value"].map((h, i) => (
+                        <th key={i} style={thS}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ev.dcfEntries as DCFEntry[]).map((entry) => (
+                      <tr key={entry.id}>
+                        <td style={{ ...tdS, fontWeight: 600 }}>{entry.title}</td>
+                        <td style={{ ...tdS, fontWeight: 700, color: DS.primary, direction: "ltr", textAlign: "right" }}>
+                          {computeDCFEntry(entry).totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td
-                      colSpan={3}
-                      style={{
-                        ...tdS,
-                        textAlign: "center",
-                        color: DS.textLight,
-                        padding: 20,
-                      }}
-                    >
-                      {lang === "ar" ? "لا توجد بيانات" : "No data"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
-              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
-            </h4>
-            <GridFields tight>
-              <Field label={t.incomeTotal}>
-                <Input readOnly value="" />
-              </Field>
-              <Field label={t.usageReason} full>
-                <Textarea
-                  rows={4}
-                  placeholder={
-                    lang === "ar"
-                      ? "أدخل سبب الاستخدام..."
-                      : "Enter reason for use..."
-                  }
-                />
-              </Field>
-            </GridFields>
+                  </tbody>
+                  {ev.dcfEntries.length > 1 && (
+                    <tfoot>
+                      <tr style={{ background: DS.surfaceAlt }}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{lang === "ar" ? "الإجمالي" : "Total"}</td>
+                        <td style={{ ...tdS, fontWeight: 700, color: DS.primary, direction: "ltr", textAlign: "right" }}>
+                          {totalDCFValue(ev.dcfEntries as DCFEntry[]).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         )}
 
         {/* ── Tab: القيمة الإيجارية ── */}
         {activeVmTab === "vm-e" && (
           <div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
+            <h4 style={{ fontSize: 13, fontWeight: 700, color: DS.primary, marginBottom: 12, display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ display: "block", width: 3, height: 14, background: DS.primary, borderRadius: 2 }} />
               {t.vmRental}:
             </h4>
-            <div
-              style={{
-                overflowX: "auto",
-                borderRadius: DS.radius.md,
-                border: `1px solid ${DS.border}`,
-                marginBottom: 20,
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
-                }}
-              >
-                <thead>
-                  <tr style={{ background: DS.surfaceAlt }}>
-                    {[
-                      lang === "ar" ? "الاسم" : "Name",
-                      lang === "ar" ? "بداية المدة" : "Start Date",
-                      lang === "ar" ? "نهاية المدة" : "End Date",
-                      lang === "ar" ? "الفترة المحددة" : "Period",
-                      lang === "ar" ? "تقدير اجرة المثل" : "Rent Estimate",
-                      lang === "ar" ? "عرض بالتقرير" : "Show in Report",
-                    ].map((h, i) => (
-                      <th key={i} style={thS}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td
-                      colSpan={6}
-                      style={{
-                        ...tdS,
-                        textAlign: "center",
-                        color: DS.textLight,
-                        padding: 20,
-                      }}
-                    >
-                      {lang === "ar"
-                        ? "لا توجد بيانات إيجارية"
-                        : "No rental data"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <h4
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: DS.primary,
-                marginBottom: 12,
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-              }}
-            >
-              <span
-                style={{
-                  display: "block",
-                  width: 3,
-                  height: 14,
-                  background: DS.primary,
-                  borderRadius: 2,
-                }}
-              />
-              {lang === "ar" ? "الحاسبة:" : "Calculator:"}
-            </h4>
-            <GridFields tight>
-              <Field
-                label={lang === "ar" ? "إجمالي الإيجارات" : "Total Rentals"}
-              >
-                <Input readOnly value="" />
-              </Field>
-              <Field label={t.usageReason} full>
-                <Textarea
-                  rows={4}
-                  placeholder={
-                    lang === "ar"
-                      ? "أدخل سبب الاستخدام..."
-                      : "Enter reason for use..."
-                  }
-                />
-              </Field>
-            </GridFields>
+            {ev.rentalValueEntries.length === 0 ? (
+              <div style={{ textAlign: "center", color: DS.textLight, padding: 20, border: `1px solid ${DS.border}`, borderRadius: DS.radius.md, marginBottom: 20 }}>
+                {lang === "ar"
+                  ? "لا توجد بيانات — أضف تقييماً إيجارياً في قسم القيمة الإيجارية أعلاه"
+                  : "No data — add an assessment in the Rental Value section above"}
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto", borderRadius: DS.radius.md, border: `1px solid ${DS.border}`, marginBottom: 20 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: DS.surfaceAlt }}>
+                      {[
+                        lang === "ar" ? "الاسم" : "Name",
+                        lang === "ar" ? "متوسط إيجار المتر المسوّى" : "Avg Adjusted Rent/m²",
+                        lang === "ar" ? "القيمة الإيجارية (أجرة المثل)" : "Rental Value",
+                      ].map((h, i) => (
+                        <th key={i} style={thS}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(ev.rentalValueEntries as RentalEntry[]).map((entry) => {
+                      const c = computeRentalEntry(entry);
+                      return (
+                        <tr key={entry.id}>
+                          <td style={{ ...tdS, fontWeight: 600 }}>{entry.title}</td>
+                          <td style={{ ...tdS, direction: "ltr", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                            {c.averageAdjustedRentPerSqm > 0
+                              ? c.averageAdjustedRentPerSqm.toLocaleString("en-US", { maximumFractionDigits: 2 })
+                              : "—"}
+                          </td>
+                          <td style={{ ...tdS, fontWeight: 700, color: DS.primary, direction: "ltr", textAlign: "right" }}>
+                            {c.totalValue.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {ev.rentalValueEntries.length > 1 && (
+                    <tfoot>
+                      <tr style={{ background: DS.surfaceAlt }}>
+                        <td style={{ ...tdS, fontWeight: 700 }}>{lang === "ar" ? "الإجمالي" : "Total"}</td>
+                        <td style={tdS} />
+                        <td style={{ ...tdS, fontWeight: 700, color: DS.primary, direction: "ltr", textAlign: "right" }}>
+                          {totalRentalValue(ev.rentalValueEntries as RentalEntry[]).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
           </div>
         )}
             </SectionCard>
 
             </>
             )}
-            {activeStep === 11 && (
+            {activeStep === 14 && (
             <>
 
       <SectionCard title={t.secAppraiser} icon={<UserCheck size={14} />} lang={lang}
@@ -8533,9 +7217,9 @@ export function TransactionEvaluationPage({
               return repDerived.landAsset;
             })(),
             income: investmentTotal,
-            rvl: 0,
-            dcf: 0,
-            rental: 0,
+            rvl: totalResidualValue(ev.residualValueEntries as ResidualEntry[]),
+            dcf: totalDCFValue(ev.dcfEntries as DCFEntry[]),
+            rental: totalRentalValue(ev.rentalValueEntries as RentalEntry[]),
           }}
           data={ev.appraiser}
           onChange={(updated) => setEv((p) => ({ ...p, appraiser: updated }))}
@@ -8544,7 +7228,7 @@ export function TransactionEvaluationPage({
 
             </>
             )}
-            {activeStep === 12 && (
+            {activeStep === 15 && (
             <>
 
       {/* ── Report Items ─────────────────────────────────────────────────────── */}
