@@ -11,6 +11,9 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { getUploads } from "@/lib/mv-background-uploads";
+import { fetchAttachmentSnapshot, watchAttachmentSnapshot, attachmentFields } from "@/lib/mv-attachment-sync";
+import { attachmentKnownIds } from "@/lib/mv-attachment-uploads";
 import { systemArabicFont as reportFont } from "@/lib/system-fonts";
 import {
   ChevronsLeft,
@@ -68,6 +71,7 @@ import type {
 import {
   emptyValuationAccountingStore,
   mergeValuationAccountingStores,
+  parseValuationAccountingStoreFromApi,
   readValuationAccountingStore,
   resolveValuationAccountingImageSrc,
   valuationAccountingStoreForApi,
@@ -78,6 +82,7 @@ import {
 import {
   clientDocumentImagesForReport,
   mergeClientDocumentsStores,
+  parseClientDocumentsStoreFromApi,
   readClientDocumentsStore,
   resolveClientDocumentImageSrc,
   writeClientDocumentsStore,
@@ -2442,7 +2447,7 @@ export default function MvValuationReportWorkspace({
   useEffect(() => {
     if (!project) return;
     const local = readValuationAccountingStore(projectId);
-    const merged = mergeValuationAccountingStores(project.valuationAccountingWorkspace, local);
+    const merged = parseValuationAccountingStoreFromApi(project.valuationAccountingWorkspace) ?? mergeValuationAccountingStores(project.valuationAccountingWorkspace, local);
     setValuationAccountStore((prev) =>
       JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged,
     );
@@ -2452,7 +2457,7 @@ export default function MvValuationReportWorkspace({
   useEffect(() => {
     if (!project) return;
     const local = readClientDocumentsStore(projectId);
-    const merged = mergeClientDocumentsStores(project.clientDocumentsWorkspace, local);
+    const merged = parseClientDocumentsStoreFromApi(project.clientDocumentsWorkspace) ?? mergeClientDocumentsStores(project.clientDocumentsWorkspace, local);
     setClientDocumentsStore((prev) =>
       JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged,
     );
@@ -2462,7 +2467,7 @@ export default function MvValuationReportWorkspace({
   useEffect(() => {
     if (!project) return;
     const local = readSceCertificateStore(projectId);
-    const merged = mergeClientDocumentsStores(project.sceCertificateWorkspace, local);
+    const merged = parseClientDocumentsStoreFromApi(project.sceCertificateWorkspace) ?? mergeClientDocumentsStores(project.sceCertificateWorkspace, local);
     setSceCertificateStore((prev) =>
       JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged,
     );
@@ -2536,8 +2541,43 @@ export default function MvValuationReportWorkspace({
     setPreviewOpen(true);
   }, [loading, reportMediaLoading]);
 
+  const refreshAttachments = useCallback(async () => {
+    const fresh = await fetchAttachmentSnapshot(projectId);
+    const fields = attachmentFields;
+    const changed = fields.some(field => JSON.stringify(projectRef.current?.[field]) !== JSON.stringify(fresh[field]));
+    if (changed) setProject(current => current ? { ...current, ...Object.fromEntries(fields.map(field => [field, fresh[field]])) } : fresh as MvProject);
+    return changed;
+  }, [projectId]);
+
+  useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
+    if (loading || !projectRef.current || downloadingPdf || downloadingPptx || downloadingDocx || downloadingDocxTemplate) return false;
+    setProject(current => current ? { ...current, ...Object.fromEntries(attachmentFields.map(field => [field, fresh[field]])) } : current);
+  }), [projectId, loading, downloadingPdf, downloadingPptx, downloadingDocx, downloadingDocxTemplate]);
+
+  const ensureAttachmentsReady = useCallback(async () => {
+    try {
+      const localPending = getUploads().some(job => job.projectId === projectId && job.attachment && job.state !== "done");
+      const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/attachment-jobs`, { credentials: "include", cache: "no-store" });
+      if (!response.ok) throw new Error("تعذر التحقق من اكتمال المرفقات. أعد المحاولة بعد عودة الاتصال.");
+      const pending = await response.json();
+      if (localPending || !Array.isArray(pending) || pending.length) {
+        toast({ description: "رفع المرفقات أو تحويلها لم يكتمل بعد. انتظر اكتمال الحفظ في بطاقة الرفع ثم صدّر التقرير." });
+        return false;
+      }
+      if (await refreshAttachments()) {
+        toast({ description: "تم تحديث صور المرفقات في التقرير. راجع النتيجة واضغط التصدير مجددًا." });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      toast({ variant: "destructive", description: error instanceof Error ? error.message : "تعذر التحقق من المرفقات." });
+      return false;
+    }
+  }, [projectId, refreshAttachments, toast]);
+
   const downloadAsPdf = useCallback(async () => {
     if (loading || reportMediaLoading) return;
+    if (!await ensureAttachmentsReady()) return;
     const hostedInIframe = typeof window !== "undefined" && window.parent !== window.self;
     setDownloadingPdf(true);
     setPdfExportProgress(3);
@@ -2650,10 +2690,11 @@ export default function MvValuationReportWorkspace({
         postReportPdfExportToParent(projectId, exportOk);
       }
     }
-  }, [loading, project?.name, projectId, reportMediaLoading, t, toast]);
+  }, [ensureAttachmentsReady, loading, project?.name, projectId, reportMediaLoading, t, toast]);
 
   const downloadAsPptx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
+    if (!await ensureAttachmentsReady()) return;
     setDownloadingPptx(true);
     setPdfExportProgress(3);
     setPdfExportLabel(t("report.export.preparingPpt"));
@@ -2752,10 +2793,11 @@ export default function MvValuationReportWorkspace({
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [loading, project?.name, reportMediaLoading, t, toast]);
+  }, [ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
 
   const downloadAsDocx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
+    if (!await ensureAttachmentsReady()) return;
     setDownloadingDocx(true);
     setPdfExportProgress(3);
     setPdfExportLabel(t("report.export.preparingWord"));
@@ -2813,7 +2855,7 @@ export default function MvValuationReportWorkspace({
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [loading, project?.name, reportMediaLoading, t, toast]);
+  }, [ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2924,6 +2966,7 @@ export default function MvValuationReportWorkspace({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             valuationAccountingWorkspace: valuationAccountingStoreForApi(nextStore),
+            attachmentKnownIds: { valuationAccountingWorkspace: attachmentKnownIds(nextStore) },
           }),
         });
       } catch {
@@ -3055,6 +3098,7 @@ export default function MvValuationReportWorkspace({
 
   const downloadAsDocxTemplate = useCallback(async () => {
     if (loading || reportMediaLoading) return;
+    if (!await ensureAttachmentsReady()) return;
     if (companyDocumentTemplates.word.status === "missing") {
       toast({
         variant: "destructive",
@@ -3126,6 +3170,7 @@ export default function MvValuationReportWorkspace({
       setPdfExportLabel("");
     }
   }, [
+    ensureAttachmentsReady,
     companyDocumentTemplates.word.status,
     loading,
     project?.displayNumber,

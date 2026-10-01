@@ -1,7 +1,8 @@
 export const MV_REPORT_CUSTOM_FIELD_TYPES = ["text", "textarea", "number", "date"] as const;
 
 /** Keep the client limits aligned with the report-data sanitizer on the API. */
-export const MV_REPORT_CUSTOM_FIELD_LIMIT = 80;
+/** Matches the report-data model and server sanitizer limits. */
+export const MV_REPORT_CUSTOM_FIELD_LIMIT = 120;
 export const MV_REPORT_CUSTOM_SECTION_LIMIT = 30;
 export const MV_REPORT_CUSTOM_ID_MAX_LENGTH = 120;
 export const MV_REPORT_CUSTOM_LABEL_MAX_LENGTH = 180;

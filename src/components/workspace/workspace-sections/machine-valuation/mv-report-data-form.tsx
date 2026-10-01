@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Coins,
   Copy,
+  FileInput,
   Hash,
   Loader2,
   Plus,
@@ -66,6 +67,7 @@ import {
   type MvReportCustomField,
   type MvReportCustomFieldType,
 } from "./mv-report-custom-fields";
+import { MvReportSectionFileFillDialog } from "./mv-report-section-file-fill-dialog";
 
 const NO_CLIENT_SELECTED = "__no-client__";
 
@@ -253,6 +255,7 @@ function ReportSection<TSectionId extends string>({
   open,
   onOpenChange,
   onAddField,
+  onFillFromFile,
   addFieldDisabled = false,
   onRemoveSection,
   addFieldLabel,
@@ -267,6 +270,7 @@ function ReportSection<TSectionId extends string>({
   open: boolean;
   onOpenChange: (id: TSectionId, open: boolean) => void;
   onAddField?: () => void;
+  onFillFromFile?: () => void;
   addFieldDisabled?: boolean;
   onRemoveSection?: () => void;
   addFieldLabel?: string;
@@ -342,6 +346,17 @@ function ReportSection<TSectionId extends string>({
               <Plus className="h-4 w-4" strokeWidth={2.5} />
             </button>
           ) : null}
+          {onFillFromFile ? (
+            <button
+              type="button"
+              onClick={onFillFromFile}
+              title="ملء الحقول من ملف"
+              aria-label="ملء الحقول من ملف"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-100"
+            >
+              <FileInput className="h-4 w-4" strokeWidth={2.25} />
+            </button>
+          ) : null}
           {onRemoveSection ? (
             <button
               type="button"
@@ -411,6 +426,7 @@ export function MvReportDataForm({
   const [addFieldSectionId, setAddFieldSectionId] = useState<string | null>(null);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [customSectionOpen, setCustomSectionOpen] = useState<Record<string, boolean>>({});
+  const [fileFillSection, setFileFillSection] = useState<{ id: string; title: string } | null>(null);
   const allSectionsOpen = MV_REPORT_COLLAPSIBLE_IDS.every((id) => openSections[id]);
   const customFields = reportData.customFields ?? [];
   const customSections = reportData.customSections ?? [];
@@ -460,6 +476,14 @@ export function MvReportDataForm({
   };
   const deleteCustomField = (id: string) => {
     setCustomFields(customFields.filter((field) => field.id !== id));
+  };
+  const openFileFill = (sectionId: string, title: string) => {
+    setCustomSectionOpen((current) => ({ ...current, [sectionId]: true }));
+    setFileFillSection({ id: sectionId, title });
+  };
+  const applyFileValues = (values: Array<{ id: string; value: string }>) => {
+    const valuesById = new Map(values.map((item) => [item.id, item.value]));
+    setCustomFields(customFields.map((field) => valuesById.has(field.id) ? { ...field, value: valuesById.get(field.id)! } : field));
   };
   const openAddField = (sectionId: string) => {
     if (customFieldLimitReached) return;
@@ -1354,6 +1378,7 @@ export function MvReportDataForm({
               open={customSectionOpen[section.id] === true}
               onOpenChange={(id, next) => setCustomSectionOpen((prev) => ({ ...prev, [id]: next }))}
               onAddField={() => openAddField(section.id)}
+              onFillFromFile={sectionFields.length ? () => openFileFill(section.id, section.title) : undefined}
               addFieldLabel={t("reportData.custom.addField")}
               addFieldDisabled={customFieldLimitReached}
               addFieldDisabledLabel={customFieldLimitLabel}
@@ -1395,6 +1420,13 @@ export function MvReportDataForm({
         open={addSectionOpen}
         onOpenChange={setAddSectionOpen}
         onSubmit={addCustomSection}
+      />
+      <MvReportSectionFileFillDialog
+        open={fileFillSection != null}
+        onOpenChange={(open) => { if (!open) setFileFillSection(null); }}
+        sectionTitle={fileFillSection?.title ?? ""}
+        fields={fileFillSection ? customFieldsForSection(customFields, fileFillSection.id) : []}
+        onApply={applyFileValues}
       />
 
       <aside

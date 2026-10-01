@@ -22,6 +22,7 @@ const SKIP_SEGMENTS = new Set([
   "projects",
   "dashboard",
   "support",
+  "data-extraction",
   "developer-requests",
   "report-settings",
 ]);

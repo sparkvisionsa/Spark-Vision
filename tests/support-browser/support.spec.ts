@@ -21,6 +21,7 @@ test("authenticated ticket conversation synchronizes between the user and suppor
   await dialog.getByRole("button", { name: "فتح التذكرة", exact: true }).click();
   await expect(page.getByRole("heading", { name: "تعذر تنزيل التقرير — اختبار المتصفح", exact: true })).toBeVisible();
   await expect(page.getByRole("log", { name: "رسائل التذكرة" }).getByText("أحتاج متابعة تنزيل التقرير النهائي.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "تسجيل الشاشة والصوت", exact: true })).toBeVisible();
   const ticketId = new URL(page.url()).searchParams.get("ticket");
   const agentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   try {
@@ -50,8 +51,8 @@ test("Arabic assistant shows verified steps and recording handles denied permiss
   await expect(page.getByRole("log", { name: "المحادثة مع المساعد" }).getByText(/إنشاء مشروع جديد/)).toBeVisible();
   await page.screenshot({ path: "test-results/support/assistant.png", fullPage: true });
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "كن مطور: تسجيل مشكلة أو فكرة", exact: true }).click();
-  await expect(page.getByRole("dialog").getByText("شاشتك وصوتك، والفكرة تصل", { exact: true })).toBeVisible();
+  await page.getByTitle("شارك فكرتك", { exact: true }).first().click();
+  await expect(page.getByRole("dialog").getByText("شارك فكرتك بالصوت والصورة", { exact: true })).toBeVisible();
   await page.evaluate(() => { navigator.mediaDevices.getDisplayMedia = () => Promise.reject(new DOMException("Denied", "NotAllowedError")); });
   await page.getByRole("button", { name: "بدء التسجيل", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "لم تُمنح صلاحية" })).toBeVisible();
@@ -72,9 +73,9 @@ test("screen and microphone recording can pause, preview and upload a playable a
     navigator.mediaDevices.getDisplayMedia = async () => stream;
     navigator.mediaDevices.getUserMedia = async () => destination.stream;
   });
-  await page.getByRole("button", { name: "كن مطور: تسجيل مشكلة أو فكرة", exact: true }).click();
+  await page.getByTitle("شارك فكرتك", { exact: true }).first().click();
   await page.getByRole("button", { name: "بدء التسجيل", exact: true }).click();
-  await expect(page.getByRole("region", { name: "التحكم في تسجيل الشاشة" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "التحكم في تسجيل شارك فكرتك" })).toBeVisible();
   await page.waitForTimeout(1700);
   await page.getByRole("button", { name: "إيقاف مؤقت", exact: true }).click();
   await expect(page.getByText("متوقف مؤقتاً", { exact: true })).toBeVisible();
@@ -83,9 +84,9 @@ test("screen and microphone recording can pause, preview and upload a playable a
   await page.getByRole("button", { name: "إنهاء", exact: true }).click();
   await expect(page.getByLabel("معاينة تسجيل الشاشة والصوت", { exact: true })).toBeVisible();
   await page.getByLabel("عنوان التسجيل، اختياري", { exact: true }).fill("تسجيل متصفح للاختبار");
-  await page.getByRole("button", { name: "إرسال التسجيل", exact: true }).click();
-  await expect(page.getByText(/وصل تسجيلك/)).toBeVisible();
-  await page.getByRole("button", { name: "متابعة الطلب", exact: true }).click();
+  await page.getByRole("button", { name: "إرسال الفكرة", exact: true }).click();
+  await expect(page.getByText(/وصلت فكرتك/)).toBeVisible();
+  await page.getByRole("button", { name: "متابعة الفكرة", exact: true }).click();
   await page.getByRole("button", { name: /تسجيل متصفح للاختبار/ }).click();
   await expect(page.getByRole("heading", { name: "تسجيل متصفح للاختبار", exact: true })).toBeVisible();
   await expect(page.locator('video[src^="/api/support/files/"]')).toBeVisible();

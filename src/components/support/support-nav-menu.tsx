@@ -1,15 +1,8 @@
 "use client";
 
-import { useContext, useState } from "react";
+import { useContext } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Code2, Headset, History, LifeBuoy, Ticket } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Headset, History, Lightbulb } from "lucide-react";
 import { LanguageContext } from "@/components/layout-provider";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import { cn } from "@/lib/utils";
@@ -18,32 +11,14 @@ import { developerRequestsHref, productFromPath, supportHref } from "./support-t
 
 const copy = {
   ar: {
-    trigger: "الدعم الفني والاقتراحات",
-    triggerShort: "الدعم الفني",
-    intro: "مساعدة، تذاكر، ومقترحات تطوير",
-    support: "الدعم",
-    supportHint: "تواصل مع فريق الدعم الفني",
-    tickets: "التذاكر",
-    ticketsHint: "متابعة المحادثات والطلبات",
-    developer: "كن مطور",
-    developerHint: "سجّل مشكلة أو اقترح فكرة",
-    requests: "طلبات المطورين",
-    requestsHint: "متابعة بلاغات وأفكار كن مطور",
-    unread: "رسائل غير مقروءة",
+    support: "الدعم والتذاكر",
+    share: "شارك فكرتك",
+    trackIdeas: "تتبع شارك فكرتك",
   },
   en: {
-    trigger: "Support & suggestions",
-    triggerShort: "Support",
-    intro: "Help, tickets, and product ideas",
-    support: "Support",
-    supportHint: "Contact the technical support team",
-    tickets: "Tickets",
-    ticketsHint: "Follow conversations and requests",
-    developer: "Become a developer",
-    developerHint: "Record an issue or suggest an idea",
-    requests: "Developer requests",
-    requestsHint: "Track recorded bugs and ideas",
-    unread: "Unread messages",
+    support: "Support & tickets",
+    share: "Share your idea",
+    trackIdeas: "Track shared ideas",
   },
 } as const;
 
@@ -60,9 +35,8 @@ export default function SupportNavMenu({ variant = "light", compact = false, cla
   const pathname = usePathname() || "/";
   const router = useRouter();
   const { summary, openSupport, openDeveloperRequests, openRecorder } = useSupport();
-  const [open, setOpen] = useState(false);
   const hub = variant === "hub";
-  const unread = summary.unread;
+  const superAdmin = summary.superAdmin || user?.role === "super_admin";
 
   const requireAuth = () => {
     if (user) return true;
@@ -70,157 +44,75 @@ export default function SupportNavMenu({ variant = "light", compact = false, cla
     return false;
   };
 
-  const goSupport = (compose = false) => {
+  const goSupport = () => {
     if (!requireAuth()) return;
     const product = productFromPath(pathname);
-    if (product === "general") {
-      openSupport("general", { compose });
-      return;
-    }
-    const href = supportHref(product);
-    router.push(compose ? `${href}&new=1` : href);
+    if (product === "general") openSupport("general");
+    else router.push(supportHref(product));
   };
 
-  const goDeveloperRequests = () => {
+  const secondaryAction = () => {
     if (!requireAuth()) return;
+    if (!superAdmin) {
+      openRecorder();
+      return;
+    }
     const product = productFromPath(pathname);
     if (product === "general") openDeveloperRequests();
     else router.push(developerRequestsHref(product));
   };
 
-  const items = [
-    {
-      key: "support",
-      title: labels.support,
-      hint: labels.supportHint,
-      icon: LifeBuoy,
-      tone: "cyan" as const,
-      onSelect: () => goSupport(true),
-    },
-    {
-      key: "tickets",
-      title: labels.tickets,
-      hint: labels.ticketsHint,
-      icon: Ticket,
-      tone: "sky" as const,
-      badge: unread,
-      onSelect: () => goSupport(false),
-    },
-    {
-      key: "developer",
-      title: labels.developer,
-      hint: labels.developerHint,
-      icon: Code2,
-      tone: "violet" as const,
-      onSelect: () => {
-        if (!requireAuth()) return;
-        openRecorder();
-      },
-    },
-    ...(summary.superAdmin
-      ? [{
-          key: "requests",
-          title: labels.requests,
-          hint: labels.requestsHint,
-          icon: History,
-          tone: "violet" as const,
-          onSelect: goDeveloperRequests,
-        }]
-      : []),
-  ];
-
-  const toneClass = {
-    cyan: hub ? "bg-cyan-400/15 text-cyan-200" : "bg-cyan-50 text-cyan-700",
-    sky: hub ? "bg-sky-400/15 text-sky-200" : "bg-sky-50 text-sky-700",
-    violet: hub ? "bg-violet-400/15 text-violet-200" : "bg-violet-50 text-violet-700",
-  };
+  const secondaryLabel = superAdmin ? labels.trackIdeas : labels.share;
+  const SecondaryIcon = superAdmin ? History : Lightbulb;
+  const common = compact
+    ? "relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg outline-none transition"
+    : hub
+      ? "vt-hub-nav-link h-9 shrink-0 gap-1.5 px-3 text-[13px]"
+      : "relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold outline-none transition";
 
   return (
-    <DropdownMenu modal={false} open={open} onOpenChange={setOpen} dir={isArabic ? "rtl" : "ltr"}>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={labels.trigger}
-          title={labels.trigger}
-          className={cn(
-            "relative inline-flex shrink-0 items-center outline-none transition",
-            compact
-              ? hub
-                ? "h-8 w-8 justify-center rounded-full text-[#f5cd7b] hover:bg-[rgba(232,184,90,0.12)]"
-                : "h-9 w-9 justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-                : hub
-                  ? "vt-hub-nav-link vt-hub-nav-link--support max-w-[15rem]"
-                : "h-9 gap-1.5 rounded-lg bg-yellow-400 px-3 text-[13px] font-semibold text-yellow-950 shadow-sm hover:bg-yellow-300",
-            className,
-          )}
-        >
-          <span className="relative inline-flex">
-            <Headset className={cn(compact ? "h-[18px] w-[18px]" : "h-3.5 w-3.5")} aria-hidden />
-            {unread > 0 && (
-              <span className="absolute -end-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
-                {unread > 99 ? "99+" : unread}
-              </span>
-            )}
-          </span>
-          {!compact && (
-            <>
-              <span className="hidden max-w-[12.5rem] truncate lg:inline">{labels.trigger}</span>
-              <span className="truncate lg:hidden">{labels.triggerShort}</span>
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-            </>
-          )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align={isArabic ? "end" : "end"}
-        sideOffset={10}
+    <div className="flex shrink-0 items-center gap-1" dir={isArabic ? "rtl" : "ltr"}>
+      <button
+        type="button"
+        onClick={goSupport}
+        aria-label={labels.support}
+        title={labels.support}
         className={cn(
-          "w-[min(22rem,calc(100vw-1.25rem))] overflow-hidden rounded-2xl p-1.5 shadow-2xl",
+          common,
           hub
-            ? "border-[rgba(232,184,90,0.32)] bg-[linear-gradient(155deg,#122a4a_0%,#0f2240_52%,#0a1628_100%)] text-[#f5cd7b]"
-            : "border-slate-200/90 bg-white",
+            ? compact ? "text-[#f5cd7b] hover:bg-[rgba(232,184,90,0.12)]" : "max-w-[10rem]"
+            : compact ? "text-slate-700 hover:bg-slate-100" : "bg-yellow-400 text-yellow-950 shadow-sm hover:bg-yellow-300",
+          className,
         )}
       >
-        <div className={cn("px-2.5 pb-2 pt-1.5", isArabic ? "text-right" : "text-left")}>
-          <p className={cn("text-[13px] font-semibold", hub ? "text-[#fff8eb]" : "text-slate-900")}>{labels.trigger}</p>
-          <p className={cn("mt-0.5 text-[11px] leading-4", hub ? "text-[#f5cd7b]/70" : "text-slate-500")}>{labels.intro}</p>
-        </div>
-        <DropdownMenuSeparator className={hub ? "bg-white/10" : "bg-slate-100"} />
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <DropdownMenuItem
-              key={item.key}
-              className={cn(
-                "cursor-pointer items-start gap-3 rounded-xl p-2.5",
-                hub
-                  ? "text-[#f5cd7b] focus:bg-[rgba(232,184,90,0.12)] focus:text-[#fff8eb]"
-                  : "focus:bg-slate-50 focus:text-slate-950",
-              )}
-              onSelect={(event) => {
-                event.preventDefault();
-                setOpen(false);
-                item.onSelect();
-              }}
-            >
-              <span className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", toneClass[item.tone])}>
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className={cn("min-w-0 flex-1", isArabic ? "text-right" : "text-left")}>
-                <span className="flex items-center gap-2">
-                  <span className={cn("text-sm font-semibold", hub ? "text-[#fff8eb]" : "text-slate-900")}>{item.title}</span>
-                  {item.badge ? (
-                    <span className="rounded-full bg-rose-500 px-1.5 text-[10px] font-bold leading-4 text-white" aria-label={labels.unread}>
-                      {item.badge > 99 ? "99+" : item.badge}
-                    </span>
-                  ) : null}
-                </span>
-                <span className={cn("mt-0.5 block text-[11px] leading-4", hub ? "text-[#f5cd7b]/65" : "text-slate-500")}>{item.hint}</span>
-              </span>
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <span className="relative inline-flex">
+          <Headset className={compact ? "h-[18px] w-[18px]" : "h-3.5 w-3.5"} aria-hidden />
+          {summary.unread > 0 ? (
+            <span className="absolute -end-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-white">
+              {summary.unread > 99 ? "99+" : summary.unread}
+            </span>
+          ) : null}
+        </span>
+        {!compact ? <span className="truncate">{labels.support}</span> : null}
+      </button>
+
+      <button
+        type="button"
+        onClick={secondaryAction}
+        aria-label={secondaryLabel}
+        title={secondaryLabel}
+        className={cn(
+          common,
+          hub
+            ? compact ? "text-[#f5cd7b] hover:bg-[rgba(232,184,90,0.12)]" : "max-w-[11rem]"
+            : compact
+              ? "text-violet-700 hover:bg-violet-50"
+              : "border border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300 hover:bg-violet-100",
+        )}
+      >
+        <SecondaryIcon className={compact ? "h-[18px] w-[18px]" : "h-3.5 w-3.5"} aria-hidden />
+        {!compact ? <span className="truncate">{secondaryLabel}</span> : null}
+      </button>
+    </div>
   );
 }

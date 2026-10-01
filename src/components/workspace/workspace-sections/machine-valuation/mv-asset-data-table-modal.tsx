@@ -1,4 +1,5 @@
 "use client";
+import { useResourceRefresh } from "@/components/support/realtime-provider";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -250,8 +251,11 @@ function EditableTextCell({
   placeholder?: string;
 }) {
   const [draft, setDraft] = useState(value);
+  const previousServerValue = useRef(value);
   useEffect(() => {
-    setDraft(value);
+    const previous = previousServerValue.current;
+    previousServerValue.current = value;
+    setDraft(current => current === previous ? value : current);
   }, [value]);
 
   const commit = () => {
@@ -335,8 +339,11 @@ function AssetLocationSelectCell({
   const [draft, setDraft] = useState(value);
   const listId = `asset-location-options-${useId()}`;
 
+  const previousServerValue = useRef(value);
   useEffect(() => {
-    setDraft(value);
+    const previous = previousServerValue.current;
+    previousServerValue.current = value;
+    setDraft(current => current === previous ? value : current);
   }, [value]);
 
   const commit = () => {
@@ -1868,6 +1875,8 @@ export function MvAssetDataTableModal({
     }
     return [];
   });
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
   const [loading, setLoading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2189,26 +2198,14 @@ export function MvAssetDataTableModal({
       if (loadIdRef.current === myLoadId) {
         folderLookupRef.current = lookup;
         setFolderLookup(lookup);
-        let mergedEntries: PreviewEntry[] = [];
-        setEntries((prev) => {
-          const prevBySubId = new Map(prev.map((e) => [e.sub._id, e]));
-          mergedEntries = summaryEntries.map((entry) => {
-            const existing = prevBySubId.get(entry.sub._id);
-            const mergedPic = mergePicAssetFromApi(existing?.picAsset ?? null, entry.picAsset);
-            const mergedName =
-              mergedPic?.name?.trim() ||
-              mergedPic?.lable?.trim() ||
-              entry.sub.name ||
-              existing?.sub.name ||
-              "";
-            return {
-              sub: { ...entry.sub, name: mergedName },
-              picAsset: mergedPic,
-            };
-          });
-          persistEntriesCache(mergedEntries, lookup);
-          return mergedEntries;
+        const previous = new Map(entriesRef.current.map(entry => [entry.sub._id, entry]));
+        const mergedEntries = summaryEntries.map(entry => {
+          const mergedPic = mergePicAssetFromApi(previous.get(entry.sub._id)?.picAsset ?? null, entry.picAsset);
+          return { sub: { ...entry.sub, name: mergedPic?.name?.trim() || mergedPic?.lable?.trim() || entry.sub.name }, picAsset: mergedPic };
         });
+        entriesRef.current = mergedEntries;
+        setEntries(mergedEntries);
+        persistEntriesCache(mergedEntries, lookup);
         setLoading(false);
         startBackgroundHydrate(myLoadId, mergedEntries, lookup, firstPageIds);
       }
@@ -2223,10 +2220,26 @@ export function MvAssetDataTableModal({
     }
   }, [persistEntriesCache, projectId, startBackgroundHydrate, t]);
 
+  const pendingRealtimeRefresh = useRef(false);
+  const refreshFromSocket = () => {
+    if (!open) return;
+    if (savingCell) { pendingRealtimeRefresh.current = true; return; }
+    void loadAssetFolders();
+  };
+  useResourceRefresh("mv", refreshFromSocket, projectId);
+  useResourceRefresh("assets", refreshFromSocket, projectId);
+  useEffect(() => {
+    if (open && !savingCell && pendingRealtimeRefresh.current) {
+      pendingRealtimeRefresh.current = false;
+      void loadAssetFolders();
+    }
+  }, [open, savingCell, loadAssetFolders]);
+
   useEffect(() => {
     if (!open) return;
     void loadAssetFolders();
     return () => {
+      loadIdRef.current += 1;
       hydrateCancelRef.current?.();
     };
   }, [open, projectId, loadAssetFolders]);

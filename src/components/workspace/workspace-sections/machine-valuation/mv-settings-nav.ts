@@ -16,7 +16,7 @@ export const MV_SETTINGS_SECTIONS: Array<{
     key: "report",
     href: "/machine-valuation/settings/report",
     labelKey: "settingsHub.report",
-    defaultTab: "word-template",
+    defaultTab: "report-data-models",
   },
   {
     key: "serial-numbering",
@@ -59,6 +59,11 @@ export const MV_SETTINGS_TABS: Record<
   ],
   report: [
     {
+      key: "report-data-models",
+      href: "/machine-valuation/settings/report/report-data-models",
+      labelKey: "settingsHub.tabs.reportDataModels",
+    },
+    {
       key: "word-template",
       href: "/machine-valuation/settings/report/word-template",
       labelKey: "settingsHub.tabs.wordTemplates",
@@ -72,11 +77,6 @@ export const MV_SETTINGS_TABS: Record<
       key: "letterhead",
       href: "/machine-valuation/settings/report/letterhead",
       labelKey: "settingsHub.tabs.letterhead",
-    },
-    {
-      key: "report-data-models",
-      href: "/machine-valuation/settings/report/report-data-models",
-      labelKey: "settingsHub.tabs.reportDataModels",
     },
   ],
   "serial-numbering": [

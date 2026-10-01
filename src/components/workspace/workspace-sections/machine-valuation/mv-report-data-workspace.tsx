@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, FileInput, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +55,7 @@ import {
   type MvReportPreparerOption,
 } from "./mv-report-preparers";
 import { MvCloneReportDataDialog } from "./mv-clone-report-data-dialog";
+import { MvProjectDataImportDialog } from "./mv-project-data-import-dialog";
 import { MvUnsavedSaveCoach } from "./mv-unsaved-save-coach";
 import type { MvProject, MvProjectReportData, MvSubProject } from "./types";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
@@ -337,6 +338,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [saveButtonEl, setSaveButtonEl] = useState<HTMLElement | null>(null);
   const [showUnsavedCoach, setShowUnsavedCoach] = useState(false);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [dataImportDialogOpen, setDataImportDialogOpen] = useState(false);
   const [incompleteWarningOpen, setIncompleteWarningOpen] = useState(false);
   const [missingFieldLabels, setMissingFieldLabels] = useState<string[]>([]);
   const [invalidFieldKeys, setInvalidFieldKeys] = useState<Set<string>>(
@@ -938,6 +940,43 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     [markClean, projectId, subProjects, t, toast],
   );
 
+  const openDataImportDialog = async () => {
+    if (isDirtyRef.current) {
+      const saved = await persistReportData(undefined, { silent: true });
+      if (!saved) {
+        toast({ variant: "destructive", description: "تعذر حفظ تعديلات بيانات التقرير قبل الاستيراد." });
+        return;
+      }
+    }
+    setDataImportDialogOpen(true);
+  };
+
+  const handleDataImported = useCallback(
+    (updated: MvProject) => {
+      setProject((current) => {
+        const merged: MvProject = {
+          ...(current ?? updated),
+          ...updated,
+          reportData: updated.reportData,
+          valuationAccountingWorkspace:
+            updated.valuationAccountingWorkspace ?? current?.valuationAccountingWorkspace,
+          clientDocumentsWorkspace:
+            updated.clientDocumentsWorkspace ?? current?.clientDocumentsWorkspace,
+          inspectorFiles: updated.inspectorFiles?.length ? updated.inspectorFiles : current?.inspectorFiles,
+        };
+        writeProjectSummaryCache(projectId, { project: merged, subProjects }, "report");
+        return merged;
+      });
+      setReportData(normalizeReportData(updated.reportData, updated));
+      setDataImportDialogOpen(false);
+      markClean();
+      invalidateMvApiCache("projects:");
+      invalidateMvApiCache(`project-summary:${projectId}`);
+      invalidateMvApiCache(`project-report:${projectId}`);
+    },
+    [markClean, projectId, subProjects],
+  );
+
   if (!project) {
     return (
       <MvWorkflowPageFrame className={reportFont.className} dir={dir}>
@@ -994,32 +1033,44 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                   <p className="text-[10px] font-black text-slate-400">نموذج بيانات التقرير</p>
                   <p className="truncate text-[12px] font-black text-slate-900">{activeReportDataModel.name}</p>
                 </div>
-                {reportDataModels.length > 1 ? (
-                  <Select
-                    value={activeReportDataModel.id}
-                    onValueChange={(nextId) => {
-                      if (nextId === activeReportDataModel.id) return;
-                      if (
-                        reportDataLooksFilled(reportData) &&
-                        !window.confirm("سيبقى المحتوى الحالي محفوظًا، وستتغير الحقول الظاهرة حسب النموذج الجديد. متابعة؟")
-                      ) {
-                        return;
-                      }
-                      selectReportDataModel(nextId);
-                    }}
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {reportDataModels.length > 1 ? (
+                    <Select
+                      value={activeReportDataModel.id}
+                      onValueChange={(nextId) => {
+                        if (nextId === activeReportDataModel.id) return;
+                        if (
+                          reportDataLooksFilled(reportData) &&
+                          !window.confirm("سيبقى المحتوى الحالي محفوظًا، وستتغير الحقول الظاهرة حسب النموذج الجديد. متابعة؟")
+                        ) {
+                          return;
+                        }
+                        selectReportDataModel(nextId);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[min(19rem,100%)] rounded-lg border-slate-200 bg-slate-50 text-[10px] font-bold shadow-none">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent dir="rtl">
+                        {reportDataModels.map((model) => (
+                          <SelectItem key={model.id} value={model.id} className="text-[11px] font-bold">
+                            {model.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 rounded-lg border-cyan-200 bg-cyan-50 px-2.5 text-[10px] font-black text-cyan-800 shadow-none hover:bg-cyan-100"
+                    disabled={saving}
+                    onClick={() => void openDataImportDialog()}
                   >
-                    <SelectTrigger className="h-8 w-[min(19rem,100%)] rounded-lg border-slate-200 bg-slate-50 text-[10px] font-bold shadow-none">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent dir="rtl">
-                      {reportDataModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="text-[11px] font-bold">
-                          {model.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
+                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileInput className="h-3.5 w-3.5" />}
+                    استيراد بيانات من ملف
+                  </Button>
+                </div>
               </section>
               <MvReportDataForm
                 project={project}
@@ -1059,6 +1110,13 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
         onOpenChange={setCloneDialogOpen}
         currentProjectId={projectId}
         onCloned={handleReportDataCloned}
+      />
+
+      <MvProjectDataImportDialog
+        project={project}
+        open={dataImportDialogOpen}
+        onOpenChange={setDataImportDialogOpen}
+        onImported={handleDataImported}
       />
 
       <Dialog

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, FileText, FolderUp, ImageDown, Loader2, Upload, X } from "lucide-react";
+import { Copy, ImageDown, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -9,55 +9,22 @@ import { saudiRiyalWords } from "@/lib/saudi-riyal-words";
 import { downloadBlob as download } from "@/lib/download-media";
 import { convertPdfFileToPageImages } from "./machine-valuation/mv-pdf-page-images";
 import HelperToolsScreenCapture from "./helper-tools-screen-capture";
+import HelperImagesToPdf from "./helper-images-to-pdf";
 import { useHelperToolsNav } from "@/components/helper-tools-shell";
-
-const isImage = (file: File) => file.type.startsWith("image/");
 
 export default function HelperTools() {
   const { tool, isArabic } = useHelperToolsNav();
-  const [images, setImages] = useState<File[]>([]);
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState("");
   const [pages, setPages] = useState<File[]>([]);
   const [amount, setAmount] = useState("");
-  const imageInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
   const pdfInput = useRef<HTMLInputElement>(null);
   const actions = isArabic
-    ? { upload: "رفع صور", folder: "رفع مجلد", create: "إنشاء PDF", choosePdf: "اختر PDF", copy: "نسخ", placeholder: "المبلغ بالريال" }
-    : { upload: "Upload", folder: "Folder", create: "Create PDF", choosePdf: "Choose PDF", copy: "Copy", placeholder: "Amount in SAR" };
+    ? { choosePdf: "اختر PDF", copy: "نسخ", placeholder: "المبلغ بالريال" }
+    : { choosePdf: "Choose PDF", copy: "Copy", placeholder: "Amount in SAR" };
 
-  const imageUrls = useMemo(() => images.map((file) => ({ file, url: URL.createObjectURL(file) })), [images]);
   const pageUrls = useMemo(() => pages.map((file) => ({ file, url: URL.createObjectURL(file) })), [pages]);
-  useEffect(() => () => imageUrls.forEach((x) => URL.revokeObjectURL(x.url)), [imageUrls]);
   useEffect(() => () => pageUrls.forEach((x) => URL.revokeObjectURL(x.url)), [pageUrls]);
-  const addImages = (files: FileList | null) => setImages((p) => [...p, ...Array.from(files ?? []).filter(isImage)]);
-
-  const makePdf = async () => {
-    if (!images.length) return;
-    setWorking(true);
-    setProgress("...");
-    try {
-      const { jsPDF } = await import("jspdf");
-      const pdf = new jsPDF({ unit: "pt", format: "a4", compress: true });
-      for (let i = 0; i < images.length; i++) {
-        setProgress(`${i + 1} / ${images.length}`);
-        const data = await new Promise<string>((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => resolve(String(r.result));
-          r.onerror = reject;
-          r.readAsDataURL(images[i]!);
-        });
-        if (i) pdf.addPage();
-        const p = pdf.internal.pageSize;
-        pdf.addImage(data, "JPEG", 18, 18, p.getWidth() - 36, p.getHeight() - 36, undefined, "FAST");
-      }
-      download(pdf.output("blob"), "images.pdf");
-    } finally {
-      setWorking(false);
-      setProgress("");
-    }
-  };
 
   const convertPdf = async (file: File) => {
     setWorking(true);
@@ -78,28 +45,7 @@ export default function HelperTools() {
       {tool === "screen" && <HelperToolsScreenCapture arabic={isArabic} />}
 
       {tool === "images" && (
-        <section className="space-y-3">
-          <input ref={imageInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addImages(e.target.files)} />
-          <input ref={folderInput} type="file" multiple className="hidden" {...({ webkitdirectory: "" } as object)} onChange={(e) => addImages(e.target.files)} />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => imageInput.current?.click()}><Upload className="h-4 w-4" />{actions.upload}</Button>
-            <Button size="sm" variant="outline" onClick={() => folderInput.current?.click()}><FolderUp className="h-4 w-4" />{actions.folder}</Button>
-            <Button size="sm" className="ms-auto" disabled={!images.length || working} onClick={() => void makePdf()}>
-              {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-              {actions.create} {progress}
-            </Button>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-            {imageUrls.map(({ file, url }, i) => (
-              <div key={url} className="relative overflow-hidden rounded-lg bg-slate-100">
-                <img src={url} alt={file.name} className="h-24 w-full object-cover" />
-                <button type="button" onClick={() => setImages((p) => p.filter((_, x) => x !== i))} className="absolute left-1 top-1 rounded-full bg-black/60 p-1 text-white" aria-label={file.name}>
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+        <HelperImagesToPdf arabic={isArabic} />
       )}
 
       {tool === "pdf" && (

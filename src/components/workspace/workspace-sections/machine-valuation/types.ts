@@ -471,6 +471,8 @@ export type PicAssetVoiceNoteExternal = {
 export type PicAssetVoiceNote = PicAssetVoiceNoteGridFs | PicAssetVoiceNoteExternal;
 
 export interface PicAsset {
+  /** Image count excluding videos, available on project summaries. */
+  photoCount?: number;
   _id: string;
   projectId: string;
   parent: string;

@@ -1,5 +1,9 @@
 "use client";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { enqueueUpload, uploadOwner, type UploadFolder } from "@/lib/mv-background-uploads";
 import { useResourceRefresh } from "@/components/support/realtime-provider";
+import { assetBulkSelectionKey, toggleAssetBulkSelection, bulkFolderTargets, toggleBulkFolders, bulkFolderRoots } from "@/lib/mv-asset-bulk-selection";
+import { watchAssetMediaRevision } from "@/lib/mv-asset-media-refresh";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
@@ -55,11 +59,11 @@ import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MvAssetActionsContent as DropdownMenuContent } from "./mv-asset-actions-content";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -95,9 +99,8 @@ import {
 } from "./mv-pic-asset-progressive-load";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
-import { MvUploadProgressToast } from "./mv-upload-progress-toast";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
-import { mvFetchJson } from "./mv-api-client";
+import { mvFetchJson, invalidateMvApiCache } from "./mv-api-client";
 import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
 import { buildAssetImagesPdf } from "@/lib/mv-asset-images-pdf";
 
@@ -163,29 +166,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat("ar-SA", {
 });
 type AssetImagesSource = "app" | "device";
 type AppPreviewMediaTab = "images" | "videos";
-type AssetUploadJobState = "uploading" | "done" | "error";
 type AssetImagesSearchMode = "all" | "recent";
 type AssetImagesSearchKind = "all" | "folder" | "image";
-
-type AssetUploadJobKind = "folder" | "images";
-
-type AssetUploadJob = {
-  id: string;
-  kind: AssetUploadJobKind;
-  label: string;
-  phase: string;
-  progress: number;
-  current: number;
-  total: number;
-  folderName?: string;
-  state: AssetUploadJobState;
-};
-
-type AssetUploadProgressPatch = {
-  phase: string;
-  completedInGroup: number;
-  groupTotal: number;
-};
 
 type AppliedAssetImagesSearch = {
   query: string;
@@ -357,19 +339,8 @@ function folderPartsFromPickedImage(item: PickedImageFile) {
  */
 const FOLDER_LOOSE_IMAGES_ASSET_NAME = "صور مباشرة";
 
-type PreviewFolderKnownEntry = {
-  uploadFolderId: string;
-  selectionFolderId: string;
-  name: string;
-  kind: PreviewFolderCreateKind;
-};
-
 function previewFolderPathKey(parts: string[]) {
   return parts.join("\u0000");
-}
-
-function previewFolderParentNameKey(parentId: string, name: string) {
-  return `${parentId}\u0000${name}`;
 }
 
 /**
@@ -779,47 +750,6 @@ function mergeServerListWithStillPendingLocals(server: MvDriveFile[], locals: Mv
  * نبدأ بعدوانية (دفعات أكبر + توازٍ أعلى)، وعند الرفض نصغّر الميزانية تلقائياً ونعيد المحاولة
  * دون فقدان ملفات (تقسيم الدفعة + إعادة الإرسال).
  */
-const ASSET_UPLOAD_FAST_MAX_FILES = 18;
-const ASSET_UPLOAD_FAST_MAX_BYTES = 18 * 1024 * 1024;
-const ASSET_UPLOAD_FAST_PARALLEL = 5;
-/** توازٍ بين أصول/مجلدات مختلفة أثناء نفس دفعة السحب */
-const ASSET_UPLOAD_GROUP_PARALLEL = 3;
-/** حد أدنى آمن بعد سلسلة 413 */
-const ASSET_UPLOAD_SAFE_MAX_FILES = 3;
-const ASSET_UPLOAD_SAFE_MAX_BYTES = 3 * 1024 * 1024;
-const ASSET_UPLOAD_SAFE_PARALLEL = 2;
-
-type AssetUploadThrottle = {
-  maxFiles: number;
-  maxBytes: number;
-  parallel: number;
-};
-
-function createAssetUploadThrottle(): AssetUploadThrottle {
-  return {
-    maxFiles: ASSET_UPLOAD_FAST_MAX_FILES,
-    maxBytes: ASSET_UPLOAD_FAST_MAX_BYTES,
-    parallel: ASSET_UPLOAD_FAST_PARALLEL,
-  };
-}
-
-function shrinkAssetUploadThrottle(throttle: AssetUploadThrottle) {
-  throttle.maxFiles = Math.max(ASSET_UPLOAD_SAFE_MAX_FILES, Math.floor(throttle.maxFiles / 2));
-  throttle.maxBytes = Math.max(ASSET_UPLOAD_SAFE_MAX_BYTES, Math.floor(throttle.maxBytes / 2));
-  throttle.parallel = Math.max(ASSET_UPLOAD_SAFE_PARALLEL, Math.floor(throttle.parallel / 2));
-}
-
-/** دفعات عرض المعاينات المحليّة — خفيفة حتى لا تنافس الرفع على الخيط الرئيسي */
-const PREVIEW_UI_CHUNK_SIZE = 80;
-/** في الرفع الجماعي لا نُنشئ معاينات blob لكل الصور (تكلفة عالية) */
-const BULK_UPLOAD_SKIP_LOCAL_PREVIEWS = true;
-
-function shouldYieldPreviewUiChunk(chunkIndex: number, totalImages: number) {
-  if (totalImages <= PREVIEW_UI_CHUNK_SIZE) return false;
-  const chunkNumber = Math.floor(chunkIndex / PREVIEW_UI_CHUNK_SIZE);
-  return chunkNumber % 2 === 1;
-}
-
 class AssetUploadHttpError extends Error {
   readonly status: number;
 
@@ -827,65 +757,6 @@ class AssetUploadHttpError extends Error {
     super(message);
     this.name = "AssetUploadHttpError";
     this.status = status;
-  }
-}
-
-function messageForAssetUploadStatus(status: number, serverMessage?: string): string {
-  const t = getMvT(readMvLanguage());
-  if (status === 413) return t("assetImages.upload.payloadTooLarge");
-  if (serverMessage?.trim()) return serverMessage.trim();
-  return t("assetImages.upload.genericFailed");
-}
-
-/** تجميع الملفات حسب عدد الملفات وميزانية الحجم حتى لا يتجاوز طلب واحد حد البوابة */
-function chunkPickedImagesByBudget<T extends { file: File }>(
-  items: readonly T[],
-  maxFiles: number,
-  maxBytes: number,
-): T[][] {
-  if (items.length === 0) return [];
-  const fileCap = Math.max(1, maxFiles);
-  const byteCap = Math.max(256 * 1024, maxBytes);
-  const out: T[][] = [];
-  let current: T[] = [];
-  let currentBytes = 0;
-
-  const flush = () => {
-    if (current.length === 0) return;
-    out.push(current);
-    current = [];
-    currentBytes = 0;
-  };
-
-  for (const item of items) {
-    const size = Math.max(0, Number(item.file.size) || 0);
-    const wouldExceedFiles = current.length >= fileCap;
-    const wouldExceedBytes = current.length > 0 && currentBytes + size > byteCap;
-    if (wouldExceedFiles || wouldExceedBytes) flush();
-    current.push(item);
-    currentBytes += size;
-    if (current.length === 1 && size >= byteCap) flush();
-  }
-  flush();
-  return out;
-}
-
-async function postAssetImagesBatchWith413Retry(
-  postOnce: (batch: PickedImageFile[]) => Promise<MvDriveFile[]>,
-  batch: PickedImageFile[],
-  throttle?: AssetUploadThrottle,
-): Promise<MvDriveFile[]> {
-  try {
-    return await postOnce(batch);
-  } catch (error) {
-    const is413 = error instanceof AssetUploadHttpError && error.status === 413;
-    if (!is413) throw error;
-    if (throttle) shrinkAssetUploadThrottle(throttle);
-    if (batch.length <= 1) throw error;
-    const mid = Math.ceil(batch.length / 2);
-    const left = await postAssetImagesBatchWith413Retry(postOnce, batch.slice(0, mid), throttle);
-    const right = await postAssetImagesBatchWith413Retry(postOnce, batch.slice(mid), throttle);
-    return [...left, ...right];
   }
 }
 
@@ -1013,166 +884,6 @@ async function withUploadNetworkRetries<T>(run: () => Promise<T>, attempts = 3):
     }
   }
   throw lastError;
-}
-
-async function postAssetImagesFormData(projectId: string, batch: PickedImageFile[]): Promise<MvDriveFile[]> {
-  return withUploadNetworkRetries(async () => {
-    const formData = new FormData();
-    for (const item of batch) {
-      formData.append("paths", normalizeRelativePath(item.relativePath, item.file.name));
-      formData.append("files", item.file, item.file.name);
-    }
-    const response = await fetch(`/api/mv/projects/${projectId}/asset-image-files`, {
-      method: "POST",
-      credentials: "include",
-      body: formData,
-    });
-    if (!response.ok) {
-      let serverMessage: string | undefined;
-      try {
-        const data = (await response.json()) as { message?: unknown };
-        if (typeof data.message === "string" && data.message.trim()) {
-          serverMessage = data.message.trim();
-        }
-      } catch {
-        /* ignore */
-      }
-      throw new AssetUploadHttpError(messageForAssetUploadStatus(response.status, serverMessage), response.status);
-    }
-    const raw = (await response.json()) as unknown;
-    return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
-  });
-}
-
-async function postAssetImagesFormDataToPicFolder(
-  projectId: string,
-  picAssetFolderId: string,
-  folderDisplayName: string,
-  batch: PickedImageFile[],
-): Promise<MvDriveFile[]> {
-  return withUploadNetworkRetries(async () => {
-    const formData = new FormData();
-    for (const item of batch) {
-      const inner = item.relativePath.replace(/^\/+/, "");
-      const rel = normalizeRelativePath(
-        inner ? `${folderDisplayName}/${inner}` : `${folderDisplayName}/${item.file.name}`,
-        item.file.name,
-      );
-      formData.append("paths", rel);
-      formData.append("files", item.file, item.file.name);
-    }
-    const url = `/api/mv/projects/${encodeURIComponent(projectId)}/asset-image-files?picAssetFolderId=${encodeURIComponent(picAssetFolderId)}`;
-    const response = await fetch(url, {
-      method: "POST",
-      credentials: "include",
-      body: formData,
-    });
-    if (!response.ok) {
-      let serverMessage: string | undefined;
-      try {
-        const data = (await response.json()) as { message?: unknown };
-        if (typeof data.message === "string" && data.message.trim()) {
-          serverMessage = data.message.trim();
-        }
-      } catch {
-        /* ignore */
-      }
-      throw new AssetUploadHttpError(messageForAssetUploadStatus(response.status, serverMessage), response.status);
-    }
-    const raw = (await response.json()) as unknown;
-    return Array.isArray(raw) ? (raw as MvDriveFile[]) : [];
-  });
-}
-
-async function uploadPickedImagesToPicFolderServer(
-  projectId: string,
-  picAssetFolderId: string,
-  folderDisplayName: string,
-  imageFiles: PickedImageFile[],
-  onUploadedCount?: (uploaded: number, total: number) => void,
-  throttle = createAssetUploadThrottle(),
-): Promise<MvDriveFile[]> {
-  const total = imageFiles.length;
-  if (total === 0) return [];
-
-  const postBatch = (batch: PickedImageFile[]) =>
-    postAssetImagesBatchWith413Retry(
-      (slice) => postAssetImagesFormDataToPicFolder(projectId, picAssetFolderId, folderDisplayName, slice),
-      batch,
-      throttle,
-    );
-
-  const pending = imageFiles.slice();
-  const uploadedRows: MvDriveFile[] = [];
-  let uploadedFiles = 0;
-  let firstError: unknown = null;
-  let failedFiles = 0;
-
-  while (pending.length > 0) {
-    const batches = chunkPickedImagesByBudget(pending, throttle.maxFiles, throttle.maxBytes);
-    const wave = batches.slice(0, Math.max(1, throttle.parallel));
-    const waveFileCount = wave.reduce((sum, b) => sum + b.length, 0);
-    pending.splice(0, waveFileCount);
-
-    const waveResults = await mapPool(wave, throttle.parallel, async (batch) => {
-      try {
-        return { ok: true as const, rows: await postBatch(batch), count: batch.length };
-      } catch (error) {
-        return { ok: false as const, error, count: batch.length, rows: [] as MvDriveFile[] };
-      }
-    });
-
-    for (const result of waveResults) {
-      if (result.ok) {
-        uploadedRows.push(...result.rows);
-        uploadedFiles = Math.min(total, uploadedFiles + result.count);
-        onUploadedCount?.(uploadedFiles, total);
-      } else {
-        failedFiles += result.count;
-        if (!firstError) firstError = result.error;
-        const partial = (result.error as Error & { partialRows?: MvDriveFile[] })?.partialRows;
-        if (partial?.length) {
-          uploadedRows.push(...partial);
-          uploadedFiles = Math.min(total, uploadedFiles + partial.length);
-          failedFiles = Math.max(0, failedFiles - partial.length);
-          onUploadedCount?.(uploadedFiles, total);
-        }
-      }
-    }
-  }
-
-  if (uploadedRows.length === 0 && firstError) throw firstError;
-  if (failedFiles > 0 && firstError) {
-    const err = firstError instanceof Error ? firstError : new Error(String(firstError));
-    (err as Error & { partialRows?: MvDriveFile[] }).partialRows = uploadedRows;
-    throw err;
-  }
-  return uploadedRows;
-}
-
-async function uploadPickedImagesToServer(
-  projectId: string,
-  imageFiles: PickedImageFile[],
-  throttle = createAssetUploadThrottle(),
-): Promise<MvDriveFile[]> {
-  const total = imageFiles.length;
-  if (total === 0) return [];
-  const pending = imageFiles.slice();
-  const uploadedRows: MvDriveFile[] = [];
-
-  const postBatch = (batch: PickedImageFile[]) =>
-    postAssetImagesBatchWith413Retry((slice) => postAssetImagesFormData(projectId, slice), batch, throttle);
-
-  while (pending.length > 0) {
-    const batches = chunkPickedImagesByBudget(pending, throttle.maxFiles, throttle.maxBytes);
-    const wave = batches.slice(0, Math.max(1, throttle.parallel));
-    const waveFileCount = wave.reduce((sum, b) => sum + b.length, 0);
-    pending.splice(0, waveFileCount);
-
-    const waveRows = await mapPool(wave, throttle.parallel, (batch) => postBatch(batch));
-    for (const rows of waveRows) uploadedRows.push(...rows);
-  }
-  return uploadedRows;
 }
 
 function readFileEntry(entry: WebkitFileEntry): Promise<File | null> {
@@ -1440,6 +1151,11 @@ function countDescendantAssetFolders(node: ImageFolderNode): number {
   );
 }
 
+function countAssetsWithImages(node: ImageFolderNode): number {
+  return node.folders.reduce((sum, child) => sum + (isAssetFolderNode(child)
+    ? (child.imageCount > 0 ? 1 : 0) : countAssetsWithImages(child)), 0);
+}
+
 function countDescendantRegularFolders(node: ImageFolderNode): number {
   return node.folders.reduce(
     (sum, folder) =>
@@ -1541,6 +1257,7 @@ function fileNameFromPathSafe(file: AssetImageViewFile): string {
 
 export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImagesHubProps) {
   const { t, dir, isArabic } = useMvI18n();
+  const { user: uploadUser } = useAuthTracking();
   const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const numberFormatter = useMemo(
     () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
@@ -1600,6 +1317,25 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set([""]));
   const [reportData, setReportData] = useState<MvProjectReportData>({ includeAssetImages: true });
   const [includeAssetImagesInReport, setIncludeAssetImagesInReport] = useState(true);
+  const [bulkSelectedKeys, setBulkSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [bulkSelectedFolderIds, setBulkSelectedFolderIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setBulkSelectedKeys(new Set());
+    setBulkSelectedFolderIds(new Set());
+  }, [projectId]);
+  const folderBulkState = useCallback((node: ImageFolderNode) => {
+    const targets = bulkFolderTargets(node);
+    const count = targets.filter((id) => bulkSelectedFolderIds.has(id)).length;
+    return { selected: targets.length > 0 && count === targets.length,
+      partial: count > 0 && count < targets.length };
+  }, [bulkSelectedFolderIds]);
+  const isBulkSelected = useCallback(
+    (file: AssetImageViewFile) => bulkSelectedKeys.has(assetBulkSelectionKey(file)),
+    [bulkSelectedKeys],
+  );
+  const toggleBulkImages = useCallback((rows: readonly AssetImageViewFile[]) => {
+    setBulkSelectedKeys((current) => toggleAssetBulkSelection(current, rows));
+  }, []);
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
   const [creatingReportImagesPdf, setCreatingReportImagesPdf] = useState(false);
   const [assetDataOpen, setAssetDataOpen] = useState(false);
@@ -1623,6 +1359,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }>(MV_WORKFLOW_SESSION.previewPhotoFolders(projectId));
     return c?.entries && Array.isArray(c.entries) ? c.entries : [];
   });
+  const previewPhotoFoldersRef = useRef(previewPhotoFolders);
+  previewPhotoFoldersRef.current = previewPhotoFolders;
   const [photosRootId, setPhotosRootId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const c = readMvWorkflowSessionJson<{ photosRootId: string | null }>(
@@ -1644,7 +1382,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [, setFolderMetaSaving] = useState(false);
   const [moveDialogFolder, setMoveDialogFolder] = useState<ImageFolderNode | null>(null);
   const [draggingPreview, setDraggingPreview] = useState(false);
-  const [assetUploadJobs, setAssetUploadJobs] = useState<AssetUploadJob[]>([]);
   const [assetImportResult, setAssetImportResult] = useState<AssetImportResult | null>(null);
   const [assetImageFoldersModalOpen, setAssetImageFoldersModalOpen] = useState(false);
   const [assetSearchOpen, setAssetSearchOpen] = useState(false);
@@ -1653,51 +1390,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [assetSearchKind, setAssetSearchKind] = useState<AssetImagesSearchKind>("all");
   const [appliedAssetSearch, setAppliedAssetSearch] = useState<AppliedAssetImagesSearch | null>(null);
   const filesById = useMemo(() => new Map(files.map((f) => [f._id, f])), [files]);
-
-  const startAssetUploadJob = useCallback(
-    (params: {
-      kind: AssetUploadJobKind;
-      label: string;
-      total: number;
-      phase?: string;
-      folderName?: string;
-    }) => {
-      const id = crypto.randomUUID();
-      setAssetUploadJobs((current) => [
-        ...current,
-        {
-          id,
-          kind: params.kind,
-          label: params.label,
-          phase: params.phase ?? t("assetImages.upload.phase.preparing"),
-          progress: 2,
-          current: 0,
-          total: params.total,
-          folderName: params.folderName,
-          state: "uploading",
-        },
-      ]);
-      return id;
-    },
-    [t],
-  );
-
-  const activeAssetUploadJob = useMemo(() => {
-    if (assetUploadJobs.length === 0) return null;
-    return assetUploadJobs.find((job) => job.state === "uploading") ?? assetUploadJobs[assetUploadJobs.length - 1]!;
-  }, [assetUploadJobs]);
-
-  const updateAssetUploadJob = useCallback((id: string, patch: Partial<AssetUploadJob>) => {
-    setAssetUploadJobs((current) =>
-      current.map((job) => (job.id === id ? { ...job, ...patch } : job)),
-    );
-  }, []);
-
-  const removeAssetUploadJobLater = useCallback((id: string, delay = 2400) => {
-    window.setTimeout(() => {
-      setAssetUploadJobs((current) => current.filter((job) => job.id !== id));
-    }, delay);
-  }, []);
 
   const loadImages = useCallback(async (mode: "full" | "revalidate" = "full") => {
     if (mode === "revalidate" && assetFilesLoadingRef.current) {
@@ -1921,12 +1613,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       if (!previewRoot) {
         setPhotosRootId(null);
         // لا تمسح شجرة جلسة سابقة صالحة عند نتيجة شبكة فارغة مؤقتاً
-        if (!(cached?.entries && cached.entries.length > 0)) {
+        if (mode === "revalidate" || !(cached?.entries && cached.entries.length > 0)) {
           setPreviewPhotoFolders([]);
           setSelectedPreviewFolderId("__pv_root__");
           writeMvWorkflowSessionJson(cacheKey, { photosRootId: null, entries: [] });
         }
-        return;
+        return true;
       }
       setPhotosRootId(previewRoot._id);
       const mergeRecentlyCreated = (base: PreviewPhotoFolderEntry[]): PreviewPhotoFolderEntry[] => {
@@ -1949,25 +1641,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return merged;
       };
       const summaryEntries = mergeRecentlyCreated(baseEntries);
-      let mergedEntries: PreviewPhotoFolderEntry[] = [];
-      setPreviewPhotoFolders((prev) => {
-        const prevById = new Map(prev.map((e) => [e.sub._id, e]));
-        mergedEntries = summaryEntries.map((entry) => {
-          const existing = prevById.get(entry.sub._id);
-          const mergedPic = mergePicAssetPreferFull(existing?.picAsset ?? null, entry.picAsset);
-          const mergedName =
-            mergedPic?.name?.trim() || entry.sub.name || existing?.sub.name || "";
-          return {
-            sub: { ...entry.sub, name: mergedName },
-            picAsset: mergedPic,
-          };
-        });
-        writeMvWorkflowSessionJson(cacheKey, {
-          photosRootId: previewRoot._id,
-          entries: mergedEntries,
-        });
-        return mergedEntries;
+      // Compute synchronously: React may defer state updaters until after hydration starts.
+      const prevById = new Map(previewPhotoFoldersRef.current.map(entry => [entry.sub._id, entry]));
+      const mergedEntries: PreviewPhotoFolderEntry[] = summaryEntries.map(entry => {
+        const existing = prevById.get(entry.sub._id);
+        const mergedPic = mergePicAssetPreferFull(existing?.picAsset ?? null, entry.picAsset, true);
+        return { sub: { ...entry.sub, name: mergedPic?.name?.trim() || entry.sub.name }, picAsset: mergedPic };
       });
+      previewPhotoFoldersRef.current = mergedEntries;
+      setPreviewPhotoFolders(mergedEntries);
+      writeMvWorkflowSessionJson(cacheKey, { photosRootId: previewRoot._id, entries: mergedEntries });
       if (blockPreviewSpinner) setLoadingPreviewFolders(false);
 
       const selectedId = selectedPreviewFolderIdRef.current;
@@ -1991,7 +1674,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               prev.map((entry) => {
                 const next = byId.get(entry.sub._id);
                 return next
-                  ? { sub: next.sub, picAsset: mergePicAssetPreferFull(entry.picAsset, next.picAsset) }
+                  ? { sub: next.sub, picAsset: mergePicAssetPreferFull(entry.picAsset, next.picAsset, true) }
                   : entry;
               }),
             );
@@ -2015,11 +1698,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         next.add("__pv_root__");
         return next;
       });
+      return true;
     } catch {
       if (mode === "full" && !(cached?.entries && Array.isArray(cached.entries))) {
         setPreviewPhotoFolders([]);
         setPhotosRootId(null);
       }
+      return false;
     } finally {
       if (blockPreviewSpinner) setLoadingPreviewFolders(false);
     }
@@ -2071,9 +1756,27 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     await loadPreviewPhotoFolders("full");
   }, [loadPreviewPhotoFolders, projectId]);
 
-  const refreshAssetImageSources = useCallback(async () => {
-    await Promise.all([loadImages("revalidate"), loadPreviewPhotoFolders("revalidate")]);
+  const sourceRefreshRef = useRef<Promise<boolean> | null>(null);
+  const sourceRefreshQueuedRef = useRef(false);
+  const refreshAssetImageSources = useCallback(() => {
+    if (sourceRefreshRef.current) {
+      sourceRefreshQueuedRef.current = true;
+      return sourceRefreshRef.current;
+    }
+    const refresh = async () => {
+      let updated = false;
+      do {
+        sourceRefreshQueuedRef.current = false;
+        const [, foldersUpdated] = await Promise.all([loadImages("revalidate"), loadPreviewPhotoFolders("revalidate")]);
+        updated = foldersUpdated === true;
+      } while (sourceRefreshQueuedRef.current);
+      return updated;
+    };
+    sourceRefreshRef.current = refresh().finally(() => { sourceRefreshRef.current = null; });
+    return sourceRefreshRef.current;
   }, [loadImages, loadPreviewPhotoFolders]);
+
+  useEffect(() => watchAssetMediaRevision(projectId, refreshAssetImageSources), [projectId, refreshAssetImageSources]);
 
   useEffect(() => {
     void loadPreviewPhotoFolders("full");
@@ -2127,8 +1830,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [loadAssetImportSummary, refreshAssetImageSources]);
 
   useResourceRefresh("mv", () => {
-    void loadPreviewPhotoFolders("revalidate");
-    void loadImages("revalidate");
+    invalidateMvApiCache(`asset-import-summary:${projectId}`);
+    void loadAssetImportSummary();
+    void refreshAssetImageSources();
+  }, projectId);
+  useResourceRefresh("assets", () => {
+    invalidateMvApiCache(`asset-import-summary:${projectId}`);
     void loadAssetImportSummary();
     void refreshAssetImageSources();
   }, projectId);
@@ -2188,7 +1895,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
       if (!asset) {
         const FolderIcon = size === "tree" ? Folder : FolderOpen;
-        return <FolderIcon className={cn(iconSize, "shrink-0 text-amber-500")} />;
+        return <span className="relative inline-flex">
+          <FolderIcon className={cn(iconSize, "shrink-0 text-amber-500")} />
+          {countDescendantAssetFolders(node) > 0 && size !== "tree" ?
+            <span className={cn("absolute -bottom-1 -right-2 rounded-full border-2 border-white p-1", node.imageCount > 0 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600")}>
+              <Box className="h-3 w-3" />
+            </span> : null}
+        </span>;
       }
 
       return (
@@ -2312,12 +2025,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
        */
       const canonicalPicImageEntries = indexed.filter(({ image }) => !isExternalPicAssetVideo(image));
       const canonicalPicImageRows = mapDisplay(canonicalPicImageEntries, false);
-      const displayRows = canonicalPicImageRows.length > 0 ? canonicalPicImageRows : assetImageRows;
+      // An explicitly empty assets.images is authoritative; old storage receipts
+      // must not resurrect deleted photos or keep a folder marked as containing photos.
+      const displayRows = row.picAsset ? canonicalPicImageRows : assetImageRows;
 
       node.images = sortImages(dedupeAssetImageViewFiles(displayRows, picAssetId));
       // هذا التبويب مخصص للصور فقط: لا نُحمّل/نعرض فيديوهات.
       node.videos = [];
-      node.imageCount = node.images.length;
+      node.imageCount = Math.max(node.images.length, row.picAsset?.photoCount ??
+        (entryHasFullPicAssetMedia(row.picAsset) ? 0 : row.picAsset?.imageCount ?? 0));
       node.videoCount = 0;
       actualNodes.set(id, node);
       fb.set(id, node);
@@ -2379,7 +2095,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       for (const child of node.folders) {
         sortAndCount(child);
       }
-      node.imageCount = node.images.length + node.folders.reduce((sum, folder) => sum + folder.imageCount, 0);
+      node.imageCount = Math.max(node.imageCount, node.images.length) + node.folders.reduce((sum, folder) => sum + folder.imageCount, 0);
       node.videoCount = node.videos.length + node.folders.reduce((sum, folder) => sum + folder.videoCount, 0);
       node.includedImageCount =
         node.images.filter((image) => isAssetViewFileReportIncluded(image, filesById)).length +
@@ -2429,12 +2145,18 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [selectedPreviewFolderNode]);
 
   const selectedFolderPath = selectedFolder.path;
-  const reportSelectedFileIds = useMemo(
-    () => new Set(files.filter(isReportImageIncluded).map((file) => file._id)),
-    [files],
+  const bulkSelectedFiles = useMemo(() => {
+    const byKey = new Map<string, AssetImageViewFile>();
+    for (const file of [...files, ...collectFolderImages(previewRoot)]) {
+      if (isBulkSelected(file)) byKey.set(assetBulkSelectionKey(file), file);
+    }
+    return [...byKey.values()];
+  }, [files, previewRoot, isBulkSelected]);
+  const bulkSelectedFolders = useMemo(
+    () => bulkFolderRoots([previewRoot], bulkSelectedFolderIds),
+    [previewRoot, bulkSelectedFolderIds],
   );
-
-  const selectedCount = reportSelectedFileIds.size;
+  const selectedCount = bulkSelectedFiles.length + bulkSelectedFolders.length;
 
   const reportSelectSections = useMemo((): MvReportSelectAssetSection[] => {
     const assetNodes = collectAssetFolderNodes(previewRoot);
@@ -2788,112 +2510,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     });
   }, [selectedFolderPath]);
 
-  const uploadImages = useCallback(
-    async (picked: PickedImageFile[]) => {
-      const imageFiles = picked.filter((item) => isLikelyImage(item.file));
-      if (imageFiles.length === 0) {
-        toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
-        return;
-      }
-
-      const sessionLocalIds = imageFiles.map(() => `${LOCAL_PREVIEW_ID_PREFIX}${crypto.randomUUID()}`);
-
-      /** يملأ الواجهة دفعات بينها requestAnimationFrame لتفادي تجمّد الواجهة، ويعمل بالتوازي مع الطلب للخادم */
-      const streamLocalPreviewsToUi = async () => {
-        for (let i = 0; i < imageFiles.length; i += PREVIEW_UI_CHUNK_SIZE) {
-          const slice = imageFiles.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
-          const idSlice = sessionLocalIds.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
-          const batch: MvDriveFile[] = slice.map((item, j) => {
-            const id = idSlice[j]!;
-            const relativePath = normalizeRelativePath(item.relativePath, item.file.name);
-            optimisticPreviewUrlsRef.current.set(id, URL.createObjectURL(item.file));
-            return {
-              _id: id,
-              projectId,
-              name: fileNameFromPath(relativePath),
-              scope: "asset-images" as const,
-              relativePath,
-              folderPath: folderPathFromRelativePath(relativePath),
-              mimeType: item.file.type || "image/jpeg",
-              sizeBytes: item.file.size,
-              uploadedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              includeInReport: true,
-            };
-          });
-          setFiles((prev) => mergeUploadedIntoDriveFileList(prev, batch));
-          if (i + PREVIEW_UI_CHUNK_SIZE < imageFiles.length) {
-            await new Promise<void>((resolve) => {
-              requestAnimationFrame(() => resolve());
-            });
-          }
-        }
-      };
-
-      const hasRootImages = imageFiles.some((item) => !normalizeRelativePath(item.relativePath).includes("/"));
-      if (hasRootImages) setSelectedPath("");
-
-      const persistToServer = uploadPickedImagesToServer(projectId, imageFiles);
-
-      try {
-        await streamLocalPreviewsToUi();
-        const uploadedRows = await persistToServer;
-        setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
-        revokeOptimisticUrls(sessionLocalIds);
-        toast({
-          description: t("assetImages.upload.savedCount", { count: numberFormatter.format(uploadedRows.length) }),
-        });
-        void loadImages("revalidate");
-      } catch (error) {
-        setFiles((prev) => prev.filter((f) => !sessionLocalIds.includes(f._id)));
-        revokeOptimisticUrls(sessionLocalIds);
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : t("assetImages.upload.genericFailed"),
-        });
-      } finally {
-        if (filePickInputRef.current) filePickInputRef.current.value = "";
-        if (folderPickInputRef.current) folderPickInputRef.current.value = "";
-      }
-    },
-    [loadImages, projectId, revokeOptimisticUrls, toast],
-  );
-
-  const handleInputFiles = useCallback(
-    (fileList: FileList | null) => {
-      const picked = Array.from(fileList ?? [])
-        .filter(isLikelyImage)
-        .map((file) => ({
-          file,
-          relativePath: normalizeRelativePath(
-            (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-            file.name,
-          ),
-        }));
-      void uploadImages(picked);
-    },
-    [uploadImages],
-  );
-
-  const handleDrop = useCallback(
-    async (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setDragging(false);
-      const snapshot = snapshotDataTransferForUpload(event.dataTransfer);
-      try {
-        const picked = await collectDroppedImagesFromSnapshot(snapshot);
-        if (picked.length === 0) {
-          toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
-          return;
-        }
-        void uploadImages(picked);
-      } catch {
-        toast({ variant: "destructive", description: t("assetImages.upload.dropReadFailed") });
-      }
-    },
-    [toast, uploadImages],
-  );
-
   const rememberPreviewFolder = useCallback((created: MvSubProject) => {
     const entry = { sub: created, picAsset: created.picAsset ?? null };
     recentlyCreatedPreviewFoldersRef.current.set(created._id, entry);
@@ -2950,252 +2566,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     createPreviewFolderInflightRef.current.set(inflightKey, task);
     return task;
   }, [projectId, t]);
-
-  const uploadImagesToPicFolder = useCallback(
-    async (
-      picFolderId: string,
-      folderDisplayName: string,
-      picked: PickedImageFile[],
-      options?: {
-        onProgress?: (patch: AssetUploadProgressPatch) => void;
-        throttle?: AssetUploadThrottle;
-      },
-    ) => {
-      const imageFiles = picked.filter((item) => isLikelyImage(item.file));
-      if (imageFiles.length === 0) {
-        toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
-        return;
-      }
-
-      const groupTotal = imageFiles.length;
-      let jobId: string | null = null;
-      if (!options?.onProgress) {
-        jobId = startAssetUploadJob({
-          kind: "images",
-          label: t("assetImages.upload.imageCountLabel", { count: numberFormatter.format(groupTotal) }),
-          total: groupTotal,
-          phase: t("assetImages.upload.phase.uploading"),
-          folderName: folderDisplayName,
-        });
-      }
-
-      const report = (patch: AssetUploadProgressPatch) => {
-        if (options?.onProgress) {
-          options.onProgress(patch);
-          return;
-        }
-        if (!jobId) return;
-        const progress =
-          patch.groupTotal > 0
-            ? Math.min(99, Math.round((patch.completedInGroup / patch.groupTotal) * 100))
-            : 0;
-        updateAssetUploadJob(jobId, {
-          phase: patch.phase,
-          current: patch.completedInGroup,
-          total: patch.groupTotal,
-          progress,
-          folderName: folderDisplayName,
-          label: t("assetImages.upload.uploadProgressLabel", { name: folderDisplayName, current: numberFormatter.format(patch.completedInGroup), total: numberFormatter.format(patch.groupTotal) }),
-        });
-      };
-
-      const sessionLocalIds = imageFiles.map(() => `${LOCAL_PREVIEW_ID_PREFIX}${crypto.randomUUID()}`);
-      const skipLocalPreviews = Boolean(options?.onProgress) && BULK_UPLOAD_SKIP_LOCAL_PREVIEWS;
-      const throttle = options?.throttle ?? createAssetUploadThrottle();
-
-      const streamLocalPreviewsToUi = async () => {
-        if (skipLocalPreviews) return;
-        for (let i = 0; i < imageFiles.length; i += PREVIEW_UI_CHUNK_SIZE) {
-          const slice = imageFiles.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
-          const idSlice = sessionLocalIds.slice(i, i + PREVIEW_UI_CHUNK_SIZE);
-          const batch: MvDriveFile[] = slice.map((item, j) => {
-            const id = idSlice[j]!;
-            const inner = item.relativePath.replace(/^\/+/, "");
-            const relativePath = normalizeRelativePath(
-              inner ? `${folderDisplayName}/${inner}` : `${folderDisplayName}/${item.file.name}`,
-              item.file.name,
-            );
-            optimisticPreviewUrlsRef.current.set(id, URL.createObjectURL(item.file));
-            return {
-              _id: id,
-              projectId,
-              name: fileNameFromPath(relativePath),
-              scope: "asset-images" as const,
-              picAssetId: picFolderId,
-              relativePath,
-              folderPath: folderPathFromRelativePath(relativePath),
-              mimeType: item.file.type || "image/jpeg",
-              sizeBytes: item.file.size,
-              uploadedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-              includeInReport: true,
-            };
-          });
-          setFiles((prev) => mergeUploadedIntoDriveFileList(prev, batch));
-          const completedInGroup = Math.min(groupTotal, i + slice.length);
-          report({
-            phase: t("assetImages.upload.previewImages", { name: folderDisplayName, current: numberFormatter.format(completedInGroup), total: numberFormatter.format(groupTotal) }),
-            completedInGroup,
-            groupTotal,
-          });
-          if (shouldYieldPreviewUiChunk(i, imageFiles.length)) {
-            await new Promise<void>((resolve) => {
-              requestAnimationFrame(() => resolve());
-            });
-          }
-        }
-      };
-
-      const persistToServer = uploadPickedImagesToPicFolderServer(
-        projectId,
-        picFolderId,
-        folderDisplayName,
-        imageFiles,
-        (uploaded, total) => {
-          report({
-            phase: t("assetImages.upload.uploadToServer", { name: folderDisplayName, current: numberFormatter.format(uploaded), total: numberFormatter.format(total) }),
-            completedInGroup: uploaded,
-            groupTotal: total,
-          });
-        },
-        throttle,
-      );
-
-      try {
-        const uploadedRows = skipLocalPreviews
-          ? await persistToServer
-          : (await Promise.all([streamLocalPreviewsToUi(), persistToServer]))[1]!;
-        if (jobId) {
-          updateAssetUploadJob(jobId, {
-            progress: 100,
-            state: "done",
-            phase: t("assetImages.upload.phase.complete"),
-            current: groupTotal,
-            total: groupTotal,
-          });
-        }
-        if (!skipLocalPreviews) {
-          setFiles((prev) => replaceLocalPreviewRowsWithServer(prev, uploadedRows, sessionLocalIds));
-          revokeOptimisticUrls(sessionLocalIds);
-        } else if (uploadedRows.length > 0) {
-          setFiles((prev) => mergeUploadedIntoDriveFileList(prev, uploadedRows));
-        }
-        if (!options?.onProgress) {
-          toast({
-            description: t("assetImages.upload.savedInFolder", { count: numberFormatter.format(uploadedRows.length) }),
-          });
-          await loadPreviewPhotoFolders("revalidate");
-          removeAssetUploadJobLater(jobId!);
-        }
-      } catch (error) {
-        if (jobId) {
-          updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: t("assetImages.upload.phase.failed") });
-          removeAssetUploadJobLater(jobId, 6000);
-        }
-        setFiles((prev) => prev.filter((f) => !sessionLocalIds.includes(f._id)));
-        revokeOptimisticUrls(sessionLocalIds);
-        if (!options?.onProgress) {
-          toast({
-            variant: "destructive",
-            description: error instanceof Error ? error.message : t("assetImages.upload.genericFailed"),
-          });
-        }
-        throw error;
-      } finally {
-        if (filePickInputRef.current) filePickInputRef.current.value = "";
-        if (folderPickInputRef.current) folderPickInputRef.current.value = "";
-      }
-    },
-    [loadPreviewPhotoFolders, projectId, removeAssetUploadJobLater, revokeOptimisticUrls, startAssetUploadJob, toast, updateAssetUploadJob],
-  );
-
-  const ensurePreviewFolderPath = useCallback(
-    async (
-      baseParentId: string,
-      parts: string[],
-      baseSelectionId = baseParentId,
-      options?: {
-        known?: Map<string, PreviewFolderKnownEntry>;
-        kindForPartsPrefix?: (parts: string[], index: number) => PreviewFolderCreateKind;
-      },
-    ) => {
-      let parentUploadId = baseParentId;
-      let parentSelectionId = baseSelectionId;
-      let folderName = "";
-      let selectionFolderId = "";
-
-      const known =
-        options?.known ??
-        (() => {
-          const seeded = new Map<string, PreviewFolderKnownEntry>();
-          const addRow = (row: { sub: MvSubProject; picAsset?: PicAsset | null }) => {
-            const parent = row.sub.parent?.trim();
-            const name = cleanPathPart(row.sub.name);
-            if (!parent || !name) return;
-            const entry: PreviewFolderKnownEntry = {
-              uploadFolderId: row.picAsset?._id ?? row.sub._id,
-              selectionFolderId: row.sub._id,
-              name,
-              kind: row.picAsset ? "asset" : "folder",
-            };
-            seeded.set(previewFolderParentNameKey(parent, name), entry);
-          };
-          previewPhotoFolders.forEach(addRow);
-          recentlyCreatedPreviewFoldersRef.current.forEach(addRow);
-          return seeded;
-        })();
-
-      const rememberKnown = (parentId: string, entry: PreviewFolderKnownEntry) => {
-        known.set(previewFolderParentNameKey(parentId, entry.name), entry);
-      };
-
-      for (let index = 0; index < parts.length; index++) {
-        const rawPart = parts[index]!;
-        const name = cleanPathPart(rawPart);
-        if (!name) continue;
-        const targetKind: PreviewFolderCreateKind =
-          options?.kindForPartsPrefix?.(parts, index) ??
-          (index === parts.length - 1 ? "asset" : "folder");
-        folderName = name;
-        const existing =
-          known.get(previewFolderParentNameKey(parentUploadId, name)) ??
-          known.get(previewFolderParentNameKey(parentSelectionId, name));
-        if (existing) {
-          if (targetKind === "folder" && existing.kind === "asset") {
-            throw new Error(t("assetImages.upload.cannotCreateInsideAsset"));
-          }
-          if (targetKind === "asset" && existing.kind === "folder") {
-            throw new Error(t("assetImages.upload.duplicateAssetName"));
-          }
-          parentUploadId = existing.uploadFolderId;
-          parentSelectionId = existing.selectionFolderId;
-          selectionFolderId = existing.selectionFolderId;
-          continue;
-        }
-
-        const createdFolder = await createPreviewFolderOnServer(name, parentUploadId, targetKind);
-        rememberPreviewFolder(createdFolder);
-        const created: PreviewFolderKnownEntry = {
-          uploadFolderId: createdFolder.picAsset?._id ?? createdFolder._id,
-          selectionFolderId: createdFolder._id,
-          name,
-          kind: targetKind,
-        };
-        rememberKnown(parentUploadId, created);
-        rememberKnown(parentSelectionId, created);
-        parentUploadId = created.uploadFolderId;
-        parentSelectionId = created.selectionFolderId;
-        selectionFolderId = created.selectionFolderId;
-      }
-
-      return {
-        uploadFolderId: parentUploadId,
-        selectionFolderId: selectionFolderId || parentSelectionId,
-        folderName: folderName || t("assetImages.rootLabel"),
-      };
-    },
-    [createPreviewFolderOnServer, previewPhotoFolders, rememberPreviewFolder, t],
-  );
 
   const uploadImagesToActivePreviewLocation = useCallback(
     async (picked: PickedImageFile[], targetNode = selectedPreviewFolderNode) => {
@@ -3259,342 +2629,44 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         !isFolderBatchUpload;
 
       // إن كنا داخل أصل ونرفع صوراً مباشرة — الأب للإنشاء يبقى الجذر/المجلد العادي أعلاه
-      const selectionBaseId =
-        uploadingIntoSelectedAsset
-          ? effectiveNode!.path
-          : effectiveNode && !effectiveNode.isSynthetic && effectiveNode.path !== "__pv_root__"
-            ? effectiveNode.path
-            : baseParentId;
-
-      const jobId = startAssetUploadJob({
-        kind: isFolderBatchUpload ? "folder" : "images",
-        label: isFolderBatchUpload
-          ? t("assetImages.upload.folderLabel", { name: rootFolderLabel })
-          : t("assetImages.upload.imageCountLabel", { count: numberFormatter.format(totalImages) }),
-        total: totalImages,
-        phase: isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.phase.uploading"),
-        folderName: isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
+      if (!uploadUser) return;
+      const pathPlan = buildFolderUploadPathPlan(imageFiles.map(folderPartsFromPickedImage));
+      const folders = new Map<string, UploadFolder>();
+      const autoName = defaultLooseImagesAssetFolderName(isArabic);
+      const items = imageFiles.map(item => {
+        const parts = pathPlan.resolveParts(folderPartsFromPickedImage(item));
+        if (!parts.length && !uploadingIntoSelectedAsset) parts.push(autoName);
+        parts.forEach((name, index) => {
+          const key = parts.slice(0, index + 1).join("\u0000");
+          if (!folders.has(key)) folders.set(key, {
+            key, name, parentKey: index ? parts.slice(0, index).join("\u0000") : undefined,
+            kind: pathPlan.kindForPartsPrefix(parts, index),
+          });
+        });
+        const name = fileNameFromPath(item.relativePath || item.file.name);
+        return {
+          file: item.file, name,
+          path: `${parts[parts.length - 1] || effectiveNode?.name || rootFolderLabel}/${name}`,
+          folderKey: parts.length ? parts.join("\u0000") : undefined,
+          assetId: !parts.length ? effectiveNode?.picAssetId : undefined,
+        };
       });
-
-      let serverUploadedCount = 0;
-      const pushGlobalProgress = (phase: string, folderName?: string, uploaded = serverUploadedCount) => {
-        serverUploadedCount = uploaded;
-        const progress = totalImages > 0 ? Math.min(99, Math.round((uploaded / totalImages) * 100)) : 0;
-        updateAssetUploadJob(jobId, {
-          phase,
-          current: uploaded,
-          total: totalImages,
-          progress,
-          folderName: folderName ?? rootFolderLabel,
-          label: isFolderBatchUpload
-            ? folderName && folderName !== rootFolderLabel
-              ? `«${rootFolderLabel}» / «${folderName}»`
-              : t("assetImages.upload.folderLabel", { name: rootFolderLabel })
-            : t("assetImages.upload.imageCountLabel", {
-                count: `${numberFormatter.format(uploaded)} / ${numberFormatter.format(totalImages)}`,
-              }),
-        });
-      };
-
-      pushGlobalProgress(
-        isFolderBatchUpload ? t("assetImages.upload.folderPreparing") : t("assetImages.upload.prepareUpload"),
-        isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
-        0,
-      );
-
-      const groups = new Map<
-        string,
-        {
-          uploadFolderId: string;
-          selectionFolderId: string;
-          folderName: string;
-          files: PickedImageFile[];
-        }
-      >();
-      const folderTargetCache = new Map<
-        string,
-        { uploadFolderId: string; selectionFolderId: string; folderName: string }
-      >();
-
-      const rawFolderPartsList = imageFiles.map(folderPartsFromPickedImage);
-      const pathPlan = buildFolderUploadPathPlan(rawFolderPartsList);
-      const sharedKnown = (() => {
-        const seeded = new Map<string, PreviewFolderKnownEntry>();
-        const addRow = (row: { sub: MvSubProject; picAsset?: PicAsset | null }) => {
-          const parent = row.sub.parent?.trim();
-          const name = cleanPathPart(row.sub.name);
-          if (!parent || !name) return;
-          const entry: PreviewFolderKnownEntry = {
-            uploadFolderId: row.picAsset?._id ?? row.sub._id,
-            selectionFolderId: row.sub._id,
-            name,
-            kind: row.picAsset ? "asset" : "folder",
-          };
-          seeded.set(previewFolderParentNameKey(parent, name), entry);
-        };
-        previewPhotoFolders.forEach(addRow);
-        recentlyCreatedPreviewFoldersRef.current.forEach(addRow);
-        return seeded;
-      })();
-
-      // أنشئ كل بادئات المسارات حسب العمق بالتوازي (مثل Drive) قبل تجميع الصور
-      const uniqueResolvedPaths = new Map<string, string[]>();
-      for (const raw of rawFolderPartsList) {
-        const parts = pathPlan.resolveParts(raw);
-        if (parts.length === 0) continue;
-        uniqueResolvedPaths.set(parts.join("\u0000"), parts);
-      }
-      const prefixesByDepth = new Map<number, Map<string, string[]>>();
-      for (const parts of uniqueResolvedPaths.values()) {
-        for (let depth = 1; depth <= parts.length; depth++) {
-          const prefix = parts.slice(0, depth);
-          const key = prefix.join("\u0000");
-          const bucket = prefixesByDepth.get(depth) ?? new Map<string, string[]>();
-          bucket.set(key, prefix);
-          prefixesByDepth.set(depth, bucket);
-        }
-      }
-      const depths = Array.from(prefixesByDepth.keys()).sort((a, b) => a - b);
-      for (const depth of depths) {
-        const prefixes = Array.from(prefixesByDepth.get(depth)?.values() ?? []);
-        pushGlobalProgress(
-          t("assetImages.upload.creatingFolder", {
-            name: prefixes[0]?.[prefixes[0].length - 1] ?? rootFolderLabel,
-          }),
-          rootFolderLabel,
-          serverUploadedCount,
-        );
-        await mapPool(prefixes, Math.min(6, Math.max(2, prefixes.length)), async (parts) => {
-          const cacheKey = parts.join("\u0000");
-          if (folderTargetCache.has(cacheKey)) return;
-          const target = await ensurePreviewFolderPath(
-            baseParentId!,
-            parts,
-            selectionBaseId,
-            {
-              known: sharedKnown,
-              kindForPartsPrefix: pathPlan.kindForPartsPrefix,
-            },
-          );
-          folderTargetCache.set(cacheKey, target);
-        });
-      }
-
-      // صور بلا مسار مجلد: داخل أصل محدد أو مجلد أصول تلقائي تحت الجذر/المجلد العادي
-      let looseImagesTarget: {
-        uploadFolderId: string;
-        selectionFolderId: string;
-        folderName: string;
-      } | null = null;
-      if (uploadingIntoSelectedAsset && effectiveNode?.picAssetId) {
-        looseImagesTarget = {
-          uploadFolderId: effectiveNode.picAssetId,
-          selectionFolderId: effectiveNode.path,
-          folderName: effectiveNode.name,
-        };
-      } else if (imageFiles.some((item) => folderPartsFromPickedImage(item).length === 0)) {
-        const autoName = defaultLooseImagesAssetFolderName(isArabic);
-        pushGlobalProgress(
-          t("assetImages.upload.creatingFolder", { name: autoName }),
-          autoName,
-          serverUploadedCount,
-        );
-        looseImagesTarget = await ensurePreviewFolderPath(
-          baseParentId,
-          [autoName],
-          selectionBaseId,
-          {
-            known: sharedKnown,
-            kindForPartsPrefix: () => "asset",
-          },
-        );
-      }
-
-      for (const item of imageFiles) {
-        const rawFolderParts = folderPartsFromPickedImage(item);
-        const folderParts = pathPlan.resolveParts(rawFolderParts);
-        const fileName = fileNameFromPath(item.relativePath || item.file.name);
-        let target: {
-          uploadFolderId: string;
-          selectionFolderId: string;
-          folderName: string;
-        } | null = null;
-
-        if (folderParts.length > 0) {
-          const cacheKey = folderParts.join("\u0000");
-          target = folderTargetCache.get(cacheKey) ?? null;
-          if (!target) {
-            target = await ensurePreviewFolderPath(
-              baseParentId,
-              folderParts,
-              selectionBaseId,
-              {
-                known: sharedKnown,
-                kindForPartsPrefix: pathPlan.kindForPartsPrefix,
-              },
-            );
-            folderTargetCache.set(cacheKey, target);
-          }
-        } else {
-          target = looseImagesTarget;
-        }
-
-        if (!target) continue;
-
-        const key = target.uploadFolderId;
-        const group = groups.get(key) ?? {
-          uploadFolderId: target.uploadFolderId,
-          selectionFolderId: target.selectionFolderId,
-          folderName: target.folderName,
-          files: [],
-        };
-        group.files.push({
-          file: item.file,
-          relativePath: fileName,
-        });
-        groups.set(key, group);
-      }
-
-      const uploadGroups = Array.from(groups.values());
-      if (uploadGroups.length === 0) {
-        updateAssetUploadJob(jobId, { progress: 100, state: "error", phase: t("assetImages.upload.noImagesToUpload") });
-        removeAssetUploadJobLater(jobId, 4000);
-        return;
-      }
-
       try {
-        pushGlobalProgress(t("assetImages.upload.startUpload"), rootFolderLabel, serverUploadedCount);
-
-        let uploadedOk = 0;
-        let failedCount = 0;
-        let lastErrorMessage = "";
-        const groupUploaded = new Map<string, number>();
-        const sharedThrottle = createAssetUploadThrottle();
-
-        const uploadOneGroup = async (group: (typeof uploadGroups)[number]) => {
-          try {
-            await uploadImagesToPicFolder(group.uploadFolderId, group.folderName, group.files, {
-              throttle: sharedThrottle,
-              onProgress: (patch) => {
-                const onServer = /server|الخادم/i.test(patch.phase);
-                if (!onServer) return;
-                groupUploaded.set(group.uploadFolderId, patch.completedInGroup);
-                let sum = 0;
-                for (const value of groupUploaded.values()) sum += value;
-                pushGlobalProgress(patch.phase, group.folderName, Math.min(totalImages, sum));
-              },
-            });
-            groupUploaded.set(group.uploadFolderId, group.files.length);
-            uploadedOk += group.files.length;
-            let sum = 0;
-            for (const value of groupUploaded.values()) sum += value;
-            serverUploadedCount = Math.min(totalImages, sum);
-            pushGlobalProgress(
-              t("assetImages.upload.folderComplete", { name: group.folderName }),
-              group.folderName,
-              serverUploadedCount,
-            );
-            return { ok: true as const };
-          } catch (error) {
-            const partialRows = (error as Error & { partialRows?: MvDriveFile[] }).partialRows;
-            const partialCount = partialRows?.length ?? 0;
-            if (partialCount > 0) {
-              uploadedOk += partialCount;
-              failedCount += Math.max(0, group.files.length - partialCount);
-              groupUploaded.set(group.uploadFolderId, partialCount);
-            } else {
-              failedCount += group.files.length;
-            }
-            lastErrorMessage = error instanceof Error ? error.message : String(error);
-            return { ok: false as const };
-          }
-        };
-
-        await mapPool(uploadGroups, Math.min(ASSET_UPLOAD_GROUP_PARALLEL, uploadGroups.length), uploadOneGroup);
-
-        if (uploadedOk === 0 && failedCount > 0) {
-          updateAssetUploadJob(jobId, {
-            progress: 100,
-            state: "error",
-            phase: t("assetImages.upload.folderFailed"),
-          });
-          toast({
-            variant: "destructive",
-            description: lastErrorMessage || t("assetImages.upload.folderFailed"),
-          });
-          removeAssetUploadJobLater(jobId, 6000);
-          return;
-        }
-
-        updateAssetUploadJob(jobId, {
-          progress: 100,
-          state: failedCount > 0 ? "error" : "done",
-          phase:
-            failedCount > 0
-              ? t("assetImages.upload.partialUploadSuccess", {
-                  ok: numberFormatter.format(uploadedOk),
-                  failed: numberFormatter.format(failedCount),
-                })
-              : isFolderBatchUpload
-                ? t("assetImages.upload.folderUploadComplete")
-                : t("assetImages.upload.imagesUploadComplete"),
-          current: uploadedOk,
-          total: totalImages,
-          folderName: isFolderBatchUpload ? rootFolderLabel : effectiveNode?.name,
+        await enqueueUpload({
+          owner: uploadOwner(uploadUser), projectId, parentId: baseParentId,
+          label: `${projectName || projectId} / ${rootFolderLabel}`,
+          folders: [...folders.values()].sort((a, b) => a.key.split("\u0000").length - b.key.split("\u0000").length),
+          items,
         });
-        toast({
-          variant: failedCount > 0 ? "destructive" : "default",
-          description:
-            failedCount > 0
-              ? t("assetImages.upload.partialUploadSuccess", {
-                  ok: numberFormatter.format(uploadedOk),
-                  failed: numberFormatter.format(failedCount),
-                })
-              : isFolderBatchUpload
-                ? t("assetImages.upload.savedInNamedFolder", {
-                    count: numberFormatter.format(uploadedOk),
-                    name: rootFolderLabel,
-                  })
-                : t("assetImages.upload.savedCount", { count: numberFormatter.format(uploadedOk) }),
-        });
-        if (uploadGroups.length === 1 && failedCount === 0) {
-          setSelectedPreviewFolderId(uploadGroups[0]!.selectionFolderId);
-        }
-        await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
-        removeAssetUploadJobLater(jobId, failedCount > 0 ? 8000 : undefined);
       } catch (error) {
-        updateAssetUploadJob(jobId, {
-          progress: 100,
-          state: "error",
-          phase: t("assetImages.upload.folderFailed"),
-        });
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : t("assetImages.upload.folderFailed"),
-        });
-        removeAssetUploadJobLater(jobId, 6000);
+        toast({ variant: "destructive", description: t("assetImages.upload.localSaveFailed") });
       } finally {
         if (filePickInputRef.current) filePickInputRef.current.value = "";
         if (folderPickInputRef.current) folderPickInputRef.current.value = "";
       }
     },
-    [
-      ensurePreviewFolderPath,
-      isArabic,
-      loadImages,
-      loadPreviewPhotoFolders,
-      photosRootId,
-      previewFoldersById,
-      previewPhotoFolders,
-      projectId,
-      removeAssetUploadJobLater,
-      selectedPreviewFolderNode,
-      startAssetUploadJob,
-      t,
-      toast,
-      updateAssetUploadJob,
-      uploadImagesToPicFolder,
-    ],
+    [isArabic, loadPreviewPhotoFolders, photosRootId, previewFoldersById, previewPhotoFolders,
+      projectId, projectName, selectedPreviewFolderNode, t, toast, uploadUser],
   );
 
   const handleActiveTargetInputFiles = useCallback(
@@ -4172,61 +3244,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const toggleImageSelection = useCallback(
     (fileId: string) => {
       const file = files.find((row) => row._id === fileId);
-      if (!file) return;
-      void updateReportSelection([fileId], !isReportImageIncluded(file));
+      if (file) toggleBulkImages([file]);
     },
-    [files, updateReportSelection],
+    [files, toggleBulkImages],
   );
 
   const togglePicAssetImageSelection = useCallback(
-    async (viewFile: AssetImageViewFile) => {
-      const nextInclude = !isAssetViewFileReportIncluded(viewFile, filesById);
-      const effectiveId = effectiveDriveFileId(viewFile);
-      if (effectiveId) {
-        void updateReportSelection([effectiveId], nextInclude);
-      }
-
-      const subProjectId = viewFile.picAssetSubProjectId?.trim() || "";
-      const idx = typeof viewFile.picAssetImageIndex === "number" ? viewFile.picAssetImageIndex : -1;
-      if (!subProjectId || idx < 0) return;
-
-      const entry = previewPhotoFolders.find((row) => row.sub._id === subProjectId);
-      const asset = entry?.picAsset;
-      if (!asset) return;
-      const current = (asset.images ?? []).slice();
-      const target = current[idx];
-      if (!target) return;
-
-      // نحدّث includeInReport على الأصل دائماً (fileId وurl) ليطابق إعداد التقرير وWord
-      const nextImages = current.map((im, i) => {
-        if (i !== idx) return im;
-        const raw = im as unknown;
-        if (typeof raw === "string" && raw.trim()) {
-          return { fileId: raw.trim(), includeInReport: nextInclude } as PicAssetImage;
-        }
-        if (raw && typeof raw === "object") {
-          return { ...(raw as object), includeInReport: nextInclude } as PicAssetImage;
-        }
-        return im;
-      });
-
-      try {
-        const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
-          imageReportSelections: mvPicAssetImagesToReportSelectionPayload(
-            nextImages as PicAssetImage[],
-          ),
-        });
-        setPreviewPhotoFolders((prev) =>
-          prev.map((r) => (r.sub._id === subProjectId ? { ...r, picAsset: updated } : r)),
-        );
-      } catch (e) {
-        toast({
-          variant: "destructive",
-          description: e instanceof Error ? e.message : t("assetImages.toast.imageReportToggleFailed"),
-        });
-      }
-    },
-    [filesById, previewPhotoFolders, projectId, t, toast, updateReportSelection],
+    (file: AssetImageViewFile) => toggleBulkImages([file]),
+    [toggleBulkImages],
   );
 
   const deletePicAssetImage = useCallback(
@@ -4289,15 +3314,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const toggleFolderSelection = useCallback(
     (path: string) => {
       const folder = foldersByPath.get(path);
-      if (!folder) return;
-      const folderFiles = collectFolderImages(folder);
-      const fileIds = selectableReportFileIds(folderFiles);
-      if (fileIds.length === 0) return;
-      const selectableFiles = folderFiles.filter((file) => fileIds.includes(file._id));
-      const shouldInclude = !selectableFiles.every(isReportImageIncluded);
-      void updateReportSelection(fileIds, shouldInclude);
+      if (folder) toggleBulkImages(collectFolderImages(folder));
     },
-    [foldersByPath, updateReportSelection],
+    [foldersByPath, toggleBulkImages],
   );
 
   const syncIncludeAssetImagesFlag = useCallback(
@@ -4964,9 +3983,92 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     ],
   );
 
-  const deleteSelectedItems = useCallback(() => {
-    deleteFileIdsFast(reportSelectedFileIds, t("assetImages.toast.selectedForReportDeleted"));
-  }, [deleteFileIdsFast, reportSelectedFileIds]);
+  const deleteSelectedItems = useCallback(async () => {
+    if (deleting || selectedCount === 0) return;
+    const coveredImageKeys = new Set(bulkSelectedFolders.flatMap((folder) =>
+      collectFolderImages(folder).map(assetBulkSelectionKey),
+    ));
+    const standaloneImages = bulkSelectedFiles.filter((file) => !coveredImageKeys.has(assetBulkSelectionKey(file)));
+    const warning = bulkSelectedFolders.length > 0
+      ? t("assetImages.delete.selectedItemsConfirm", {
+          folders: numberFormatter.format(bulkSelectedFolders.length),
+          images: numberFormatter.format(standaloneImages.length),
+        })
+      : t("assetImages.delete.imagesConfirm", { count: numberFormatter.format(standaloneImages.length) });
+    if (!window.confirm(warning)) return;
+
+    const completed = new Set<string>();
+    const completedFolders: ImageFolderNode[] = [];
+    const fileIds = new Set<string>();
+    const externalByAsset = new Map<string, Set<string>>();
+    for (const file of standaloneImages) {
+      const id = effectiveDriveFileId(file);
+      if (id) fileIds.add(id);
+      else if (file.picAssetSubProjectId) {
+        const keys = externalByAsset.get(file.picAssetSubProjectId) ?? new Set<string>();
+        keys.add(assetBulkSelectionKey(file));
+        externalByAsset.set(file.picAssetSubProjectId, keys);
+      }
+    }
+    setDeleting(true);
+    try {
+      const folderResults = await mapPool(bulkSelectedFolders, 3, async (folder) => {
+        const result = await deleteRemoteSubproject(projectId, folder.path);
+        if (result !== "error") {
+          completedFolders.push(folder);
+          collectFolderImages(folder).forEach((file) => completed.add(assetBulkSelectionKey(file)));
+        }
+        return result;
+      });
+      const results = await mapPool([...fileIds], 4, async (id) => {
+        const result = isLocalPreviewDriveId(id) ? "ok" : await deleteRemoteProjectFile(projectId, id);
+        if (result !== "error") completed.add(`file:${id}`);
+        return result;
+      });
+      // One update per asset, based on fresh media and stable identities. Sending
+      // independent full-array patches for each image can restore earlier deletions.
+      for (const [subProjectId, keys] of externalByAsset) {
+        const row = await fetchPicAssetDetail(projectId, subProjectId);
+        if (!row?.picAsset) throw new Error("asset_media_unavailable");
+        const current = row.picAsset.images ?? [];
+        const remaining = current.filter((image) => !keys.has(assetBulkSelectionKey({
+          _id: "",
+          displayOnlyPicAssetImage: true,
+          picAssetSubProjectId: subProjectId,
+          sourceUrl: isExternalPicAssetImage(image) ? image.url : undefined,
+        })));
+        if (remaining.length !== current.length) {
+          const updated = await patchMvSubprojectPicAsset(projectId, subProjectId, {
+            images: mvPicAssetImagesToPatchPayload(remaining),
+          });
+          setPreviewPhotoFoldersFast((rows) => rows.map((entry) =>
+            entry.sub._id === subProjectId ? { ...entry, picAsset: updated } : entry,
+          ));
+        }
+        keys.forEach((key) => completed.add(key));
+      }
+      if (results.includes("error") || folderResults.includes("error")) throw new Error("delete_failed");
+      toast({ description: t("assetImages.actions.selectedItemsDeleted") });
+    } catch {
+      toast({ variant: "destructive", description: t("assetImages.delete.selectedItemsFailed") });
+    } finally {
+      const removedIds = new Set([...fileIds].filter((id) => completed.has(`file:${id}`)));
+      revokeOptimisticUrls([...removedIds].filter(isLocalPreviewDriveId));
+      setFiles((rows) => rows.filter((file) => !removedIds.has(file._id)));
+      setBulkSelectedKeys((keys) => new Set([...keys].filter((key) => !completed.has(key))));
+      setBulkSelectedFolderIds((ids) => new Set([...ids].filter((id) =>
+        !completedFolders.some((folder) => folderContainsPath(folder, id)),
+      )));
+      if (selectedPreviewFolderId && completedFolders.some((folder) => folderContainsPath(folder, selectedPreviewFolderId))) {
+        setSelectedPreviewFolderId("__pv_root__");
+      }
+      setLightboxFile((file) => file && completed.has(assetBulkSelectionKey(file)) ? null : file);
+      await Promise.allSettled([loadImages("revalidate"), loadPreviewPhotoFolders()]);
+      setDeleting(false);
+    }
+  }, [bulkSelectedFiles, bulkSelectedFolders, selectedCount, selectedPreviewFolderId, deleting,
+    loadImages, loadPreviewPhotoFolders, numberFormatter, projectId, revokeOptimisticUrls,
+    setPreviewPhotoFoldersFast, t, toast]);
 
   const deleteCurrentPathImages = useCallback(() => {
     const fileIds = collectFolderImages(selectedFolder)
@@ -5163,20 +4265,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     setLightboxFile(file);
   }, []);
 
-  const resolveReportSelectedDragIds = useCallback(
+  const resolveBulkSelectedDragIds = useCallback(
     (draggedId: string, scopeFiles: Array<AssetImageViewFile | MvDriveFile>) => {
       const selected: string[] = [];
       for (const file of scopeFiles) {
         const displayOnly = isDisplayOnlyPicAssetImage(file as AssetImageViewFile);
         const effectiveId = displayOnly ? effectiveDriveFileId(file as AssetImageViewFile) : file._id;
         if (!effectiveId || isLocalPreviewDriveId(effectiveId)) continue;
-        const included = isAssetViewFileReportIncluded(file as AssetImageViewFile, filesById);
+        const included = isBulkSelected(file as AssetImageViewFile);
         if (included) selected.push(effectiveId);
       }
       if (selected.includes(draggedId) && selected.length > 1) return selected;
       return [draggedId];
     },
-    [filesById],
+    [isBulkSelected],
   );
 
   const placeAssetImage = useCallback(
@@ -5362,38 +4464,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const togglePreviewFolderSelection = useCallback(
     (folderId: string) => {
       const node = previewFoldersById.get(folderId);
-      const nodeFiles = node ? [...collectFolderImages(node)] : [];
-      if (!node || nodeFiles.length === 0) return;
-      const shouldInclude = !nodeFiles.every((file) => isAssetViewFileReportIncluded(file, filesById));
-
-      const driveFileIds: string[] = [];
-      const picBatches = new Map<string, Map<number, boolean>>();
-      for (const file of nodeFiles) {
-        if (isDisplayOnlyPicAssetImage(file)) {
-          const effectiveId = effectiveDriveFileId(file);
-          if (effectiveId) {
-            driveFileIds.push(effectiveId);
-          }
-          const sid = file.picAssetSubProjectId?.trim() || "";
-          const idx = typeof file.picAssetImageIndex === "number" ? file.picAssetImageIndex : -1;
-          if (sid && idx >= 0) {
-            const batch = picBatches.get(sid) ?? new Map<number, boolean>();
-            batch.set(idx, shouldInclude);
-            picBatches.set(sid, batch);
-          }
-          continue;
-        }
-        driveFileIds.push(file._id);
-      }
-
-      if (driveFileIds.length > 0) {
-        void updateReportSelection(driveFileIds, shouldInclude);
-      }
-      for (const [subProjectId, batch] of picBatches) {
-        void applyPicAssetReportSelectionBatch(subProjectId, batch);
-      }
+      if (node && !deleting) setBulkSelectedFolderIds((current) => toggleBulkFolders(current, node));
     },
-    [applyPicAssetReportSelectionBatch, filesById, previewFoldersById, updateReportSelection],
+    [previewFoldersById, deleting],
   );
 
   const deleteCurrentPreviewPathImages = useCallback(() => {
@@ -5405,7 +4478,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [deleteFolderImages, selectedPreviewFolderNode, toast]);
 
   const renderTreeImage = (file: MvDriveFile, level = 0, scopeFiles: MvDriveFile[] = []) => {
-    const selected = isReportImageIncluded(file);
+    const selected = isBulkSelected(file);
     const canDragPlace = !isLocalPreviewDriveId(file._id) && !reorderSaving;
     const displayOnly = false;
     const canMutate = true;
@@ -5421,7 +4494,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             return;
           }
           dragReorderFromIdx.current = null;
-          writeAssetDragFileIds(e, resolveReportSelectedDragIds(file._id, dragScope));
+          writeAssetDragFileIds(e, resolveBulkSelectedDragIds(file._id, dragScope));
         }}
         onDragEnd={clearGridDragReorderIntent}
         onDragOver={(e: DragEvent) => {
@@ -5452,7 +4525,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           draggable={false}
           onClick={() => toggleImageSelection(file._id)}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-white/80 hover:text-sky-700"
-          aria-label={selected ? t("assetImages.report.hideImage") : t("assetImages.report.showImage")}
+          aria-label={selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
         >
           {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </button>
@@ -5487,7 +4560,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               <>
                 <DropdownMenuItem onSelect={() => toggleImageSelection(file._id)} className="cursor-pointer text-[12px]">
                   {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                  {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                  {selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => deleteSingleImage(file)}
@@ -5509,8 +4582,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const expanded = expandedPaths.has(node.path);
     const active = selectedFolderPath === node.path;
     const folderFiles = collectFolderImages(node);
-    const selected = folderFiles.length > 0 && folderFiles.every(isReportImageIncluded);
-    const partiallySelected = !selected && folderFiles.some(isReportImageIncluded);
+    const selected = folderFiles.length > 0 && folderFiles.every(isBulkSelected);
+    const partiallySelected = !selected && folderFiles.some(isBulkSelected);
     const FolderIcon = expanded ? FolderOpen : Folder;
 
     return (
@@ -5548,7 +4621,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100",
               (selected || partiallySelected) && "text-sky-700",
             )}
-            aria-label={selected ? t("assetImages.report.hideFolder") : t("assetImages.report.showFolder")}
+            aria-label={selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
           >
             {selected ? (
               <CheckSquare className="h-3.5 w-3.5" />
@@ -5591,7 +4664,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => toggleFolderSelection(node.path)} className="cursor-pointer text-[12px]">
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                {selected ? t("assetImages.report.hideFolder") : t("assetImages.report.showFolder")}
+                {selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => deleteFolderImages(node)}
@@ -5632,7 +4705,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const effectiveId = displayOnly ? effectiveDriveFileId(file) : file._id;
     const effective = effectiveId ? filesById.get(effectiveId) : undefined;
     const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
-    const selected = canMutate ? isAssetViewFileReportIncluded(file, filesById) : false;
+    const selected = canMutate ? isBulkSelected(file) : false;
     const isVideoRow = treeMedia === "videos" || isViewFileVideo(file);
     const canDragPlace =
       treeMedia === "videos"
@@ -5650,7 +4723,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }
           dragReorderFromIdx.current = null;
           const scope = selectedPreviewFolderNode?.images ?? [file];
-          writeAssetDragFileIds(e, resolveReportSelectedDragIds(effectiveId!, scope));
+          writeAssetDragFileIds(e, resolveBulkSelectedDragIds(effectiveId!, scope));
         }}
         onDragEnd={clearGridDragReorderIntent}
         onDragOver={(e: DragEvent) => {
@@ -5679,13 +4752,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         <button
           type="button"
           draggable={false}
-          disabled={!canMutate || reportSelectionSaving}
+          disabled={!canMutate || deleting}
           onClick={() => (displayOnly ? void togglePicAssetImageSelection(file) : canMutate && toggleImageSelection(effectiveId!))}
           className={cn(
             "flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400",
             canMutate ? "hover:bg-white/80 hover:text-emerald-700" : "opacity-35",
           )}
-          aria-label={selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+          aria-label={selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
         >
           {selected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
         </button>
@@ -5722,7 +4795,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
               className="cursor-pointer text-[12px]"
             >
               {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-              {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+              {selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
             </DropdownMenuItem>
             <DropdownMenuItem
                                       onSelect={() => (displayOnly ? void deletePicAssetImage(file) : (canMutate && deleteFileIdsFast([effectiveId!], t("assetImages.toast.imageDeleted"))))}
@@ -5744,10 +4817,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const hasChildren = node.folders.length > 0;
     const expanded = expandedPreviewIds.has(node.path);
     const active = selectedPreviewFolderId === node.path && appPreviewMediaTab === treeMedia;
-    const totalSelectable = treeMedia === "videos" ? node.videoCount : node.imageCount;
-    const includedSelectable = treeMedia === "videos" ? node.includedVideoCount : node.includedImageCount;
-    const selected = totalSelectable > 0 && includedSelectable === totalSelectable;
-    const partiallySelected = includedSelectable > 0 && includedSelectable < totalSelectable;
+    const { selected, partial: partiallySelected } = folderBulkState(node);
     const countLabel =
       treeMedia === "videos" ? numberFormatter.format(node.videoCount) : previewStatsLabel(node);
     const kindLabel = previewKindLabel(node);
@@ -5801,11 +4871,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             type="button"
             draggable={false}
             onClick={() => togglePreviewFolderSelection(node.path)}
+            disabled={deleting}
+            role="checkbox"
+            aria-checked={partiallySelected ? "mixed" : selected}
             className={cn(
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100",
               (selected || partiallySelected) && "text-emerald-700",
             )}
-            aria-label={selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+            aria-label={selected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
           >
             {selected ? (
               <CheckSquare className="h-3.5 w-3.5" />
@@ -5829,7 +4902,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             <span className="min-w-0 flex-1 truncate" dir="auto">
               {node.name}
             </span>
-            <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+            <span className="max-w-[45%] shrink truncate text-[10px] tabular-nums text-slate-400">
               {countLabel}
             </span>
           </button>
@@ -5892,7 +4965,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 className="cursor-pointer text-[12px]"
               >
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                {selected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                {selected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
               </DropdownMenuItem>
               {treeMedia === "images" ? (
                 <DropdownMenuItem
@@ -5957,7 +5030,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             >
               <FolderOpen className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
               <span className="min-w-0 flex-1 truncate">{t("assetImages.rootLabel")}</span>
-              <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+              <span className="max-w-[45%] shrink truncate text-[10px] tabular-nums text-slate-400">
                 {previewStatsLabel(previewRoot)}
               </span>
             </button>
@@ -6029,7 +5102,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
           <Trash2 className="h-4 w-4" />
-          {t("assetImages.actions.deleteSelectedForReport")}
+          {t("assetImages.actions.deleteSelectedItems")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={deleteCurrentPreviewPathImages}
@@ -6169,7 +5242,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   )}
                   dir={dir}
                 >
-                  <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 xl:flex-nowrap" dir={dir}>
+                  <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2" dir={dir}>
                     <div className="contents">
                       <Button
                         type="button"
@@ -6321,7 +5394,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                       </Button>
                     </div>
 
-                    <span className="order-2 hidden min-w-4 flex-1 self-stretch xl:block" aria-hidden />
+                    <span className="order-2 hidden min-w-0 flex-1 self-stretch xl:block" aria-hidden />
 
                     <div className="contents">
                       <Button
@@ -6340,6 +5413,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         ) : null}
                       </Button>
 
+                      {selectedCount > 0 ? (
+                        <Button type="button" variant="outline" size="sm"
+                          className="order-3 h-8 gap-1.5 text-[11px]" disabled={deleting}
+                          onClick={() => { setBulkSelectedKeys(new Set()); setBulkSelectedFolderIds(new Set()); }}>
+                          {t("assetImages.actions.clearImageSelection")} ({numberFormatter.format(selectedCount)})
+                        </Button>
+                      ) : null}
                       {bulkActionsDropdown}
                     </div>
                   </div>
@@ -6492,13 +5572,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                       {activeContentFolders.length > 0 ? (
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                           {activeContentFolders.map((folder) => {
-                            const folderFiles = collectFolderImages(folder);
-                            const folderSelected =
-                              folderFiles.length > 0 &&
-                              folderFiles.every((file) => isAssetViewFileReportIncluded(file, filesById));
-                            const folderPartiallySelected =
-                              !folderSelected &&
-                              folderFiles.some((file) => isAssetViewFileReportIncluded(file, filesById));
+                            const { selected: folderSelected, partial: folderPartiallySelected } = folderBulkState(folder);
                             const folderKindLabel = previewKindLabel(folder);
                             const folderCreateParentId =
                               !isAssetFolderNode(folder) && !folder.isSynthetic && folder.path !== "__pv_root__" ? folder.path : null;
@@ -6527,12 +5601,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                   if (!folder.picAssetId || reorderSaving || draggingPreview) return;
                                   handleDropOnPreviewFolderRow(folder.path, folder.name)(event);
                                 }}
-                                className="group relative flex aspect-square flex-col rounded-lg border border-amber-200 bg-white text-center shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 hover:shadow-md"
+                                className={cn(
+                                  "group relative flex min-w-0 min-h-44 flex-col rounded-lg border bg-white text-center shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 hover:shadow-md",
+                                  folderSelected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-amber-200",
+                                )}
                               >
                                 <button
                                   type="button"
                                   onClick={() => selectPreviewFolder(folder.path, appPreviewMediaTab)}
-                                  className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-3"
+                                  className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 px-3 pb-3 pt-12"
                                 >
                                   <span className="transition group-hover:scale-105">
                                     {renderFolderGlyph(folder, "card")}
@@ -6546,17 +5623,30 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                   )}>
                                     {previewStatsLabel(folder)}
                                   </span>
+                                  {!isAssetFolderNode(folder) && countDescendantAssetFolders(folder) > 0 ? (
+                                    <span className="mt-1 flex flex-wrap justify-center gap-x-2 text-[10px] font-semibold">
+                                      <span className="inline-flex items-center gap-1 text-emerald-700">
+                                        {t("assetImages.meta.assetsWithImages", { count: numberFormatter.format(countAssetsWithImages(folder)) })}
+                                      </span>
+                                      <span className="text-slate-500">
+                                        {t("assetImages.meta.assetsWithoutImages", { count: numberFormatter.format(countDescendantAssetFolders(folder) - countAssetsWithImages(folder)) })}
+                                      </span>
+                                    </span>
+                                  ) : null}
                                 </button>
 
-                                <div className="absolute left-2 top-2 flex items-center gap-1">
+                                <div className="absolute inset-x-2 top-2 z-10 flex items-center justify-between gap-1">
                                   <button
                                     type="button"
                                     onClick={() => togglePreviewFolderSelection(folder.path)}
+                                    disabled={deleting}
+                                    role="checkbox"
+                                    aria-checked={folderPartiallySelected ? "mixed" : folderSelected}
                                     className={cn(
-                                      "flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-500 shadow-sm transition hover:bg-white",
+                                      "flex h-8 w-8 shrink-0 touch-manipulation items-center justify-center rounded-lg bg-white/90 text-slate-500 shadow-sm transition hover:bg-white",
                                       (folderSelected || folderPartiallySelected) && "text-emerald-700",
                                     )}
-                                    aria-label={folderSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                                    aria-label={folderSelected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
                                   >
                                     {folderSelected ? (
                                       <CheckSquare className="h-4 w-4" />
@@ -6570,7 +5660,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                     <DropdownMenuTrigger asChild>
                                       <button
                                         type="button"
-                                        className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
+                                        className="flex h-8 w-8 shrink-0 touch-manipulation items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
                                         aria-label={t("assetImages.actions.folderMenu")}
                                       >
                                         <MoreVertical className="h-4 w-4" />
@@ -6628,7 +5718,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                         className="cursor-pointer text-[12px]"
                                       >
                                         {folderSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                        {folderSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                                        {folderSelected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
                                       </DropdownMenuItem>
                                       <DropdownMenuItem
                                         onSelect={() => deleteFolderImages(folder)}
@@ -6665,7 +5755,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
                         const isVideoCell = isViewFileVideo(file);
                         const imageSelected = canMutate
-                          ? isAssetViewFileReportIncluded(file, filesById)
+                          ? isBulkSelected(file)
                           : false;
                         const canDragPlace =
                           !displayOnly &&
@@ -6684,7 +5774,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               if (canDragReorder) onDragStartImageReorder(imageIdx);
                               writeAssetDragFileIds(
                                 e,
-                                resolveReportSelectedDragIds(effectiveId, activeContentFiles),
+                                resolveBulkSelectedDragIds(effectiveId, activeContentFiles),
                               );
                             }}
                             onDragEnd={clearGridDragReorderIntent}
@@ -6745,20 +5835,20 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               <div className="absolute inset-x-2 top-2 z-10 flex items-center justify-between">
                                 <Checkbox
                                   checked={imageSelected}
-                                  disabled={!canMutate || reportSelectionSaving}
+                                  disabled={!canMutate || deleting}
                                   onCheckedChange={() =>
                                     displayOnly
                                       ? void togglePicAssetImageSelection(file)
                                       : canMutate && toggleImageSelection(effectiveId!)
                                   }
                                   className="border-white bg-white/90 shadow-sm"
-                                  aria-label={imageSelected ? t("assetImages.report.hideImage") : t("assetImages.report.showImage")}
+                                  aria-label={imageSelected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
                                 />
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
                                       type="button"
-                                      className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
+                                      className="flex h-8 w-8 shrink-0 touch-manipulation items-center justify-center rounded-lg bg-white/90 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900"
                                       aria-label={t("assetImages.actions.imageMenu")}
                                     >
                                       <MoreVertical className="h-4 w-4" />
@@ -6783,7 +5873,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px]"
                                         >
                                           {imageSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                          {imageSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                                          {imageSelected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                           onSelect={() => deleteSingleImage(file)}
@@ -6801,7 +5891,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           className="cursor-pointer text-[12px]"
                                         >
                                           {imageSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-                                          {imageSelected ? t("assetImages.report.hideFromReport") : t("assetImages.report.showInReport")}
+                                          {imageSelected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                           onSelect={() => void deletePicAssetImage(file)}
@@ -6896,22 +5986,6 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         </div>
       ) : null}
       <MvSimpleReportStepNavigation projectId={projectId} activeStep="asset-images" />
-
-      {activeAssetUploadJob ? (
-        <MvUploadProgressToast
-          phase={activeAssetUploadJob.phase}
-          label={activeAssetUploadJob.label}
-          progress={activeAssetUploadJob.progress}
-          state={activeAssetUploadJob.state}
-          detail={
-            activeAssetUploadJob.total > 0
-              ? activeAssetUploadJob.kind === "folder" && activeAssetUploadJob.folderName
-                ? t("assetImages.upload.jobFolderProgress", { name: activeAssetUploadJob.folderName, current: numberFormatter.format(activeAssetUploadJob.current), total: numberFormatter.format(activeAssetUploadJob.total) })
-                : t("assetImages.upload.imageCountLabel", { count: `${numberFormatter.format(activeAssetUploadJob.current)} / ${numberFormatter.format(activeAssetUploadJob.total)}` })
-              : null
-          }
-        />
-      ) : null}
 
       <AlertDialog
         open={emptyReportSelectionWarningOpen}

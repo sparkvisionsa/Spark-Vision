@@ -41,7 +41,7 @@ const TOPICS = [
   { id: "machines", label: "الآلات", questions: ["كيف أنشئ مشروع تقييم آلات؟", "كيف أنزّل تقرير تقييم الآلات والمعدات؟", "كيف أرفع صور الأصول؟"] },
   { id: "reports", label: "التقارير", questions: ["كيف أنزّل تقرير تقييم الآلات والمعدات؟", "كيف أنزّل التقرير النهائي للعقارات؟", "كيف أضيف مستخدمي التقرير والتوقيعات؟"] },
   { id: "tools", label: "الأدوات", questions: ["كيف أحوّل الصور إلى PDF؟", "كيف أسجّل الشاشة من الأدوات المساعدة؟", "كيف أفقّط مبلغاً بالريال؟"] },
-  { id: "help", label: "الدعم", questions: ["كيف أفتح تذكرة دعم؟", "كيف أستخدم كن مطور؟"] },
+  { id: "help", label: "الدعم", questions: ["كيف أفتح تذكرة دعم؟", "كيف أستخدم شارك فكرتك؟"] },
 ] as const;
 
 function contextualQuestions(path: string) {
@@ -65,7 +65,7 @@ export function ValueTechAssistantChat({
   const api = useSupportApi();
   const router = useRouter();
   const pathname = usePathname() || "/";
-  const { summary, refresh, openSupport } = useSupport();
+  const { summary, refresh, openSupport, openRecorder } = useSupport();
   const { openHelperTools } = useHelperRecording();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -176,7 +176,12 @@ export function ValueTechAssistantChat({
       openHelperTools();
       return;
     }
-    if (article.id === "support" || article.id === "be-developer") {
+    if (article.id === "be-developer") {
+      onOpenChange(false);
+      openRecorder();
+      return;
+    }
+    if (article.id === "support") {
       onOpenChange(false);
       openSupport();
       return;

@@ -132,7 +132,7 @@ async function compressImageForUpload(file: File, maxBytes: number): Promise<Fil
   return file;
 }
 
-async function prepareValuationAccountingUploadFile(file: File, maxBytes: number) {
+export async function prepareValuationAccountingUploadFile(file: File, maxBytes: number) {
   if (!isLikelyImageFile(file)) return file;
   return compressImageForUpload(file, maxBytes);
 }

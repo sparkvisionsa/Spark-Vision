@@ -30,10 +30,14 @@ import {
   createReportDataModelField,
   createReportDataModelSection,
   isReportDataModelCustomField,
+  MV_REPORT_DATA_MODEL_FIELD_LIMIT,
   normalizeReportDataModels,
   type MvReportDataModel,
   type MvReportDataModelField,
+  type MvReportDataModelSection,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
+import { MvReportDataModelFileSectionDialog } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-model-file-section-dialog";
+import { MV_REPORT_CUSTOM_FIELD_LIMIT } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-custom-fields";
 
 type Props = {
   models: MvReportDataModel[];
@@ -70,6 +74,7 @@ export function CompanyReportDataModelDashboard({
   // Keep the settings page compact on entry: sections are expanded only on
   // demand, or when the administrator adds a new section to edit it.
   const [openSectionIds, setOpenSectionIds] = useState<string[]>([]);
+  const [fileSectionDialogOpen, setFileSectionDialogOpen] = useState(false);
 
   useEffect(() => {
     if (models === emittedModelsRef.current) return;
@@ -144,6 +149,22 @@ export function CompanyReportDataModelDashboard({
   };
   const setAllSectionsOpen = (open: boolean) => {
     setOpenSectionIds(open ? selected.sections.map((section) => section.id) : []);
+  };
+  const fieldCount = selected.sections.reduce((sum, section) => sum + section.fields.length, 0);
+  const customFieldCount = selected.sections.reduce(
+    (sum, section) => sum + section.fields.filter(isReportDataModelCustomField).length,
+    0,
+  );
+  const remainingExtractedFields = Math.max(
+    0,
+    Math.min(
+      MV_REPORT_DATA_MODEL_FIELD_LIMIT - fieldCount,
+      MV_REPORT_CUSTOM_FIELD_LIMIT - customFieldCount,
+    ),
+  );
+  const addExtractedSection = (section: MvReportDataModelSection) => {
+    updateSelected((model) => ({ ...model, sections: [...model.sections, section] }));
+    setOpenSectionIds((current) => current.includes(section.id) ? current : [...current, section.id]);
   };
 
   return (
@@ -258,7 +279,7 @@ export function CompanyReportDataModelDashboard({
 
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-2.5 py-1.5">
             <p className="text-[9.5px] font-bold text-slate-500">
-              {selected.sections.length} أقسام · {selected.sections.reduce((sum, section) => sum + section.fields.length, 0)} حقول
+              {selected.sections.length} أقسام · {fieldCount} حقول
             </p>
             <Button
               type="button"
@@ -456,8 +477,25 @@ export function CompanyReportDataModelDashboard({
             <FilePlus2 className="h-3.5 w-3.5" />
             إضافة قسم
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-1.5 h-9 w-full gap-1.5 rounded-xl border-cyan-200 bg-cyan-50/70 text-[10px] font-black text-cyan-800 hover:bg-cyan-100"
+            disabled={saving || selected.sections.length >= 30 || remainingExtractedFields <= 0}
+            onClick={() => setFileSectionDialogOpen(true)}
+          >
+            <FilePlus2 className="h-3.5 w-3.5" />
+            إنشاء قسم من ملف
+          </Button>
         </section>
       </div>
+      <MvReportDataModelFileSectionDialog
+        open={fileSectionDialogOpen}
+        onOpenChange={setFileSectionDialogOpen}
+        remainingFields={remainingExtractedFields}
+        onCreate={addExtractedSection}
+      />
     </div>
   );
 }

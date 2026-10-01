@@ -23,7 +23,10 @@ function isMvReportFlowChromePath(pathname: string) {
     parts[1] === "company" ||
     parts[1] === "report-settings" ||
     parts[1] === "settings" ||
-    parts[1] === "clients" || parts[1] === "support" || parts[1] === "developer-requests"
+    parts[1] === "clients" ||
+    parts[1] === "data-extraction" ||
+    parts[1] === "support" ||
+    parts[1] === "developer-requests"
   ) {
     return false;
   }
@@ -38,6 +41,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ClipboardList,
+  FileSearch,
   FolderKanban,
   Headset,
   History,
@@ -99,6 +103,7 @@ const MV_PANEL_SEGMENTS = [
   "company",
   "report-settings",
   "clients",
+  "data-extraction",
   "support",
   "developer-requests",
 ];
@@ -122,6 +127,7 @@ function parseMachineValuationPath(pathname: string) {
     isSettingsPanel: settingsSection != null,
     settingsSection,
     isClientsPanel: panel === "clients",
+    isDataExtractionPanel: panel === "data-extraction",
     isSupportPanel: panel === "support",
     isDeveloperRequestsPanel: panel === "developer-requests",
   };
@@ -303,6 +309,7 @@ function MachineSidebarNav() {
     isSettingsPanel,
     settingsSection,
     isClientsPanel,
+    isDataExtractionPanel,
     isSupportPanel,
     isDeveloperRequestsPanel,
   } = parseMachineValuationPath(currentPath);
@@ -331,6 +338,13 @@ function MachineSidebarNav() {
 
   const afterSettingsItems: MachineNavItem[] = [
     {
+      key: "data-extraction",
+      href: "/machine-valuation/data-extraction",
+      label: t("navigation.dataExtraction"),
+      icon: FileSearch,
+      active: isDataExtractionPanel,
+    },
+    {
       key: "clients",
       href: "/machine-valuation/clients",
       label: t("navigation.clients"),
@@ -348,13 +362,13 @@ function MachineSidebarNav() {
       active: isSupportPanel,
       badge: summary.unread,
     },
-    {
+    ...(summary.superAdmin ? [{
       key: "developer-requests",
       href: developerRequestsHref("machine-valuation"),
       label: t("navigation.developerRequests"),
       icon: History,
       active: isDeveloperRequestsPanel,
-    },
+    }] : []),
   ];
 
   return (
@@ -466,6 +480,7 @@ function MachineWorkspace({ children }: { children: ReactNode }) {
     pathname.includes("/machine-valuation/settings") ||
     pathname.includes("/machine-valuation/company") ||
     pathname.includes("/machine-valuation/report-settings") ||
+    pathname.includes("/machine-valuation/data-extraction") ||
     pathname.includes("/machine-valuation/clients");
 
   return (

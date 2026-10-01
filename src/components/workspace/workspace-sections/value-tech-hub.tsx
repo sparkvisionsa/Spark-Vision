@@ -214,6 +214,8 @@ function ProductCardTile({
   return (
     <Link
       href={product.href}
+      target={product.href === "/helper-tools" ? "_blank" : undefined}
+      rel={product.href === "/helper-tools" ? "noopener noreferrer" : undefined}
       style={{ animationDelay: `${index * 50}ms` }}
       className={cn(
         className,

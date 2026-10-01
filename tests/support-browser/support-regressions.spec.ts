@@ -48,7 +48,7 @@ for (const who of ["owner", "agent", "admin"] as const) {
     await expect(page.getByRole("button").filter({ hasText: `${marker}-ticket` })).toBeVisible();
     await expect(page.getByRole("button").filter({ hasText: `${marker}-bug` })).toHaveCount(0);
     await page.goto("/developer-requests", { waitUntil: "domcontentloaded" });
-    await page.getByRole("textbox", { name: "البحث في طلبات كن مطور", exact: true }).fill(marker);
+    await page.getByRole("textbox", { name: "البحث في شارك فكرتك", exact: true }).fill(marker);
     await expect(tabs.getByRole("button", { name: /^الكل/ })).toHaveText(/الكل\s*2$/);
     await expect(tabs.getByRole("button", { name: /^مفتوحة/ })).toHaveText(/مفتوحة\s*0$/);
     await expect(tabs.getByRole("button", { name: /^مخطط لها/ })).toHaveText(/مخطط لها\s*1$/);

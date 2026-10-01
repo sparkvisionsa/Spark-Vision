@@ -1,9 +1,12 @@
 "use client";
 
+import { watchAttachmentSnapshot, attachmentImageCount, type AttachmentSnapshot } from "@/lib/mv-attachment-sync";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  CheckCircle2,
+  XCircle,
   Eye,
   ExternalLink,
   FileText,
@@ -188,13 +191,15 @@ function SummaryStat({
   value,
   accent,
   emphasize,
+  available,
 }: {
   label: string;
   value: string | number;
   accent: "sky" | "emerald" | "violet" | "amber" | "brand";
   emphasize?: boolean;
+  available?: boolean;
 }) {
-  const accentClass =
+  const accentClass = available === false ? "border-red-200 bg-red-50 text-red-800" : available === true ? "border-emerald-200 bg-emerald-50 text-emerald-800" :
     accent === "sky"
       ? "border-sky-100 bg-sky-50/80 text-sky-900"
       : accent === "emerald"
@@ -214,6 +219,9 @@ function SummaryStat({
         )}
         title={String(value)}
       >
+        {available !== undefined ? (available
+          ? <CheckCircle2 className="me-1 inline-block h-3.5 w-3.5" aria-hidden />
+          : <XCircle className="me-1 inline-block h-3.5 w-3.5" aria-hidden />) : null}
         {value}
       </p>
     </div>
@@ -229,6 +237,11 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
   const { toast } = useToast();
 
   const [project, setProject] = useState<MvProject | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentSnapshot | null>(null);
+  useEffect(() => {
+    setAttachments(null);
+    return watchAttachmentSnapshot(projectId, setAttachments);
+  }, [projectId]);
   const [subProjects, setSubProjects] = useState<MvSubProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -470,14 +483,15 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
   const displayedAssetImageCount =
     assetImageCount || project?.assetImageCount || lastKnownAssetImageCountRef.current || 0;
   if (displayedAssetImageCount > 0) lastKnownAssetImageCountRef.current = displayedAssetImageCount;
-  const valuationImageCount =
-    project?.valuationAccountingWorkspace?.images?.length ??
-    project?.valuationAccountImageCount ??
-    0;
-  const clientDocumentImageCount =
-    project?.clientDocumentsWorkspace?.images?.length ??
-    project?.clientDocumentImageCount ??
-    0;
+  const valuationImageCount = attachments?._id === projectId
+    ? attachmentImageCount(attachments.valuationAccountingWorkspace)
+    : project?.valuationAccountImageCount ?? attachmentImageCount(project?.valuationAccountingWorkspace);
+  const clientDocumentImageCount = attachments?._id === projectId
+    ? attachmentImageCount(attachments.clientDocumentsWorkspace)
+    : project?.clientDocumentImageCount ?? attachmentImageCount(project?.clientDocumentsWorkspace);
+  const certificateImageCount = attachmentImageCount(
+    attachments?._id === projectId ? attachments.sceCertificateWorkspace : project?.sceCertificateWorkspace,
+  );
 
   const completedSteps = useMemo(
     () =>
@@ -1112,17 +1126,26 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
               <SummaryStat
                 label={t("report.finalReportPage.assetImages")}
                 value={numberFormatter.format(displayedAssetImageCount)}
+                available={displayedAssetImageCount > 0}
                 accent="sky"
               />
               <SummaryStat
                 label={t("report.finalReportPage.valuationImages")}
                 value={numberFormatter.format(valuationImageCount)}
+                available={valuationImageCount > 0}
                 accent="emerald"
               />
               <SummaryStat
                 label={t("report.finalReportPage.clientFiles")}
                 value={numberFormatter.format(clientDocumentImageCount)}
+                available={clientDocumentImageCount > 0}
                 accent="violet"
+              />
+              <SummaryStat
+                label={t("report.finalReportPage.certificateImages")}
+                value={numberFormatter.format(certificateImageCount)}
+                available={certificateImageCount > 0}
+                accent="emerald"
               />
             </div>
           </section>

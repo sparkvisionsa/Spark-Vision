@@ -116,7 +116,7 @@ export type CompanyAdminDashboardMode = "general" | "report-defaults";
  * فلا يصلح ترك التبويب النشط لحالة داخلية قد تحمل تبويب الوضع الآخر.
  */
 const GENERAL_TABS = ["info", "users", "signatories", "asset-descriptions"] as const;
-const REPORT_DEFAULTS_TABS = ["word-template", "pptx-template", "letterhead", "report-data-models"] as const;
+const REPORT_DEFAULTS_TABS = ["report-data-models", "word-template", "pptx-template", "letterhead"] as const;
 
 function tabsForMode(mode: CompanyAdminDashboardMode): readonly string[] {
   return mode === "report-defaults" ? REPORT_DEFAULTS_TABS : GENERAL_TABS;
@@ -3805,6 +3805,12 @@ export default function CompanyAdminDashboard({
           {hideTabList ? null : reportDefaultsOnly ? (
             <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-slate-200/40 p-1 md:w-auto">
               <TabsTrigger
+                value="report-data-models"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                نماذج بيانات التقرير
+              </TabsTrigger>
+              <TabsTrigger
                 value="word-template"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
@@ -3821,12 +3827,6 @@ export default function CompanyAdminDashboard({
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
                 قوالب النظام والكلاشية
-              </TabsTrigger>
-              <TabsTrigger
-                value="report-data-models"
-                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
-              >
-                نماذج بيانات التقرير
               </TabsTrigger>
             </TabsList>
           ) : (

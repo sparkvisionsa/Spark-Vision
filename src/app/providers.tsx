@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { RealtimeProvider } from "@/components/support/realtime-provider";
 import { SupportProvider } from "@/components/support/support-provider";
 import { HelperRecordingProvider } from "@/components/helper-recording-provider";
+import { MvBackgroundUploadProvider } from "@/components/mv-background-upload-provider";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -17,6 +18,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
         <HelperRecordingProvider>
         <SupportProvider>
         {children}
+        <MvBackgroundUploadProvider />
         <RoutePrefetcher />
         <Toaster />
         </SupportProvider>

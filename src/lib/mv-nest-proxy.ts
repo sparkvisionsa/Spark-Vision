@@ -105,7 +105,12 @@ export async function proxyMvPathToNest(request: NextRequest, pathSegments: stri
     // the entire response and reject reports larger than their function payload
     // limit before the browser receives the first byte.
     outHeaders.delete("content-length");
-    outHeaders.set("cache-control", "private, no-store, max-age=0");
+    const storedImage = request.method === "GET" &&
+      /^projects\/[^/]+\/files\/[^/]+\/download$/.test(joined) &&
+      /^image\//i.test(upstream.headers.get("content-type") ?? "");
+    // Stored file IDs identify immutable bytes. Reusing a private image response
+    // avoids downloading every converted page again on each attachment tab visit.
+    outHeaders.set("cache-control", storedImage ? "private, max-age=300" : "private, no-store, max-age=0");
     outHeaders.set("x-accel-buffering", "no");
     // نوع ‎ReadableStream‎ في undici (‎stream/web‎) وDOM lib متطابقان بنيوياً وقت التشغيل
     // لكن من مصدرين مختلفين في تعريفات TypeScript — تحويل صريح آمن هنا.

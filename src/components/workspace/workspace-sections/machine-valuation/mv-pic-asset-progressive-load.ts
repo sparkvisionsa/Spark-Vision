@@ -48,6 +48,7 @@ function picAssetTimestamp(pic: PicAsset | null): number {
 export function mergePicAssetPreferFull(
   existing: PicAsset | null,
   incoming: PicAsset | null,
+  authoritative = false,
 ): PicAsset | null {
   if (!incoming && !existing) return null;
   if (!existing) return incoming;
@@ -60,7 +61,7 @@ export function mergePicAssetPreferFull(
 
   const existingTs = picAssetTimestamp(existing);
   const incomingTs = picAssetTimestamp(incoming);
-  const primary = incomingTs >= existingTs ? incoming : existing;
+  const primary = authoritative || incomingTs >= existingTs ? incoming : existing;
   const secondary = primary === incoming ? existing : incoming;
 
   const completeMediaArray = (
@@ -86,6 +87,9 @@ export function mergePicAssetPreferFull(
     existingComplete: boolean,
     incomingComplete: boolean,
   ) => {
+    if (authoritative) return incomingRows;
+    // A newer summary invalidates cached media even when the count is unchanged.
+    if (incomingTs > existingTs) return incomingRows;
     if (incomingComplete && (!existingComplete || incomingTs >= existingTs)) return incomingRows;
     if (existingComplete) return existingRows;
     if (incomingComplete) return incomingRows;
@@ -108,8 +112,8 @@ export function mergePicAssetPreferFull(
   const pickScalar = <K extends keyof PicAsset>(key: K): PicAsset[K] => {
     const a = primary[key];
     const b = secondary[key];
-    if (a !== null && a !== undefined && a !== "") return a;
-    if (b !== null && b !== undefined && b !== "") return b;
+    if (a !== undefined) return a;
+    if (b !== undefined) return b;
     return a ?? b;
   };
 
@@ -146,16 +150,21 @@ export function mergePicAssetPreferFull(
         : secondary.rawData ?? primary.rawData ?? null,
     images: selectedImages,
     voiceNotes: selectedVoice,
+    photoCount: primary.photoCount,
     // العدد الأحدث يبقى مرجع الاكتمال؛ اختلافه عن المصفوفة القديمة يفرض hydration جديدًا.
     imageCount:
       typeof primary.imageCount === "number"
         ? Math.max(0, primary.imageCount)
+        : Array.isArray(primary.images)
+          ? primary.images.length
         : typeof secondary.imageCount === "number"
           ? Math.max(0, secondary.imageCount)
           : selectedImages.length,
     voiceNoteCount:
       typeof primary.voiceNoteCount === "number"
         ? Math.max(0, primary.voiceNoteCount)
+        : Array.isArray(primary.voiceNotes)
+          ? primary.voiceNotes.length
         : typeof secondary.voiceNoteCount === "number"
           ? Math.max(0, secondary.voiceNoteCount)
           : selectedVoice.length,

@@ -114,6 +114,7 @@ export async function renderPdfPageToJpegFile(
   pageNumber: number,
   pageCount: number,
   baseName: string,
+  options?: { trimWhiteMargins?: boolean },
 ): Promise<MvPdfPageImageFile> {
   const page = await pdf.getPage(pageNumber);
   let scale = MV_PDF_UPLOAD_RENDER_SCALE;
@@ -143,10 +144,12 @@ export async function renderPdfPageToJpegFile(
   } as Parameters<typeof page.render>[0]).promise;
 
   const suffix = pageCount > 1 ? `-page-${String(pageNumber).padStart(2, "0")}` : "";
-  const trimmed = trimCanvasWhiteMargins(canvas, {
-    padding: Math.max(10, Math.round(8 * scale)),
-    threshold: 248,
-  });
+  const trimmed = options?.trimWhiteMargins === false
+    ? { canvas, cropped: false }
+    : trimCanvasWhiteMargins(canvas, {
+        padding: Math.max(10, Math.round(8 * scale)),
+        threshold: 248,
+      });
   const imageFile = await canvasToJpegFile(trimmed.canvas, `${baseName}${suffix}.jpg`);
   if (trimmed.cropped) {
     trimmed.canvas.width = 1;
@@ -162,6 +165,7 @@ export async function convertPdfFileToPageImages(
   options?: {
     onProgress?: (done: number, total: number) => void;
     shouldStop?: () => boolean;
+    trimWhiteMargins?: boolean;
   },
 ): Promise<MvPdfPageImageFile[]> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -184,7 +188,9 @@ export async function convertPdfFileToPageImages(
       const batch: Promise<MvPdfPageImageFile>[] = [];
       for (let p = start; p <= end; p += 1) {
         if (options?.shouldStop?.()) break;
-        batch.push(renderPdfPageToJpegFile(pdf, p, pageCount, baseName));
+        batch.push(renderPdfPageToJpegFile(pdf, p, pageCount, baseName, {
+          trimWhiteMargins: options?.trimWhiteMargins,
+        }));
       }
       if (batch.length === 0) break;
       const rendered = await Promise.all(batch);

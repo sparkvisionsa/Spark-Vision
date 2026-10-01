@@ -32,6 +32,7 @@ const MvValuationShell = lazyPage(() => import("./mv-valuation-shell"));
 const MvClientFilesShell = lazyPage(() => import("./mv-client-files-shell"));
 const SupportPage = lazyPage(() => import("@/components/support/support-page"));
 const DeveloperRequestsPage = lazyPage(() => import("@/components/support/developer-requests-page"));
+const MvDataExtractionWorkspace = lazyPage(() => import("./mv-data-extraction-workspace"));
 const MvSceCertificateShell = lazyPage(() => import("./mv-sce-certificate-shell"));
 const MvReportFilesHub = lazyPage(() => import("./mv-report-files-hub"));
 const MvReportDataWorkspace = lazyPage(() => import("./mv-report-data-workspace"));
@@ -48,6 +49,7 @@ function parseMvPath(pathname: string) {
   const segments = rest.split("/").filter(Boolean);
   if (segments[0] === "support") return { view: "support" as const, segments };
   if (segments[0] === "developer-requests") return { view: "developer-requests" as const, segments };
+  if (segments[0] === "data-extraction") return { view: "data-extraction" as const, segments };
   if (segments[0] === "dashboard") {
     return { view: "projects" as const, segments };
   }
@@ -72,7 +74,7 @@ function parseMvPath(pathname: string) {
     return {
       view: "settings" as const,
       settingsSection: "report" as const,
-      settingsTab: "word-template",
+      settingsTab: "report-data-models",
       segments,
     };
   }
@@ -155,6 +157,8 @@ export default function MachineValuationSection() {
       return <SupportPage />;
     case "developer-requests":
       return <DeveloperRequestsPage />;
+    case "data-extraction":
+      return <MvDataExtractionWorkspace />;
     case "settings":
       return (
         <MvSettingsHub

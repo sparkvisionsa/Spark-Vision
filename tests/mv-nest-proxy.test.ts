@@ -4,6 +4,26 @@ import test from "node:test";
 import { NextRequest } from "next/server";
 import { proxyMvPathToNest } from "../src/lib/mv-nest-proxy";
 
+test("stored image downloads use private caching while attachment metadata stays fresh", async () => {
+  const upstream = createServer((req, res) => {
+    res.setHeader("Content-Type", req.url?.endsWith("download") ? "image/jpeg" : "application/json");
+    res.end(req.url?.endsWith("download") ? "image" : "{}");
+  });
+  await new Promise<void>(resolve => upstream.listen(0, "127.0.0.1", resolve));
+  const previous = process.env.MV_INTERNAL_API_ORIGIN;
+  process.env.MV_INTERNAL_API_ORIGIN = `http://127.0.0.1:${(upstream.address() as { port: number }).port}`;
+  try {
+    for (const path of [["projects", "p", "files", "f", "download"], ["projects", "p", "attachment-workspaces"]]) {
+      const response = await proxyMvPathToNest(new NextRequest(`http://frontend.test/api/mv/${path.join("/")}`), path);
+      assert.equal(response.headers.get("cache-control"), path.at(-1) === "download" ? "private, max-age=300" : "private, no-store, max-age=0");
+      await response.text();
+    }
+  } finally {
+    if (previous === undefined) delete process.env.MV_INTERNAL_API_ORIGIN; else process.env.MV_INTERNAL_API_ORIGIN = previous;
+    await new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve()));
+  }
+});
+
 test("MV proxy streams a generated report larger than a serverless payload limit", async (t) => {
   const firstChunk = Buffer.alloc(64 * 1024, 0x61);
   const remainder = Buffer.alloc(13 * 1024 * 1024 - firstChunk.length, 0x62);

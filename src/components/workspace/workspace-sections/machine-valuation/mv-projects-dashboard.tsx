@@ -11,6 +11,7 @@ import {
   Copy,
   FileSpreadsheet,
   FilterX,
+  FileInput,
   FolderOpen,
   FolderPlus,
   FolderSymlink,
@@ -96,6 +97,7 @@ import {
   type MvProjectWorkflowStatusOption,
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
+import { MvProjectDataImportDialog } from "./mv-project-data-import-dialog";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
@@ -227,6 +229,7 @@ function ProjectActionsMenu({
   project,
   onOpenAssetFolders,
   onOpenLocations,
+  onImportData,
   onDownloadFinalReport,
   downloadingFinalReport,
   onDuplicate,
@@ -236,6 +239,7 @@ function ProjectActionsMenu({
   project: MvProject;
   onOpenAssetFolders: (project: MvProject) => void;
   onOpenLocations: (project: MvProject) => void;
+  onImportData: (project: MvProject) => void;
   onDownloadFinalReport: (project: MvProject) => void;
   downloadingFinalReport?: boolean;
   onDuplicate: (project: MvProject) => void;
@@ -291,6 +295,12 @@ function ProjectActionsMenu({
           <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
           {t("projects.actions.locationsInspectors")}
         </DropdownMenuItem>
+        {project.reportType === "simple" ? (
+          <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onImportData(project)}>
+            <FileInput className="h-4 w-4 shrink-0 text-cyan-700" />
+            {isArabic ? "استيراد بيانات من ملفات" : "Import data from files"}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
           {t("projects.actions.createAssetFolders")}
@@ -1226,6 +1236,7 @@ export default function MvProjectsDashboard() {
   const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
+  const [dataImportProject, setDataImportProject] = useState<MvProject | null>(null);
   const [downloadingFinalReportId, setDownloadingFinalReportId] = useState<string | null>(null);
   const [duplicatingProjectId, setDuplicatingProjectId] = useState<string | null>(null);
   const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
@@ -1536,6 +1547,11 @@ export default function MvProjectsDashboard() {
   const openAssetFoldersModal = (project: MvProject) => {
     setAssetFoldersProject(project);
     setAssetFoldersOpen(true);
+  };
+
+  const openDataImportModal = (project: MvProject) => {
+    if (project.reportType !== "simple") return;
+    setDataImportProject(project);
   };
 
   const openContactDataModal = async (project: MvProject) => {
@@ -2137,6 +2153,7 @@ export default function MvProjectsDashboard() {
                                 project={project}
                                 onOpenAssetFolders={openAssetFoldersModal}
                                 onOpenLocations={openContactDataModal}
+                                onImportData={openDataImportModal}
                                 onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
                                 downloadingFinalReport={downloadingFinalReportId === project._id}
                                 onDuplicate={(p) => void handleDuplicateProject(p)}
@@ -2196,6 +2213,7 @@ export default function MvProjectsDashboard() {
                           project={project}
                           onOpenAssetFolders={openAssetFoldersModal}
                           onOpenLocations={openContactDataModal}
+                          onImportData={openDataImportModal}
                           onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
                           downloadingFinalReport={downloadingFinalReportId === project._id}
                           onDuplicate={(p) => void handleDuplicateProject(p)}
@@ -2491,6 +2509,17 @@ export default function MvProjectsDashboard() {
           setContactDataProject(null);
         }}
         onSaveAndContinue={finishAssetFoldersAndContinue}
+      />
+
+      <MvProjectDataImportDialog
+        project={dataImportProject}
+        open={Boolean(dataImportProject)}
+        onOpenChange={(open) => { if (!open) setDataImportProject(null); }}
+        onImported={(updated) => {
+          mergeProjectIntoList(updated);
+          setDataImportProject(null);
+          navigate(`/machine-valuation/${updated._id}/workflow/report-data`);
+        }}
       />
 
       <MvBusyPercentOverlay

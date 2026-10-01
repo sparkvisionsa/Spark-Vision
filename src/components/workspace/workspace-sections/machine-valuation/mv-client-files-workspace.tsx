@@ -1,4 +1,7 @@
 "use client";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { fetchAttachmentSnapshot, watchAttachmentSnapshot } from "@/lib/mv-attachment-sync";
+import { enqueueAttachments, attachmentKnownIds, rememberAttachmentEdit, readDroppedAttachmentFiles } from "@/lib/mv-attachment-uploads";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, FileImage, FileText, Loader2, Trash2, Upload } from "lucide-react";
@@ -13,9 +16,7 @@ import { useMvI18n } from "./mv-i18n";
 import { mvErrorMessage, isMvAbortError } from "./mv-api-client";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 import {
-  loadProjectSummarySafe,
   readProjectSummaryCache,
-  writeProjectSummaryCache,
 } from "./mv-project-summary-loader";
 import { uploadProjectFileAndReturnId } from "./mv-project-gridfs-upload";
 import {
@@ -32,6 +33,7 @@ import {
   createClientDocumentId,
   emptyClientDocumentsStore,
   mergeClientDocumentsStores,
+  parseClientDocumentsStoreFromApi,
   readClientDocumentsStore,
   resolveClientDocumentImageSrc,
   writeClientDocumentsStore,
@@ -64,6 +66,7 @@ export default function MvClientFilesWorkspace({
   embedded = false,
 }: MvClientFilesWorkspaceProps) {
   const { t, dir } = useMvI18n();
+  const { user: uploadUser } = useAuthTracking();
   const { toast } = useToast();
   const isCertificate = kind === "certificate";
   const workspaceField = isCertificate ? "sceCertificateWorkspace" : "clientDocumentsWorkspace";
@@ -90,6 +93,7 @@ export default function MvClientFilesWorkspace({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const serverSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<MvClientDocumentsStore | null>(null);
+  const flushInFlightRef = useRef(false);
   const storeRef = useRef<MvClientDocumentsStore>(emptyWorkspaceStore());
   const stopFlagRef = useRef(false);
 
@@ -109,10 +113,12 @@ export default function MvClientFilesWorkspace({
     name: string;
   } | null>(null);
 
+  useEffect(() => { setStore(readWorkspaceStore(projectId)); }, [projectId, readWorkspaceStore]);
   storeRef.current = store;
 
   const projectName = project?.name?.trim() || projectId;
-  const reportImages = useMemo(() => clientDocumentImagesForReport(store), [store]);
+  // The attachment gallery shows saved files even when excluded from export.
+  const reportImages = store.images;
 
   useEffect(() => {
     const visited = readVisitedSimpleReportSteps(projectId);
@@ -127,25 +133,9 @@ export default function MvClientFilesWorkspace({
       if (!hasCached) setLoadingProject(true);
       setProjectError(null);
       try {
-        const { payload, error } = await loadProjectSummarySafe(projectId, {
-          mode: "summary",
-          signal,
-          timeoutMs: 30_000,
-        });
+        const fresh = await fetchAttachmentSnapshot(projectId);
         if (signal?.aborted) return;
-        if (!payload?.project) {
-          setProject((current) => (current?._id === projectId ? current : null));
-          if (!hasCached) {
-            setProjectError(mvErrorMessage(error, t("workflow.error.loadProjectData")));
-          }
-          return;
-        }
-        setProject(payload.project);
-        writeProjectSummaryCache(
-          projectId,
-          { project: payload.project, subProjects: payload.subProjects },
-          "summary",
-        );
+        setProject((current) => ({ ...current, ...fresh } as MvProject));
         setProjectError(null);
       } catch (error) {
         if (signal?.aborted || isMvAbortError(error)) return;
@@ -171,13 +161,17 @@ export default function MvClientFilesWorkspace({
 
   useEffect(() => {
     if (!project || project._id !== projectId) return;
+    if (pendingSaveRef.current) return;
     const local = readWorkspaceStore(projectId);
-    const merged = mergeClientDocumentsStores(project[workspaceField], local);
+    const merged = parseClientDocumentsStoreFromApi(project[workspaceField]) ?? mergeClientDocumentsStores(project[workspaceField], local);
     setStore(merged);
     writeWorkspaceStore(projectId, merged);
   }, [projectId, project?._id, readWorkspaceStore, serverStoreKey, workspaceField, writeWorkspaceStore]);
 
   const flushToServer = useCallback(async (options?: { silent?: boolean }) => {
+    if (flushInFlightRef.current) return false;
+    flushInFlightRef.current = true;
+    let saved = false;
     if (serverSaveTimerRef.current) {
       clearTimeout(serverSaveTimerRef.current);
       serverSaveTimerRef.current = null;
@@ -195,7 +189,7 @@ export default function MvClientFilesWorkspace({
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [workspaceField]: payload }),
+        body: JSON.stringify({ [workspaceField]: payload, attachmentKnownIds: { [workspaceField]: attachmentKnownIds(snapshot) } }),
       });
       if (res.ok) {
         try {
@@ -204,6 +198,7 @@ export default function MvClientFilesWorkspace({
         } catch {
           /* HTTP 200 = نجاح حتى لو تعذّر قراءة الجسم */
         }
+        saved = true;
         return true;
       }
       let detail = "";
@@ -227,6 +222,10 @@ export default function MvClientFilesWorkspace({
         toast({ variant: "destructive", description: t("clientFiles.sync.failed") });
       }
       return false;
+    } finally {
+      flushInFlightRef.current = false;
+      if (!saved) pendingSaveRef.current ??= snapshot;
+      else if (pendingSaveRef.current) queueMicrotask(() => { void flushToServer(options); });
     }
   }, [projectId, readWorkspaceStore, toast, t, workspaceField]);
 
@@ -238,6 +237,7 @@ export default function MvClientFilesWorkspace({
       const syncMode = options?.sync ?? "debounce";
       setStore((current) => {
         const next = updater(current);
+        rememberAttachmentEdit(current, next);
         writeWorkspaceStore(projectId, next);
         storeRef.current = next;
         pendingSaveRef.current = next;
@@ -273,157 +273,27 @@ export default function MvClientFilesWorkspace({
     return () => {
       if (serverSaveTimerRef.current) clearTimeout(serverSaveTimerRef.current);
       stopFlagRef.current = true;
+      if (pendingSaveRef.current) void flushToServer({ silent: true });
     };
-  }, []);
+  }, [flushToServer]);
 
-  const ingestFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const list = Array.from(files).filter((f) => isPdfFile(f) || isImageFile(f));
-      if (list.length === 0) {
-        toast({ variant: "destructive", description: t("clientFiles.upload.invalidType") });
-        return;
-      }
+  const ingestFiles = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files).filter(file => isPdfFile(file) || isImageFile(file));
+    if (!list.length || !uploadUser) {
+      toast({ variant: "destructive", description: t("clientFiles.upload.invalidType") });
+      return;
+    }
+    try {
+      await enqueueAttachments(uploadUser, projectId, `${projectName} / ${workspaceTitle}`, list, { field: workspaceField });
+    } catch (error) {
+      toast({ variant: "destructive", description: error instanceof Error ? error.message : t("assetImages.upload.localSaveFailed") });
+    } finally { if (fileInputRef.current) fileInputRef.current.value = ""; }
+  }, [uploadUser, projectId, projectName, workspaceTitle, workspaceField, t, toast]);
 
-      stopFlagRef.current = false;
-      setBusyLabel(t("clientFiles.upload.working"));
-      setProgress({ done: 0, total: list.length });
-
-      try {
-        for (let fileIndex = 0; fileIndex < list.length; fileIndex += 1) {
-          if (stopFlagRef.current) break;
-          const file = list[fileIndex]!;
-          const label = cleanFileName(file.name);
-          setProgress({ done: fileIndex, total: list.length });
-
-          if (isPdfFile(file)) {
-            setBusyLabel(t("clientFiles.upload.convertingPdf", { name: file.name }));
-            const source: MvClientDocumentSource = {
-              id: createClientDocumentId("client-src"),
-              kind: "pdf",
-              name: file.name,
-              originalName: file.name,
-              mimeType: file.type || "application/pdf",
-              sizeBytes: file.size,
-              createdAt: new Date().toISOString(),
-            };
-            persistStore(
-              (current) => ({
-                ...current,
-                sources: [...current.sources, source],
-              }),
-              { sync: "later" },
-            );
-
-            const pages = await convertPdfFileToPageImages(file, {
-              shouldStop: () => stopFlagRef.current,
-              onProgress: (done, total) => {
-                setBusyLabel(
-                  t("clientFiles.upload.pdfProgress", {
-                    name: file.name,
-                    done: String(done),
-                    total: String(total),
-                  }),
-                );
-              },
-            });
-
-            const uploaded: MvClientDocumentImage[] = [];
-            for (const page of pages) {
-              if (stopFlagRef.current) break;
-              const fileId = await uploadProjectFileAndReturnId(projectId, page.file, {
-                valuationAccounting: true,
-              });
-              uploaded.push({
-                id: createClientDocumentId("client-img"),
-                sourceId: source.id,
-                sourceKind: "pdf",
-                sourceFileName: label,
-                name:
-                  page.pageCount > 1
-                    ? `${label} — صفحة ${page.pageNumber}`
-                    : label,
-                fileId,
-                createdAt: new Date().toISOString(),
-                includeInReport: true,
-                autoGenerated: true,
-                autoPageIndex: page.pageNumber,
-                autoPageCount: page.pageCount,
-              });
-            }
-            if (uploaded.length > 0) {
-              persistStore(
-                (current) => ({
-                  ...current,
-                  images: [...current.images, ...uploaded],
-                }),
-                { sync: "later" },
-              );
-            }
-          } else {
-            setBusyLabel(t("clientFiles.upload.uploadingImage", { name: file.name }));
-            const fileId = await uploadProjectFileAndReturnId(projectId, file, {
-              valuationAccounting: true,
-            });
-            const source: MvClientDocumentSource = {
-              id: createClientDocumentId("client-src"),
-              kind: "image",
-              name: file.name,
-              originalName: file.name,
-              mimeType: file.type || "image/jpeg",
-              sizeBytes: file.size,
-              createdAt: new Date().toISOString(),
-              fileId,
-            };
-            const image: MvClientDocumentImage = {
-              id: createClientDocumentId("client-img"),
-              sourceId: source.id,
-              sourceKind: "image",
-              sourceFileName: label,
-              name: label,
-              fileId,
-              createdAt: new Date().toISOString(),
-              includeInReport: true,
-            };
-            persistStore(
-              (current) => ({
-                ...current,
-                sources: [...current.sources, source],
-                images: [...current.images, image],
-              }),
-              { sync: "later" },
-            );
-          }
-        }
-
-        pendingSaveRef.current =
-          pendingSaveRef.current ?? storeRef.current ?? readWorkspaceStore(projectId);
-        const synced = await flushToServer({ silent: true });
-        if (synced) {
-          toast({
-            description: t("clientFiles.upload.success", { count: String(list.length) }),
-          });
-        } else {
-          toast({
-            description: t("clientFiles.upload.successLocal", { count: String(list.length) }),
-          });
-          toast({ variant: "destructive", description: t("clientFiles.sync.failed") });
-        }
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          description:
-            error instanceof Error && error.message.trim()
-              ? error.message
-              : t("clientFiles.upload.failed"),
-        });
-      } finally {
-        setBusyLabel(null);
-        setProgress(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
-    },
-    [persistStore, flushToServer, projectId, readWorkspaceStore, t, toast],
-  );
+  useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
+    if (pendingSaveRef.current || flushInFlightRef.current) return false;
+    setProject((current) => ({ ...current, ...fresh } as MvProject));
+  }), [projectId]);
 
   const removeImage = useCallback(
     (imageId: string) => {
@@ -508,6 +378,12 @@ export default function MvClientFilesWorkspace({
               </div>
             </div>
 
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-bold">
+              {t("assetImages.actions.uploadFolders")}
+              <input type="file" multiple {...{ webkitdirectory: "", directory: "" }} className="hidden"
+                onChange={event => { void ingestFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            </label>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -543,8 +419,8 @@ export default function MvClientFilesWorkspace({
               onDrop={(event) => {
                 event.preventDefault();
                 setDropActive(false);
-                const files = event.dataTransfer.files;
-                if (files?.length) void ingestFiles(files);
+                void readDroppedAttachmentFiles(event.dataTransfer).then(ingestFiles)
+                  .catch(error => toast({ variant: "destructive", description: String(error) }));
               }}
               className={cn(
                 cn(
@@ -615,7 +491,8 @@ export default function MvClientFilesWorkspace({
                           src={src}
                           alt={image.name}
                           className="max-h-full max-w-full object-contain"
-                          loading="lazy"
+                          loading={index < 4 ? "eager" : "lazy"}
+                          decoding="async"
                         />
                         {src ? (
                           <button

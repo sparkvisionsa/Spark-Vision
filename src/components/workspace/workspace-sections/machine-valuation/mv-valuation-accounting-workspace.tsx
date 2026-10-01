@@ -1,4 +1,7 @@
 "use client";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { fetchAttachmentSnapshot, watchAttachmentSnapshot } from "@/lib/mv-attachment-sync";
+import { enqueueAttachments, attachmentKnownIds, rememberAttachmentEdit, readDroppedAttachmentFiles } from "@/lib/mv-attachment-uploads";
 
 import {
   useCallback,
@@ -72,6 +75,7 @@ import {
   approachLabel,
   emptyValuationAccountingStore,
   mergeValuationAccountingStores,
+  parseValuationAccountingStoreFromApi,
   MV_VALUATION_ACCOUNTING_APPROACHES,
   MV_VALUATION_ACCOUNTING_FILE_KIND_LABEL,
   readValuationAccountingStore,
@@ -175,6 +179,9 @@ type PendingUploadPreview = {
   error?: string;
 };
 type UploadControl = {
+  concurrency?: number;
+  skipPage?: (index: number) => boolean;
+  capture?: (file: File, image: MvValuationAccountingImage) => Promise<void>;
   shouldStop?: () => boolean;
   onImage?: (image: MvValuationAccountingImage) => void;
 };
@@ -187,9 +194,8 @@ function createId(prefix: string) {
 }
 
 function waitFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
+  // Rendering must also advance in background tabs where animation frames are suspended.
+  return new Promise(resolve => setTimeout(resolve, 0));
 }
 
 type AccountFileProgressCb = (done: number, total: number, phase: string) => void | Promise<void>;
@@ -568,6 +574,7 @@ async function fetchValuationExcelFileBlob(projectId: string, fileId: string) {
     `/api/mv/projects/${encodeURIComponent(projectId)}/valuation-excel-files/${encodeURIComponent(fileId)}/download`,
     { credentials: "include" },
   );
+  if (res.status === 404) return fetchFileBlob(projectId, fileId);
   if (!res.ok) throw new Error(`تعذر تحميل ملف Excel من الخادم (${res.status}).`);
   return await res.blob();
 }
@@ -1829,7 +1836,7 @@ type ExcelPdfImageJob = {
   totalPages: number;
 };
 
-async function buildExcelImagesDirectlyFromOriginalFile({
+export async function buildExcelImagesDirectlyFromOriginalFile({
   projectId,
   file,
   source,
@@ -1873,12 +1880,12 @@ async function buildExcelImagesDirectlyFromOriginalFile({
   const images: MvValuationAccountingImage[] = [];
   let done = 0;
 
-  for (let start = 0; start < jobs.length; start += EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY) {
+  for (let start = 0; start < jobs.length; start += (control?.concurrency ?? EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY)) {
     if (control?.shouldStop?.()) break;
-    const batch = jobs.slice(start, start + EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY);
+    const batch = jobs.slice(start, start + (control?.concurrency ?? EXCEL_PDF_IMAGE_UPLOAD_CONCURRENCY));
     const batchImages = await Promise.all(
       batch.map(async (job) => {
-        if (control?.shouldStop?.()) return null;
+        if (control?.shouldStop?.() || control?.skipPage?.(job.pageIndex)) return null;
         const dataUrl = renderExcelPdfPageDataUrl(job.sheet, job.range.start, job.range.end);
         const blob = dataUrlToBlob(dataUrl);
         const sheetSuffix =
@@ -1890,7 +1897,7 @@ async function buildExcelImagesDirectlyFromOriginalFile({
           `${safeImageFileBaseName(cleanSourceName)}-${safeImageFileBaseName(job.sheet.name)}${sheetSuffix}.jpg`,
           { type: blob.type || "image/jpeg" },
         );
-        const fileId = await uploadProjectFileAndReturnId(projectId, imageFile, {
+        const fileId = control?.capture ? undefined : await uploadProjectFileAndReturnId(projectId, imageFile, {
           valuationAccounting: true,
         });
         const pageText =
@@ -1923,6 +1930,7 @@ async function buildExcelImagesDirectlyFromOriginalFile({
             height: Math.max(1, job.range.end - job.range.start),
           },
         };
+        if (control?.capture) await control.capture(imageFile, image);
         control?.onImage?.(image);
         return image;
       }),
@@ -2749,6 +2757,7 @@ export default function MvValuationAccountingWorkspace({
   projectId,
   embedded = false,
 }: MvValuationAccountingWorkspaceProps) {
+  const { user: uploadUser } = useAuthTracking();
   const { t, dir } = useMvI18n();
   const { toast } = useToast();
   const [project, setProject] = useState<MvProject | null>(null);
@@ -2924,6 +2933,7 @@ export default function MvValuationAccountingWorkspace({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   valuationAccountingWorkspace: valuationAccountingStoreForApi(snapshot),
+                  attachmentKnownIds: { valuationAccountingWorkspace: attachmentKnownIds(snapshot) },
                 }),
               });
               if (res.ok) {
@@ -2978,6 +2988,7 @@ export default function MvValuationAccountingWorkspace({
       const syncMode = options?.sync ?? "debounce";
       setStore((current) => {
         const next = updater(current);
+        rememberAttachmentEdit(current, next);
         const ok = writeValuationAccountingStore(projectId, next);
         if (!ok) {
           toast({
@@ -3061,16 +3072,8 @@ export default function MvValuationAccountingWorkspace({
   const loadProject = useCallback(async () => {
     setProjectLoadError(null);
     try {
-      const data = await mvFetchJson<{ project?: MvProject }>(
-        `/api/mv/projects/${projectId}?picAssetMode=summary`,
-        {},
-        {
-          cacheKey: `project-summary:${projectId}`,
-          cacheTtlMs: 90_000,
-          loadingLabel: t("valuation.loading"),
-        },
-      );
-      setProject(data.project ?? null);
+      const fresh = await fetchAttachmentSnapshot(projectId);
+      setProject((current) => ({ ...current, ...fresh } as MvProject));
     } catch (error) {
       setProject(null);
       setProjectLoadError(mvErrorMessage(error, t("valuation.syncProjectFailed")));
@@ -3085,6 +3088,11 @@ export default function MvValuationAccountingWorkspace({
       writeVisitedSimpleReportSteps(projectId, [...visited, "report-files"]);
     }
   }, [loadProject, projectId]);
+  useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
+    if (pendingAccountingSaveRef.current || accountingFlushInFlightRef.current) return false;
+    setProject((current) => ({ ...current, ...fresh } as MvProject));
+  }), [projectId]);
+
 
   const serverWorkspaceKey = useMemo(
     () => JSON.stringify(project?.valuationAccountingWorkspace ?? null),
@@ -3093,8 +3101,9 @@ export default function MvValuationAccountingWorkspace({
 
   useEffect(() => {
     if (!project) return;
+    if (pendingAccountingSaveRef.current) return;
     const local = readValuationAccountingStore(projectId);
-    const merged = mergeValuationAccountingStores(project.valuationAccountingWorkspace, local);
+    const merged = parseValuationAccountingStoreFromApi(project.valuationAccountingWorkspace) ?? mergeValuationAccountingStores(project.valuationAccountingWorkspace, local);
     setStore((prev) => (JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged));
     writeValuationAccountingStore(projectId, merged);
     // لا تُعاد المزامنة تلقائياً عند تحديث ‎project‎ — ذلك كان يطلق التوست بعد ثوانٍ/دقيقة
@@ -3511,343 +3520,22 @@ export default function MvValuationAccountingWorkspace({
     return { min: Math.min(...excelRowPicks), max: Math.max(...excelRowPicks) };
   }, [excelRowPicks]);
 
-  const commitUpload = useCallback(
-    async (
-      kind: MvValuationAccountingFileKind,
-      selectedFiles: File[],
-      targetApproach: MvValuationAccountingApproachId = activeApproach,
-      options?: { originalExcelFiles?: File[]; excelChunkRowsPerPdfPage?: number },
-    ) => {
-      const files = selectedFiles.filter((file) => file.size > 0);
-      if (files.length === 0) return false;
-      uploadStopRequestedRef.current = false;
-      setUploadingKind(kind);
-      const sessionStart = Date.now();
-      setFileProcessOverlay({
-        phase:
-          kind === "excel"
-            ? "جارٍ رفع ملف Excel…"
-            : kind === "pdf"
-              ? "جارٍ رفع ملف PDF…"
-              : "جارٍ رفع الصورة…",
-        current: 0,
-        total: 0,
-        fileName: cleanAccountingText(files[0]?.name ?? ""),
-        startedAt: sessionStart,
-      });
-      await waitFrame();
-      try {
-        const nextSources: MvValuationAccountingSourceFile[] = [];
-        const nextImages: MvValuationAccountingImage[] = [];
-        let convertedPdfPageCount = 0;
-        let generatedExcelImageCount = 0;
-        let skippedOversizedPdfSourceUploads = 0;
-        const excelGenerationErrors: string[] = [];
-        for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
-          const file = files[fileIndex]!;
-          if (uploadStopRequestedRef.current) break;
-          const cleanFileName = cleanAccountingText(file.name);
-          pushFileProcess({
-            phase:
-              kind === "excel"
-                ? "جارٍ معالجة Excel…"
-                : kind === "pdf"
-                  ? "جارٍ معالجة PDF…"
-                  : "جارٍ معالجة الصورة…",
-            current: 0,
-            total: 0,
-            fileName: cleanFileName,
-          });
-          await waitFrame();
-          if (kind === "excel") {
-            pushFileProcess({
-              phase: "رفع ملف Excel إلى الخادم…",
-              current: 0,
-              total: 0,
-              fileName: cleanFileName,
-            });
-            const storedExcelFileId = await uploadValuationExcelFileAndReturnId(projectId, file);
-            pushFileProcess({
-              phase: "استيراد الشيتات وتحليل الأعمدة…",
-              current: 0,
-              total: 0,
-              fileName: cleanFileName,
-            });
-            const importResult = await importValuationExcelSheets(
-              projectId,
-              file,
-              cleanFileName,
-              storedExcelFileId,
-            );
-            const source: MvValuationAccountingSourceFile = {
-              id: createId("account-source"),
-              approachId: targetApproach,
-              kind,
-              name: cleanFileName,
-              originalName: file.name,
-              mimeType: file.type,
-              sizeBytes: file.size,
-              createdAt: new Date().toISOString(),
-              fileId: storedExcelFileId,
-              excelDataSource: "mv-sheets",
-              excelRowsPerImage: DEFAULT_EXCEL_ROWS_PER_IMAGE,
-              importResult,
-              activeSheet: getFirstSheet(importResult),
-            };
-            nextSources.push(source);
-            try {
-              const automaticImages = await buildAutomaticExcelImages({
-                projectId,
-                source,
-                rowsPerImage: DEFAULT_EXCEL_ROWS_PER_IMAGE,
-                rowHeight: excelPreviewRowHeight,
-                columnWidthMul: excelPreviewColMul,
-                cellFont: excelPreviewCellFont,
-                headerFont: excelPreviewHeaderFont,
-                padX: excelPreviewPadX,
-                padY: excelPreviewPadY,
-                qualityScale,
-                onProgress: async (done, total, phase) => {
-                  pushFileProcess({
-                    phase,
-                    current: done,
-                    total,
-                    fileName: cleanFileName,
-                  });
-                  await waitFrame();
-                },
-              });
-              generatedExcelImageCount += automaticImages.length;
-              nextImages.push(...automaticImages);
-            } catch (error) {
-              excelGenerationErrors.push(
-                `${cleanFileName}: ${error instanceof Error ? error.message : "تعذر توليد الصور التلقائية."}`,
-              );
-            }
-          } else if (kind === "pdf") {
-            const originalExcelFile = options?.originalExcelFiles?.[fileIndex];
-            if (originalExcelFile && !uploadStopRequestedRef.current) {
-              pushFileProcess({
-                phase: "حفظ ملف Excel الأصلي كمسودة متقدمة...",
-                current: 0,
-                total: 0,
-                fileName: cleanAccountingText(originalExcelFile.name),
-              });
-              const storedExcelFileId = await uploadValuationExcelFileAndReturnId(projectId, originalExcelFile);
-              const chunkRows = normalizeExcelPdfRowsPerImage(
-                options?.excelChunkRowsPerPdfPage ?? DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE,
-              );
-              const excelDraftSource: MvValuationAccountingSourceFile = {
-                id: createId("account-source"),
-                approachId: targetApproach,
-                kind: "excel",
-                name: cleanAccountingText(originalExcelFile.name),
-                originalName: originalExcelFile.name,
-                mimeType: originalExcelFile.type,
-                sizeBytes: originalExcelFile.size,
-                createdAt: new Date().toISOString(),
-                fileId: storedExcelFileId,
-                excelRowsPerImage: Math.min(20, Math.max(5, chunkRows)),
-              };
-              nextSources.push(excelDraftSource);
-              persistStore((current) => ({
-                ...current,
-                sources: current.sources.some((source) => source.id === excelDraftSource.id)
-                  ? current.sources
-                  : [...current.sources, excelDraftSource],
-              }));
-            }
-            if (uploadStopRequestedRef.current) break;
-            pushFileProcess({
-              phase: originalExcelFile ? "الحسابات في الخادم…" : "حفظ ملف الحسابات في ",
-              current: 0,
-              total: 0,
-              fileName: cleanFileName,
-            });
-            let pdfFileId: string | undefined;
-            if (file.size > VALUATION_ACCOUNTING_SOURCE_PDF_UPLOAD_MAX_BYTES) {
-              skippedOversizedPdfSourceUploads += 1;
-              pushFileProcess({
-                phase: "تجاوز حفظ نسخة PDF كبيرة؛ جاري توليد الصور النهائية...",
-                current: 0,
-                total: 0,
-                fileName: cleanFileName,
-              });
-              await waitFrame();
-            } else {
-              try {
-                pdfFileId = await uploadProjectFileAndReturnId(projectId, file, {
-                  valuationAccounting: true,
-                });
-              } catch (error) {
-                if (!isPayloadTooLargeUploadError(error)) throw error;
-                skippedOversizedPdfSourceUploads += 1;
-                pushFileProcess({
-                  phase: "تجاوز حفظ نسخة PDF كبيرة؛ جاري توليد الصور النهائية...",
-                  current: 0,
-                  total: 0,
-                  fileName: cleanFileName,
-                });
-                await waitFrame();
-              }
-            }
-            const pdfSource: MvValuationAccountingSourceFile = {
-              id: createId("account-source"),
-              approachId: targetApproach,
-              kind: "pdf",
-              name: cleanFileName,
-              originalName: file.name,
-              mimeType: file.type || "application/pdf",
-              sizeBytes: file.size,
-              createdAt: new Date().toISOString(),
-              ...(pdfFileId ? { fileId: pdfFileId } : {}),
-            };
-            nextSources.push(pdfSource);
-            persistStore((current) => ({
-              ...current,
-              sources: current.sources.some((source) => source.id === pdfSource.id)
-                ? current.sources
-                : [...current.sources, pdfSource],
-            }));
-            const pdfImages = await processPdfToValuationImages(
-              projectId,
-              file,
-              pdfSource,
-              targetApproach,
-              cleanFileName,
-              async (done, total, phase) => {
-                pushFileProcess({
-                  phase,
-                  current: done,
-                  total,
-                  fileName: cleanFileName,
-                });
-                await waitFrame();
-              },
-              {
-                shouldStop: () => uploadStopRequestedRef.current,
-                onImage: (image) => {
-                  persistStore(
-                    (current) => ({
-                      ...current,
-                      images: current.images.some((item) => item.id === image.id)
-                        ? current.images
-                        : [...current.images, image],
-                    }),
-                    { sync: "later" },
-                  );
-                },
-              },
-            );
-            convertedPdfPageCount += pdfImages.length;
-            nextImages.push(...pdfImages);
-          } else {
-            pushFileProcess({
-              phase: "رفع الصورة…",
-              current: 0,
-              total: 1,
-              fileName: cleanFileName,
-            });
-            const uploadedId = await uploadProjectFileAndReturnId(projectId, file, {
-              valuationAccounting: true,
-            });
-            pushFileProcess({
-              phase: "تم حفظ الصورة",
-              current: 1,
-              total: 1,
-              fileName: cleanFileName,
-            });
-            const imageSource: MvValuationAccountingSourceFile = {
-              id: createId("account-source"),
-              approachId: targetApproach,
-              kind,
-              name: cleanFileName,
-              originalName: file.name,
-              mimeType: file.type,
-              sizeBytes: file.size,
-              createdAt: new Date().toISOString(),
-              fileId: uploadedId,
-            };
-            nextSources.push(imageSource);
-            nextImages.push({
-              id: createId("account-image"),
-              approachId: targetApproach,
-              sourceId: imageSource.id,
-              sourceKind: "image",
-              sourceFileName: cleanFileName,
-              name: `${approachLabel(targetApproach)} - ${cleanFileName}`,
-              fileId: uploadedId,
-              createdAt: new Date().toISOString(),
-              displayWidthPercent: 90,
-              displayMaxHeightPx: 960,
-              qualityScale: 2.5,
-              includeInReport: true,
-              autoGenerated: true,
-            });
-          }
-        }
-        persistStore(
-          (current) => ({
-            ...current,
-            sources: [
-              ...current.sources,
-              ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
-            ],
-            images: [
-              ...current.images,
-              ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
-            ],
-          }),
-          { sync: "now" },
-        );
-        setPreviewImage(null);
-        toast({
-          description:
-            kind === "excel"
-              ? `تم رفع ${files.length} ملف Excel وتوليد ${generatedExcelImageCount} صورة تلقائياً في ${approachLabel(targetApproach)}.`
-              : convertedPdfPageCount > 0
-              ? `تم تحويل PDF إلى ${convertedPdfPageCount} صورة عالية الجودة وربطها بـ ${approachLabel(targetApproach)}.`
-              : `تم رفع ${files.length} ملف إلى ${approachLabel(targetApproach)}.`,
-        });
-        if (skippedOversizedPdfSourceUploads > 0) {
-          toast({
-            description:
-              "تم توليد الصور النهائية، لكن تم تخطي حفظ نسخة PDF وسيطة كبيرة لأنها تتجاوز حد الاستضافة.",
-          });
-        }
-        if (excelGenerationErrors.length > 0) {
-          toast({
-            variant: "destructive",
-            description: excelGenerationErrors.slice(0, 2).join(" | "),
-          });
-        }
-        return true;
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          description: error instanceof Error ? error.message : "تعذر رفع الملف.",
-        });
-        return false;
-      } finally {
-        setUploadingKind(null);
-        setFileProcessOverlay(null);
-      }
-    },
-    [
-      activeApproach,
-      excelPreviewCellFont,
-      excelPreviewColMul,
-      excelPreviewHeaderFont,
-      excelPreviewPadX,
-      excelPreviewPadY,
-      excelPreviewRowHeight,
-      persistStore,
-      projectId,
-      pushFileProcess,
-      qualityScale,
-      toast,
-    ],
-  );
+  const commitUpload = useCallback(async (
+    kind: MvValuationAccountingFileKind, files: File[],
+    targetApproach: MvValuationAccountingApproachId = activeApproach,
+    options?: { originalExcelFiles?: File[]; excelChunkRowsPerPdfPage?: number },
+  ) => {
+    if (!uploadUser) return false;
+    try {
+      await enqueueAttachments(uploadUser, projectId, `${project?.name || projectId} / ${approachLabel(targetApproach)}`,
+        options?.originalExcelFiles ?? files, { field: "valuationAccountingWorkspace", approachId: targetApproach,
+          rowsPerImage: options?.excelChunkRowsPerPdfPage ?? DEFAULT_EXCEL_PDF_ROWS_PER_IMAGE });
+      return true;
+    } catch (error) {
+      toast({ variant: "destructive", description: error instanceof Error ? error.message : t("assetImages.upload.localSaveFailed") });
+      return false;
+    }
+  }, [uploadUser, projectId, project?.name, activeApproach, toast, t]);
 
   const closePendingUploadPreview = useCallback(() => {
     pendingUploadTokenRef.current += 1;
@@ -4036,140 +3724,9 @@ export default function MvValuationAccountingWorkspace({
     const pending = pendingUploadPreviewRef.current;
     if (!pending || pending.status !== "ready") return;
     setPendingUploadPreview({ ...pending, status: "saving", message: "جاري حفظ الملفات وتوليد الصور على الخادم…" });
-    if (pending.kind === "excel") {
-      const rowsPerImage = normalizeExcelPdfRowsPerImage(pending.excelRowsPerImage);
-      const nextSources: MvValuationAccountingSourceFile[] = [];
-      const nextImages: MvValuationAccountingImage[] = [];
-      let generatedImageCount = 0;
-      try {
-        uploadStopRequestedRef.current = false;
-        setUploadingKind("excel");
-        setFileProcessOverlay({
-          phase: "جاري حفظ Excel وتوليد الصور مباشرة…",
-          current: 0,
-          total: pending.files.length,
-          fileName: cleanAccountingText(pending.files[0]?.name ?? pending.title),
-          startedAt: Date.now(),
-        });
-        for (let index = 0; index < pending.files.length; index += 1) {
-          if (uploadStopRequestedRef.current) break;
-          const file = pending.files[index]!;
-          const cleanFileName = cleanAccountingText(file.name);
-          pushFileProcess({
-            phase: "توليد صور Excel مباشرة…",
-            current: index,
-            total: pending.files.length,
-            fileName: cleanFileName,
-          });
-          await waitFrame();
-          const source: MvValuationAccountingSourceFile = {
-            id: createId("account-source"),
-            approachId: pending.approachId,
-            kind: "excel",
-            name: cleanFileName,
-            originalName: file.name,
-            mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            sizeBytes: file.size,
-            createdAt: new Date().toISOString(),
-            excelRowsPerImage: rowsPerImage,
-          };
-          nextSources.push(source);
-          persistStore((current) => ({
-            ...current,
-            sources: current.sources.some((item) => item.id === source.id)
-              ? current.sources
-              : [...current.sources, source],
-          }));
-          const images = await buildExcelImagesDirectlyFromOriginalFile({
-            projectId,
-            file,
-            source,
-            rowsPerImage,
-            onProgress: async (done, total, phase) => {
-              pushFileProcess({
-                phase,
-                current: done,
-                total,
-                fileName: cleanFileName,
-              });
-              await waitFrame();
-            },
-            control: {
-              shouldStop: () => uploadStopRequestedRef.current,
-              onImage: (image) => {
-                persistStore(
-                  (current) => ({
-                    ...current,
-                    images: current.images.some((item) => item.id === image.id)
-                      ? current.images
-                      : [...current.images, image],
-                  }),
-                  { sync: "later" },
-                );
-              },
-            },
-          });
-          generatedImageCount += images.length;
-          nextImages.push(...images);
-          if (file.size <= VALUATION_ACCOUNTING_EXCEL_SOURCE_BACKGROUND_UPLOAD_MAX_BYTES) {
-            void uploadValuationExcelFileAndReturnId(projectId, file)
-              .then((fileId) => {
-                persistStore((current) => ({
-                  ...current,
-                  sources: current.sources.map((item) =>
-                    item.id === source.id ? { ...item, fileId } : item,
-                  ),
-                }));
-              })
-              .catch(() => {
-                // Source Excel is optional in the fast path; generated images are the durable output.
-              });
-          }
-          pushFileProcess({
-            phase: "تم حفظ صور Excel",
-            current: index + 1,
-            total: pending.files.length,
-            fileName: cleanFileName,
-          });
-          await waitFrame();
-        }
-        if (uploadStopRequestedRef.current) {
-          setPendingUploadPreview({ ...pending, status: "ready" });
-          setFileProcessOverlay(null);
-          setUploadingKind(null);
-          return;
-        }
-        persistStore(
-          (current) => ({
-            ...current,
-            sources: [
-              ...current.sources,
-              ...nextSources.filter((source) => !current.sources.some((item) => item.id === source.id)),
-            ],
-            images: [
-              ...current.images,
-              ...nextImages.filter((image) => !current.images.some((item) => item.id === image.id)),
-            ],
-          }),
-          { sync: "now" },
-        );
-        toast({
-          description: `تم حفظ ${pending.files.length} ملف Excel وتوليد ${generatedImageCount} صورة مباشرة بدون حفظ PDF وسيط.`,
-        });
-        closePendingUploadPreview();
-        return;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "تعذر حفظ Excel وتوليد الصور.";
-        toast({ variant: "destructive", description: message });
-        setPendingUploadPreview({ ...pending, status: "ready", message });
-        setFileProcessOverlay(null);
-        setUploadingKind(null);
-        return;
-      }
-    }
-
     const ok = await commitUpload(pending.kind, pending.files, pending.approachId, {
       originalExcelFiles: pending.originalFiles,
+      excelChunkRowsPerPdfPage: pending.excelRowsPerImage,
     });
     if (ok) {
       closePendingUploadPreview();
@@ -4619,6 +4176,17 @@ export default function MvValuationAccountingWorkspace({
               </label>
 
               <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-bold">
+                  {t("assetImages.actions.uploadFolders")}
+                  <input type="file" multiple {...{ webkitdirectory: "", directory: "" }} className="hidden"
+                    onChange={event => {
+                      const files = Array.from(event.target.files ?? []).filter(file => /\.(xlsx?|xlsm|csv|pdf|jpe?g|png|gif|webp|bmp)$/i.test(file.name));
+                      void commitUpload("image", files, activeApproach);
+                      event.target.value = "";
+                    }} />
+                </label>
+              </Button>
+              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4700,15 +4268,10 @@ export default function MvValuationAccountingWorkspace({
                 onDrop={(event) => {
                   event.preventDefault();
                   setAccountingImageDropActive(false);
-                  const picked = Array.from(event.dataTransfer.files).filter(
-                    (file) =>
-                      file.type.startsWith("image/") ||
-                      /\.(jpe?g|png|gif|webp|bmp|heic|heif|svg|tif)/i.test(file.name),
-                  );
-                  if (picked.length === 0) return;
-                  const transfer = new DataTransfer();
-                  picked.forEach((file) => transfer.items.add(file));
-                  void handleUpload("image", transfer.files);
+                  void readDroppedAttachmentFiles(event.dataTransfer).then(files => {
+                    const supported = files.filter(file => /\.(xlsx?|xlsm|csv|pdf|jpe?g|png|gif|webp|bmp)$/i.test(file.name));
+                    return commitUpload("image", supported, activeApproach);
+                  }).catch(error => toast({ variant: "destructive", description: String(error) }));
                 }}
               >
                 <div className={cn("flex flex-wrap items-center justify-between gap-2 border-b border-slate-100", embedded ? "hidden" : "pb-3")}>
