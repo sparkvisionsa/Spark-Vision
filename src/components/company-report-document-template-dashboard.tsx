@@ -1,7 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Copy, FileText, Loader2, Plus, Presentation, Save, Search, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  FileText,
+  FileUp,
+  Loader2,
+  Plus,
+  Presentation,
+  Save,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +100,21 @@ function isModelSourceKey(value: string, models: readonly MvReportDataModel[]): 
   );
 }
 
+function formatTemplateSize(sizeBytes?: number) {
+  if (!sizeBytes) return "محفوظ";
+  if (sizeBytes < 1024 * 1024) return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  return `${(sizeBytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function valueHintForSource(sourceKey: string) {
+  if (sourceKey === "images.asset") return "تُدرج صور الأصول من المشروع";
+  if (sourceKey === "images.valuation") return "تُدرج صور حسابات القيمة من تبويب المرفقات";
+  if (sourceKey === "images.client") return "تُدرج صور ملفات العميل من تبويب المرفقات";
+  if (sourceKey === "images.certificate") return "تُدرج صورة شهادة نظام الهيئة من تبويب المرفقات";
+  if (sourceKey) return "تُملأ تلقائيًا من بيانات المشروع";
+  return "—";
+}
+
 type TemplateDataSourcePickerProps = {
   value: string;
   models: readonly MvReportDataModel[];
@@ -131,8 +161,13 @@ function TemplateDataSourcePicker({
   const projectFields = REPORT_TEMPLATE_SOURCE_OPTIONS.filter(
     (option) => option.group === "project" && matches(option.label, option.value),
   );
-  const visualFields = REPORT_TEMPLATE_SOURCE_OPTIONS.filter(
-    (option) => option.group === "image" && matches(option.label, option.value),
+  const assetImageFields = REPORT_TEMPLATE_SOURCE_OPTIONS.filter(
+    (option) => option.value === "images.asset" && matches(option.label, option.value),
+  );
+  const attachmentImageFields = REPORT_TEMPLATE_SOURCE_OPTIONS.filter(
+    (option) =>
+      (option.value === "images.valuation" || option.value === "images.client" || option.value === "images.certificate") &&
+      matches(option.label, option.value),
   );
   const specialFields = [
     { value: "static", label: "قيمة ثابتة تكتبها يدويًا" },
@@ -150,13 +185,13 @@ function TemplateDataSourcePicker({
       type="button"
       onClick={() => select(sourceKey)}
       className={cn(
-        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-right transition hover:bg-sky-50",
+        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-right transition hover:bg-sky-50",
         value === sourceKey && "bg-sky-50 text-sky-900",
       )}
     >
       <span className="min-w-0">
-        <span className="block truncate text-[10.5px] font-bold">{label}</span>
-        {note ? <span className="block truncate text-[8.5px] font-semibold text-slate-400">{note}</span> : null}
+        <span className="block truncate text-[12px] font-bold">{label}</span>
+        {note ? <span className="block truncate text-[10px] font-semibold text-slate-400">{note}</span> : null}
       </span>
       {value === sourceKey ? <Check className="h-3.5 w-3.5 shrink-0 text-sky-700" /> : null}
     </button>
@@ -170,12 +205,12 @@ function TemplateDataSourcePicker({
           variant="outline"
           disabled={disabled}
           className={cn(
-            "h-8 w-full justify-between rounded-lg bg-white px-2 text-right text-[10px] font-semibold shadow-none",
-            value ? "border-emerald-100" : "border-amber-200",
+            "h-10 w-full justify-between rounded-xl bg-white px-3 text-right text-[12px] font-semibold shadow-none",
+            value ? "border-emerald-200" : "border-amber-300 bg-amber-50/40",
           )}
         >
           <span className="min-w-0 truncate">{sourceLabelForTemplate(value, [activeModel, ...models])}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -187,25 +222,25 @@ function TemplateDataSourcePicker({
         <div className="border-b border-slate-100 bg-slate-50/80 p-2">
           {models.length > 1 ? (
             <Select value={activeModel.id} onValueChange={onModelChange}>
-              <SelectTrigger className="mb-2 h-8 rounded-lg border-slate-200 bg-white text-[10px] font-black shadow-none">
+              <SelectTrigger className="mb-2 h-9 rounded-lg border-slate-200 bg-white text-[12px] font-bold shadow-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent dir="rtl">
                 {models.map((model) => (
-                  <SelectItem key={model.id} value={model.id} className="text-[11px] font-bold">
+                  <SelectItem key={model.id} value={model.id} className="text-[12px] font-bold">
                     {model.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           ) : null}
-          <label className="flex h-8 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 text-slate-400 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-100">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 text-slate-400 focus-within:border-sky-300 focus-within:ring-2 focus-within:ring-sky-100">
             <Search className="h-3.5 w-3.5 shrink-0" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="ابحث عن قسم أو حقل"
-              className="h-7 border-0 bg-transparent p-0 text-[10px] font-semibold shadow-none focus-visible:ring-0"
+              className="h-8 border-0 bg-transparent p-0 text-[12px] font-semibold shadow-none focus-visible:ring-0"
               autoFocus
             />
           </label>
@@ -216,7 +251,7 @@ function TemplateDataSourcePicker({
             type="button"
             onClick={() => select("")}
             className={cn(
-              "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-right text-[10px] font-bold text-slate-500 hover:bg-slate-50",
+              "flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-right text-[12px] font-bold text-slate-500 hover:bg-slate-50",
               !value && "bg-slate-100 text-slate-800",
             )}
           >
@@ -226,37 +261,103 @@ function TemplateDataSourcePicker({
 
           {modelGroups.map((section) => (
             <div key={section.id} className="mt-1.5">
-              <p className="px-2.5 py-1 text-[9px] font-black tracking-wide text-slate-400">{section.title}</p>
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">{section.title}</p>
               {section.fields.map((field) => optionButton(field.sourceKey, field.label, field.system ? "حقل النظام" : "حقل مخصص"))}
             </div>
           ))}
 
           {extraReportFields.length > 0 ? (
             <div className="mt-1.5">
-              <p className="px-2.5 py-1 text-[9px] font-black tracking-wide text-slate-400">بيانات التقرير الأخرى</p>
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">بيانات التقرير الأخرى</p>
               {extraReportFields.map((field) => optionButton(field.value, field.label))}
             </div>
           ) : null}
           {projectFields.length > 0 ? (
             <div className="mt-1.5">
-              <p className="px-2.5 py-1 text-[9px] font-black tracking-wide text-slate-400">بيانات المشروع</p>
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">بيانات المشروع</p>
               {projectFields.map((field) => optionButton(field.value, field.label))}
             </div>
           ) : null}
-          {visualFields.length > 0 || specialFields.length > 0 ? (
+          {assetImageFields.length > 0 ? (
             <div className="mt-1.5">
-              <p className="px-2.5 py-1 text-[9px] font-black tracking-wide text-slate-400">خيارات خاصة</p>
-              {visualFields.map((field) => optionButton(field.value, field.label))}
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">صور الأصول</p>
+              {assetImageFields.map((field) => optionButton(field.value, field.label, "من صور الأصول في المشروع"))}
+            </div>
+          ) : null}
+          {attachmentImageFields.length > 0 ? (
+            <div className="mt-1.5">
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">المرفقات</p>
+              {attachmentImageFields.map((field) => optionButton(field.value, field.label, "من تبويب المرفقات"))}
+            </div>
+          ) : null}
+          {specialFields.length > 0 ? (
+            <div className="mt-1.5">
+              <p className="px-2.5 py-1 text-[10px] font-black tracking-wide text-slate-400">خيارات خاصة</p>
               {specialFields.map((field) => optionButton(field.value, field.label))}
             </div>
           ) : null}
 
-          {modelGroups.length === 0 && extraReportFields.length === 0 && projectFields.length === 0 && visualFields.length === 0 && specialFields.length === 0 ? (
-            <p className="px-3 py-6 text-center text-[10px] font-semibold text-slate-400">لا توجد نتائج مطابقة.</p>
+          {modelGroups.length === 0 && extraReportFields.length === 0 && projectFields.length === 0 && assetImageFields.length === 0 && attachmentImageFields.length === 0 && specialFields.length === 0 ? (
+            <p className="px-3 py-6 text-center text-[12px] font-semibold text-slate-400">لا توجد نتائج مطابقة.</p>
           ) : null}
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function FilePickButton({
+  accept,
+  disabled,
+  uploading,
+  isPptx,
+  label,
+  onFile,
+}: {
+  accept: string;
+  disabled?: boolean;
+  uploading?: boolean;
+  isPptx: boolean;
+  label: string;
+  onFile: (file: File) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-black text-white",
+        isPptx ? "bg-orange-500 hover:bg-orange-600" : "bg-emerald-600 hover:bg-emerald-700",
+        disabled && "pointer-events-none opacity-60",
+      )}
+    >
+      <input
+        type="file"
+        accept={accept}
+        className="sr-only"
+        disabled={disabled}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.currentTarget.value = "";
+          if (file) onFile(file);
+        }}
+      />
+      {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}
+      {uploading ? "جارٍ القراءة…" : label}
+    </label>
+  );
+}
+
+function TemplateStep({ number, title, text, children }: { number: string; title: string; text: string; children: ReactNode }) {
+  return (
+    <section className="border-b border-slate-100 px-4 py-3">
+      <div className="mb-2 flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-black text-white">{number}</span>
+        <div className="min-w-0">
+          <h3 className="text-[13px] font-black text-slate-950">{title}</h3>
+          <p className="mt-0.5 text-[11px] font-semibold leading-5 text-slate-500">{text}</p>
+        </div>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -314,6 +415,7 @@ export function CompanyReportDocumentTemplateDashboard({
   onSave,
 }: CompanyReportDocumentTemplateDashboardProps) {
   const [newVariable, setNewVariable] = useState("");
+  const [variableQuery, setVariableQuery] = useState("");
   const [preparingNewTemplate, setPreparingNewTemplate] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -328,18 +430,22 @@ export function CompanyReportDocumentTemplateDashboard({
   useEffect(() => {
     if (!preparingNewTemplate) setActiveReportDataModelId(selectedTemplate?.reportDataModelId ?? MV_DEFAULT_REPORT_DATA_MODEL_ID);
   }, [preparingNewTemplate, selectedTemplate?.id, selectedTemplate?.reportDataModelId]);
-  useEffect(() => setNewVariable(""), [selectedTemplateId]);
+  useEffect(() => {
+    setNewVariable("");
+    setVariableQuery("");
+  }, [selectedTemplateId, preparingNewTemplate]);
   useEffect(() => {
     if (!models.some((model) => model.id === activeReportDataModelId)) {
       setActiveReportDataModelId(MV_DEFAULT_REPORT_DATA_MODEL_ID);
     }
   }, [activeReportDataModelId, models]);
   const isPptx = format === "pptx";
-  const formatTitle = isPptx ? "قالب PowerPoint" : "قالب Word";
+  const formatTitle = isPptx ? "قوالب PowerPoint" : "قوالب Word";
   const extension = isPptx ? ".pptx" : ".docx";
-  const maxSizeLabel = isPptx ? "35 MB" : "25 MB";
   const reachedTemplateLimit = templates.length >= 20;
-  const icon = isPptx ? <Presentation className="h-5 w-5" /> : <FileText className="h-5 w-5" />;
+  const accept = isPptx
+    ? ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const detectedVariables = template?.bookmarkNames ?? [];
   const mappings = template?.variableMappings ?? [];
   const excluded = template?.excludedVariableNames ?? [];
@@ -382,11 +488,26 @@ export function CompanyReportDocumentTemplateDashboard({
     Boolean(sourceKey) && (!sourceKey.startsWith("field:") || Boolean(sourceKey.slice("field:".length).trim()));
   // Count only persisted/local mapping rows — never treat auto-suggestions as saved links.
   const mappedCount = rows.filter((row) => row.detected && hasConfiguredSource(row.mapping?.sourceKey ?? "")).length;
+  const normalizedVariableQuery = variableQuery.trim().toLocaleLowerCase("ar");
+  const visibleRows = normalizedVariableQuery
+    ? rows.filter((row) =>
+        row.variable.toLocaleLowerCase("ar").includes(normalizedVariableQuery) ||
+        (row.label ?? "").toLocaleLowerCase("ar").includes(normalizedVariableQuery) ||
+        (row.sectionTitle ?? "").toLocaleLowerCase("ar").includes(normalizedVariableQuery),
+      )
+    : rows;
 
   const startNewTemplate = () => {
     setPreparingNewTemplate(true);
     setActiveReportDataModelId(MV_DEFAULT_REPORT_DATA_MODEL_ID);
     setNewVariable("");
+    setVariableQuery("");
+    setUploadError("");
+    setCopyNotice("");
+  };
+
+  const cancelNewTemplate = () => {
+    setPreparingNewTemplate(false);
     setUploadError("");
     setCopyNotice("");
   };
@@ -423,7 +544,7 @@ export function CompanyReportDocumentTemplateDashboard({
     <Button
       type="button"
       size="sm"
-      className="h-9 shrink-0 gap-1.5 rounded-lg bg-[#0C447C] px-3 text-[11px] font-black hover:bg-[#0a3a66] disabled:opacity-60"
+      className="h-8 shrink-0 gap-1 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-black hover:bg-[#0a3a66] disabled:opacity-60"
       disabled={busy}
       onClick={() => void onSave()}
     >
@@ -478,281 +599,198 @@ export function CompanyReportDocumentTemplateDashboard({
     setNewVariable("");
   };
 
-  return (
-    <div
-      className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/60 shadow-sm"
-      dir="rtl"
+  const modelSelect = (
+    <Select value={activeModel.id} onValueChange={setActiveReportDataModelId} disabled={busy}>
+      <SelectTrigger aria-labelledby={`${format}-data-model-label`} className="h-10 w-full max-w-md rounded-xl bg-white text-[13px] font-bold shadow-none">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent dir="rtl">
+        {models.map((model) => (
+          <SelectItem key={model.id} value={model.id} className="text-[12px] font-bold">
+            {model.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const newTemplateButton = (
+    <Button
+      type="button"
+      variant="outline"
+      className="h-9 shrink-0 gap-1 rounded-xl px-3 text-[12px] font-black"
+      disabled={busy || reachedTemplateLimit}
+      onClick={startNewTemplate}
     >
-      <section className="bg-white px-2.5 py-2.5 sm:px-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-              isPptx ? "bg-orange-50 text-orange-700" : "bg-emerald-50 text-emerald-700",
-            )}
-            title={formatTitle}
-          >
-            {icon}
-          </span>
+      <Plus className="h-3.5 w-3.5" />
+      {reachedTemplateLimit ? "اكتمل العدد" : templates.length ? "أضف قالب آخر" : "أضف قالب جديد"}
+    </Button>
+  );
 
-          <div className="min-w-[210px] flex-[1_1_360px]">
-            <Select
-              value={template?.id ?? ""}
-              onValueChange={(id) => { setPreparingNewTemplate(false); setUploadError(""); setCopyNotice(""); onSelect(id); }}
-              disabled={busy || templates.length === 0}
-            >
-              <SelectTrigger
-                className={cn(
-                  "h-9 rounded-lg bg-slate-50 px-3 text-[12px] font-bold shadow-none",
-                  isPptx ? "border-orange-100" : "border-emerald-100",
-                )}
-                aria-label="اختيار القالب"
-              >
-                <span className={cn("min-w-0 flex-1 truncate text-right", !template && "text-slate-400")}>
-                  {preparingNewTemplate ? "تجهيز قالب جديد" : template?.name ||
-                    (templates.length
-                      ? "اختر قالبًا"
-                      : `لا توجد قوالب ${isPptx ? "PowerPoint" : "Word"}`)}
-                </span>
-              </SelectTrigger>
-              <SelectContent dir="rtl">
-                {templates.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="h-auto py-2">
-                    <span className="grid min-w-[230px] gap-0.5 text-right">
-                      <span className="truncate text-[11px] font-black text-slate-900">{item.name}</span>
-                      <span className="truncate text-[9px] font-semibold text-slate-400" dir="ltr">
-                        {item.fileName}
-                      </span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Badge
-            variant="secondary"
-            className="h-8 shrink-0 rounded-lg bg-slate-100 px-2.5 text-[10px] font-black text-slate-600"
-            title="عدد القوالب من الحد الأقصى"
-          >
-            {templates.length}/20
-          </Badge>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black"
-            disabled={busy || reachedTemplateLimit}
-            onClick={startNewTemplate}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {reachedTemplateLimit ? "اكتمل العدد" : templates.length ? "أضف قالب آخر" : "أضف قالب جديد"}
-          </Button>
-
-          {preparingNewTemplate ? <label
-            className={cn(
-              "inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-black text-white shadow-sm transition",
-              isPptx ? "bg-orange-500 hover:bg-orange-600" : "bg-emerald-600 hover:bg-emerald-700",
-              (busy || reachedTemplateLimit) && "pointer-events-none opacity-60",
-            )}
-            title={`إرفاق قالب ${extension} جديد (حتى ${maxSizeLabel})`}
-          >
-            <input
-              type="file"
-              accept={
-                isPptx
-                  ? ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                  : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              }
-              className="sr-only"
-              disabled={busy || reachedTemplateLimit}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.currentTarget.value = "";
-                if (file) void uploadTemplate(file);
-              }}
-            />
-            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {uploading ? "جارٍ قراءة القالب وربطه…" : "رفع قالب جديد"}
-          </label> : null}
-
-          {template ? (
-            <span
-              className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[10px] font-black",
-                dirty ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700",
-              )}
-            >
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  dirty ? "bg-amber-500" : "bg-emerald-500",
-                )}
-              />
-              {dirty ? "غير محفوظ" : "محفوظ"}
-            </span>
-          ) : null}
-
-          {saveButton}
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" dir="rtl">
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white",
+            isPptx ? "bg-orange-600" : "bg-emerald-700",
+          )}
+        >
+          {isPptx ? <Presentation className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[14px] font-black text-slate-950">{formatTitle}</h2>
+          <p className="text-[11px] font-semibold text-slate-500">
+            {showingSuggestions ? "جهّز الملف من نموذج البيانات ثم ارفعه" : "اربط متغيرات الملف بمصادر المشروع"}
+          </p>
         </div>
-      </section>
+        {templates.length > 0 ? (
+          <Select
+            value={template?.id ?? ""}
+            onValueChange={(id) => {
+              setPreparingNewTemplate(false);
+              setUploadError("");
+              setCopyNotice("");
+              onSelect(id);
+            }}
+            disabled={busy}
+          >
+            <SelectTrigger className="h-9 w-[min(16rem,100%)] rounded-xl bg-slate-50 px-2 text-[12px] font-bold shadow-none" aria-label="اختيار القالب">
+              <span className={cn("min-w-0 flex-1 truncate text-right", !template && "text-slate-400")}>
+                {preparingNewTemplate ? "تجهيز قالب جديد" : template?.name || "اختر قالبًا"}
+              </span>
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              {templates.map((item) => (
+                <SelectItem key={item.id} value={item.id} className="text-[12px] font-bold">
+                  {item.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        <Badge variant="secondary" className="h-8 rounded-lg bg-slate-100 px-2 text-[10px] font-black text-slate-600">
+          {templates.length}/20
+        </Badge>
+        {template ? newTemplateButton : null}
+        {template ? (
+          <span className={cn("inline-flex h-8 items-center rounded-lg px-2 text-[10px] font-black", dirty ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
+            {dirty ? "غير محفوظ" : "محفوظ"}
+          </span>
+        ) : null}
+        <span className="ms-auto">{saveButton}</span>
+      </header>
 
-      {uploadError ? <p role="alert" className="border-t border-orange-200 bg-orange-50 px-3 py-3 text-xs font-semibold leading-6 text-orange-800">{uploadError}</p> : null}
-      {copyNotice ? <p role="status" className="border-t border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">{copyNotice}</p> : null}
+      {uploadError ? <p role="alert" className="border-b border-orange-200 bg-orange-50 px-2.5 py-1.5 text-[12px] font-semibold text-orange-800">{uploadError}</p> : null}
+      {copyNotice ? <p role="status" className="border-b border-sky-100 bg-sky-50 px-2.5 py-1.5 text-[12px] font-semibold text-sky-800">{copyNotice}</p> : null}
 
       {loading ? (
-        <div className="flex h-24 items-center justify-center border-t border-slate-100 bg-white text-slate-400">
+        <div className="flex h-24 items-center justify-center text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       ) : (
         <>
-          {template ? <section
-            className={cn(
-              "border-t border-slate-100 px-2.5 py-2 sm:px-3",
-              isPptx
-                ? "bg-gradient-to-l from-orange-50/80 via-white to-white"
-                : "bg-gradient-to-l from-emerald-50/80 via-white to-white",
-            )}
-          >
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="grid min-w-[220px] flex-[1_1_280px] gap-1 text-right">
-                <span className="text-[10px] font-black text-slate-500">اسم القالب الظاهر في القائمة</span>
-              <Input
-                value={template.name}
-                onChange={(event) => onRename(event.target.value, false)}
-                onBlur={() => onRename(template.name, true)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onRename(template.name, true);
-                    event.currentTarget.blur();
-                  }
-                }}
-                className="h-9 rounded-lg border-slate-200 bg-white text-[12px] font-bold shadow-none"
-                placeholder="اسم القالب"
-                aria-label="اسم القالب"
-                title="اسم القالب الظاهر في صفحة إعداد التقرير"
-                maxLength={160}
-                disabled={busy}
-                required
-              />
-              </label>
-
-              <div className="grid min-w-[220px] flex-[1_1_300px] gap-1">
-                <span className="text-[10px] font-black text-slate-500">الملف المرفوع</span>
-              <div className="flex h-9 items-center gap-2 rounded-lg border border-white/80 bg-white/80 px-2.5 shadow-sm">
-                <span
-                  className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
-                    isPptx ? "bg-orange-500" : "bg-emerald-500",
-                  )}
-                />
-                <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700" dir="ltr">
-                  {template.fileName}
-                </span>
-                <span className="shrink-0 text-[9px] font-semibold text-slate-400">
-                  {template.sizeBytes
-                    ? `${(template.sizeBytes / 1024 / 1024).toFixed(2)} MB`
-                    : "محفوظ"}
-                  {" · "}
-                  {template.uploadedAt
-                    ? new Date(template.uploadedAt).toLocaleDateString("ar")
-                    : "بدون تاريخ"}
-                </span>
-              </div>
-              </div>
-
-              <label
-                className={cn(
-                  "inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border bg-white px-3 text-[11px] font-black shadow-sm transition",
-                  isPptx
-                    ? "border-orange-200 text-orange-700 hover:bg-orange-50"
-                    : "border-emerald-200 text-emerald-700 hover:bg-emerald-50",
-                  busy && "pointer-events-none opacity-60",
-                )}
-                title={`استبدال الملف الحالي بملف ${extension} (حتى ${maxSizeLabel})`}
+          <span id={`${format}-data-model-label`} className="sr-only">نموذج بيانات التقرير</span>
+          {showingSuggestions ? (
+            <>
+              <TemplateStep
+                number="1"
+                title="اختر نموذج بيانات التقرير"
+                text="المتغيرات التالية تُبنى من هذا النموذج. غيّر النموذج أولًا إذا كان القالب لتقرير آخر."
               >
-                <input
-                  type="file"
-                  accept={
-                    isPptx
-                      ? ".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                      : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  }
-                  className="sr-only"
-                  disabled={busy}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.currentTarget.value = "";
-                    if (file) void uploadTemplate(file, true);
+                {modelSelect}
+              </TemplateStep>
+              <TemplateStep
+                number="2"
+                title="انسخ المتغيرات إلى الملف"
+                text={`ضع كل متغير في ملف ${isPptx ? "PowerPoint" : "Word"} بالمكان الذي تريد ظهور قيمته فيه. صور حسابات القيمة وصور ملفات العميل وصورة شهادة نظام الهيئة تُؤخذ من تبويب المرفقات، وصور الأصول من صور المشروع.`}
+              >
+                <label className="flex h-9 max-w-md items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 text-slate-400 focus-within:border-sky-300">
+                  <Search className="h-3.5 w-3.5 shrink-0" />
+                  <Input
+                    value={variableQuery}
+                    onChange={(event) => setVariableQuery(event.target.value)}
+                    placeholder="ابحث عن حقل أو متغير"
+                    className="h-8 border-0 bg-transparent p-0 text-[12px] font-semibold shadow-none focus-visible:ring-0"
+                  />
+                </label>
+              </TemplateStep>
+            </>
+          ) : template ? (
+            <section className="border-b border-slate-100 px-4 py-3">
+              <p className="text-[11px] font-black text-slate-400">القالب المرفوع</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Input
+                  value={template.name}
+                  onChange={(event) => onRename(event.target.value, false)}
+                  onBlur={() => onRename(template.name, true)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onRename(template.name, true);
+                      event.currentTarget.blur();
+                    }
                   }}
+                  className="h-10 min-w-[12rem] flex-1 rounded-xl border-slate-200 text-[13px] font-bold shadow-none"
+                  placeholder="اسم القالب"
+                  aria-label="اسم القالب"
+                  maxLength={160}
+                  disabled={busy}
+                  required
                 />
-                {saving ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                استبدال
-              </label>
-
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-9 shrink-0 gap-1.5 rounded-lg px-2.5 text-[11px] font-black text-slate-400 hover:bg-rose-50 hover:text-rose-700"
-                disabled={busy}
-                onClick={() => void onRemove()}
-                title={`حذف ${formatTitle}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">حذف</span>
-              </Button>
-            </div>
-          </section> : null}
-
-          <section className="border-t border-slate-100 bg-white px-3 py-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <span id={`${format}-data-model-label`} className="text-xs font-bold text-slate-700">نموذج بيانات التقرير</span>
-              <Select value={activeModel.id} onValueChange={setActiveReportDataModelId} disabled={busy}>
-                <SelectTrigger aria-labelledby={`${format}-data-model-label`} className="h-9 w-64 bg-white text-xs font-bold"><SelectValue /></SelectTrigger>
-                <SelectContent dir="rtl">
-                  {models.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="mt-2 text-xs leading-6 text-slate-500">
-              {showingSuggestions
-                ? "انسخ المتغيرات التي تحتاجها وألصقها في القالب على جهازك. تظهر بالبرتقالي حتى ترفع القالب؛ تُقرأ المتغيرات الموجودة فيه وتُربط بمصادرها تلقائيًا."
-                : "المتغير الأخضر موجود في القالب ومربوط بمصدر بيانات. اختر مصدرًا للمتغير البرتقالي غير المربوط، ثم احفظ التعديلات."}
-              {showingSuggestions && !preparingNewTemplate ? " اضغط «أضف قالب جديد» لإظهار زر رفع القالب." : ""}
-            </p>
-          </section>
-
-          <section className="border-t border-slate-100 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 sm:px-3">
-              <div className="order-2 flex flex-wrap items-center gap-1.5">
-                <Badge
-                  variant="secondary"
-                  className="h-6 rounded-md bg-slate-100 px-2 text-[9px] font-black text-slate-600"
+                <span className="min-w-0 max-w-[16rem] truncate text-[11px] font-bold text-slate-500" dir="ltr" title={template.fileName}>
+                  {template.fileName} · {formatTemplateSize(template.sizeBytes)}
+                </span>
+                <FilePickButton
+                  accept={accept}
+                  disabled={busy}
+                  uploading={uploading}
+                  isPptx={isPptx}
+                  label="استبدال الملف"
+                  onFile={(file) => void uploadTemplate(file, true)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-9 gap-1 px-2 text-[12px] font-black text-slate-400 hover:bg-rose-50 hover:text-rose-700"
+                  disabled={busy}
+                  onClick={() => void onRemove()}
                 >
-                  {rows.length} متغير
-                </Badge>
-                <Badge
-                  variant="secondary"
-                  className="h-6 rounded-md bg-emerald-50 px-2 text-[9px] font-black text-emerald-700"
-                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  حذف
+                </Button>
+              </div>
+              <div className="mt-3 max-w-md">
+                <p className="mb-1 text-[11px] font-black text-slate-700">نموذج البيانات المستخدم للربط</p>
+                {modelSelect}
+              </div>
+            </section>
+          ) : null}
+
+          {!showingSuggestions ? (
+            <div className="border-b border-slate-100 px-4 py-3">
+              <h3 className="text-[13px] font-black text-slate-950">ربط المتغيرات المكتشفة</h3>
+              <p className="mt-0.5 text-[11px] font-semibold leading-5 text-slate-500">
+                هذه الأسماء وُجدت داخل الملف. اختر لكل متغير مصدره: حقل من النموذج، أو صور الأصول، أو إحدى صور المرفقات.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <Badge variant="secondary" className="h-6 rounded-md bg-emerald-50 px-2 text-[10px] font-black text-emerald-700">
                   {mappedCount} مربوط
                 </Badge>
                 {rows.length - mappedCount > 0 ? (
-                  <Badge
-                    variant="secondary"
-                    className="h-6 rounded-md bg-amber-50 px-2 text-[9px] font-black text-amber-800"
-                  >
-                    {rows.length - mappedCount} غير مربوط
+                  <Badge variant="secondary" className="h-6 rounded-md bg-amber-50 px-2 text-[10px] font-black text-amber-800">
+                    {rows.length - mappedCount} بدون ربط
                   </Badge>
                 ) : null}
-              </div>
-
-              {!showingSuggestions ? <div className="order-1 flex min-w-[260px] flex-[1_1_360px] items-center justify-end gap-1.5 sm:max-w-md">
+                <label className="flex h-9 min-w-[12rem] flex-1 items-center gap-1.5 rounded-xl border border-slate-200 px-2.5 text-slate-400 focus-within:border-sky-300">
+                  <Search className="h-3.5 w-3.5 shrink-0" />
+                  <Input
+                    value={variableQuery}
+                    onChange={(event) => setVariableQuery(event.target.value)}
+                    placeholder="ابحث في المتغيرات"
+                    className="h-8 border-0 bg-transparent p-0 text-[12px] font-semibold shadow-none focus-visible:ring-0"
+                  />
+                </label>
                 <Input
                   value={newVariable}
                   onChange={(event) => setNewVariable(event.target.value)}
@@ -762,103 +800,92 @@ export function CompanyReportDocumentTemplateDashboard({
                       addVariable();
                     }
                   }}
-                  placeholder="<<متغير_جديد>>"
+                  placeholder="<<متغير>>"
                   aria-label="اسم المتغير الجديد"
-                  className="h-8 min-w-0 rounded-lg text-[11px] shadow-none"
+                  className="h-9 w-36 rounded-xl text-[12px] shadow-none"
                   disabled={busy}
                   dir="ltr"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 shrink-0 gap-1 rounded-lg px-2.5 text-[10px] font-black"
-                  disabled={busy || !newVariable.trim()}
-                  onClick={addVariable}
-                >
+                <Button type="button" variant="outline" size="sm" className="h-9 gap-1 px-2 text-[11px] font-black" disabled={busy || !newVariable.trim()} onClick={addVariable}>
                   <Plus className="h-3 w-3" />
                   إضافة
                 </Button>
-              </div> : null}
+              </div>
             </div>
+          ) : null}
 
-            <div className="max-h-[560px] overflow-auto border-t border-slate-100">
-              <Table className="min-w-[760px]">
-                <TableHeader className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
-                  <TableRow className="h-8 hover:bg-slate-50">
-                    <TableHead className="h-8 min-w-44 px-3 text-right text-[10px] font-black">
-                      المتغير
-                    </TableHead>
-                    <TableHead className="h-8 min-w-64 px-3 text-right text-[10px] font-black">
-                      مصدر البيانات
-                    </TableHead>
-                    <TableHead className="h-8 min-w-52 px-3 text-right text-[10px] font-black">
-                      القيمة
-                    </TableHead>
-                    <TableHead className="h-8 w-11 px-2" />
+          <div className="max-h-[70vh] overflow-auto border-t border-slate-100">
+            <Table className="w-full min-w-0">
+              <TableHeader className="sticky top-0 z-10 bg-slate-50">
+                <TableRow className="hover:bg-slate-50">
+                  <TableHead className="h-8 px-2 text-right text-[11px] font-black">المتغير</TableHead>
+                  <TableHead className="h-8 px-2 text-right text-[11px] font-black">{showingSuggestions ? "المصدر" : "يربط بـ"}</TableHead>
+                  {!showingSuggestions ? <TableHead className="h-8 w-10 px-1" /> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visibleRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={showingSuggestions ? 2 : 3} className="h-16 text-center text-[12px] font-semibold text-slate-500">
+                      {normalizedVariableQuery
+                        ? "لا توجد نتائج."
+                        : showingSuggestions
+                          ? "لا توجد حقول في هذا النموذج. اختر نموذجًا آخر أو أضف حقولًا إلى نموذج بيانات التقرير."
+                          : "لم تُكتشف متغيرات؛ أضف متغيراً أو استبدل الملف بنسخة تحتوي على <<اسم_المتغير>>."}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="h-20 text-center text-[11px] font-semibold text-slate-500"
-                      >
-                        {showingSuggestions ? "لا توجد حقول في هذا النموذج. اختر نموذجًا آخر أو أضف حقولًا إلى نموذج بيانات التقرير." : "لم تُكتشف متغيرات؛ أضف متغيراً أو استبدل الملف بنسخة تحتوي على <<اسم_المتغير>>."}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    rows.map((row) => {
-                        // Only an explicit mapping row is "selected". Suggested
-                        // bindings are hints — showing them as the Select value
-                        // made reloads look unbound after the admin never saved.
-                        const storedSourceKey = row.mapping?.sourceKey?.trim() ?? "";
-                        const suggested = !showingSuggestions && !storedSourceKey ? suggestedTemplateBinding(row.variable, activeModel) : "";
-                        const chosenSource = row.suggestedSource ?? storedSourceKey;
-                        const manualCustomField =
-                          storedSourceKey.startsWith("field:") &&
-                          !isModelSourceKey(storedSourceKey, models);
-                        const sourceIsConfigured = row.detected && hasConfiguredSource(storedSourceKey);
-                        const mapping = row.mapping;
-                        const suggestedLabel = suggested
-                          ? sourceLabelForTemplate(suggested, [activeModel, ...models])
-                          : undefined;
-                        return (
-                          <TableRow
-                            key={normalizeVariable(row.variable)}
-                            className="group hover:bg-slate-50/70"
-                          >
-                            <TableCell className="px-3 py-1.5 align-middle">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={cn(
-                                    "h-2 w-2 shrink-0 rounded-full",
-                                    sourceIsConfigured ? "bg-emerald-500" : "bg-orange-400",
-                                  )}
-                                  title={sourceIsConfigured ? "مرتبط" : "غير مرتبط"}
-                                />
-                                <code
-                                  className={cn("select-text break-all rounded-md px-1.5 py-1 text-[10px] font-bold", sourceIsConfigured ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700")}
-                                  dir="ltr"
-                                >
-                                  {`<<${row.variable}>>`}
-                                </code>
-                                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-slate-500" aria-label={`نسخ <<${row.variable}>>`} title="نسخ المتغير" onClick={() => void copyVariable(row.variable)}>
-                                  <Copy className="h-3.5 w-3.5" />
-                                </Button>
-                                {!row.detected && !showingSuggestions ? (
-                                  <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[8px] font-black text-violet-700">
-                                    غير موجود في القالب
-                                  </span>
-                                ) : null}
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-3 py-1.5 align-middle">
-                              {showingSuggestions ? <div className="text-[11px] font-bold text-slate-700">
-                                {row.label}
-                                <span className="mt-1 block text-[9px] font-normal text-slate-400">{row.sectionTitle}</span>
-                              </div> : <TemplateDataSourcePicker
+                ) : (
+                  visibleRows.map((row) => {
+                    const storedSourceKey = row.mapping?.sourceKey?.trim() ?? "";
+                    const suggested = !showingSuggestions && !storedSourceKey ? suggestedTemplateBinding(row.variable, activeModel) : "";
+                    const chosenSource = row.suggestedSource ?? storedSourceKey;
+                    const manualCustomField =
+                      storedSourceKey.startsWith("field:") &&
+                      !isModelSourceKey(storedSourceKey, models);
+                    const sourceIsConfigured = row.detected && hasConfiguredSource(storedSourceKey);
+                    const mapping = row.mapping;
+                    const suggestedLabel = suggested
+                      ? sourceLabelForTemplate(suggested, [activeModel, ...models])
+                      : undefined;
+                    const isImage = (chosenSource || row.suggestedSource || "").startsWith("images.");
+                    return (
+                      <TableRow key={normalizeVariable(row.variable)} className="group hover:bg-slate-50/70">
+                        <TableCell className="px-2 py-1.5 align-middle">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {!showingSuggestions ? (
+                              sourceIsConfigured
+                                ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                : <CircleAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                            ) : null}
+                            {showingSuggestions && row.label ? (
+                              <span className="text-[12px] font-bold text-slate-800">{row.label}</span>
+                            ) : null}
+                            <code
+                              className={cn(
+                                "select-text break-all rounded-md px-1.5 py-0.5 text-[11px] font-bold",
+                                sourceIsConfigured ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-700",
+                              )}
+                              dir="ltr"
+                            >
+                              {`<<${row.variable}>>`}
+                            </code>
+                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-slate-500" aria-label={`نسخ <<${row.variable}>>`} title="نسخ المتغير" onClick={() => void copyVariable(row.variable)}>
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                            {!row.detected && !showingSuggestions ? (
+                              <span className="rounded bg-violet-50 px-1 text-[9px] font-black text-violet-700">غير موجود</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 align-middle">
+                          {showingSuggestions ? (
+                            <p className="text-[12px] font-semibold leading-5 text-slate-600">
+                              {row.sectionTitle ? <span className="mb-0.5 block text-[10px] font-black text-slate-400">{row.sectionTitle}</span> : null}
+                              {isImage ? valueHintForSource(chosenSource) : "يُملأ من هذا الحقل عند إنشاء التقرير"}
+                            </p>
+                          ) : (
+                            <div className="grid gap-1">
+                              <TemplateDataSourcePicker
                                 value={chosenSource}
                                 models={models}
                                 activeModelId={activeReportDataModelId}
@@ -870,84 +897,74 @@ export function CompanyReportDocumentTemplateDashboard({
                                     staticValue: value === "static" ? mapping?.staticValue ?? "" : undefined,
                                   })
                                 }
-                              />}
-                              {!showingSuggestions && !storedSourceKey && suggestedLabel ? (
-                                <button
-                                  type="button"
-                                  className="mt-1 text-[9px] font-bold text-sky-700 underline-offset-2 hover:underline disabled:opacity-50"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    updateMapping(row.variable, { sourceKey: suggested })
-                                  }
-                                >
+                              />
+                              {!storedSourceKey && suggestedLabel ? (
+                                <button type="button" className="text-[10px] font-bold text-sky-700 hover:underline disabled:opacity-50" disabled={busy} onClick={() => updateMapping(row.variable, { sourceKey: suggested })}>
                                   تطبيق الاقتراح: {suggestedLabel}
                                 </button>
                               ) : null}
-                            </TableCell>
-                            <TableCell className="px-3 py-1.5 align-middle">
                               {chosenSource === "static" ? (
                                 <Input
                                   value={mapping?.staticValue ?? ""}
-                                  onChange={(event) =>
-                                    updateMapping(row.variable, {
-                                      staticValue: event.target.value,
-                                      sourceKey: "static",
-                                    })
-                                  }
-                                  className="h-8 rounded-lg text-[10px] shadow-none"
+                                  onChange={(event) => updateMapping(row.variable, { staticValue: event.target.value, sourceKey: "static" })}
+                                  className="h-8 rounded-lg text-[12px] shadow-none"
                                   placeholder="اكتب القيمة الثابتة"
                                   disabled={busy}
                                 />
                               ) : manualCustomField ? (
                                 <Input
                                   value={storedSourceKey.slice("field:".length)}
-                                  onChange={(event) =>
-                                    updateMapping(row.variable, {
-                                      sourceKey: `field:${event.target.value.trim()}`,
-                                    })
-                                  }
-                                  className="h-8 rounded-lg text-[10px] shadow-none"
-                                  placeholder="اسم حقل التقرير أو reportTextOverrides"
+                                  onChange={(event) => updateMapping(row.variable, { sourceKey: `field:${event.target.value.trim()}` })}
+                                  className="h-8 rounded-lg text-[12px] shadow-none"
+                                  placeholder="اسم الحقل"
                                   disabled={busy}
                                   dir="ltr"
                                 />
-                              ) : (
-                                <span className="inline-flex h-8 items-center text-[9px] font-semibold text-slate-400">
-                                  {chosenSource === "images.asset"
-                                    ? "صور الأصول"
-                                    : chosenSource === "images.valuation"
-                                      ? "صور حسابات القيمة"
-                                      : chosenSource === "images.client"
-                                        ? "صور ملفات العميل"
-                                        : chosenSource === "images.certificate"
-                                          ? "صور شهادة نظام الهيئة (قيمة)"
-                                        : chosenSource
-                                          ? "تلقائي من النظام"
-                                          : "—"}
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 text-left align-middle">
-                              {!showingSuggestions ? <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-slate-300 hover:bg-rose-50 hover:text-rose-700 group-hover:text-slate-400"
-                                disabled={busy}
-                                onClick={() => removeRow(row)}
-                                title="حذف من لوحة الربط"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button> : null}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </section>
+                              ) : null}
+                            </div>
+                          )}
+                        </TableCell>
+                        {!showingSuggestions ? (
+                          <TableCell className="px-1 py-1.5 text-left align-middle">
+                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-slate-300 hover:bg-rose-50 hover:text-rose-700" disabled={busy} onClick={() => removeRow(row)} title="حذف من لوحة الربط">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </TableCell>
+                        ) : null}
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          {showingSuggestions ? (
+            <TemplateStep
+              number="3"
+              title="ارفع الملف بعد لصق المتغيرات"
+              text="يُقرأ الملف وتُربط المتغيرات المعروفة بمصادرها. يمكنك بعدها مراجعة أي متغير لم يُربط."
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {newTemplateButton}
+                {preparingNewTemplate ? (
+                  <>
+                    <FilePickButton
+                      accept={accept}
+                      disabled={busy || reachedTemplateLimit}
+                      uploading={uploading}
+                      isPptx={isPptx}
+                      label={`رفع ملف ${extension}`}
+                      onFile={(file) => void uploadTemplate(file)}
+                    />
+                    <Button type="button" variant="ghost" className="h-9 px-2 text-[12px] font-black text-slate-500" disabled={busy} onClick={cancelNewTemplate}>
+                      <X className="h-3.5 w-3.5" />
+                      إلغاء
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </TemplateStep>
+          ) : null}
         </>
       )}
     </div>

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { MvReportCustomField } from "./mv-report-custom-fields";
+import { toReportDateInputValue } from "./mv-report-date-value";
 
 const EXTRACTION_API = "/api/mv/data-extraction";
 const ACCEPTED_FILES = /\.(pdf|jpe?g|png|webp|heic|heif|avif|gif|tiff?|bmp)$/i;
@@ -46,23 +47,34 @@ function matchScore(expected: string, actual: string) {
   return shared / Math.max(leftWords.size, rightWords.size);
 }
 
+function valueForField(field: MvReportCustomField, raw: string | undefined) {
+  const value = raw?.trim() ?? "";
+  if (!value) return "";
+  if (field.type !== "date") return value;
+  return toReportDateInputValue(value);
+}
+
 function buildMatches(fields: MvReportCustomField[], extracted: ExtractedField[]) {
   const used = new Set<number>();
   const matches: Match[] = [];
   for (const field of fields) {
     let bestIndex = -1;
     let bestScore = 0;
+    let bestValue = "";
     extracted.forEach((candidate, index) => {
-      if (used.has(index) || !candidate.label?.trim() || !candidate.value?.trim()) return;
+      if (used.has(index) || !candidate.label?.trim()) return;
+      const value = valueForField(field, candidate.value);
+      if (!value) return;
       const score = matchScore(field.label, candidate.label);
       if (score > bestScore) {
         bestScore = score;
         bestIndex = index;
+        bestValue = value;
       }
     });
     if (bestIndex >= 0 && bestScore >= 0.62) {
       used.add(bestIndex);
-      matches.push({ fieldId: field.id, label: field.label, value: extracted[bestIndex]!.value!.trim(), confidence: bestScore });
+      matches.push({ fieldId: field.id, label: field.label, value: bestValue, confidence: bestScore });
     }
   }
   return matches;
@@ -124,7 +136,10 @@ export function MvReportSectionFileFillDialog({
     try {
       const form = new FormData();
       files.forEach((file) => form.append("files", file, file.name));
-      form.append("targetFields", JSON.stringify(fields.map((field) => field.label)));
+      form.append(
+        "targetFields",
+        JSON.stringify(fields.map((field) => ({ label: field.label, type: field.type }))),
+      );
       const response = await fetch(EXTRACTION_API, {
         method: "POST",
         body: form,

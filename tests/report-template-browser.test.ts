@@ -46,7 +46,11 @@ test("template preparation, copying, model selection, upload and manual binding 
         await page.screenshot({ path: `test-results/report-templates/${format}-prepare.png`, fullPage: true });
         await page.getByRole("combobox", { name: "نموذج بيانات التقرير" }).click();
         await page.getByRole("option", { name: "نموذج المعدات", exact: true }).click();
-        await expect(page.locator("tbody tr")).toHaveCount(2);
+        await expect(page.locator("tbody tr")).toHaveCount(2 + 4);
+        await expect(page.locator("code").filter({ hasText: "<<صور_الاصول>>" })).toBeVisible();
+        await expect(page.locator("code").filter({ hasText: "<<صور_حسابات_القيمة>>" })).toBeVisible();
+        await expect(page.locator("code").filter({ hasText: "<<صور_ملفات_العميل>>" })).toBeVisible();
+        await expect(page.locator("code").filter({ hasText: "<<صور_شهادة_نظام_الهيئة>>" })).toBeVisible();
         const extension = format === "word" ? "docx" : "pptx";
         await page.locator('input[type="file"]').setInputFiles({ name: `empty.${extension}`, mimeType: "application/octet-stream", buffer: Buffer.alloc(0) });
         await expect(page.getByRole("alert")).toContainText("فارغ");

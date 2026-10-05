@@ -12,7 +12,7 @@ import HelperToolsScreenCapture from "./helper-tools-screen-capture";
 import HelperImagesToPdf from "./helper-images-to-pdf";
 import { useHelperToolsNav } from "@/components/helper-tools-shell";
 
-export default function HelperTools() {
+export default function HelperTools({ overlayContainer }: { overlayContainer?: HTMLElement | null }) {
   const { tool, isArabic } = useHelperToolsNav();
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState("");
@@ -45,7 +45,7 @@ export default function HelperTools() {
       {tool === "screen" && <HelperToolsScreenCapture arabic={isArabic} />}
 
       {tool === "images" && (
-        <HelperImagesToPdf arabic={isArabic} />
+        <HelperImagesToPdf arabic={isArabic} overlayContainer={overlayContainer} />
       )}
 
       {tool === "pdf" && (

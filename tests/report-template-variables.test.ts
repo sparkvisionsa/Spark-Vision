@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import PizZip from "pizzip";
-import { buildSuggestedTemplateVariables, suggestedTemplateBinding, mergeTemplateVariableMappings, normalizeTemplateVariableKey } from "../src/lib/report-template-bindings";
+import { buildSuggestedTemplateVariables, suggestedTemplateBinding, mergeTemplateVariableMappings, normalizeTemplateVariableKey, REPORT_TEMPLATE_IMAGE_VARIABLES } from "../src/lib/report-template-bindings";
 import { readReportTemplateUpload } from "../src/lib/report-template-upload";
 import { createDefaultReportDataModel, type MvReportDataModel } from "../src/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
 
@@ -17,7 +17,7 @@ const custom: MvReportDataModel = {
 test("every field has a copyable variable that resolves to the same source", () => {
   for (const model of [individual, custom]) {
     const suggestions = buildSuggestedTemplateVariables(model);
-    assert.equal(suggestions.length, model.sections.flatMap((s) => s.fields).length);
+    assert.equal(suggestions.length, model.sections.flatMap((s) => s.fields).length + REPORT_TEMPLATE_IMAGE_VARIABLES.length);
     assert.equal(new Set(suggestions.map((s) => s.variable)).size, suggestions.length);
     for (const suggestion of suggestions) {
       assert.ok(suggestion.variable.length <= 120);
@@ -30,6 +30,20 @@ test("every field has a copyable variable that resolves to the same source", () 
   assert.equal(suggestedTemplateBinding("ملاحظة", custom), "");
   assert.equal(suggestedTemplateBinding("متغير_غير_معروف", individual), "");
   assert.equal(suggestedTemplateBinding("الرقم_التسلسلي", individual), "");
+  assert.equal(suggestedTemplateBinding("صور_الاصول", individual), "images.asset");
+  assert.equal(suggestedTemplateBinding("صور_ملفات_العميل", individual), "images.client");
+  assert.equal(suggestedTemplateBinding("صور_حسابات_القيمة", individual), "images.valuation");
+  assert.equal(suggestedTemplateBinding("صور_شهادة_نظام_الهيئة", individual), "images.certificate");
+  assert.equal(suggestedTemplateBinding("صور_المرفقات", individual), "images.client");
+  assert.deepEqual(
+    buildSuggestedTemplateVariables(individual).filter((item) => item.sourceKey.startsWith("images.")).map((item) => [item.variable, item.sourceKey]),
+    [
+      ["صور_الاصول", "images.asset"],
+      ["صور_حسابات_القيمة", "images.valuation"],
+      ["صور_ملفات_العميل", "images.client"],
+      ["صور_شهادة_نظام_الهيئة", "images.certificate"],
+    ],
+  );
 });
 
 test("duplicate labels and labels matching generated suffixes stay unambiguous", () => {

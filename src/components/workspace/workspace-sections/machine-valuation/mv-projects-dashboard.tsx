@@ -69,6 +69,7 @@ import type {
   MvProjectWorkflowStatus,
 } from "./types"
 import CreateDialog from "./create-dialog";
+import { MvHandbookLauncher } from "./mv-handbook-launcher";
 import {
   createProjectInspectionSiteForm,
   projectContactDataFromInspectionSites,
@@ -1892,22 +1893,25 @@ export default function MvProjectsDashboard() {
               <ProjectMetricGrid items={metrics} />
             </div>
 
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setCreateOpen(true)}
-              disabled={!canCreateMvProject}
-              title={
-                needsCompanyMembership
-                  ? t("projects.createBlockedTitle")
-                  : t("projects.createNew")
-              }
-              aria-label={t("projects.createNew")}
-              className="h-11 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-[13px] font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-cyan-50 disabled:opacity-45 sm:self-center"
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-              <span>{t("projects.createNew")}</span>
-            </Button>
+            <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
+              <MvHandbookLauncher autoOpenAllowed={!createOpen} />
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+                disabled={!canCreateMvProject}
+                title={
+                  needsCompanyMembership
+                    ? t("projects.createBlockedTitle")
+                    : t("projects.createNew")
+                }
+                aria-label={t("projects.createNew")}
+                className="h-11 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-[13px] font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-cyan-50 disabled:opacity-45 sm:self-center"
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                <span>{t("projects.createNew")}</span>
+              </Button>
+            </div>
           </div>
         </section>
 

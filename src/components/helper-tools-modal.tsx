@@ -92,7 +92,7 @@ function EmbeddedToolNav({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function HelperToolsEmbedded() {
+function HelperToolsEmbedded({ overlayContainer }: { overlayContainer: HTMLElement | null }) {
   const { isArabic } = useHelperToolsNav();
   const { recording, recordedSurface, active, starting } = useHelperRecording();
   const [collapsed, setCollapsed] = useState(false);
@@ -144,7 +144,7 @@ function HelperToolsEmbedded() {
               onStop={recording.stop}
             />
           ) : null}
-          <HelperTools />
+          <HelperTools overlayContainer={overlayContainer} />
         </div>
       </div>
     </div>
@@ -160,6 +160,7 @@ export default function HelperToolsModal({
 }) {
   const { active, starting, isArabic } = useHelperRecording();
   const title = isArabic ? "الأدوات المساعدة" : "Helper tools";
+  const [overlayContainer, setOverlayContainer] = useState<HTMLDivElement | null>(null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -170,7 +171,10 @@ export default function HelperToolsModal({
         onInteractOutside={(event) => {
           if (active || starting) event.preventDefault();
           const target = event.target as HTMLElement | null;
-          if (target?.closest("[role='alertdialog'], [data-radix-alert-dialog-overlay]")) {
+          // Nested Radix popovers/select menus are portaled to document.body.
+          // They are still part of this modal's workflow, so they must not be
+          // treated as an outside click that closes the helper modal.
+          if (target?.closest("[role='alertdialog'], [data-radix-alert-dialog-overlay], [data-helper-tools-overlay]")) {
             event.preventDefault();
           }
         }}
@@ -195,9 +199,9 @@ export default function HelperToolsModal({
             {isArabic ? "إغلاق" : "Close"}
           </DialogClose>
         </div>
-        <div className="min-h-0 min-w-0 flex-1">
+        <div ref={setOverlayContainer} className="relative min-h-0 min-w-0 flex-1">
           <HelperToolsNavProvider embedded>
-            <HelperToolsEmbedded />
+            <HelperToolsEmbedded overlayContainer={overlayContainer} />
           </HelperToolsNavProvider>
         </div>
       </DialogContent>

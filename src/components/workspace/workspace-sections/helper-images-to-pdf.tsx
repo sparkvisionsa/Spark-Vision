@@ -145,7 +145,14 @@ function newId() {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export default function HelperImagesToPdf({ arabic }: { arabic: boolean }) {
+export default function HelperImagesToPdf({
+  arabic,
+  overlayContainer,
+}: {
+  arabic: boolean;
+  /** Host transient menus inside the parent modal, preserving pointer events. */
+  overlayContainer?: HTMLElement | null;
+}) {
   const t = COPY[arabic ? "ar" : "en"];
   const [items, setItems] = useState<ComposerItem[]>([]);
   const [imagesPerRow, setImagesPerRow] = useState(3);
@@ -322,29 +329,35 @@ export default function HelperImagesToPdf({ arabic }: { arabic: boolean }) {
         </Button>
         <Popover>
           <PopoverTrigger asChild>
-            <Button size="sm" variant="outline" className="h-8 px-2.5" title={t.settings}>
+            <Button size="sm" variant="outline" className="h-8 px-2.5" title={t.settings} aria-label={t.settings}>
               <Cog className="h-4 w-4" />
               <span className="hidden sm:inline">{imagesPerRow}×{imagesPerPage} · {fitLabel}</span>
             </Button>
           </PopoverTrigger>
-          <PopoverContent align={arabic ? "start" : "end"} className="w-[min(22rem,calc(100vw-1rem))] space-y-2.5 p-3" dir={arabic ? "rtl" : "ltr"}>
-            <SettingSelect label={t.imagesPerRow} value={String(imagesPerRow)} onChange={(value) => setImagesPerRow(Number(value))}>
+          <PopoverContent
+            align={arabic ? "start" : "end"}
+            container={overlayContainer}
+            data-helper-tools-overlay
+            className="z-[920] w-[min(22rem,calc(100vw-1rem))] space-y-2.5 p-3"
+            dir={arabic ? "rtl" : "ltr"}
+          >
+            <SettingSelect portalContainer={overlayContainer} label={t.imagesPerRow} value={String(imagesPerRow)} onChange={(value) => setImagesPerRow(Number(value))}>
               {[1, 2, 3, 4].map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}
             </SettingSelect>
-            <SettingSelect label={t.imagesPerPage} value={String(imagesPerPage)} onChange={(value) => setImagesPerPage(Number(value))}>
+            <SettingSelect portalContainer={overlayContainer} label={t.imagesPerPage} value={String(imagesPerPage)} onChange={(value) => setImagesPerPage(Number(value))}>
               {Array.from({ length: 16 }, (_, index) => index + 1).map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}
             </SettingSelect>
-            <SettingSelect label={t.imageFit} value={fit} onChange={(value) => setFit(value as PdfImageFit)}>
+            <SettingSelect portalContainer={overlayContainer} label={t.imageFit} value={fit} onChange={(value) => setFit(value as PdfImageFit)}>
               <SelectItem value="contain">{t.contain}</SelectItem>
               <SelectItem value="cover">{t.cover}</SelectItem>
               <SelectItem value="stretch">{t.stretch}</SelectItem>
               <SelectItem value="original">{t.original}</SelectItem>
             </SettingSelect>
-            <SettingSelect label={t.orientation} value={orientation} onChange={(value) => setOrientation(value as PdfPageOrientation)}>
+            <SettingSelect portalContainer={overlayContainer} label={t.orientation} value={orientation} onChange={(value) => setOrientation(value as PdfPageOrientation)}>
               <SelectItem value="portrait">{t.portrait}</SelectItem>
               <SelectItem value="landscape">{t.landscape}</SelectItem>
             </SettingSelect>
-            <SettingSelect label={t.quality} value={quality} onChange={(value) => setQuality(value as PdfOutputQuality)}>
+            <SettingSelect portalContainer={overlayContainer} label={t.quality} value={quality} onChange={(value) => setQuality(value as PdfOutputQuality)}>
               <SelectItem value="best">{t.best}</SelectItem>
               <SelectItem value="high">{t.high}</SelectItem>
               <SelectItem value="compact">{t.compact}</SelectItem>
@@ -476,11 +489,13 @@ export default function HelperImagesToPdf({ arabic }: { arabic: boolean }) {
 }
 
 function SettingSelect({
+  portalContainer,
   label,
   value,
   onChange,
   children,
 }: {
+  portalContainer?: HTMLElement | null;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -491,7 +506,7 @@ function SettingSelect({
       <span>{label}</span>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-        <SelectContent>{children}</SelectContent>
+        <SelectContent container={portalContainer} data-helper-tools-overlay>{children}</SelectContent>
       </Select>
     </label>
   );

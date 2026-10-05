@@ -66,7 +66,7 @@ export const REPORT_TEMPLATE_SOURCE_OPTIONS: TemplateSourceOption[] = [
   { value: "images.asset", label: "صور الأصول", group: "image" },
   { value: "images.valuation", label: "صور حسابات القيمة", group: "image" },
   { value: "images.client", label: "صور ملفات العميل", group: "image" },
-  { value: "images.certificate", label: "صور شهادة نظام الهيئة (قيمة)", group: "image" },
+  { value: "images.certificate", label: "صورة شهادة نظام الهيئة", group: "image" },
   { value: "field", label: "حقل مخصص من بيانات التقرير", group: "other" },
   { value: "static", label: "قيمة ثابتة يكتبها المستخدم", group: "other" },
 ];
@@ -100,6 +100,9 @@ const DEFAULT_BINDINGS: Record<string, string> = {
   "valuationImages": "images.valuation",
   "صور_ملفات_العميل": "images.client",
   "صورملفاتالعميل": "images.client",
+  "صور_المرفقات": "images.client",
+  "صورالمرفقات": "images.client",
+  "المرفقات": "images.client",
   "clientImages": "images.client",
   "clientDocuments": "images.client",
   "صور_شهادة_قيمة": "images.certificate",
@@ -132,6 +135,14 @@ export type SuggestedTemplateVariable = {
   sectionTitle: string;
 };
 
+/** Copy these into the Word/PowerPoint file; merge inserts the matching project images. */
+export const REPORT_TEMPLATE_IMAGE_VARIABLES: SuggestedTemplateVariable[] = [
+  { variable: "صور_الاصول", sourceKey: "images.asset", label: "صور الأصول", sectionTitle: "صور الأصول" },
+  { variable: "صور_حسابات_القيمة", sourceKey: "images.valuation", label: "صور حسابات القيمة", sectionTitle: "المرفقات" },
+  { variable: "صور_ملفات_العميل", sourceKey: "images.client", label: "صور ملفات العميل", sectionTitle: "المرفقات" },
+  { variable: "صور_شهادة_نظام_الهيئة", sourceKey: "images.certificate", label: "صورة شهادة نظام الهيئة", sectionTitle: "المرفقات" },
+];
+
 export function buildSuggestedTemplateVariables(model: MvReportDataModel): SuggestedTemplateVariable[] {
   const seenSources = new Set<string>();
   const fields = model.sections.flatMap((section) => section.fields.flatMap((field) => {
@@ -144,7 +155,7 @@ export function buildSuggestedTemplateVariables(model: MvReportDataModel): Sugge
   const counts = new Map<string, number>();
   for (const key of baseKeys) counts.set(key, (counts.get(key) ?? 0) + 1);
   const used = new Set<string>();
-  return fields.map((field, index) => {
+  const fieldVariables = fields.map((field, index) => {
     const base = bases[index]!;
     const duplicate = counts.get(baseKeys[index]!)! > 1;
     const suffix = variableFromLabel(field.sourceKey).slice(0, 24) || String(index + 1);
@@ -157,6 +168,11 @@ export function buildSuggestedTemplateVariables(model: MvReportDataModel): Sugge
     used.add(matchKey(variable));
     return { variable, sourceKey: field.sourceKey, label: field.label, sectionTitle: field.sectionTitle };
   });
+  const usedSources = new Set(fieldVariables.map((item) => item.sourceKey));
+  const images = REPORT_TEMPLATE_IMAGE_VARIABLES.filter(
+    (item) => !used.has(matchKey(item.variable)) && !usedSources.has(item.sourceKey),
+  );
+  return [...images, ...fieldVariables];
 }
 
 export function suggestedTemplateBinding(variable: string, model?: MvReportDataModel): string {

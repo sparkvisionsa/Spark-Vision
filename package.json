@@ -16,6 +16,8 @@
     "test:mv-pdf-preview": "node --import tsx --test tests/mv-server-pdf-only.test.ts",
     "test:mv-assets": "node --import tsx --test tests/mv-asset-media.test.ts tests/mv-asset-media-refresh.test.ts tests/mv-asset-bulk-selection.test.ts tests/mv-asset-actions.test.ts tests/mv-background-uploads.test.ts",
     "test:mv-attachments": "node --import tsx --test tests/mv-attachment-sync.test.ts tests/mv-attachment-uploads.test.ts",
+    "test:mv-handbook": "node --import tsx --test tests/mv-handbook-browser.test.ts",
+    "test:helper-pdf-settings": "node --import tsx --test tests/helper-images-to-pdf-browser.test.ts",
     "test:support-navigation": "node --import tsx --test tests/support-navigation.test.ts",
     "test:support-browser": "playwright test --config playwright.support.config.ts",
     "postinstall": "patch-package",

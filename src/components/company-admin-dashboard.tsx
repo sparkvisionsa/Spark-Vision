@@ -3975,8 +3975,11 @@ export default function CompanyAdminDashboard({
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-100 hover:bg-transparent">
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">الاسم</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">رقم الهاتف</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">الدور</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">الوظيفة</TableHead>
+                        <TableHead className="text-right text-[12px] font-semibold text-slate-500">رقم العضوية</TableHead>
                         <TableHead className="text-right text-[12px] font-semibold text-slate-500">آخر دخول</TableHead>
                         <TableHead className="w-[52px] text-center text-[12px] font-semibold text-slate-500">
                           إجراءات
@@ -3987,25 +3990,29 @@ export default function CompanyAdminDashboard({
                       {data.users.map((u) => {
                         const canEdit = canManageCompanyUserRow(u, user?.id);
                         const canDel = canDeleteCompanyUserRow(u, user?.id);
+                        const phone = u.phone?.trim() || u.username;
+                        const jobTitle = u.valuationReportJobTitle?.trim() || "";
+                        const membershipNo = u.valuationReportMembershipNo?.trim() || "";
                         return (
                           <TableRow key={u.id} className="border-slate-100">
-                            <TableCell className="font-medium text-slate-900">
-                              <div className="grid gap-0.5">
-                                <span dir="ltr">{userDisplayName(u)}</span>
-                                {u.valuationReportJobTitle ? (
-                                  <span className="text-[11px] font-semibold text-slate-500" dir="rtl">
-                                    {u.valuationReportJobTitle}
-                                  </span>
-                                ) : null}
-                                {u.valuationReportMembershipNo ? (
-                                  <span className="text-[10.5px] font-semibold text-slate-400" dir="rtl">
-                                    رقم العضوية: {u.valuationReportMembershipNo}
-                                  </span>
-                                ) : null}
-                              </div>
+                            <TableCell className="text-right font-medium text-slate-900">
+                              {valuationReportDisplayName(u)}
                             </TableCell>
-                            <TableCell className="text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
-                            <TableCell className="text-[12px] text-slate-500">
+                            <TableCell className="text-right font-medium text-slate-800">
+                              <span className="whitespace-nowrap" dir="ltr">
+                                {phone}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right text-slate-700">{ROLE_LABELS[u.role] ?? u.role}</TableCell>
+                            <TableCell className="text-right text-slate-700">
+                              {jobTitle || "—"}
+                            </TableCell>
+                            <TableCell className="text-right text-slate-700">
+                              <span className="whitespace-nowrap" dir="ltr">
+                                {membershipNo || "—"}
+                              </span>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-right text-[12px] text-slate-500">
                               {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString("ar") : "—"}
                             </TableCell>
                             <TableCell className="p-1 text-center">
@@ -4030,7 +4037,10 @@ export default function CompanyAdminDashboard({
                                     {canEdit ? (
                                       <DropdownMenuItem
                                         className="cursor-pointer gap-2"
-                                        onClick={() => openEditUser(u)}
+                                        onSelect={() => {
+                                          const target = u;
+                                          window.setTimeout(() => openEditUser(target), 0);
+                                        }}
                                       >
                                         تعديل البيانات
                                       </DropdownMenuItem>
@@ -4038,9 +4048,12 @@ export default function CompanyAdminDashboard({
                                     {canDel ? (
                                       <DropdownMenuItem
                                         className="cursor-pointer gap-2 text-red-600 focus:text-red-600"
-                                        onClick={() => {
-                                          setDeleteTarget(u);
-                                          setSubmitError(null);
+                                        onSelect={() => {
+                                          const target = u;
+                                          window.setTimeout(() => {
+                                            setDeleteTarget(target);
+                                            setSubmitError(null);
+                                          }, 0);
                                         }}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
@@ -5690,7 +5703,7 @@ export default function CompanyAdminDashboard({
           if (!open) setDeleteTarget(null);
         }}
       >
-        <AlertDialogContent className="z-[960] max-w-md rounded-2xl" dir="rtl">
+        <AlertDialogContent className="max-w-md rounded-2xl" dir="rtl">
           <AlertDialogHeader>
             <AlertDialogTitle>حذف المستخدم؟</AlertDialogTitle>
             <AlertDialogDescription className="text-right">
@@ -5724,7 +5737,7 @@ export default function CompanyAdminDashboard({
           if (!open) setDeleteReportOnlyTarget(null);
         }}
       >
-        <AlertDialogContent className="z-[960] max-w-md rounded-2xl" dir="rtl">
+        <AlertDialogContent className="max-w-md rounded-2xl" dir="rtl">
           <AlertDialogHeader>
             <AlertDialogTitle>حذف معدّ التقرير؟</AlertDialogTitle>
             <AlertDialogDescription className="text-right">

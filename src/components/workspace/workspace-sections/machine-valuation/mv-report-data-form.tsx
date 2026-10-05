@@ -67,6 +67,7 @@ import {
   type MvReportCustomField,
   type MvReportCustomFieldType,
 } from "./mv-report-custom-fields";
+import { toReportDateInputValue } from "./mv-report-date-value";
 import { MvReportSectionFileFillDialog } from "./mv-report-section-file-fill-dialog";
 
 const NO_CLIENT_SELECTED = "__no-client__";
@@ -483,7 +484,15 @@ export function MvReportDataForm({
   };
   const applyFileValues = (values: Array<{ id: string; value: string }>) => {
     const valuesById = new Map(values.map((item) => [item.id, item.value]));
-    setCustomFields(customFields.map((field) => valuesById.has(field.id) ? { ...field, value: valuesById.get(field.id)! } : field));
+    setCustomFields(
+      customFields.map((field) => {
+        const raw = valuesById.get(field.id);
+        if (raw == null) return field;
+        if (field.type !== "date") return { ...field, value: raw };
+        const value = toReportDateInputValue(raw);
+        return value ? { ...field, value } : field;
+      }),
+    );
   };
   const openAddField = (sectionId: string) => {
     if (customFieldLimitReached) return;
