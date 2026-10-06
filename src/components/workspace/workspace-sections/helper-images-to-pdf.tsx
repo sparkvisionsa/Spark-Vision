@@ -41,7 +41,10 @@ type Copy = {
   folder: string;
   preview: string;
   previewTitle: string;
-  download: string;
+  downloadOriginal: string;
+  downloadCompressed: string;
+  compressing: string;
+  noReduction: string;
   cancel: string;
   settings: string;
   drop: string;
@@ -76,7 +79,10 @@ const COPY: Record<"ar" | "en", Copy> = {
     folder: "مجلد",
     preview: "معاينة وتنزيل",
     previewTitle: "معاينة PDF",
-    download: "تنزيل",
+    downloadOriginal: "تنزيل PDF عادي",
+    downloadCompressed: "تنزيل PDF مضغوط",
+    compressing: "ضغط الملف",
+    noReduction: "الملف الحالي هو الأصغر؛ تم تنزيله كما هو.",
     cancel: "إلغاء",
     settings: "إعدادات PDF",
     drop: "اسحب الصور أو ملفات PDF هنا",
@@ -109,7 +115,10 @@ const COPY: Record<"ar" | "en", Copy> = {
     folder: "Folder",
     preview: "Preview & download",
     previewTitle: "PDF preview",
-    download: "Download",
+    downloadOriginal: "Download standard PDF",
+    downloadCompressed: "Download compressed PDF",
+    compressing: "Compressing file",
+    noReduction: "The current PDF is already smaller; it was downloaded as is.",
     cancel: "Cancel",
     settings: "PDF settings",
     drop: "Drop images or PDF files here",
@@ -164,6 +173,8 @@ export default function HelperImagesToPdf({
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [compressedBlob, setCompressedBlob] = useState<Blob | null>(null);
+  const [compressionNotice, setCompressionNotice] = useState("");
   const [previewPages, setPreviewPages] = useState<Blob[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -215,7 +226,7 @@ export default function HelperImagesToPdf({
     }
   };
 
-  const buildPdf = async () => {
+  const buildPdf = async (outputQuality: PdfOutputQuality = quality) => {
     if (!items.length || busy) return null;
     setBusy(true);
     setError("");
@@ -227,12 +238,15 @@ export default function HelperImagesToPdf({
           imagesPerPage,
           fit,
           orientation,
-          quality,
+          quality: outputQuality,
           rtl: arabic,
-          onProgress: (done, total) => setProgress(`${t.creating} ${done} / ${total}`),
+          onProgress: (done, total) => setProgress(`${outputQuality === "compressed" ? t.compressing : t.creating} ${done} / ${total}`),
         },
       );
-      if (result.failed.length) setError(`${t.failed}: ${result.failed.length}`);
+      if (result.failed.length) {
+        setError(`${t.failed}: ${result.failed.length}`);
+        if (outputQuality === "compressed") return null;
+      }
       return result.blob;
     } catch {
       setError(t.failed);
@@ -254,11 +268,27 @@ export default function HelperImagesToPdf({
       );
       setPreviewPages(pages);
       setPreviewBlob(blob);
+      setCompressedBlob(null);
+      setCompressionNotice("");
     } catch {
       setError(t.failed);
     } finally {
       setBusy(false);
       setProgress("");
+    }
+  };
+
+  const downloadCompressedPdf = async () => {
+    if (!previewBlob || busy) return;
+    setCompressionNotice("");
+    const blob = compressedBlob ?? await buildPdf("compressed");
+    if (!blob) return;
+    if (!compressedBlob) setCompressedBlob(blob);
+    if (blob.size < previewBlob.size) {
+      downloadBlob(blob, "images-compressed.pdf");
+    } else {
+      downloadBlob(previewBlob, "images.pdf");
+      setCompressionNotice(t.noReduction);
     }
   };
 
@@ -449,25 +479,19 @@ export default function HelperImagesToPdf({
       <Dialog
         open={Boolean(previewBlob)}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && !busy) {
             setPreviewBlob(null);
             setPreviewPages([]);
+            setCompressedBlob(null);
+            setCompressionNotice("");
           }
         }}
       >
-        <DialogContent hideCloseButton className="h-[92dvh] w-[min(96vw,72rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-0 p-0" dir={arabic ? "rtl" : "ltr"}>
+        <DialogContent hideCloseButton className="grid h-[92dvh] w-[min(96vw,72rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-0 p-0" dir={arabic ? "rtl" : "ltr"}>
           <div className="flex h-11 shrink-0 items-center gap-2 border-b bg-white px-3">
             <DialogTitle className="min-w-0 flex-1 truncate text-sm">{t.previewTitle}</DialogTitle>
-            <Button
-              size="sm"
-              className="h-8 px-2.5"
-              disabled={!previewBlob}
-              onClick={() => previewBlob && downloadBlob(previewBlob, "images.pdf")}
-            >
-              <Download className="h-4 w-4" />{t.download}
-            </Button>
             <DialogClose asChild>
-              <Button size="sm" variant="outline" className="h-8 px-2.5">
+              <Button size="sm" variant="outline" className="h-8 px-2.5" disabled={busy}>
                 {t.cancel}
               </Button>
             </DialogClose>
@@ -481,6 +505,17 @@ export default function HelperImagesToPdf({
                 className="mx-auto mb-2 h-auto w-full max-w-[52rem] bg-white shadow-md last:mb-0"
               />
             ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-white px-3 py-2">
+            {error ? <span role="alert" className="me-auto text-xs text-red-700">{error}</span> : null}
+            {compressionNotice ? <span role="status" className="me-auto text-xs text-slate-600">{compressionNotice}</span> : null}
+            {progress ? <span role="status" className="me-auto text-xs text-slate-600">{progress}</span> : null}
+            <Button size="sm" variant="outline" className="h-8 px-2.5" disabled={!previewBlob || busy} onClick={() => previewBlob && downloadBlob(previewBlob, "images.pdf")}>
+              <Download className="h-4 w-4" />{t.downloadOriginal}
+            </Button>
+            <Button size="sm" className="h-8 px-2.5" disabled={!previewBlob || busy} onClick={() => void downloadCompressedPdf()}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{t.downloadCompressed}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

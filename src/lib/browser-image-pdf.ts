@@ -1,6 +1,6 @@
 export type PdfImageFit = "contain" | "cover" | "stretch" | "original";
 export type PdfPageOrientation = "portrait" | "landscape";
-export type PdfOutputQuality = "best" | "high" | "compact";
+export type PdfOutputQuality = "best" | "high" | "compact" | "compressed";
 
 export type BrowserImagePdfOptions = {
   imagesPerRow: number;
@@ -16,6 +16,7 @@ const QUALITY: Record<PdfOutputQuality, { dpi: number; jpeg: number }> = {
   best: { dpi: 300, jpeg: 0.985 },
   high: { dpi: 240, jpeg: 0.96 },
   compact: { dpi: 160, jpeg: 0.9 },
+  compressed: { dpi: 120, jpeg: 0.72 },
 };
 
 const PAGE_MARGIN_PT = 10;

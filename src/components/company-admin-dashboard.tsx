@@ -376,8 +376,8 @@ const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
 
 const COMPANY_LETTERHEAD_TEMPLATE_OPTION: LetterheadTemplateOption = {
   id: "company-letterhead",
-  title: "أكلاشية الشركة",
-  description: "قالب يعتمد على صور الأكلاشية المرفوعة من الشركة.",
+  title: "كليشيه الشركة",
+  description: "قالب يعتمد على صور الكليشيه المرفوعة من الشركة.",
   outputFormat: "pdf",
   accentClass: "from-amber-600 to-orange-500",
   badge: "صور",
@@ -3826,7 +3826,7 @@ export default function CompanyAdminDashboard({
                 value="letterhead"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
-                قوالب النظام والكلاشية
+                قوالب النظام والكليشيه
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -4562,7 +4562,7 @@ export default function CompanyAdminDashboard({
                         value="company-letterhead"
                         className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
                       >
-                        أكلاشية الشركة
+                        كليشيه الشركة
                       </TabsTrigger>
                       <TabsTrigger
                         value="report-sections"
@@ -4705,8 +4705,8 @@ export default function CompanyAdminDashboard({
                             <div className="flex gap-2.5">
                               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Stamp className="h-5 w-5" /></span>
                               <div>
-                                <h3 className="text-[15px] font-black text-slate-900">أكلاشية الشركة</h3>
-                                <p className="mt-1 max-w-xl text-[11px] font-semibold leading-5 text-slate-500">ارفع الغلاف والصفحات الداخلية والشعار والفوتر ليستخدمها التقرير عند اختيار «أكلاشية الشركة» من شاشة المشروع.</p>
+                                <h3 className="text-[15px] font-black text-slate-900">كليشيه الشركة</h3>
+                                <p className="mt-1 max-w-xl text-[11px] font-semibold leading-5 text-slate-500">ارفع الغلاف والصفحات الداخلية والشعار والفوتر ليستخدمها التقرير عند اختيار «كليشيه الشركة» من شاشة المشروع.</p>
                               </div>
                             </div>
                             <Badge className={cn("rounded-full px-2.5 py-1 text-[10px]", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
@@ -4731,7 +4731,7 @@ export default function CompanyAdminDashboard({
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Button type="button" className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[11px] font-black hover:bg-[#0a3a66]" onClick={() => setLetterheadImagesOpen(true)}>
                               <Upload className="h-3.5 w-3.5" />
-                              إدارة صور الأكلاشية
+                              إدارة صور الكليشيه
                             </Button>
                             <Button
                               type="button"
@@ -4742,11 +4742,11 @@ export default function CompanyAdminDashboard({
                                 updateLetterhead("templateId", COMPANY_LETTERHEAD_TEMPLATE_OPTION.id);
                                 updateLetterhead("outputFormat", "pdf");
                                 updateLetterhead("enabled", true);
-                                setStatus("تم اعتماد أكلاشية الشركة. احفظ التعديلات لتطبيقها في إعدادات الشركة.");
+                                setStatus("تم اعتماد كليشيه الشركة. احفظ التعديلات لتطبيقها في إعدادات الشركة.");
                               }}
                             >
                               <CheckCircle2 className="h-3.5 w-3.5" />
-                              اعتماد الأكلاشية
+                              اعتماد الكليشيه
                             </Button>
                           </div>
                         </div>
@@ -5162,7 +5162,7 @@ export default function CompanyAdminDashboard({
       <Dialog open={letterheadImagesOpen} onOpenChange={setLetterheadImagesOpen}>
         <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-2xl border-slate-200 p-0" dir="rtl">
           <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
-            <DialogTitle className="text-base font-black">صور الأكلاشية</DialogTitle>
+            <DialogTitle className="text-base font-black">صور الكليشيه</DialogTitle>
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto px-4 py-3">
             <div className="grid gap-3 md:grid-cols-2">

@@ -11,8 +11,6 @@ import {
   Copy,
   FileSpreadsheet,
   FilterX,
-  FileInput,
-  FolderOpen,
   FolderPlus,
   FolderSymlink,
   LayoutGrid,
@@ -70,6 +68,7 @@ import type {
 } from "./types"
 import CreateDialog from "./create-dialog";
 import { MvHandbookLauncher } from "./mv-handbook-launcher";
+import { MvProjectNameIcon } from "./mv-project-name-icon";
 import {
   createProjectInspectionSiteForm,
   projectContactDataFromInspectionSites,
@@ -98,7 +97,6 @@ import {
   type MvProjectWorkflowStatusOption,
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
-import { MvProjectDataImportDialog } from "./mv-project-data-import-dialog";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
@@ -192,10 +190,7 @@ function ProjectWorkspaceLink({
         compact ? "py-0.5" : "py-1",
       )}
     >
-      <FolderOpen
-        className="h-4 w-4 shrink-0 text-slate-400 transition-colors group-hover:text-cyan-600"
-        aria-hidden
-      />
+      <MvProjectNameIcon name={project.name || title} />
       <span
         className={cn(
           "min-w-0 flex-1 break-words font-semibold leading-snug underline decoration-transparent decoration-2 underline-offset-4 transition group-hover:decoration-cyan-300/90",
@@ -230,22 +225,22 @@ function ProjectActionsMenu({
   project,
   onOpenAssetFolders,
   onOpenLocations,
-  onImportData,
   onDownloadFinalReport,
   downloadingFinalReport,
   onDuplicate,
   duplicating,
   onDelete,
+  triggerClassName,
 }: {
   project: MvProject;
   onOpenAssetFolders: (project: MvProject) => void;
   onOpenLocations: (project: MvProject) => void;
-  onImportData: (project: MvProject) => void;
   onDownloadFinalReport: (project: MvProject) => void;
   downloadingFinalReport?: boolean;
   onDuplicate: (project: MvProject) => void;
   duplicating?: boolean;
   onDelete: (projectId: string) => void;
+  triggerClassName?: string;
 }) {
   const { t, isArabic } = useMvI18n();
   const { toast } = useToast();
@@ -285,7 +280,10 @@ function ProjectActionsMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800"
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-800",
+            triggerClassName,
+          )}
           aria-label={t("projects.actions.menu", { name: projectName })}
         >
           <MoreHorizontal className="h-3.5 w-3.5" aria-hidden />
@@ -296,12 +294,6 @@ function ProjectActionsMenu({
           <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
           {t("projects.actions.locationsInspectors")}
         </DropdownMenuItem>
-        {project.reportType === "simple" ? (
-          <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onImportData(project)}>
-            <FileInput className="h-4 w-4 shrink-0 text-cyan-700" />
-            {isArabic ? "استيراد بيانات من ملفات" : "Import data from files"}
-          </DropdownMenuItem>
-        ) : null}
         <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
           {t("projects.actions.createAssetFolders")}
@@ -395,8 +387,8 @@ function ProjectsPagination({
   const tokens = buildPaginationTokens(currentPage, totalPages);
 
   return (
-    <div className="flex flex-col gap-2 border-t border-slate-200/80 bg-white/95 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+    <div className="flex min-h-10 flex-col border-t border-slate-200 bg-white sm:flex-row sm:items-stretch sm:justify-between">
+      <div className="flex items-center gap-2 px-3">
         <p className="text-[11px] tabular-nums text-slate-500">
           {numberFormatter.format(start)}–{numberFormatter.format(end)} / {numberFormatter.format(totalItems)}
         </p>
@@ -416,12 +408,12 @@ function ProjectsPagination({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-0.5">
+      <div className="flex items-stretch justify-end">
         <button
           type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-10 w-10 items-center justify-center border-s border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={t("projects.pagination.prev")}
         >
           <ChevronRight className="h-3.5 w-3.5" />
@@ -434,10 +426,10 @@ function ProjectsPagination({
               type="button"
               onClick={() => onPageChange(token)}
               className={cn(
-                "inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-[11px] font-semibold transition",
+                "inline-flex h-10 min-w-10 items-center justify-center border-s border-slate-200 px-2 text-[11px] font-semibold transition",
                 token === currentPage
-                  ? "border-slate-950 bg-slate-950 text-white"
-                  : "border-transparent text-slate-600 hover:bg-slate-100",
+                  ? "bg-slate-950 text-white"
+                  : "bg-white text-slate-600 hover:bg-slate-100",
               )}
             >
               {numberFormatter.format(token)}
@@ -445,7 +437,7 @@ function ProjectsPagination({
           ) : (
             <span
               key={`${token}-${index}`}
-              className="inline-flex h-8 min-w-6 items-center justify-center px-0.5 text-[11px] text-slate-400"
+              className="inline-flex h-10 min-w-6 items-center justify-center border-s border-slate-200 px-0.5 text-[11px] text-slate-400"
             >
               …
             </span>
@@ -456,7 +448,7 @@ function ProjectsPagination({
           type="button"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-10 w-10 items-center justify-center border-s border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={t("projects.pagination.next")}
         >
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -472,17 +464,18 @@ function ProjectMetricGrid({
   items: { hint: string; value: string; icon: React.ReactNode }[];
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
-      {items.map((item) => (
+    <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+      {items.map((item, index) => (
         <div
           key={item.hint}
-          className="flex min-h-16 min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur"
+          className={cn(
+            "flex min-w-[8.5rem] items-center gap-2 px-3 text-white",
+            index > 0 && "border-s border-white/10",
+          )}
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-cyan-100 [&>svg]:h-3.5 [&>svg]:w-3.5">{item.icon}</span>
-          <span className="min-w-0">
-            <span className="block truncate text-[11px] font-bold text-slate-300">{item.hint}</span>
-            <span className="block text-[18px] font-black leading-tight tabular-nums text-white">{item.value}</span>
-          </span>
+          <span className="shrink-0 text-cyan-200 [&>svg]:h-3.5 [&>svg]:w-3.5">{item.icon}</span>
+          <span className="text-[18px] font-black leading-none tabular-nums">{item.value}</span>
+          <span className="truncate text-[11px] font-bold text-slate-300">{item.hint}</span>
         </div>
       ))}
     </div>
@@ -1237,7 +1230,6 @@ export default function MvProjectsDashboard() {
   const [createdFlowProject, setCreatedFlowProject] = useState<MvProject | null>(null);
   const [assetFoldersOpen, setAssetFoldersOpen] = useState(false);
   const [assetFoldersProject, setAssetFoldersProject] = useState<MvProject | null>(null);
-  const [dataImportProject, setDataImportProject] = useState<MvProject | null>(null);
   const [downloadingFinalReportId, setDownloadingFinalReportId] = useState<string | null>(null);
   const [duplicatingProjectId, setDuplicatingProjectId] = useState<string | null>(null);
   const [workflowStatusOptions, setWorkflowStatusOptions] = useState<MvProjectWorkflowStatusOption[]>(
@@ -1548,11 +1540,6 @@ export default function MvProjectsDashboard() {
   const openAssetFoldersModal = (project: MvProject) => {
     setAssetFoldersProject(project);
     setAssetFoldersOpen(true);
-  };
-
-  const openDataImportModal = (project: MvProject) => {
-    if (project.reportType !== "simple") return;
-    setDataImportProject(project);
   };
 
   const openContactDataModal = async (project: MvProject) => {
@@ -1879,22 +1866,23 @@ export default function MvProjectsDashboard() {
     projectQuery.trim().length > 0 || statusFilter !== "all" || sortRecentlyWorked;
 
   return (
-    <div className={cn(tajawal.className, "min-h-full text-slate-950")} dir={dir}>
+    <div className={cn(tajawal.className, "min-h-full bg-white text-slate-950")} dir={dir}>
       <MvTopBar
         breadcrumbs={[{ label: t("navigation.projects") }]}
         sticky
-        className="top-0 z-30 border-slate-200/70 bg-white/80 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/70"
+        compact
+        className="top-0 z-30 border-slate-200/70 bg-white/80 shadow-none backdrop-blur-xl supports-[backdrop-filter]:bg-white/70"
       />
 
-      <main className="mx-auto flex w-full max-w-[1480px] flex-col gap-4 px-3 py-4 sm:px-5 lg:px-6">
-        <section className="overflow-hidden rounded-lg border border-slate-950/10 bg-slate-950 px-4 py-3 text-white shadow-2xl shadow-slate-950/15 sm:px-5 lg:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            <div className="min-w-0 flex-1">
-              <ProjectMetricGrid items={metrics} />
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2 self-start sm:self-center">
-              <MvHandbookLauncher autoOpenAllowed={!createOpen} />
+      <main className="flex w-full flex-col bg-white">
+        <section className="overflow-hidden border-b border-slate-200 bg-white">
+          <div className="flex min-h-12 items-stretch overflow-x-auto bg-[#07111f] text-white">
+            <ProjectMetricGrid items={metrics} />
+            <div className="ms-auto flex shrink-0 items-center gap-2 border-s border-white/10 px-3">
+              <MvHandbookLauncher
+                autoOpenAllowed={!createOpen}
+                className="h-9 rounded-lg border border-white/40 bg-white/10 px-3 text-[12px] font-bold text-white shadow-none hover:border-white hover:bg-white/20 focus-visible:ring-offset-0"
+              />
               <Button
                 type="button"
                 size="sm"
@@ -1906,97 +1894,91 @@ export default function MvProjectsDashboard() {
                     : t("projects.createNew")
                 }
                 aria-label={t("projects.createNew")}
-                className="h-11 shrink-0 gap-2 self-start rounded-lg bg-white px-4 text-[13px] font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-cyan-50 disabled:opacity-45 sm:self-center"
+                className="h-9 shrink-0 gap-1.5 rounded-lg border border-white bg-white px-3.5 text-[13px] font-black text-slate-950 shadow-sm hover:bg-cyan-50 disabled:opacity-45"
               >
                 <Plus className="h-4 w-4" aria-hidden />
                 <span>{t("projects.createNew")}</span>
               </Button>
             </div>
           </div>
-        </section>
 
-        <section className="overflow-hidden rounded-lg border border-slate-200/80 bg-white/95 shadow-xl shadow-slate-950/[0.04] backdrop-blur">
-          <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white/90 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(240px,1fr)_190px] lg:max-w-3xl">
-              <div className="relative min-w-0">
-                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={projectQuery}
-                  onChange={(event) => setProjectQuery(event.target.value)}
-                  placeholder={t("projects.searchPlaceholder")}
-                  className="h-11 rounded-lg border-slate-200 bg-white pr-9 text-[13px] font-semibold shadow-none focus-visible:border-cyan-300 focus-visible:ring-cyan-200"
-                />
-              </div>
-
-              <Select
-                value={statusFilter}
-                onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}
-              >
-                <SelectTrigger
-                  aria-label={t("projects.status.filterAria")}
-                  className="h-11 justify-start gap-2 rounded-lg border-slate-200 bg-white text-[12px] font-bold text-slate-700 shadow-none focus:ring-cyan-200 [&>svg:last-child]:mr-auto"
-                >
-                  <span className="shrink-0 text-[11px] font-black text-slate-400">{t("projects.status.label")}</span>
-                  <SelectValue placeholder={t("projects.status.all")} />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="all">{t("projects.status.all")}</SelectItem>
-                  {workflowStatusOptions.map((status) => (
-                    <SelectItem key={status.value} value={status.value}>
-                      {workflowStatusLabel(status, isArabic)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <div className="flex min-h-11 items-stretch overflow-x-auto border-b border-slate-200 bg-white">
+            <div className="relative min-w-[16rem] flex-1">
+              <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={projectQuery}
+                onChange={(event) => setProjectQuery(event.target.value)}
+                placeholder={t("projects.searchPlaceholder")}
+                className="h-11 rounded-none border-0 border-e border-slate-200 bg-white pe-9 text-[13px] font-semibold shadow-none focus-visible:ring-0"
+              />
             </div>
 
-            <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}
+            >
+              <SelectTrigger
+                aria-label={t("projects.status.filterAria")}
+                className="h-11 w-[12.5rem] shrink-0 justify-start gap-2 rounded-none border-0 border-e border-slate-200 bg-white text-[12px] font-bold text-slate-700 shadow-none focus:ring-0 [&>svg:last-child]:ms-auto"
+              >
+                <span className="shrink-0 text-[11px] font-black text-slate-400">{t("projects.status.label")}</span>
+                <SelectValue placeholder={t("projects.status.all")} />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="all">{t("projects.status.all")}</SelectItem>
+                {workflowStatusOptions.map((status) => (
+                  <SelectItem key={status.value} value={status.value}>
+                    {workflowStatusLabel(status, isArabic)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setSortRecentlyWorked((current) => !current)}
+              className={cn(
+                "h-11 shrink-0 gap-1.5 rounded-none border-0 border-e border-slate-200 px-3 text-[11px] font-black shadow-none",
+                sortRecentlyWorked
+                  ? "bg-cyan-50 text-cyan-900 hover:bg-cyan-100 hover:text-cyan-950"
+                  : "bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+              )}
+              title={t("projects.sort.recentlyWorkedTitle")}
+              aria-pressed={sortRecentlyWorked}
+            >
+              <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
+              <span>{t("projects.sort.recentlyWorked")}</span>
+            </Button>
+            <span className="flex shrink-0 items-center border-e border-slate-200 px-3 text-[11px] font-bold tabular-nums text-slate-600">
+              {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
+            </span>
+            {refreshingList ? (
+              <span className="inline-flex shrink-0 items-center gap-1.5 border-e border-slate-200 px-3 text-[11px] font-semibold text-slate-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                {t("projects.refreshingList")}
+              </span>
+            ) : null}
+            {hasActiveFilters ? (
               <Button
                 type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setSortRecentlyWorked((current) => !current)}
-                className={cn(
-                  "h-10 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-black shadow-none",
-                  sortRecentlyWorked
-                    ? "border-cyan-200 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 hover:text-cyan-900"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-                )}
-                title={t("projects.sort.recentlyWorkedTitle")}
-                aria-pressed={sortRecentlyWorked}
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11 shrink-0 rounded-none text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                onClick={resetFilters}
+                title={t("projects.filters.clear")}
+                aria-label={t("projects.filters.clear")}
               >
-                <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
-                <span>{t("projects.sort.recentlyWorked")}</span>
+                <FilterX className="h-4 w-4" />
               </Button>
-              <span className="whitespace-nowrap rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] font-bold tabular-nums text-slate-600">
-                {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
-              </span>
-              {refreshingList ? (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  {t("projects.refreshingList")}
-                </span>
-              ) : null}
-              {hasActiveFilters ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 shrink-0 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                  onClick={resetFilters}
-                  title={t("projects.filters.clear")}
-                  aria-label={t("projects.filters.clear")}
-                >
-                  <FilterX className="h-4 w-4" />
-                </Button>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           {loading || (authLoading && projects.length === 0) ? (
             <div className="divide-y divide-slate-100 bg-white">
               {Array.from({ length: 7 }).map((_, index) => (
-                <div key={index} className="flex animate-pulse items-center gap-3 px-4 py-4">
+                <div key={index} className="flex animate-pulse items-center gap-3 border-b border-slate-100 px-3 py-2">
                   <div className="h-8 w-8 shrink-0 rounded-lg bg-slate-200" />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="h-3 w-[42%] max-w-sm rounded bg-slate-200" />
@@ -2013,11 +1995,11 @@ export default function MvProjectsDashboard() {
               onRetry={() => void fetchProjects({ forceRefresh: true })}
             />
           ) : needsCompanyMembership ? (
-            <div className="py-6">
+            <div className="border-b border-slate-200">
               <MvEmptyState title={t("projects.empty.noCompany")} />
             </div>
           ) : visibleProjects.length === 0 ? (
-            <div className="py-6">
+            <div className="border-b border-slate-200">
               <MvEmptyState
                 title={t("projects.empty.noProjects")}
                 action={
@@ -2035,7 +2017,7 @@ export default function MvProjectsDashboard() {
               />
             </div>
           ) : filteredProjects.length === 0 ? (
-            <div className="py-6">
+            <div className="border-b border-slate-200">
               <MvEmptyState
                 title={t("projects.empty.noResults")}
                 action={
@@ -2056,16 +2038,16 @@ export default function MvProjectsDashboard() {
               <div className="hidden overflow-x-auto bg-white xl:block">
                 <table className="w-full min-w-[960px] table-fixed border-collapse text-right">
                   <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-black text-slate-500">
-                      <th className="w-[120px] px-2 py-3 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
-                      <th className="w-[28%] px-3 py-3">{t("projects.table.project")}</th>
-                      <th className="w-[100px] px-2 py-3">{t("projects.table.status")}</th>
-                      <th className="w-[120px] px-2 py-3">{t("projects.table.type")}</th>
-                      <th className="w-[76px] px-2 py-3 text-center">{t("projects.table.assets")}</th>
-                      <th className="w-[76px] px-2 py-3 text-center">{t("projects.table.subs")}</th>
-                      <th className="w-[140px] px-2 py-3">{t("projects.table.progress")}</th>
-                      <th className="w-[116px] px-2 py-3">{t("projects.table.lastUpdated")}</th>
-                      <th className="w-[116px] px-2 py-3 text-center" />
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500">
+                      <th className="w-[120px] px-2 py-2 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
+                      <th className="w-[28%] px-3 py-2">{t("projects.table.project")}</th>
+                      <th className="w-[100px] px-2 py-2">{t("projects.table.status")}</th>
+                      <th className="w-[120px] px-2 py-2">{t("projects.table.type")}</th>
+                      <th className="w-[76px] px-2 py-2 text-center">{t("projects.table.assets")}</th>
+                      <th className="w-[76px] px-2 py-2 text-center">{t("projects.table.subs")}</th>
+                      <th className="w-[140px] px-2 py-2">{t("projects.table.progress")}</th>
+                      <th className="w-[116px] px-2 py-2">{t("projects.table.lastUpdated")}</th>
+                      <th className="w-[116px] px-2 py-2 text-center" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2081,12 +2063,12 @@ export default function MvProjectsDashboard() {
 
                       return (
                         <tr key={project._id} className="bg-white text-right transition-colors hover:bg-cyan-50/40">
-                          <td className="px-2 py-4 text-center align-middle">
+                          <td className="px-2 py-2 text-center align-middle">
                             <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[11px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100" dir="ltr">
                               {serialLabel ?? notAvailable}
                             </span>
                           </td>
-                          <td className="px-3 py-4 align-middle">
+                          <td className="px-3 py-2 align-middle">
                             <ProjectWorkspaceLink
                               project={project}
                               title={project.name || notAvailable}
@@ -2095,7 +2077,7 @@ export default function MvProjectsDashboard() {
                             />
                           </td>
 
-                          <td className="px-2 py-4 align-middle">
+                          <td className="px-2 py-2 align-middle">
                             <MvProjectWorkflowStatusSelect
                               projectId={project._id}
                               value={workflowStatus}
@@ -2106,23 +2088,23 @@ export default function MvProjectsDashboard() {
                             />
                           </td>
 
-                          <td className="px-2 py-4 align-middle text-[12px] font-semibold text-slate-600">
+                          <td className="px-2 py-2 align-middle text-[12px] font-semibold text-slate-600">
                             <span className="block truncate">{reportLabel}</span>
                           </td>
 
-                          <td className="px-2 py-4 text-center align-middle">
+                          <td className="px-2 py-2 text-center align-middle">
                             <span className="font-bold tabular-nums text-slate-800">
                               {numberFormatter.format(assetFolders)}
                             </span>
                           </td>
 
-                          <td className="px-2 py-4 text-center align-middle">
+                          <td className="px-2 py-2 text-center align-middle">
                             <span className="font-bold tabular-nums text-slate-800">
                               {numberFormatter.format(subs)}
                             </span>
                           </td>
 
-                          <td className="px-2 py-4 align-middle">
+                          <td className="px-2 py-2 align-middle">
                             <div className="flex items-center gap-2">
                               <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
                                 <div
@@ -2136,17 +2118,17 @@ export default function MvProjectsDashboard() {
                             </div>
                           </td>
 
-                          <td className="px-2 py-4 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
+                          <td className="px-2 py-2 align-middle text-[12px] font-semibold tabular-nums text-slate-500">
                             <span className="block truncate">{formatDateLabel(project.updatedAt, isArabic, notAvailable)}</span>
                           </td>
 
-                          <td className="px-2 py-4 align-middle">
-                            <div className="flex items-center justify-center gap-1">
+                          <td className="px-2 py-2 align-middle">
+                            <div className="inline-flex items-stretch overflow-hidden border border-slate-200">
                               <Button
                                 asChild
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
-                                className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
+                                className="h-8 gap-1 rounded-none border-0 border-e border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-none hover:bg-cyan-50 hover:text-cyan-800"
                               >
                                 <Link href={projectWorkspaceHref(project._id)}>
                                   {t("projects.table.open")}
@@ -2157,12 +2139,12 @@ export default function MvProjectsDashboard() {
                                 project={project}
                                 onOpenAssetFolders={openAssetFoldersModal}
                                 onOpenLocations={openContactDataModal}
-                                onImportData={openDataImportModal}
                                 onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
                                 downloadingFinalReport={downloadingFinalReportId === project._id}
                                 onDuplicate={(p) => void handleDuplicateProject(p)}
                                 duplicating={duplicatingProjectId === project._id}
                                 onDelete={(id) => void handleDeleteProject(id)}
+                                triggerClassName="h-8 w-8 rounded-none border-0 shadow-none"
                               />
                             </div>
                           </td>
@@ -2173,7 +2155,7 @@ export default function MvProjectsDashboard() {
                 </table>
               </div>
 
-              <div className="grid gap-3 bg-slate-50/70 p-3 sm:grid-cols-2 xl:hidden">
+              <div className="divide-y divide-slate-200 bg-white xl:hidden">
                 {paginatedProjects.map((project) => {
                   const workflowStatus = normalizeWorkflowStatus(project.workflowStatus);
                   const progress = projectProgressPctFromProject(project);
@@ -2185,20 +2167,20 @@ export default function MvProjectsDashboard() {
                   const mobileSerialLabel = projectSerialLabel(project);
 
                   return (
-                    <article key={project._id} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-cyan-200 hover:shadow-md">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex items-center gap-1.5">
-                            <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center rounded-lg bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100" dir="ltr">
+                    <article key={project._id} className="bg-white">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 flex-1 px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800" dir="ltr">
                               {mobileSerialLabel ?? notAvailable}
                             </span>
+                            <ProjectWorkspaceLink
+                              project={project}
+                              title={project.name || notAvailable}
+                              compact
+                              nameClassName="text-[13px] font-black"
+                            />
                           </div>
-                          <ProjectWorkspaceLink
-                            project={project}
-                            title={project.name || notAvailable}
-                            compact
-                            nameClassName="text-[13px] font-black"
-                          />
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
                             <MvProjectWorkflowStatusSelect
                               projectId={project._id}
@@ -2213,46 +2195,44 @@ export default function MvProjectsDashboard() {
                             ) : null}
                           </div>
                         </div>
-                        <ProjectActionsMenu
-                          project={project}
-                          onOpenAssetFolders={openAssetFoldersModal}
-                          onOpenLocations={openContactDataModal}
-                          onImportData={openDataImportModal}
-                          onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
-                          downloadingFinalReport={downloadingFinalReportId === project._id}
-                          onDuplicate={(p) => void handleDuplicateProject(p)}
-                          duplicating={duplicatingProjectId === project._id}
-                          onDelete={(id) => void handleDeleteProject(id)}
-                        />
+                        <div className="flex items-stretch self-stretch border-s border-slate-200">
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto rounded-none border-0 border-e border-slate-200 px-3 text-[11px] font-bold text-slate-700 shadow-none hover:bg-cyan-50 hover:text-cyan-800"
+                          >
+                            <Link href={projectWorkspaceHref(project._id)}>
+                              {t("projects.table.open")}
+                            </Link>
+                          </Button>
+                          <ProjectActionsMenu
+                            project={project}
+                            onOpenAssetFolders={openAssetFoldersModal}
+                            onOpenLocations={openContactDataModal}
+                            onDownloadFinalReport={(p) => void startBackgroundFinalReportDownload(p)}
+                            downloadingFinalReport={downloadingFinalReportId === project._id}
+                            onDuplicate={(p) => void handleDuplicateProject(p)}
+                            duplicating={duplicatingProjectId === project._id}
+                            onDelete={(id) => void handleDeleteProject(id)}
+                            triggerClassName="h-full w-10 rounded-none border-0 shadow-none"
+                          />
+                        </div>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-bold tabular-nums text-slate-600">
-                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
+                      <div className="grid grid-cols-4 border-t border-slate-200 text-[11px] font-bold tabular-nums text-slate-600">
+                        <span className="border-e border-slate-200 px-2 py-1.5 text-center">
                           {numberFormatter.format(projectAssetFolderCount(project))} {t("projects.table.assets")}
                         </span>
-                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
+                        <span className="border-e border-slate-200 px-2 py-1.5 text-center">
                           {numberFormatter.format(project.subProjectCount ?? 0)} {t("projects.table.subs")}
                         </span>
-                        <span className="rounded-lg bg-slate-100 px-2 py-1.5 text-center">
+                        <span className="border-e border-slate-200 px-2 py-1.5 text-center">
                           {numberFormatter.format(progress)}{percentSuffix}
                         </span>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                        <span className="text-[10px] font-bold tabular-nums text-slate-400">
+                        <span className="px-2 py-1.5 text-center text-slate-400">
                           {formatDateLabel(project.updatedAt, isArabic, notAvailable)}
                         </span>
-                        <Button
-                          asChild
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 shadow-sm hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-800"
-                        >
-                          <Link href={projectWorkspaceHref(project._id)}>
-                            {t("projects.table.open")}
-                            <ChevronLeft className="h-3.5 w-3.5" />
-                          </Link>
-                        </Button>
                       </div>
                     </article>
                   );
@@ -2513,17 +2493,6 @@ export default function MvProjectsDashboard() {
           setContactDataProject(null);
         }}
         onSaveAndContinue={finishAssetFoldersAndContinue}
-      />
-
-      <MvProjectDataImportDialog
-        project={dataImportProject}
-        open={Boolean(dataImportProject)}
-        onOpenChange={(open) => { if (!open) setDataImportProject(null); }}
-        onImported={(updated) => {
-          mergeProjectIntoList(updated);
-          setDataImportProject(null);
-          navigate(`/machine-valuation/${updated._id}/workflow/report-data`);
-        }}
       />
 
       <MvBusyPercentOverlay

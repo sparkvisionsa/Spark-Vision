@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  ArrowLeft,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -361,6 +362,18 @@ function TemplateStep({ number, title, text, children }: { number: string; title
   );
 }
 
+function useDocumentDir(): "rtl" | "ltr" {
+  const [dir, setDir] = useState<"rtl" | "ltr">("rtl");
+  useEffect(() => {
+    const read = () => setDir(document.documentElement.dir === "ltr" ? "ltr" : "rtl");
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["dir"] });
+    return () => observer.disconnect();
+  }, []);
+  return dir;
+}
+
 function createMappingId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -414,6 +427,7 @@ export function CompanyReportDocumentTemplateDashboard({
   onChange,
   onSave,
 }: CompanyReportDocumentTemplateDashboardProps) {
+  const pageDir = useDocumentDir();
   const [newVariable, setNewVariable] = useState("");
   const [variableQuery, setVariableQuery] = useState("");
   const [preparingNewTemplate, setPreparingNewTemplate] = useState(false);
@@ -540,18 +554,9 @@ export function CompanyReportDocumentTemplateDashboard({
     }
   };
 
-  const saveButton = onSave ? (
-    <Button
-      type="button"
-      size="sm"
-      className="h-8 shrink-0 gap-1 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-black hover:bg-[#0a3a66] disabled:opacity-60"
-      disabled={busy}
-      onClick={() => void onSave()}
-    >
-      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-      حفظ
-    </Button>
-  ) : null;
+  const addTemplateLabel = reachedTemplateLimit ? "اكتمل العدد" : "إضافة قالب جديد";
+  const saveLabel = saving ? "جارٍ الحفظ" : "حفظ";
+  const returnToTemplatesLabel = "العودة إلى القوالب";
 
   const updateMapping = (variable: string, patch: Partial<CompanyReportTemplateVariableMappingForm>) => {
     const key = normalizeVariable(variable);
@@ -614,19 +619,6 @@ export function CompanyReportDocumentTemplateDashboard({
     </Select>
   );
 
-  const newTemplateButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className="h-9 shrink-0 gap-1 rounded-xl px-3 text-[12px] font-black"
-      disabled={busy || reachedTemplateLimit}
-      onClick={startNewTemplate}
-    >
-      <Plus className="h-3.5 w-3.5" />
-      {reachedTemplateLimit ? "اكتمل العدد" : templates.length ? "أضف قالب آخر" : "أضف قالب جديد"}
-    </Button>
-  );
-
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white" dir="rtl">
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
@@ -669,16 +661,14 @@ export function CompanyReportDocumentTemplateDashboard({
             </SelectContent>
           </Select>
         ) : null}
-        <Badge variant="secondary" className="h-8 rounded-lg bg-slate-100 px-2 text-[10px] font-black text-slate-600">
+        <Badge variant="secondary" className="ms-auto h-8 rounded-lg bg-slate-100 px-2 text-[10px] font-black text-slate-600">
           {templates.length}/20
         </Badge>
-        {template ? newTemplateButton : null}
         {template ? (
           <span className={cn("inline-flex h-8 items-center rounded-lg px-2 text-[10px] font-black", dirty ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700")}>
             {dirty ? "غير محفوظ" : "محفوظ"}
           </span>
         ) : null}
-        <span className="ms-auto">{saveButton}</span>
       </header>
 
       {uploadError ? <p role="alert" className="border-b border-orange-200 bg-orange-50 px-2.5 py-1.5 text-[12px] font-semibold text-orange-800">{uploadError}</p> : null}
@@ -945,7 +935,6 @@ export function CompanyReportDocumentTemplateDashboard({
               text="يُقرأ الملف وتُربط المتغيرات المعروفة بمصادرها. يمكنك بعدها مراجعة أي متغير لم يُربط."
             >
               <div className="flex flex-wrap items-center gap-2">
-                {newTemplateButton}
                 {preparingNewTemplate ? (
                   <>
                     <FilePickButton
@@ -961,12 +950,72 @@ export function CompanyReportDocumentTemplateDashboard({
                       إلغاء
                     </Button>
                   </>
-                ) : null}
+                ) : (
+                  <p className="text-[12px] font-bold text-slate-600">استخدم أيقونة «إضافة قالب جديد» على جانب الصفحة، ثم ارفع الملف من هنا.</p>
+                )}
               </div>
             </TemplateStep>
           ) : null}
         </>
       )}
+      <aside
+        dir={pageDir}
+        className="pointer-events-none fixed bottom-5 end-4 z-[80] sm:bottom-auto sm:top-36"
+      >
+        <div className="pointer-events-auto flex flex-col items-center gap-2.5">
+          {preparingNewTemplate && templates.length > 0 ? (
+            <button
+              type="button"
+              onClick={cancelNewTemplate}
+              disabled={busy}
+              title={returnToTemplatesLabel}
+              aria-label={returnToTemplatesLabel}
+              className="group relative flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-[0_12px_28px_-12px_rgba(15,23,42,0.55)] ring-1 ring-slate-900/5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+            >
+              <ArrowLeft className="h-5 w-5 rtl:-scale-x-100" strokeWidth={2.4} />
+              <span className="pointer-events-none absolute end-full me-2 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2 py-1 text-[11px] font-bold text-white opacity-0 shadow-lg transition group-hover:opacity-100 sm:block">
+                {returnToTemplatesLabel}
+              </span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={startNewTemplate}
+            disabled={busy || reachedTemplateLimit}
+            title={addTemplateLabel}
+            aria-label={addTemplateLabel}
+            className={cn(
+              "group relative flex h-12 w-12 items-center justify-center rounded-2xl border bg-white text-slate-800 shadow-[0_12px_28px_-12px_rgba(15,23,42,0.55)] ring-1 ring-slate-900/5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0",
+              isPptx ? "border-orange-200 text-orange-700 hover:bg-orange-50" : "border-emerald-200 text-emerald-800 hover:bg-emerald-50",
+              preparingNewTemplate && (isPptx ? "bg-orange-600 text-white hover:bg-orange-700" : "bg-emerald-700 text-white hover:bg-emerald-800"),
+            )}
+          >
+            <Plus className="h-5 w-5" strokeWidth={2.4} />
+            <span className="pointer-events-none absolute end-full me-2 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2 py-1 text-[11px] font-bold text-white opacity-0 shadow-lg transition group-hover:opacity-100 sm:block">
+              {addTemplateLabel}
+            </span>
+          </button>
+          {onSave ? (
+            <button
+              type="button"
+              onClick={() => void onSave()}
+              disabled={busy}
+              title={saveLabel}
+              aria-label={saveLabel}
+              className={cn(
+                "group relative flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-900 bg-slate-950 text-white shadow-[0_14px_30px_-12px_rgba(15,23,42,0.75)] transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0",
+                dirty && "ring-2 ring-amber-300 ring-offset-2 ring-offset-white",
+              )}
+            >
+              {saving ? <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2.4} /> : <Save className="h-5 w-5" strokeWidth={2.4} />}
+              {dirty && !saving ? <span className="absolute -start-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" /> : null}
+              <span className="pointer-events-none absolute end-full me-2 hidden whitespace-nowrap rounded-lg bg-slate-950 px-2 py-1 text-[11px] font-bold text-white opacity-0 shadow-lg transition group-hover:opacity-100 sm:block">
+                {saveLabel}
+              </span>
+            </button>
+          ) : null}
+        </div>
+      </aside>
     </div>
   );
 }

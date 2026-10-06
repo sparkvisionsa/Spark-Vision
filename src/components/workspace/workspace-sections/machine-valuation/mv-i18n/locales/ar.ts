@@ -154,7 +154,7 @@ export const mvAr = {
       assetDescriptions: "تصنيفات الأصول",
       wordTemplates: "قوالب Word",
       pptxTemplates: "قوالب PowerPoint",
-      letterhead: "قوالب النظام والكلاشية",
+      letterhead: "قوالب النظام والكليشيه",
       reportDataModels: "نماذج بيانات التقرير",
     },
   },
@@ -1785,7 +1785,7 @@ export const mvAr = {
     },
     templates: {
       uploadLetterheadFirst:
-        "ارفع صور الأكلاشية من إعدادات الشركة قبل استخدام هذا الخيار.",
+        "ارفع صور الكليشيه من إعدادات الشركة قبل استخدام هذا الخيار.",
       applied: "تم تطبيق قالب {title}.",
       default: {
         title: "Value Tech الرسمي",
@@ -1828,8 +1828,8 @@ export const mvAr = {
         description: "مهيأ للتنزيل كعرض شرائح 16:9 مع غلاف عرض تقديمي.",
       },
       letterhead: {
-        title: "استخدام أكلاشية",
-        description: "يستخدم صور الأكلاشية المرفوعة من إعدادات الشركة كما هي.",
+        title: "استخدام كليشيه",
+        description: "يستخدم صور الكليشيه المرفوعة من إعدادات الشركة كما هي.",
         badge: "صور",
       },
       aiFallback: "قالب ذكاء اصطناعي محفوظ من PDF شركة.",

@@ -36,10 +36,8 @@ test("a simplified project imports extracted file fields into the final report-d
     return json([]);
   });
 
-  await page.goto("/machine-valuation", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("مشروع مبسط للاختبار", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: /إجراءات مشروع مبسط للاختبار/ }).first().click();
-  await page.getByRole("menuitem", { name: "استيراد بيانات من ملفات", exact: true }).click();
+  await page.goto(`/machine-valuation/${projectId}/workflow/report-data`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "استيراد بيانات من ملف", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "استيراد بيانات من ملفات" })).toBeVisible();
 
   await page.getByLabel("اختيار ملفات الاستيراد", { exact: true }).setInputFiles({ name: "خطاب.pdf", mimeType: "application/pdf", buffer: Buffer.from("test-pdf") });
@@ -51,7 +49,6 @@ test("a simplified project imports extracted file fields into the final report-d
   expect(patchBody.reportData.reportTitle).toBe("تقرير قائم");
   expect(patchBody.reportData.customSections.map((section: any) => section.title)).toEqual(["قسم قائم", "البيانات المستوردة من الملفات"]);
   expect(patchBody.reportData.customFields.slice(-2).map((field: any) => [field.label, field.value])).toEqual([["رقم القضية", "4870385439"], ["المحكمة", "المحكمة التجارية بالرياض"]]);
-  await expect(page).toHaveURL(new RegExp(`/machine-valuation/${projectId}/workflow/report-data$`));
 });
 
 test("report data imports a file from the model toolbar and renders the appended section", async ({ page }) => {

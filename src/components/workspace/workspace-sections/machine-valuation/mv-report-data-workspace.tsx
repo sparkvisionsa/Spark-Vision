@@ -1028,12 +1028,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
             </div>
           ) : (
             <>
-              <section className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 shadow-sm">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black text-slate-400">نموذج بيانات التقرير</p>
-                  <p className="truncate text-[12px] font-black text-slate-900">{activeReportDataModel.name}</p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <section className="mb-3 flex w-full flex-nowrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-sm">
+                <label className="flex min-w-0 items-center gap-2">
+                  <span className="shrink-0 text-[12px] font-bold text-slate-600">نموذج بيانات التقرير</span>
                   {reportDataModels.length > 1 ? (
                     <Select
                       value={activeReportDataModel.id}
@@ -1048,29 +1045,36 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                         selectReportDataModel(nextId);
                       }}
                     >
-                      <SelectTrigger className="h-8 w-[min(19rem,100%)] rounded-lg border-slate-200 bg-slate-50 text-[10px] font-bold shadow-none">
+                      <SelectTrigger
+                        aria-label="نموذج بيانات التقرير"
+                        className="h-9 w-[min(18rem,calc(100vw-8rem))] rounded-xl border-slate-200 bg-slate-50 text-[13px] font-bold text-slate-900 shadow-none"
+                      >
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent dir="rtl">
+                      <SelectContent dir={dir}>
                         {reportDataModels.map((model) => (
-                          <SelectItem key={model.id} value={model.id} className="text-[11px] font-bold">
+                          <SelectItem key={model.id} value={model.id} className="text-[12px] font-bold">
                             {model.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 rounded-lg border-cyan-200 bg-cyan-50 px-2.5 text-[10px] font-black text-cyan-800 shadow-none hover:bg-cyan-100"
-                    disabled={saving}
-                    onClick={() => void openDataImportDialog()}
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileInput className="h-3.5 w-3.5" />}
-                    استيراد بيانات من ملف
-                  </Button>
-                </div>
+                  ) : (
+                    <span className="inline-flex h-9 max-w-[18rem] items-center truncate rounded-xl border border-slate-200 bg-slate-50 px-3 text-[13px] font-black text-slate-900">
+                      {activeReportDataModel.name}
+                    </span>
+                  )}
+                </label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ms-auto h-9 shrink-0 gap-1.5 rounded-xl border-sky-200 bg-sky-50 px-3 text-[12px] font-black text-sky-950 shadow-none hover:bg-sky-100"
+                  disabled={saving}
+                  onClick={() => void openDataImportDialog()}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileInput className="h-4 w-4" />}
+                  استيراد بيانات من ملف
+                </Button>
               </section>
               <MvReportDataForm
                 project={project}
