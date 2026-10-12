@@ -15,11 +15,13 @@ type SupportContextValue = {
   summary: SupportSummary;
   refresh: () => void;
   openRecorder: () => void;
+  openTicketRecorder: (ticketId: string) => void;
+  closeSupportCenter: () => void;
   openAssistant: () => void;
   openSupport: (product?: SupportProduct, options?: { compose?: boolean }) => void;
   openDeveloperRequests: (product?: SupportProduct) => void;
 };
-const SupportContext = createContext<SupportContextValue>({ summary: empty, refresh: () => {}, openRecorder: () => {}, openAssistant: () => {}, openSupport: () => {}, openDeveloperRequests: () => {} });
+const SupportContext = createContext<SupportContextValue>({ summary: empty, refresh: () => {}, openRecorder: () => {}, openTicketRecorder: () => {}, closeSupportCenter: () => {}, openAssistant: () => {}, openSupport: () => {}, openDeveloperRequests: () => {} });
 export const useSupport = () => useContext(SupportContext);
 
 export function SupportProvider({ children }: { children: ReactNode }) {
@@ -29,6 +31,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
   const [summary, setSummary] = useState<SupportSummary>(empty);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [recorderOpen, setRecorderOpen] = useState(false);
+  const [recordingTicketId, setRecordingTicketId] = useState<string | null>(null);
   const [center, setCenter] = useState<Center | null>(null);
   const scope = `${user?.id ?? ""}:${user?.companyId ?? ""}`;
   const [summaryScope, setSummaryScope] = useState("");
@@ -37,8 +40,11 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     void api<SupportSummary>("/summary").then(data => { setSummary(data); setSummaryScope(scope); }).catch(() => {});
   }, [api, user?.id, scope]);
   useEffect(() => {
-    setAssistantOpen(false); setRecorderOpen(false); setCenter(null);
-    if (!user) { setSummary(empty); return; }
+    setAssistantOpen(false); setRecorderOpen(false); setRecordingTicketId(null); setCenter(null);
+    if (scope === ":") setSummary(empty);
+  }, [scope]);
+  useEffect(() => {
+    if (!user) return;
     refresh();
     let pending: ReturnType<typeof setTimeout> | undefined;
     const changed = () => { if (pending) clearTimeout(pending); pending = setTimeout(refresh, 300); };
@@ -48,17 +54,19 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 45_000);
     return () => { if (pending) clearTimeout(pending); clearInterval(timer); socket?.off("support:changed", changed).off("support:notifications", changed).off("connect", refresh).off("support:presence", changed); document.removeEventListener("visibilitychange", visibility); };
   }, [scope, socket, refresh]);
-  const openRecorder = useCallback(() => { if (user) setRecorderOpen(true); else window.dispatchEvent(new CustomEvent("sv:open-auth-modal")); }, [user?.id]);
+  const openRecorder = useCallback(() => { if (user) { setRecordingTicketId(null); setRecorderOpen(true); } else window.dispatchEvent(new CustomEvent("sv:open-auth-modal")); }, [user?.id]);
+  const openTicketRecorder = useCallback((ticketId: string) => { if (user) { setRecordingTicketId(ticketId); setRecorderOpen(true); } else window.dispatchEvent(new CustomEvent("sv:open-auth-modal")); }, [user?.id]);
+  const closeSupportCenter = useCallback(() => setCenter(null), []);
   const openCenter = useCallback((mode: Center["mode"], product: SupportProduct = "general", compose = false) => {
     if (!user) { window.dispatchEvent(new CustomEvent("sv:open-auth-modal")); return; }
     setAssistantOpen(false); setRecorderOpen(false); setCenter({ mode, product, compose });
   }, [user?.id]);
   const openSupport = useCallback((product: SupportProduct = "general", options?: { compose?: boolean }) => openCenter("support", product, options?.compose), [openCenter]);
   const openDeveloperRequests = useCallback((product: SupportProduct = "general") => openCenter("developer", product), [openCenter]);
-  const value = useMemo(() => ({ summary: summaryScope === scope ? summary : empty, refresh, openRecorder, openAssistant: () => setAssistantOpen(true), openSupport, openDeveloperRequests }), [summary, summaryScope, scope, refresh, openRecorder, openSupport, openDeveloperRequests]);
+  const value = useMemo(() => ({ summary: summaryScope === scope ? summary : empty, refresh, openRecorder, openTicketRecorder, closeSupportCenter, openAssistant: () => setAssistantOpen(true), openSupport, openDeveloperRequests }), [summary, summaryScope, scope, refresh, openRecorder, openTicketRecorder, closeSupportCenter, openSupport, openDeveloperRequests]);
   return <SupportContext.Provider value={value}>
     {children}
-    {user && <SupportDock key={scope} assistantOpen={assistantOpen} onAssistantOpen={setAssistantOpen} recorderOpen={recorderOpen} onRecorderOpen={setRecorderOpen} />}
+    {user && <SupportDock key={scope} assistantOpen={assistantOpen} onAssistantOpen={setAssistantOpen} recorderOpen={recorderOpen} onRecorderOpen={setRecorderOpen} recordingTicketId={recordingTicketId} />}
     {user && center && <SupportCenterModal open onOpenChange={open => { if (!open) setCenter(null); }} mode={center.mode} product={center.product} compose={center.compose} />}
   </SupportContext.Provider>;
 }

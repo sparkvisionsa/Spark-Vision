@@ -12,9 +12,14 @@ export type SupportTicket = {
   subject: string; product: SupportProduct; kind: SupportKind; status: SupportStatus; priority: "normal" | "high" | "urgent";
   page: string; assigneeId: string | null; assigneeName: string | null; createdAt: string; updatedAt: string;
   lastMessage: string; unread: number; revision: number;
-  history: { at: string; by: string; status?: SupportStatus; assigneeName?: string | null }[];
+  history: { at: string; by: string; status?: SupportStatus; assigneeName?: string | null; subjectChanged?: boolean }[];
 };
 export type SupportMessage = { _id: string; ticketId: string; senderId: string; senderName: string; staff: boolean; text: string; attachments: SupportFile[]; createdAt: string; readByOwner: boolean; readByStaff: boolean };
+
+/** أسماء فريق الدعم داخلية؛ واجهة العميل تعرض الهوية الموحدة فقط. */
+export function supportParticipantName(staff: boolean, name: string, staffView: boolean) {
+  return staff && !staffView ? "الدعم الفني" : name;
+}
 export type SupportNotification = { _id: string; ticketId: string; channel: "support" | "developer"; event: "created" | "message" | "status" | "assignment"; title: string; body: string; createdAt: string; readAt: string | null };
 export type SupportSummary = { staff: boolean; superAdmin: boolean; online: boolean; unread: number; notificationUnread: number; counts: Partial<Record<SupportStatus, number>> };
 export type SupportArticle = { id: string; title: string; product: string; href: string; intro: string; steps: string[]; targets?: string[] };

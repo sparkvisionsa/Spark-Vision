@@ -1,5 +1,6 @@
 import { getMvT, readMvLanguage } from "./mv-i18n";
 import { beginMvLoading } from "./mv-loading-state";
+import { AUTH_CONTEXT_CHANGED_EVENT } from "@/lib/auth-session-state";
 
 function mvT() {
   return getMvT(readMvLanguage());
@@ -48,6 +49,15 @@ type JsonCacheRow = {
 };
 
 const jsonRequestCache = new Map<string, JsonCacheRow>();
+
+// Cache keys intentionally do not encode a tenant. Clear the complete memory
+// cache whenever authentication changes so a stale response cannot cross the
+// user/company boundary.
+if (typeof window !== "undefined") {
+  window.addEventListener(AUTH_CONTEXT_CHANGED_EVENT, () => {
+    jsonRequestCache.clear();
+  });
+}
 
 function apiErrorKind(status: number): MvApiErrorKind {
   if (status === 401) return "unauthorized";
@@ -209,6 +219,9 @@ export async function mvFetch(
         const response = await fetch(input, {
           credentials: "include",
           ...init,
+          // The explicit in-memory cache below is scope-aware through the
+          // auth reset. Never add a second, opaque browser HTTP cache layer.
+          cache: "no-store",
           signal: controller.signal,
         });
         if (response.ok) return response;

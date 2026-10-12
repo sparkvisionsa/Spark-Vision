@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { finalizeRecordingBlob } from "@/lib/fix-recording-duration";
 
 export type RecorderState = "idle" | "starting" | "recording" | "paused" | "preview";
-/** "system" يقصر المشاركة على تبويب النظام، و"any" يترك للمستخدم اختيار أي شاشة أو نافذة. */
+/** "system" is retained for recordings made before full-screen capture became the only mode. */
 export type RecorderSurface = "system" | "any";
 export type RecorderMicrophone = "required" | "optional" | "off";
 
@@ -208,7 +208,6 @@ async function createAudioMix(sources: MediaStream[]): Promise<AudioMix | null> 
 export type ScreenRecorderOptions = {
   maxSeconds?: number;
   maxBytes?: number;
-  surface?: RecorderSurface;
   microphone?: RecorderMicrophone;
   camera?: boolean;
   cameraStream?: MediaStream | null;
@@ -220,8 +219,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
   const {
     maxSeconds = RECORDING_MAX_SECONDS,
     maxBytes = RECORDING_UPLOAD_MAX_BYTES,
-    surface = "system",
-    microphone = "required",
+    microphone = "optional",
     camera = false,
     cameraStream = null,
     systemAudio = false,
@@ -248,10 +246,10 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
   const durationMs = useRef(0);
   const compositeStop = useRef<(() => void) | null>(null);
   // تُقرأ الإعدادات لحظة البدء فقط، فلا تتبدّل دوال الهوك مع كل تغيير خيار في الواجهة.
-  const settings = useRef({ maxSeconds, maxBytes, surface, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond });
+  const settings = useRef({ maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond });
   useEffect(() => {
-    settings.current = { maxSeconds, maxBytes, surface, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond };
-  }, [maxSeconds, maxBytes, surface, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond]);
+    settings.current = { maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond };
+  }, [maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond]);
   const stopTracks = useCallback(() => {
     streams.current.forEach(s => s.getTracks().forEach(t => { t.onended = null; t.stop(); }));
     streams.current = [];
@@ -296,15 +294,19 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
           frameRate: { ideal: 24, max: 30 },
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          ...(config.surface === "system" ? { displaySurface: "browser" } : {}),
+          displaySurface: "monitor",
         },
         audio: config.systemAudio,
-        ...(config.surface === "system"
-          ? { preferCurrentTab: true }
-          : { preferCurrentTab: false, selfBrowserSurface: "exclude", surfaceSwitching: "include", monitorTypeSurfaces: "include" }),
+        preferCurrentTab: false,
+        selfBrowserSurface: "exclude",
+        monitorTypeSurfaces: "include",
       } as DisplayMediaStreamOptions);
       if (!valid()) { display.getTracks().forEach(t => t.stop()); return; }
       streams.current.push(display);
+      const capturedSurface = String(display.getVideoTracks()[0]?.getSettings?.().displaySurface ?? "");
+      if (capturedSurface && capturedSurface !== "monitor") {
+        throw new Error("اختر «الشاشة بأكملها» لتسجيل التنقل بين صفحات النظام والتطبيقات الأخرى.");
+      }
       const microphoneStream = config.microphone === "off" ? null : await requestMicrophone(config.microphone === "required");
       if (!valid()) { microphoneStream?.getTracks().forEach(t => t.stop()); stopTracks(); return; }
       if (microphoneStream) streams.current.push(microphoneStream);
@@ -313,32 +315,23 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
       if (displayTrack?.readyState !== "live") throw new Error("انتهت مشاركة الشاشة؛ ابدأ التسجيل مجدداً.");
       hintMotion(displayTrack);
       void displayTrack.applyConstraints?.({ frameRate: 24 }).catch(() => undefined);
-      const capturedSurface = String(displayTrack.getSettings?.().displaySurface ?? "");
-      if (config.surface === "any" && capturedSurface === "browser") {
-        setNotice("لتسجيل التنقل بين النوافذ والتطبيقات اختر «شاشة كاملة» عند المشاركة، وليس تبويب المتصفح.");
-      }
       if (config.camera) {
         const previewTracks = config.cameraStream?.getVideoTracks().filter((track) => track.readyState === "live") ?? [];
         const cameraMedia = previewTracks.length ? new MediaStream(previewTracks.map((track) => track.clone())) : await requestCamera();
         if (cameraMedia?.getVideoTracks().length) {
           streams.current.push(cameraMedia);
           setCameraEnabled(true);
-          if (config.surface === "any") {
-            try {
-              const composed = await composeDisplayAndCamera(display, cameraMedia);
-              if (!valid()) { composed.stop(); stopTracks(); return; }
-              compositeStop.current = composed.stop;
-              videoTracks = composed.stream.getVideoTracks();
-              setCameraComposited(true);
-              setCameraPreview(cameraMedia);
-            } catch {
-              setCameraComposited(false);
-              setCameraPreview(cameraMedia);
-              setNotice("تعذّر دمج الكاميرا داخل التسجيل، وسيُحفظ مقطع الشاشة فقط.");
-            }
-          } else {
+          try {
+            const composed = await composeDisplayAndCamera(display, cameraMedia);
+            if (!valid()) { composed.stop(); stopTracks(); return; }
+            compositeStop.current = composed.stop;
+            videoTracks = composed.stream.getVideoTracks();
+            setCameraComposited(true);
+            setCameraPreview(cameraMedia);
+          } catch {
             setCameraComposited(false);
             setCameraPreview(cameraMedia);
+            setNotice("تعذّر دمج الكاميرا داخل التسجيل، وسيُحفظ مقطع الشاشة فقط.");
           }
         } else {
           setCameraEnabled(false);

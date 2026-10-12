@@ -8,6 +8,7 @@ import { useMvI18n } from "./mv-i18n";
 import { MvPageLoading } from "./mv-ui";
 import { loadClientChunk } from "@/lib/load-client-chunk";
 import { resolveSettingsSection, resolveSettingsTab } from "./mv-settings-nav";
+import { MvProjectAccessGate } from "./mv-project-access-gate";
 
 /** هيكل خفيف أثناء تحميل مقطع ديناميكي — دون تغطية كاملة للشاشة (يختلف عن PageTransitionLoader لجذر الـ workspace). */
 function MvRouteSkeleton() {
@@ -170,34 +171,38 @@ export default function MachineValuationSection() {
       return <ClientsPage productId="machine-valuation" />;
     case "workflow":
       return (
-        <MvWorkflowShell
-          projectId={route.projectId!}
-          stepSlug={route.stepSlug!}
-          assetImagesSub={"assetImagesSub" in route ? route.assetImagesSub : undefined}
-        />
+        <MvProjectAccessGate projectId={route.projectId!}>
+          <MvWorkflowShell
+            projectId={route.projectId!}
+            stepSlug={route.stepSlug!}
+            assetImagesSub={"assetImagesSub" in route ? route.assetImagesSub : undefined}
+          />
+        </MvProjectAccessGate>
       );
     case "valuation-workflow":
-      return <MvValuationShell projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvValuationShell projectId={route.projectId!} /></MvProjectAccessGate>;
     case "client-files-workflow":
-      return <MvClientFilesShell projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvClientFilesShell projectId={route.projectId!} /></MvProjectAccessGate>;
     case "report-files-workflow":
-      return <MvReportFilesHub projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvReportFilesHub projectId={route.projectId!} /></MvProjectAccessGate>;
     case "certificate-workflow":
-      return <MvSceCertificateShell projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvSceCertificateShell projectId={route.projectId!} /></MvProjectAccessGate>;
     case "final-report-workflow":
-      return <MvFinalReportWorkspace projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvFinalReportWorkspace projectId={route.projectId!} /></MvProjectAccessGate>;
     case "report-data-workflow":
-      return <MvReportDataWorkspace projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvReportDataWorkspace projectId={route.projectId!} /></MvProjectAccessGate>;
     case "project-files":
-      return <MvDriveExplorer projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvDriveExplorer projectId={route.projectId!} /></MvProjectAccessGate>;
     case "inspector-files":
-      return <MvInspectorFilesWorkspace projectId={route.projectId!} />;
+      return <MvProjectAccessGate projectId={route.projectId!}><MvInspectorFilesWorkspace projectId={route.projectId!} /></MvProjectAccessGate>;
     case "sub-project-detail":
       return (
-        <SubProjectDetail
-          projectId={route.projectId!}
-          subProjectId={route.subProjectId!}
-        />
+        <MvProjectAccessGate projectId={route.projectId!}>
+          <SubProjectDetail
+            projectId={route.projectId!}
+            subProjectId={route.subProjectId!}
+          />
+        </MvProjectAccessGate>
       );
     case "projects":
       return <ProjectsList />;

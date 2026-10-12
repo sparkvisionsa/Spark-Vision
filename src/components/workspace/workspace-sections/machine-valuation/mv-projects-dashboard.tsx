@@ -20,6 +20,7 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  SlidersHorizontal,
   Trash2,
   UserPlus,
   Users,
@@ -78,7 +79,6 @@ import {
 import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
 import { prefetchMvLocationCatalog } from "./use-mv-location-catalog";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
-import { exportProjectAssetsExcel } from "./mv-asset-data-table-modal";
 import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import {
@@ -252,6 +252,7 @@ function ProjectActionsMenu({
     if (exportingAssetsExcel) return;
     setExportingAssetsExcel(true);
     try {
+      const { exportProjectAssetsExcel } = await import("./mv-asset-data-table-modal");
       const { count } = await exportProjectAssetsExcel({
         projectId: project._id,
         projectName,
@@ -1902,14 +1903,20 @@ export default function MvProjectsDashboard() {
             </div>
           </div>
 
-          <div className="flex min-h-11 items-stretch overflow-x-auto border-b border-slate-200 bg-white">
+          <div className="flex min-h-11 items-center gap-1.5 overflow-x-auto border-b border-cyan-200 bg-cyan-50/70 px-2 py-1 sm:px-3">
             <div className="relative min-w-[16rem] flex-1">
-              <Search className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <span className="pointer-events-none absolute end-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-cyan-100 text-cyan-800" aria-hidden>
+                <Search className="h-3.5 w-3.5" />
+              </span>
               <Input
                 value={projectQuery}
                 onChange={(event) => setProjectQuery(event.target.value)}
+                aria-label={t("projects.searchPlaceholder")}
                 placeholder={t("projects.searchPlaceholder")}
-                className="h-11 rounded-none border-0 border-e border-slate-200 bg-white pe-9 text-[13px] font-semibold shadow-none focus-visible:ring-0"
+                className={cn(
+                  "h-9 rounded-lg border bg-white pe-10 text-[13px] font-semibold text-slate-900 shadow-sm placeholder:font-medium placeholder:text-slate-500 focus-visible:border-cyan-600 focus-visible:ring-cyan-200 focus-visible:ring-offset-0",
+                  projectQuery.trim() ? "border-cyan-500" : "border-cyan-300",
+                )}
               />
             </div>
 
@@ -1919,9 +1926,15 @@ export default function MvProjectsDashboard() {
             >
               <SelectTrigger
                 aria-label={t("projects.status.filterAria")}
-                className="h-11 w-[12.5rem] shrink-0 justify-start gap-2 rounded-none border-0 border-e border-slate-200 bg-white text-[12px] font-bold text-slate-700 shadow-none focus:ring-0 [&>svg:last-child]:ms-auto"
+                className={cn(
+                  "h-9 w-[12rem] shrink-0 justify-start gap-1.5 rounded-lg border text-[12px] font-bold shadow-sm focus:border-cyan-600 focus:ring-cyan-200 focus:ring-offset-0 [&>svg:last-child]:ms-auto",
+                  statusFilter === "all"
+                    ? "border-cyan-300 bg-white text-slate-800"
+                    : "border-cyan-600 bg-cyan-100 text-cyan-950",
+                )}
               >
-                <span className="shrink-0 text-[11px] font-black text-slate-400">{t("projects.status.label")}</span>
+                <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-cyan-700" aria-hidden />
+                <span className="shrink-0 text-[11px] text-slate-500">{t("projects.status.label")}</span>
                 <SelectValue placeholder={t("projects.status.all")} />
               </SelectTrigger>
               <SelectContent align="end">
@@ -1936,14 +1949,14 @@ export default function MvProjectsDashboard() {
 
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => setSortRecentlyWorked((current) => !current)}
               className={cn(
-                "h-11 shrink-0 gap-1.5 rounded-none border-0 border-e border-slate-200 px-3 text-[11px] font-black shadow-none",
+                "h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-bold shadow-sm",
                 sortRecentlyWorked
-                  ? "bg-cyan-50 text-cyan-900 hover:bg-cyan-100 hover:text-cyan-950"
-                  : "bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                  ? "border-cyan-800 bg-cyan-800 text-white hover:border-cyan-900 hover:bg-cyan-900 hover:text-white"
+                  : "border-cyan-300 bg-white text-slate-700 hover:border-cyan-500 hover:bg-cyan-100 hover:text-cyan-900",
               )}
               title={t("projects.sort.recentlyWorkedTitle")}
               aria-pressed={sortRecentlyWorked}
@@ -1951,11 +1964,18 @@ export default function MvProjectsDashboard() {
               <ArrowDownWideNarrow className="h-3.5 w-3.5" aria-hidden />
               <span>{t("projects.sort.recentlyWorked")}</span>
             </Button>
-            <span className="flex shrink-0 items-center border-e border-slate-200 px-3 text-[11px] font-bold tabular-nums text-slate-600">
+            <span
+              className="flex h-8 shrink-0 items-center rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold tabular-nums text-white"
+              aria-label={t("projects.filters.results", {
+                shown: numberFormatter.format(filteredProjects.length),
+                total: numberFormatter.format(visibleProjects.length),
+              })}
+              aria-live="polite"
+            >
               {numberFormatter.format(filteredProjects.length)} / {numberFormatter.format(visibleProjects.length)}
             </span>
             {refreshingList ? (
-              <span className="inline-flex shrink-0 items-center gap-1.5 border-e border-slate-200 px-3 text-[11px] font-semibold text-slate-500">
+              <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-white px-2 text-[11px] font-semibold text-slate-600">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
                 {t("projects.refreshingList")}
               </span>
@@ -1963,9 +1983,9 @@ export default function MvProjectsDashboard() {
             {hasActiveFilters ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="icon"
-                className="h-11 w-11 shrink-0 rounded-none text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                className="h-9 w-9 shrink-0 rounded-lg border-cyan-300 bg-white text-cyan-800 shadow-sm hover:border-cyan-500 hover:bg-cyan-100 hover:text-cyan-950"
                 onClick={resetFilters}
                 title={t("projects.filters.clear")}
                 aria-label={t("projects.filters.clear")}

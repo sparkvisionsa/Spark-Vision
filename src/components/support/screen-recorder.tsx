@@ -15,19 +15,21 @@ import { developerRequestsHref, productFromPath, type SupportFile, type SupportT
 import { useSupport } from "./support-provider";
 import { cn } from "@/lib/utils";
 
-export default function ScreenRecorder({ open, onOpenChange, ticketId, onSent }: { open: boolean; onOpenChange: (open: boolean) => void; ticketId?: string; onSent?: () => void }) {
-  const recording = useScreenRecorder();
+export default function ScreenRecorder({ open, onOpenChange, ticketId, onSent }: { open: boolean; onOpenChange: (open: boolean) => void; ticketId?: string; onSent?: (ticketId: string) => void }) {
+  const recording = useScreenRecorder({ systemAudio: true });
   const { user, csrfToken } = useAuthTracking();
-  const api = useSupportApi(); const router = useRouter(); const { refresh, openDeveloperRequests } = useSupport();
+  const api = useSupportApi(); const router = useRouter(); const { refresh, openDeveloperRequests, closeSupportCenter } = useSupport();
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState(""); const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false); const [progress, setProgress] = useState(0);
   const [saved, setSaved] = useState<SupportTicket | null>(null);
+  const [sessionTicketId, setSessionTicketId] = useState<string | null>(null);
   const page = useRef("/"); const requestId = useRef(crypto.randomUUID());
   const ticket = useRef<SupportTicket | null>(null); const attached = useRef<SupportFile | null>(null);
   const controller = useRef<AbortController>();
   const active = recording.state === "recording" || recording.state === "paused";
-  const ticketMode = Boolean(ticketId);
+  const effectiveTicketId = recording.state === "idle" && !recording.blob ? ticketId : sessionTicketId ?? undefined;
+  const ticketMode = Boolean(effectiveTicketId);
   const titleIssue = optionalSubjectIssue(title);
   const openTracking = (product: ReturnType<typeof productFromPath>) => {
     onOpenChange(false);
@@ -40,9 +42,11 @@ export default function ScreenRecorder({ open, onOpenChange, ticketId, onSent }:
     return () => URL.revokeObjectURL(objectUrl);
   }, [recording.blob]);
   useEffect(() => { if (recording.state === "preview") onOpenChange(true); }, [recording.state, onOpenChange]);
+  useEffect(() => { if (active) closeSupportCenter(); }, [active, closeSupportCenter]);
   useEffect(() => () => controller.current?.abort(), []);
   const start = () => {
     page.current = window.location.pathname; setError(""); setSaved(null); ticket.current = null; attached.current = null; requestId.current = crypto.randomUUID();
+    setSessionTicketId(ticketId ?? null);
     void recording.start();
   };
   const send = async () => {
@@ -51,16 +55,16 @@ export default function ScreenRecorder({ open, onOpenChange, ticketId, onSent }:
     const abort = new AbortController(); controller.current = abort;
     try {
       const product = productFromPath(page.current);
-      if (!ticketId && !ticket.current) {
+      if (!effectiveTicketId && !ticket.current) {
         const result = await api<{ ticket: SupportTicket }>("/tickets", { method: "POST", signal: abort.signal, body: JSON.stringify({ subject: ticketSubjectOrFallback(title, "فكرة جديدة من شارك فكرتك"), product, kind: "idea", page: page.current, clientId: requestId.current }) });
         ticket.current = result.ticket;
       }
-      const targetId = ticketId ?? ticket.current?._id;
+      const targetId = effectiveTicketId ?? ticket.current?._id;
       if (!targetId) throw new Error("تعذر تحديد التذكرة.");
       if (!attached.current) attached.current = await uploadSupportFile(targetId, recording.blob, `spark-${ticketMode ? "ticket" : "idea"}-${Date.now()}.${recordingExtension(recording.blob)}`, csrfToken, setProgress, abort.signal);
       await api(`/tickets/${targetId}/messages`, { method: "POST", signal: abort.signal, body: JSON.stringify({ text: title.trim() || (ticketMode ? "تسجيل الشاشة والصوت" : "فكرة تطوير — تسجيل الشاشة والصوت"), attachments: [attached.current.id], clientId: `recording-${requestId.current}` }) });
       if (ticketMode) {
-        recording.reset(); setTitle(""); refresh(); onSent?.(); onOpenChange(false);
+        recording.reset(); setTitle(""); refresh(); onSent?.(targetId); onOpenChange(false);
         return;
       }
       setSaved(ticket.current); recording.reset(); setTitle(""); refresh();
@@ -86,7 +90,7 @@ export default function ScreenRecorder({ open, onOpenChange, ticketId, onSent }:
         <div className="flex items-center gap-2 ps-1"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 text-violet-600">{ticketMode ? <Video className="h-5 w-5" /> : <Lightbulb className="h-5 w-5" />}</span><DialogTitle className="flex-1 text-base">{ticketMode ? "تسجيل الشاشة داخل التذكرة" : "شارك فكرتك"}</DialogTitle>{!ticketMode && <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-[11px] text-violet-700 hover:bg-violet-50" onClick={() => openTracking(productFromPath(window.location.pathname))}><History className="h-3.5 w-3.5" />متابعة مشاركاتي</Button>}</div>
         <DialogDescription className="sr-only">{ticketMode ? "تسجيل الشاشة والصوت وإرساله داخل التذكرة الحالية" : "تسجيل الشاشة والصوت ومشاركة فكرة جديدة"}</DialogDescription>
         {!ticketMode && saved ? <div className="flex flex-col items-center gap-3 py-4 text-center"><span className="rounded-full bg-emerald-100 p-3 text-emerald-600"><Check className="h-6 w-6" /></span><p className="text-sm font-semibold">وصلت فكرتك · {saved.number}</p><Button onClick={() => openTracking(saved.product)}>متابعة الفكرة</Button><Button size="sm" variant="ghost" onClick={() => { setSaved(null); }}>مشاركة فكرة جديدة</Button></div> : <>
-          {url ? <SeekableVideo src={url} className="aspect-video w-full rounded-xl bg-slate-950" aria-label="معاينة تسجيل الشاشة والصوت" /> : <div className="flex aspect-[2.4] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/60"><div className="flex items-center gap-3 text-violet-500"><Monitor className="h-10 w-10" /><span className="h-1 w-5 rounded-full bg-violet-200" /><Mic className="h-7 w-7" /></div><span className="text-sm font-medium text-slate-700">{ticketMode ? "سجّل المشكلة داخل التذكرة" : "شارك فكرتك بالصوت والصورة"}</span><span className="text-xs text-slate-500">اختر تبويب النظام · حتى ساعة كاملة</span></div>}
+          {url ? <SeekableVideo src={url} className="aspect-video w-full rounded-xl bg-slate-950" aria-label="معاينة تسجيل الشاشة والصوت" /> : <div className="flex aspect-[2.4] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/60"><div className="flex items-center gap-3 text-violet-500"><Monitor className="h-10 w-10" /><span className="h-1 w-5 rounded-full bg-violet-200" /><Mic className="h-7 w-7" /></div><span className="text-sm font-medium text-slate-700">{ticketMode ? "سجّل المشكلة داخل التذكرة" : "شارك فكرتك بالصوت والصورة"}</span><span className="text-xs text-slate-500">اختر «الشاشة بأكملها» · حتى ساعة كاملة</span></div>}
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500"><span className="rounded-full bg-slate-100 px-2 py-1">{user?.companyName || "حساب شخصي"}</span><span dir="ltr">{user?.phone || user?.username}</span>{recording.blob && <span className="ms-auto">{(recording.blob.size / 1024 / 1024).toFixed(1)} MB · {clock}</span>}</div>
           {(error || recording.error) && <p role="alert" className="rounded-lg bg-rose-50 p-2 text-xs leading-6 text-rose-700">{error || recording.error}</p>}
           {recording.notice && !error && !recording.error && <p role="status" className="rounded-lg bg-amber-50 p-2 text-xs leading-6 text-amber-800">{recording.notice}</p>}

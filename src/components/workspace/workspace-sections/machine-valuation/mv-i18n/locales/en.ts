@@ -261,6 +261,7 @@ export const mvEn = {
       recentlyWorkedTitle: "Sort by most recently worked project",
     },
     filters: {
+      results: "{shown} of {total} projects",
       clear: "Clear filters",
     },
     pagination: {
@@ -995,6 +996,11 @@ export const mvEn = {
       selectSection: "Select all in asset",
       deselectSection: "Clear asset selection",
       noImagesInAsset: "No images in this asset",
+      previewImage: "Preview image",
+      previewNamedImage: "Preview image: {name}",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      resetZoom: "Reset image zoom",
       footerHint:
         "Ctrl+left-click to multi-select · left/right-drag to select or deselect automatically (no Ctrl).",
       done: "Done",

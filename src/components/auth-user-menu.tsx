@@ -139,7 +139,15 @@ export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {
           className="flex cursor-pointer items-center gap-2 text-rose-600 focus:text-rose-600"
           onSelect={(e) => {
             e.preventDefault();
-            void logout();
+            setAccountMenuOpen(false);
+            void (async () => {
+              try {
+                await logout();
+              } finally {
+                // Remove the prior tenant's URL as well as its in-memory UI.
+                router.replace("/value-tech");
+              }
+            })();
           }}
         >
           <LogOut className="h-4 w-4" />

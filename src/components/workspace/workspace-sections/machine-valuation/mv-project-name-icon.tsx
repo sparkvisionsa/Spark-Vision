@@ -29,8 +29,8 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { DynamicIcon, iconNames } from "lucide-react/dynamic";
 import { cn } from "@/lib/utils";
+import { PROJECT_ICON_NAMES } from "@/lib/project-icon-names";
 import { normalizeProjectIconName, projectIconInitial, projectIconKind, type ProjectIconKind } from "./mv-project-name-icon-kind";
 import { projectLibraryIcon, projectMaterialIcon } from "./mv-project-material-icon";
 
@@ -107,7 +107,7 @@ const KIND_TONES: Record<RecognizedKind, keyof typeof TONES> = {
 };
 
 const FALLBACK_TONES: Array<keyof typeof TONES> = ["blue", "emerald", "violet", "cyan", "amber", "rose"];
-const LIBRARY_ICON_NAMES = new Set<string>(iconNames);
+const LIBRARY_ICON_NAMES = new Set<string>(PROJECT_ICON_NAMES);
 
 function fallbackTone(name: string): keyof typeof TONES {
   const hash = Array.from(normalizeProjectIconName(name)).reduce((value, char) => (value * 31 + char.codePointAt(0)!) >>> 0, 0);
@@ -137,7 +137,9 @@ export function MvProjectNameIcon({ name }: { name: string }) {
     >
       <span className="pointer-events-none absolute inset-x-1 top-0 h-px bg-white/80" />
       {dynamicName ? (
-        <DynamicIcon name={dynamicName} className="relative h-[18px] w-[18px]" strokeWidth={1.8} fallback={() => initial} />
+        <svg className="relative h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <use href={`/project-icons.svg#${dynamicName}`} />
+        </svg>
       ) : Icon ? <Icon className="relative h-[18px] w-[18px]" strokeWidth={1.8} /> : initial}
     </span>
   );

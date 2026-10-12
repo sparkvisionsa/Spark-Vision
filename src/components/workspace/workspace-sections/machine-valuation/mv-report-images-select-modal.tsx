@@ -9,8 +9,12 @@ import {
   Square,
   CheckCheck,
   Eraser,
+  Eye,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
-import { Dialog, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MvDialogContent } from "./mv-dialog";
@@ -73,6 +77,97 @@ function cloneSelectionMap(sections: MvReportSelectAssetSection[]) {
   return map;
 }
 
+const MIN_PREVIEW_ZOOM = 0.5;
+const MAX_PREVIEW_ZOOM = 4;
+const PREVIEW_ZOOM_STEP = 0.25;
+const PREVIEW_FIT_RATIO = 0.9;
+
+function ReportImagePreviewDialog({
+  image,
+  onClose,
+}: {
+  image: MvReportSelectImageItem;
+  onClose: () => void;
+}) {
+  const { t, dir } = useMvI18n();
+  const [zoom, setZoom] = useState(1);
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!viewportElement) return;
+    const updateSize = () => setViewportSize({ width: viewportElement.clientWidth, height: viewportElement.clientHeight });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(viewportElement);
+    return () => observer.disconnect();
+  }, [viewportElement]);
+
+  const imageReady = naturalSize.width > 0 && naturalSize.height > 0 && viewportSize.width > 0 && viewportSize.height > 0;
+  const fitScale = imageReady
+    ? Math.min(1, (viewportSize.width * PREVIEW_FIT_RATIO) / naturalSize.width, (viewportSize.height * PREVIEW_FIT_RATIO) / naturalSize.height)
+    : 1;
+  const displayWidth = Math.max(1, Math.round(naturalSize.width * fitScale * zoom));
+  const displayHeight = Math.max(1, Math.round(naturalSize.height * fitScale * zoom));
+
+  return (
+    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <DialogContent
+        hideCloseButton
+        overlayClassName="z-[920]"
+        className="!flex h-[100dvh] w-screen max-w-none flex-col !gap-0 overflow-hidden border-0 bg-slate-950 p-0 shadow-2xl sm:h-[min(92dvh,900px)] sm:w-[min(96vw,1200px)] sm:rounded-xl sm:border sm:border-slate-700 z-[930]"
+        dir={dir}
+      >
+        <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-slate-900 px-3 text-white sm:px-4">
+          <DialogTitle className="min-w-0 flex-1 truncate text-[13px] font-bold sm:text-sm" dir="auto">
+            {image.name}
+          </DialogTitle>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={zoom <= MIN_PREVIEW_ZOOM} onClick={() => setZoom((value) => Math.max(MIN_PREVIEW_ZOOM, value - PREVIEW_ZOOM_STEP))} aria-label={t("assetImages.reportSelect.zoomOut")} title={t("assetImages.reportSelect.zoomOut")}>
+              <ZoomOut className="h-4 w-4" aria-hidden />
+            </Button>
+            <Button type="button" size="sm" variant="ghost" className="h-8 min-w-12 px-1 text-[11px] font-bold text-white hover:bg-white/15 hover:text-white" onClick={() => setZoom(1)} title={t("assetImages.reportSelect.resetZoom")} aria-label={t("assetImages.reportSelect.resetZoom")}>
+              {Math.round(zoom * 100)}%
+            </Button>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={zoom >= MAX_PREVIEW_ZOOM} onClick={() => setZoom((value) => Math.min(MAX_PREVIEW_ZOOM, value + PREVIEW_ZOOM_STEP))} aria-label={t("assetImages.reportSelect.zoomIn")} title={t("assetImages.reportSelect.zoomIn")}>
+              <ZoomIn className="h-4 w-4" aria-hidden />
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" size="icon" variant="ghost" className="ms-1 h-8 w-8 text-white hover:bg-white/15 hover:text-white" aria-label={t("common.close")} title={t("common.close")}>
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            </DialogClose>
+          </div>
+        </div>
+        <div ref={setViewportElement} data-report-image-preview-viewport className="min-h-0 flex-1 overflow-auto bg-slate-950">
+          {image.previewUrl ? (
+            <div
+              className="flex items-center justify-center p-4"
+              style={{
+                minWidth: Math.max(viewportSize.width, displayWidth + 32),
+                minHeight: Math.max(viewportSize.height, displayHeight + 32),
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={image.previewUrl}
+                alt={image.name}
+                draggable={false}
+                className="block max-h-full max-w-full object-contain shadow-2xl"
+                style={imageReady
+                  ? { width: displayWidth, height: displayHeight, maxWidth: "none", maxHeight: "none" }
+                  : { visibility: "hidden" }}
+                onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+              />
+            </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function MvReportImagesSelectModal({
   open,
   onOpenChange,
@@ -85,6 +180,7 @@ export function MvReportImagesSelectModal({
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [selectionMap, setSelectionMap] = useState<Map<string, boolean>>(() => cloneSelectionMap(sections));
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
+  const [previewImage, setPreviewImage] = useState<MvReportSelectImageItem | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const navItemRefs = useRef(new Map<string, HTMLElement>());
@@ -158,6 +254,7 @@ export function MvReportImagesSelectModal({
       setQuery("");
       setActiveSectionId(null);
       setMarquee(null);
+      setPreviewImage(null);
       activeFromClickRef.current = false;
       return;
     }
@@ -658,61 +755,79 @@ export function MvReportImagesSelectModal({
                           {section.images.map((image) => {
                             const composite = `${section.id}::${image.key}`;
                             return (
-                              <button
+                              <div
                                 key={image.key}
-                                type="button"
                                 data-report-image-card="true"
-                                disabled={image.disabled}
                                 ref={(el) => {
                                   if (el) imageRefs.current.set(composite, el);
                                   else imageRefs.current.delete(composite);
                                 }}
-                                onClick={() => {
-                                  if (dragMovedRef.current) return;
-                                  toggleImage(section.id, image.key);
-                                }}
                                 className={cn(
-                                  "group overflow-hidden rounded-xl border bg-white text-start shadow-sm transition",
+                                  "group relative overflow-hidden rounded-xl border bg-white text-start shadow-sm transition",
                                   image.selected
                                     ? "border-emerald-500 ring-2 ring-emerald-100"
                                     : "border-slate-200 hover:border-emerald-300",
-                                  image.disabled && "opacity-50",
                                 )}
                               >
-                                <div className="relative aspect-square bg-slate-100">
-                                  {image.previewUrl ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                      src={image.previewUrl}
-                                      alt=""
-                                      className="h-full w-full object-cover"
-                                      draggable={false}
-                                    />
-                                  ) : (
-                                    <div className="flex h-full items-center justify-center text-slate-300">
-                                      <ImageIcon className="h-8 w-8" />
-                                    </div>
-                                  )}
-                                  <span
-                                    className={cn(
-                                      "absolute start-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md bg-white/95 shadow-sm",
-                                      image.selected ? "text-emerald-700" : "text-slate-400",
-                                    )}
-                                  >
-                                    {image.selected ? (
-                                      <CheckSquare className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <Square className="h-3.5 w-3.5" />
-                                    )}
-                                  </span>
-                                </div>
-                                <div
-                                  className="truncate px-2 py-1.5 text-[10px] font-bold text-slate-700"
-                                  dir="auto"
+                                <button
+                                  type="button"
+                                  disabled={image.disabled}
+                                  onClick={() => {
+                                    if (dragMovedRef.current) return;
+                                    toggleImage(section.id, image.key);
+                                  }}
+                                  className="block w-full text-start disabled:opacity-50"
                                 >
-                                  {image.name}
-                                </div>
-                              </button>
+                                  <div className="relative aspect-square bg-slate-100">
+                                    {image.previewUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={image.previewUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                        draggable={false}
+                                      />
+                                    ) : (
+                                      <div className="flex h-full items-center justify-center text-slate-300">
+                                        <ImageIcon className="h-8 w-8" />
+                                      </div>
+                                    )}
+                                    <span
+                                      className={cn(
+                                        "absolute start-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md bg-white/95 shadow-sm",
+                                        image.selected ? "text-emerald-700" : "text-slate-400",
+                                      )}
+                                    >
+                                      {image.selected ? (
+                                        <CheckSquare className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <Square className="h-3.5 w-3.5" />
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div
+                                    className="truncate px-2 py-1.5 text-[10px] font-bold text-slate-700"
+                                    dir="auto"
+                                  >
+                                    {image.name}
+                                  </div>
+                                </button>
+                                {image.previewUrl ? (
+                                  <button
+                                    type="button"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setPreviewImage(image);
+                                    }}
+                                    className="absolute end-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-lg border border-white/80 bg-slate-900/85 text-white shadow-md transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                                    aria-label={t("assetImages.reportSelect.previewNamedImage", { name: image.name })}
+                                    title={t("assetImages.reportSelect.previewImage")}
+                                  >
+                                    <Eye className="h-4 w-4" aria-hidden />
+                                  </button>
+                                ) : null}
+                              </div>
                             );
                           })}
                         </div>
@@ -736,6 +851,7 @@ export function MvReportImagesSelectModal({
           </Button>
         </footer>
       </MvDialogContent>
+      {previewImage ? <ReportImagePreviewDialog image={previewImage} onClose={() => setPreviewImage(null)} /> : null}
     </Dialog>
   );
 }

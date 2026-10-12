@@ -260,6 +260,7 @@ export const mvAr = {
       recentlyWorkedTitle: "ترتيب حسب آخر مشروع تم العمل عليه",
     },
     filters: {
+      results: "{shown} من {total} مشروع",
       clear: "مسح التصفية",
     },
     pagination: {
@@ -994,6 +995,11 @@ export const mvAr = {
       selectSection: "تحديد كل صور الأصل",
       deselectSection: "إلغاء تحديد الأصل",
       noImagesInAsset: "لا توجد صور في هذا الأصل",
+      previewImage: "معاينة الصورة",
+      previewNamedImage: "معاينة الصورة: {name}",
+      zoomIn: "تكبير الصورة",
+      zoomOut: "تصغير الصورة",
+      resetZoom: "إعادة حجم الصورة",
       footerHint:
         "Ctrl+نقر يسار لتحديد متعدد · اسحب باليسار أو اليمين للتحديد/الإلغاء تلقائياً بدون Ctrl.",
       done: "تم",

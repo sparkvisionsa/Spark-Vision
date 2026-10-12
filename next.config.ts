@@ -18,6 +18,20 @@ const nextDistDir =
       ? ".next-production"
       : ".next";
 
+// Only development needs the longer client chunk timeout. Keeping the custom
+// Webpack hook out of production lets Next use its build worker there.
+const devWebpackConfig: Pick<NextConfig, "webpack"> =
+  process.env.NODE_ENV === "development"
+    ? {
+        webpack: (config, { isServer }) => {
+          if (!isServer) {
+            config.output = { ...config.output, chunkLoadTimeout: 5 * 60 * 1000 };
+          }
+          return config;
+        },
+      }
+    : {};
+
 const nextConfig: NextConfig = {
   distDir: nextDistDir,
   reactStrictMode: true,
@@ -35,10 +49,9 @@ const nextConfig: NextConfig = {
     },
   },
   onDemandEntries: {
-    // Keep recently visited routes in memory during dev for faster back/forward navigation
-    // Lower values reduce memory/CPU pressure in very large apps during dev.
-    maxInactiveAge: 15 * 60 * 1000,
-    pagesBufferLength: 40,
+    // Keep recent routes ready without retaining almost the whole workspace in memory.
+    maxInactiveAge: 2 * 60 * 1000,
+    pagesBufferLength: 8,
   },
   typescript: {
     // Keep production builds blocked on type errors.
@@ -47,14 +60,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  webpack: (config, { isServer }) => {
-    // Dev compiles of large client modules (company-admin-dashboard) can exceed
-    // Webpack's default 120s script timeout and surface as ChunkLoadError.
-    if (!isServer) {
-      config.output = { ...config.output, chunkLoadTimeout: 5 * 60 * 1000 };
-    }
-    return config;
-  },
+  ...devWebpackConfig,
   async rewrites() {
     const backendBaseUrl = backendOriginForRewrite();
     return {

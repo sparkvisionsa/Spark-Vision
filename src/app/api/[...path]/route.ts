@@ -80,6 +80,10 @@ async function proxyApiPathToBackend(request: NextRequest, context: RouteCtx) {
       const value = upstream.headers.get(name);
       if (value) outHeaders.set(name, value);
     }
+    // API responses can contain a different company's projects, files, or
+    // settings after the session cookie changes. Keep them out of the browser
+    // HTTP cache; feature-specific in-memory caches are cleared on auth change.
+    outHeaders.set("cache-control", "private, no-store");
 
     const response = new NextResponse(method === "HEAD" ? null : upstream.body, {
       status: upstream.status,

@@ -11,6 +11,11 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { toApiUrl } from "@/lib/api-url";
+import {
+  getAuthSessionEpoch,
+  isCurrentAuthSessionEpoch,
+  resetAuthBoundClientState,
+} from "@/lib/auth-session-state";
 
 type AuthUser = {
   id: string;
@@ -255,8 +260,20 @@ export default function AuthTrackingProvider({
   const heartbeatStartRef = useRef(Date.now());
   const scrollMilestoneRef = useRef(0);
   const sessionExpiryHandledRef = useRef(false);
+  const principalRef = useRef<string | null | undefined>(undefined);
+
+  const clearAuthenticatedState = useCallback((nextUser: AuthUser | null) => {
+    const nextPrincipal = nextUser
+      ? `${nextUser.id}:${nextUser.companyId ?? ""}:${nextUser.role}`
+      : null;
+    if (principalRef.current === nextPrincipal) return;
+    principalRef.current = nextPrincipal;
+    actionQueueRef.current = [];
+    resetAuthBoundClientState();
+  }, []);
 
   const applySnapshot = useCallback((snapshot: SessionPayload) => {
+    clearAuthenticatedState(snapshot.user ?? null);
     setUser(snapshot.user ?? null);
     setProfile(snapshot.profile ?? null);
     setGuestAccess(snapshot.guestAccess ?? null);
@@ -269,7 +286,7 @@ export default function AuthTrackingProvider({
       sessionExpiryHandledRef.current = false;
       setSessionExpiredNotice(false);
     }
-  }, []);
+  }, [clearAuthenticatedState]);
 
   const flushActions = useCallback(async () => {
     const batch = actionQueueRef.current.splice(0, 50);
@@ -354,12 +371,21 @@ export default function AuthTrackingProvider({
       setBackendUnavailable(false);
       applySnapshot(response);
     } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 401) {
+        clearAuthenticatedState(null);
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setCsrfToken("");
+      }
       setBackendUnavailable(isBackendUnavailableError(err));
     }
-  }, [applySnapshot]);
+  }, [applySnapshot, clearAuthenticatedState]);
 
   const login = useCallback(
     async (payload: { username?: string; phone?: string; password: string; rememberMe?: boolean }) => {
+      // A new credential must never inherit cached data from an earlier account.
+      clearAuthenticatedState(null);
       const response = await requestJson<{
         user: AuthUser;
         profile: Profile | null;
@@ -369,6 +395,7 @@ export default function AuthTrackingProvider({
         headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
         body: JSON.stringify(payload),
       });
+      clearAuthenticatedState(response.user);
       setUser(response.user);
       setProfile(response.profile);
       setGuestAccess(response.guestAccess);
@@ -380,7 +407,7 @@ export default function AuthTrackingProvider({
       });
       await refresh();
     },
-    [csrfToken, refresh, trackAction]
+    [clearAuthenticatedState, csrfToken, refresh, trackAction]
   );
 
   const register = useCallback(
@@ -398,6 +425,7 @@ export default function AuthTrackingProvider({
         headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
         body: JSON.stringify(payload),
       });
+      clearAuthenticatedState(response.user);
       setUser(response.user);
       setGuestAccess(response.guestAccess);
       trackAction({
@@ -408,19 +436,31 @@ export default function AuthTrackingProvider({
       });
       await refresh();
     },
-    [csrfToken, refresh, trackAction]
+    [clearAuthenticatedState, csrfToken, refresh, trackAction]
   );
 
   const logout = useCallback(async () => {
-    await requestJson<{ success: boolean }>("/api/auth/logout", {
-      method: "POST",
-      headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
-      body: JSON.stringify({}),
-    });
+    // Remove tenant data before waiting for the network. This prevents a slow
+    // logout request from leaving the former company's screen visible.
+    clearAuthenticatedState(null);
     setUser(null);
     setProfile(null);
-    await refresh();
-  }, [csrfToken, refresh]);
+    setSession(null);
+    setCsrfToken("");
+    let logoutConfirmed = false;
+    try {
+      await requestJson<{ success: boolean }>("/api/auth/logout", {
+        method: "POST",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : undefined,
+        body: JSON.stringify({}),
+      });
+      logoutConfirmed = true;
+    } finally {
+      // If the network request failed, remain signed out locally. Rehydrating
+      // the previous user would re-expose their workspace after logout.
+      if (logoutConfirmed) await refresh();
+    }
+  }, [clearAuthenticatedState, csrfToken, refresh]);
 
   const updateProfile = useCallback(
     async (payload: {
@@ -637,7 +677,17 @@ export default function AuthTrackingProvider({
         lowerUrl.includes("/api/syarah-scrape");
       const method = init?.method ?? "GET";
       const start = performance.now();
+      const authEpochAtStart = getAuthSessionEpoch();
       const response = await originalFetch(input, init);
+      // A response started by the previous user/company must not be consumed
+      // after credentials have changed. Returning 401 also stops callers that
+      // write fetched data into component or browser caches.
+      if (isApiRequest && !isCurrentAuthSessionEpoch(authEpochAtStart)) {
+        return new Response(JSON.stringify({ message: "Authentication context changed." }), {
+          status: 401,
+          headers: { "content-type": "application/json", "cache-control": "no-store" },
+        });
+      }
       const isAuthEntryEndpoint =
         lowerUrl.includes("/api/auth/login") ||
         lowerUrl.includes("/api/auth/register") ||
@@ -652,7 +702,7 @@ export default function AuthTrackingProvider({
         !sessionExpiryHandledRef.current
       ) {
         sessionExpiryHandledRef.current = true;
-        actionQueueRef.current = [];
+        clearAuthenticatedState(null);
         setUser(null);
         setProfile(null);
         setSession(null);
@@ -711,7 +761,7 @@ export default function AuthTrackingProvider({
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
-  }, [flushActions, trackAction, user]);
+  }, [clearAuthenticatedState, flushActions, trackAction, user]);
 
   useEffect(() => {
     if (!sessionExpiredNotice) return;

@@ -14,13 +14,15 @@ test("authenticated ticket conversation synchronizes between the user and suppor
   await authenticate(context, "owner");
   await page.goto("/support", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("الدعم والتذاكر", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "تذكرة جديدة", exact: true }).first().click();
+  await page.getByRole("button", { name: "إنشاء تذكرة", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("العنوان", { exact: true }).fill("تعذر تنزيل التقرير — اختبار المتصفح");
-  await dialog.getByLabel("الرسالة", { exact: true }).fill("أحتاج متابعة تنزيل التقرير النهائي.");
-  await dialog.getByRole("button", { name: "فتح التذكرة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "تعذر تنزيل التقرير — اختبار المتصفح", exact: true })).toBeVisible();
-  await expect(page.getByRole("log", { name: "رسائل التذكرة" }).getByText("أحتاج متابعة تنزيل التقرير النهائي.", { exact: true })).toBeVisible();
+  const request = "تعذر تنزيل التقرير — أحتاج متابعة تنزيل التقرير النهائي.";
+  await dialog.getByLabel("عنوان التذكرة أو رسالتك", { exact: true }).fill(request);
+  await expect(dialog.getByLabel("العنوان", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("الرسالة", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "إنشاء التذكرة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: request, exact: true })).toBeVisible();
+  await expect(page.getByRole("log", { name: "رسائل التذكرة" }).getByText(request, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "تسجيل الشاشة والصوت", exact: true })).toBeVisible();
   const ticketId = new URL(page.url()).searchParams.get("ticket");
   const agentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -30,7 +32,11 @@ test("authenticated ticket conversation synchronizes between the user and suppor
     await expect(agentPage.getByRole("heading", { name: "مركز الدعم", exact: true })).toBeVisible();
     await agentPage.getByLabel("رسالتك للدعم", { exact: true }).fill("مرحباً، سأتابع المشكلة معك الآن.");
     await agentPage.getByRole("button", { name: "إرسال الرسالة", exact: true }).click();
-    await expect(page.getByRole("log", { name: "رسائل التذكرة" }).getByText("مرحباً، سأتابع المشكلة معك الآن.", { exact: true })).toBeVisible();
+    const supportMessage = page.getByRole("log", { name: "رسائل التذكرة" }).getByText("مرحباً، سأتابع المشكلة معك الآن.", { exact: true });
+    await expect(supportMessage).toBeVisible();
+    const supportBubble = supportMessage.locator("xpath=ancestor::div[contains(@class,'rounded-2xl')][1]");
+    await expect(supportBubble.getByText("الدعم الفني", { exact: true })).toBeVisible();
+    await expect(supportBubble).not.toContainText("agent");
     await agentPage.getByLabel("حالة التذكرة", { exact: true }).selectOption("in_progress");
     await expect(page.getByText("قيد العمل", { exact: true }).last()).toBeVisible();
     await page.screenshot({ path: "test-results/support/ticket-desktop.png", fullPage: true });
@@ -90,4 +96,57 @@ test("screen and microphone recording can pause, preview and upload a playable a
   await page.getByRole("button", { name: /تسجيل متصفح للاختبار/ }).click();
   await expect(page.getByRole("heading", { name: "تسجيل متصفح للاختبار", exact: true })).toBeVisible();
   await expect(page.locator('video[src^="/api/support/files/"]')).toBeVisible();
+});
+
+test("ticket screen recording survives closing the conversation and keeps its ticket target", async ({ page, context }) => {
+  test.setTimeout(300_000);
+  await authenticate(context, "owner");
+  await page.goto("/support", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "إنشاء تذكرة", exact: true }).first().click();
+  const dialog = page.getByRole("dialog");
+  const subject = `تسجيل شاشة مستمر ${Date.now()}`;
+  const request = `${subject} — أريد تسجيل التنقل بين أجزاء النظام.`;
+  await dialog.getByLabel("عنوان التذكرة أو رسالتك", { exact: true }).fill(request);
+  await dialog.getByRole("button", { name: "إنشاء التذكرة", exact: true }).click();
+  await expect(page.getByRole("heading", { name: request, exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640; canvas.height = 360;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#0f172a"; context.fillRect(0, 0, 640, 360);
+    const stream = canvas.captureStream(15);
+    const track = stream.getVideoTracks()[0]!;
+    const getSettings = track.getSettings.bind(track);
+    track.getSettings = () => ({ ...getSettings(), displaySurface: "monitor" });
+    const audio = new AudioContext();
+    const oscillator = audio.createOscillator();
+    const destination = audio.createMediaStreamDestination();
+    oscillator.connect(destination); oscillator.start();
+    navigator.mediaDevices.getDisplayMedia = async (options) => {
+      (window as Window & { captureOptions?: DisplayMediaStreamOptions }).captureOptions = options;
+      return stream;
+    };
+    navigator.mediaDevices.getUserMedia = async () => destination.stream;
+  });
+
+  await page.getByRole("button", { name: "تسجيل الشاشة والصوت", exact: true }).click();
+  await page.getByRole("button", { name: "بدء التسجيل", exact: true }).click();
+  const controls = page.getByRole("region", { name: "التحكم في تسجيل التذكرة" });
+  await expect(controls).toBeVisible();
+  const captureOptions = await page.evaluate(() => (window as Window & { captureOptions?: DisplayMediaStreamOptions }).captureOptions);
+  expect((captureOptions?.video as { displaySurface?: string })?.displaySurface).toBe("monitor");
+  expect((captureOptions as DisplayMediaStreamOptions & { preferCurrentTab?: boolean }).preferCurrentTab).toBe(false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "العودة للتذاكر", exact: true }).click();
+  await expect(page.getByRole("heading", { name: request, exact: true })).not.toBeVisible();
+  await expect(controls).toBeVisible();
+  await page.waitForTimeout(1200);
+  await controls.getByRole("button", { name: "إنهاء التسجيل" }).click();
+  await expect(page.getByLabel("معاينة تسجيل الشاشة والصوت", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "إرسال داخل التذكرة", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "تسجيل الشاشة داخل التذكرة" })).not.toBeVisible();
+  await page.getByRole("button", { name: new RegExp(subject) }).click();
+  await expect(page.getByRole("log", { name: "رسائل التذكرة" }).locator('video[src^="/api/support/files/"]')).toBeVisible();
 });

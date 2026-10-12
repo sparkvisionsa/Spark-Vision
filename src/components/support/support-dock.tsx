@@ -87,7 +87,7 @@ function Guide({ article, onClose }: { article: SupportArticle; onClose: () => v
   </div>;
 }
 
-export default function SupportDock({ assistantOpen, onAssistantOpen, recorderOpen, onRecorderOpen }: { assistantOpen: boolean; onAssistantOpen: (value: boolean) => void; recorderOpen: boolean; onRecorderOpen: (value: boolean) => void }) {
+export default function SupportDock({ assistantOpen, onAssistantOpen, recorderOpen, onRecorderOpen, recordingTicketId }: { assistantOpen: boolean; onAssistantOpen: (value: boolean) => void; recorderOpen: boolean; onRecorderOpen: (value: boolean) => void; recordingTicketId: string | null }) {
   const pathname = usePathname() || "/";
   const [guide, setGuide] = useState<SupportArticle | null>(null);
   const dock = useRef<HTMLDivElement>(null);
@@ -132,7 +132,7 @@ export default function SupportDock({ assistantOpen, onAssistantOpen, recorderOp
       )}
     </div>
     <ValueTechAssistantChat open={assistantOpen} onOpenChange={onAssistantOpen} placement={placement} onStartGuide={setGuide} />
-    <ScreenRecorder open={recorderOpen} onOpenChange={recorderChange} />
+    <ScreenRecorder open={recorderOpen} onOpenChange={recorderChange} ticketId={recordingTicketId ?? undefined} onSent={(ticketId) => window.dispatchEvent(new CustomEvent("sv:support-recording-sent", { detail: { ticketId } }))} />
     {guide && <Guide key={guide.id} article={guide} onClose={() => setGuide(null)} />}
   </>;
 }

@@ -47,8 +47,6 @@ const labels = {
 } as const;
 
 type HelperRecordingContextValue = {
-  surface: RecorderSurface;
-  setSurface: (value: RecorderSurface) => void;
   withMicrophone: boolean;
   setWithMicrophone: (value: boolean) => void;
   withCamera: boolean;
@@ -97,20 +95,18 @@ export function HelperRecordingProvider({ children }: { children: ReactNode }) {
   );
   const ownerRef = useRef(owner);
   ownerRef.current = owner;
-  const [surface, setSurface] = useState<RecorderSurface>("any");
   const [withMicrophone, setWithMicrophone] = useState(true);
   const [withCamera, setWithCamera] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [description, setDescription] = useState("");
   const [libraryError, setLibraryError] = useState("");
   const [savedId, setSavedId] = useState<string | null>(null);
-  const [recordedSurface, setRecordedSurface] = useState<RecorderSurface>("any");
+  const recordedSurface: RecorderSurface = "any";
   const recordedSurfaceRef = useRef<RecorderSurface>("any");
   const savedKey = useRef("");
   const savingKey = useRef("");
   const remoteIdRef = useRef("");
   const recording = useScreenRecorder({
-    surface,
     microphone: withMicrophone ? "optional" : "off",
     camera: withCamera,
     systemAudio: true,
@@ -191,10 +187,8 @@ export function HelperRecordingProvider({ children }: { children: ReactNode }) {
   }, [savedId, description, owner, csrfToken]);
 
   const startRecording = useCallback(() => {
-    recordedSurfaceRef.current = surface;
-    setRecordedSurface(surface);
     void recording.start();
-  }, [recording, surface]);
+  }, [recording]);
 
   const newRecording = useCallback(() => {
     recording.reset();
@@ -205,13 +199,13 @@ export function HelperRecordingProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      surface, setSurface, withMicrophone, setWithMicrophone, withCamera, setWithCamera,
+      withMicrophone, setWithMicrophone, withCamera, setWithCamera,
       cameraError, setCameraError, description, setDescription,
       recording, recordedSurface, savedId, libraryError, owner, active, starting, isArabic,
       startRecording, newRecording, helperToolsOpen, openHelperTools, closeHelperTools,
     }),
     [
-      surface, withMicrophone, withCamera, cameraError, description,
+      withMicrophone, withCamera, cameraError, description,
       recording, recordedSurface, savedId, libraryError, owner, active, starting, isArabic,
       startRecording, newRecording, helperToolsOpen, openHelperTools, closeHelperTools,
     ],

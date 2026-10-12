@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CameraOff, Check, Download, Image as ImageIcon, Mic, MicOff, Monitor, MonitorSmartphone, Pencil, Plus, Trash2, Video, X } from "lucide-react";
+import { Camera, CameraOff, Check, Download, Image as ImageIcon, Mic, MicOff, MonitorSmartphone, Pencil, Plus, Trash2, Video, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,7 +47,7 @@ type SourceFilter = "all" | RecorderSurface;
 const text = {
   ar: {
     title: "تصوير الشاشة",
-    intro: "سجّل أي شاشة أو تبويب النظام، مع الميكروفون والكاميرا اختيارياً.",
+    intro: "سجّل الشاشة بأكملها أثناء التنقل بين صفحات النظام والتطبيقات، مع الميكروفون والكاميرا اختيارياً.",
     source: "المصدر",
     system: "النظام",
     any: "تسجيل عام",
@@ -87,7 +87,7 @@ const text = {
   },
   en: {
     title: "Screen capture",
-    intro: "Record any screen or this system tab, with optional microphone and camera.",
+    intro: "Record the entire screen while moving between pages and apps, with optional microphone and camera.",
     source: "Source",
     system: "This system",
     any: "Entire screen",
@@ -142,7 +142,7 @@ function formatSize(bytes: number) {
 export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }) {
   const labels = arabic ? text.ar : text.en;
   const {
-    surface, setSurface, withMicrophone, setWithMicrophone, withCamera, setWithCamera,
+    withMicrophone, setWithMicrophone, withCamera, setWithCamera,
     cameraError, setCameraError, description, setDescription,
     recording, recordedSurface, savedId, libraryError, owner, active, starting,
     startRecording, newRecording,
@@ -316,26 +316,11 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
       <section className={cn("space-y-3 rounded-xl border bg-white p-3", live ? "border-red-200" : "border-slate-200")}>
         <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2">
           <p className="text-[11px] font-bold text-slate-400">{labels.source}</p>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={labels.source}>
-            {([
-              { id: "any" as const, label: labels.any, icon: MonitorSmartphone },
-              { id: "system" as const, label: labels.system, icon: Monitor },
-            ]).map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                disabled={settingsLocked}
-                aria-pressed={surface === id}
-                onClick={() => setSurface(id)}
-                className={cn(
-                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60",
-                  surface === id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-1.5" aria-label={labels.source}>
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white">
+              <MonitorSmartphone className="h-3.5 w-3.5" />
+              {labels.any}
+            </span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -455,7 +440,6 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
             {([
               { id: "all" as const, label: labels.all },
               { id: "any" as const, label: labels.any },
-              { id: "system" as const, label: labels.system },
             ]).map(({ id, label }) => (
               <button
                 key={id}
