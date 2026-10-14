@@ -11,11 +11,41 @@ function Fixture() {
     <MvReportImagesSelectModal
       open={open}
       onOpenChange={setOpen}
-      sections={[{
-        id: "asset-1",
-        name: "فرن حراري",
-        images: [{ key: "image-1", name: "فرن حراري", previewUrl, selected: false }],
-      }]}
+      sections={[
+        {
+          id: "asset-1",
+          name: "فرن حراري",
+          pathLabel: "خط الإنتاج / الأفران",
+          images: Array.from({ length: 5 }, (_, index) => ({
+            key: `oven-${index + 1}`,
+            name: `فرن حراري ${index + 1}`,
+            previewUrl,
+            selected: false,
+          })),
+        },
+        {
+          id: "asset-2",
+          name: "رافعة شوكية",
+          pathLabel: "المستودع الرئيسي",
+          images: Array.from({ length: 5 }, (_, index) => ({
+            key: `forklift-${index + 1}`,
+            name: `رافعة شوكية ${index + 1}`,
+            previewUrl,
+            selected: false,
+          })),
+        },
+        {
+          id: "asset-3",
+          name: "مولد احتياطي",
+          pathLabel: "غرفة الطاقة",
+          images: Array.from({ length: 5 }, (_, index) => ({
+            key: `generator-${index + 1}`,
+            name: `مولد احتياطي ${index + 1}`,
+            previewUrl,
+            selected: false,
+          })),
+        },
+      ]}
       onApplySelection={() => {}}
     />
   );

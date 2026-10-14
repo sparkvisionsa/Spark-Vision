@@ -60,6 +60,14 @@ type MarqueeState = {
   mode: "auto" | "toggle";
 };
 
+type PreviewTransform = {
+  zoom: number;
+  x: number;
+  y: number;
+};
+
+type PreviewPoint = { x: number; y: number };
+
 function rectsIntersect(
   a: { left: number; top: number; right: number; bottom: number },
   b: { left: number; top: number; right: number; bottom: number },
@@ -82,6 +90,25 @@ const MAX_PREVIEW_ZOOM = 4;
 const PREVIEW_ZOOM_STEP = 0.25;
 const PREVIEW_FIT_RATIO = 0.9;
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampPreviewTransform(
+  transform: PreviewTransform,
+  viewport: { width: number; height: number },
+  fittedImage: { width: number; height: number },
+): PreviewTransform {
+  const zoom = clampNumber(transform.zoom, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
+  const maxX = Math.max(0, (fittedImage.width * zoom - viewport.width) / 2);
+  const maxY = Math.max(0, (fittedImage.height * zoom - viewport.height) / 2);
+  return {
+    zoom,
+    x: clampNumber(transform.x, -maxX, maxX),
+    y: clampNumber(transform.y, -maxY, maxY),
+  };
+}
+
 function ReportImagePreviewDialog({
   image,
   onClose,
@@ -90,10 +117,19 @@ function ReportImagePreviewDialog({
   onClose: () => void;
 }) {
   const { t, dir } = useMvI18n();
-  const [zoom, setZoom] = useState(1);
+  const [transform, setTransform] = useState<PreviewTransform>({ zoom: 1, x: 0, y: 0 });
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const transformRef = useRef(transform);
+  const pointersRef = useRef(new Map<number, PreviewPoint>());
+  const dragStartRef = useRef<{ point: PreviewPoint; transform: PreviewTransform } | null>(null);
+  const pinchStartRef = useRef<{
+    distance: number;
+    midpoint: PreviewPoint;
+    transform: PreviewTransform;
+  } | null>(null);
 
   useEffect(() => {
     if (!viewportElement) return;
@@ -108,8 +144,157 @@ function ReportImagePreviewDialog({
   const fitScale = imageReady
     ? Math.min(1, (viewportSize.width * PREVIEW_FIT_RATIO) / naturalSize.width, (viewportSize.height * PREVIEW_FIT_RATIO) / naturalSize.height)
     : 1;
-  const displayWidth = Math.max(1, Math.round(naturalSize.width * fitScale * zoom));
-  const displayHeight = Math.max(1, Math.round(naturalSize.height * fitScale * zoom));
+  const fittedImage = useMemo(() => ({
+    width: Math.max(1, Math.round(naturalSize.width * fitScale)),
+    height: Math.max(1, Math.round(naturalSize.height * fitScale)),
+  }), [fitScale, naturalSize.height, naturalSize.width]);
+
+  const commitTransform = useCallback((next: PreviewTransform) => {
+    const clamped = clampPreviewTransform(next, viewportSize, fittedImage);
+    transformRef.current = clamped;
+    setTransform(clamped);
+  }, [fittedImage, viewportSize]);
+
+  const zoomAtPoint = useCallback((nextZoom: number, point?: PreviewPoint) => {
+    const current = transformRef.current;
+    const zoom = clampNumber(nextZoom, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
+    const anchor = point ?? { x: viewportSize.width / 2, y: viewportSize.height / 2 };
+    const offsetX = anchor.x - viewportSize.width / 2;
+    const offsetY = anchor.y - viewportSize.height / 2;
+    const ratio = zoom / current.zoom;
+    commitTransform({
+      zoom,
+      x: offsetX - (offsetX - current.x) * ratio,
+      y: offsetY - (offsetY - current.y) * ratio,
+    });
+  }, [commitTransform, viewportSize.height, viewportSize.width]);
+
+  const resetTransform = useCallback(() => {
+    commitTransform({ zoom: 1, x: 0, y: 0 });
+  }, [commitTransform]);
+
+  useEffect(() => {
+    commitTransform(transformRef.current);
+  }, [commitTransform]);
+
+  const viewportPoint = useCallback((clientX: number, clientY: number) => {
+    const rect = viewportElement?.getBoundingClientRect();
+    return rect ? { x: clientX - rect.left, y: clientY - rect.top } : { x: 0, y: 0 };
+  }, [viewportElement]);
+
+  const beginPinch = useCallback(() => {
+    const points = Array.from(pointersRef.current.values());
+    if (points.length < 2) {
+      pinchStartRef.current = null;
+      return;
+    }
+    const [first, second] = points;
+    pinchStartRef.current = {
+      distance: Math.max(1, Math.hypot(second!.x - first!.x, second!.y - first!.y)),
+      midpoint: { x: (first!.x + second!.x) / 2, y: (first!.y + second!.y) / 2 },
+      transform: transformRef.current,
+    };
+  }, []);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!imageReady) return;
+    event.preventDefault();
+    event.currentTarget.focus({ preventScroll: true });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = viewportPoint(event.clientX, event.clientY);
+    pointersRef.current.set(event.pointerId, point);
+    if (pointersRef.current.size >= 2) {
+      beginPinch();
+      dragStartRef.current = null;
+    } else {
+      dragStartRef.current = { point, transform: transformRef.current };
+      setDragging(transformRef.current.zoom > 1);
+    }
+  }, [beginPinch, imageReady, viewportPoint]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointersRef.current.has(event.pointerId)) return;
+    event.preventDefault();
+    const point = viewportPoint(event.clientX, event.clientY);
+    pointersRef.current.set(event.pointerId, point);
+    const points = Array.from(pointersRef.current.values());
+
+    if (points.length >= 2 && pinchStartRef.current) {
+      const [first, second] = points;
+      const pinch = pinchStartRef.current;
+      const distance = Math.max(1, Math.hypot(second!.x - first!.x, second!.y - first!.y));
+      const midpoint = { x: (first!.x + second!.x) / 2, y: (first!.y + second!.y) / 2 };
+      const zoom = clampNumber(pinch.transform.zoom * distance / pinch.distance, MIN_PREVIEW_ZOOM, MAX_PREVIEW_ZOOM);
+      const startOffsetX = pinch.midpoint.x - viewportSize.width / 2;
+      const startOffsetY = pinch.midpoint.y - viewportSize.height / 2;
+      const currentOffsetX = midpoint.x - viewportSize.width / 2;
+      const currentOffsetY = midpoint.y - viewportSize.height / 2;
+      const ratio = zoom / pinch.transform.zoom;
+      commitTransform({
+        zoom,
+        x: currentOffsetX - (startOffsetX - pinch.transform.x) * ratio,
+        y: currentOffsetY - (startOffsetY - pinch.transform.y) * ratio,
+      });
+      setDragging(true);
+      return;
+    }
+
+    const dragStart = dragStartRef.current;
+    if (!dragStart || transformRef.current.zoom <= 1) return;
+    commitTransform({
+      ...transformRef.current,
+      x: dragStart.transform.x + point.x - dragStart.point.x,
+      y: dragStart.transform.y + point.y - dragStart.point.y,
+    });
+    setDragging(true);
+  }, [commitTransform, viewportPoint, viewportSize.height, viewportSize.width]);
+
+  const handlePointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(event.pointerId);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* pointer capture may already be released */
+    }
+    if (pointersRef.current.size >= 2) {
+      beginPinch();
+      return;
+    }
+    pinchStartRef.current = null;
+    const remaining = Array.from(pointersRef.current.values())[0];
+    dragStartRef.current = remaining ? { point: remaining, transform: transformRef.current } : null;
+    if (!remaining) setDragging(false);
+  }, [beginPinch]);
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (!imageReady) return;
+    event.preventDefault();
+    const intensity = event.deltaMode === 1 ? 0.06 : 0.002;
+    const nextZoom = transformRef.current.zoom * Math.exp(-event.deltaY * intensity);
+    zoomAtPoint(nextZoom, viewportPoint(event.clientX, event.clientY));
+  }, [imageReady, viewportPoint, zoomAtPoint]);
+
+  const handlePreviewKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const current = transformRef.current;
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomAtPoint(current.zoom + PREVIEW_ZOOM_STEP);
+    } else if (event.key === "-") {
+      event.preventDefault();
+      zoomAtPoint(current.zoom - PREVIEW_ZOOM_STEP);
+    } else if (event.key === "0") {
+      event.preventDefault();
+      resetTransform();
+    } else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && current.zoom > 1) {
+      event.preventDefault();
+      const step = 36;
+      commitTransform({
+        ...current,
+        x: current.x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0),
+        y: current.y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0),
+      });
+    }
+  }, [commitTransform, resetTransform, zoomAtPoint]);
 
   return (
     <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
@@ -118,19 +303,24 @@ function ReportImagePreviewDialog({
         overlayClassName="z-[920]"
         className="!flex h-[100dvh] w-screen max-w-none flex-col !gap-0 overflow-hidden border-0 bg-slate-950 p-0 shadow-2xl sm:h-[min(92dvh,900px)] sm:w-[min(96vw,1200px)] sm:rounded-xl sm:border sm:border-slate-700 z-[930]"
         dir={dir}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }}
       >
         <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-slate-900 px-3 text-white sm:px-4">
           <DialogTitle className="min-w-0 flex-1 truncate text-[13px] font-bold sm:text-sm" dir="auto">
             {image.name}
           </DialogTitle>
           <div className="flex shrink-0 items-center gap-1">
-            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={zoom <= MIN_PREVIEW_ZOOM} onClick={() => setZoom((value) => Math.max(MIN_PREVIEW_ZOOM, value - PREVIEW_ZOOM_STEP))} aria-label={t("assetImages.reportSelect.zoomOut")} title={t("assetImages.reportSelect.zoomOut")}>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={transform.zoom <= MIN_PREVIEW_ZOOM} onClick={() => zoomAtPoint(transformRef.current.zoom - PREVIEW_ZOOM_STEP)} aria-label={t("assetImages.reportSelect.zoomOut")} title={t("assetImages.reportSelect.zoomOut")}>
               <ZoomOut className="h-4 w-4" aria-hidden />
             </Button>
-            <Button type="button" size="sm" variant="ghost" className="h-8 min-w-12 px-1 text-[11px] font-bold text-white hover:bg-white/15 hover:text-white" onClick={() => setZoom(1)} title={t("assetImages.reportSelect.resetZoom")} aria-label={t("assetImages.reportSelect.resetZoom")}>
-              {Math.round(zoom * 100)}%
+            <Button type="button" size="sm" variant="ghost" className="h-8 min-w-12 px-1 text-[11px] font-bold tabular-nums text-white hover:bg-white/15 hover:text-white" onClick={resetTransform} title={t("assetImages.reportSelect.resetZoom")} aria-label={t("assetImages.reportSelect.resetZoom")}>
+              {Math.round(transform.zoom * 100)}%
             </Button>
-            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={zoom >= MAX_PREVIEW_ZOOM} onClick={() => setZoom((value) => Math.min(MAX_PREVIEW_ZOOM, value + PREVIEW_ZOOM_STEP))} aria-label={t("assetImages.reportSelect.zoomIn")} title={t("assetImages.reportSelect.zoomIn")}>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-white hover:bg-white/15 hover:text-white" disabled={transform.zoom >= MAX_PREVIEW_ZOOM} onClick={() => zoomAtPoint(transformRef.current.zoom + PREVIEW_ZOOM_STEP)} aria-label={t("assetImages.reportSelect.zoomIn")} title={t("assetImages.reportSelect.zoomIn")}>
               <ZoomIn className="h-4 w-4" aria-hidden />
             </Button>
             <DialogClose asChild>
@@ -140,28 +330,192 @@ function ReportImagePreviewDialog({
             </DialogClose>
           </div>
         </div>
-        <div ref={setViewportElement} data-report-image-preview-viewport className="min-h-0 flex-1 overflow-auto bg-slate-950">
+        <div
+          ref={setViewportElement}
+          data-report-image-preview-viewport
+          className={cn(
+            "relative min-h-0 flex-1 touch-none overflow-hidden bg-slate-950 outline-none",
+            transform.zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
+          )}
+          tabIndex={0}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onKeyDown={handlePreviewKeyDown}
+          onDoubleClick={(event) => {
+            const point = viewportPoint(event.clientX, event.clientY);
+            if (transformRef.current.zoom > 1) resetTransform();
+            else zoomAtPoint(2, point);
+          }}
+          aria-label={t("assetImages.reportSelect.zoomSurfaceLabel", { name: image.name })}
+        >
           {image.previewUrl ? (
-            <div
-              className="flex items-center justify-center p-4"
-              style={{
-                minWidth: Math.max(viewportSize.width, displayWidth + 32),
-                minHeight: Math.max(viewportSize.height, displayHeight + 32),
-              }}
-            >
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={image.previewUrl}
                 alt={image.name}
                 draggable={false}
-                className="block max-h-full max-w-full object-contain shadow-2xl"
+                className={cn(
+                  "block select-none object-contain shadow-2xl will-change-transform",
+                  dragging ? "duration-0" : "transition-transform duration-150 ease-out",
+                )}
                 style={imageReady
-                  ? { width: displayWidth, height: displayHeight, maxWidth: "none", maxHeight: "none" }
+                  ? {
+                      width: fittedImage.width,
+                      height: fittedImage.height,
+                      maxWidth: "none",
+                      maxHeight: "none",
+                      transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.zoom})`,
+                    }
                   : { visibility: "hidden" }}
                 onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
               />
             </div>
           ) : null}
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3">
+            <span className="rounded-full border border-white/10 bg-black/55 px-3 py-1.5 text-center text-[10px] font-semibold text-white/80 shadow-lg backdrop-blur-sm sm:text-[11px]">
+              {t("assetImages.reportSelect.zoomHint")}
+            </span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AllReportImagesDialog({
+  open,
+  onOpenChange,
+  sections,
+  saving,
+  onToggleImage,
+  onPreviewImage,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sections: MvReportSelectAssetSection[];
+  saving: boolean;
+  onToggleImage: (sectionId: string, imageKey: string) => void;
+  onPreviewImage: (image: MvReportSelectImageItem) => void;
+}) {
+  const { t, dir } = useMvI18n();
+  const imageCount = useMemo(
+    () => sections.reduce((total, section) => total + section.images.length, 0),
+    [sections],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        hideCloseButton
+        overlayClassName="z-[920]"
+        className="!flex h-[100dvh] w-screen max-w-none flex-col !gap-0 overflow-hidden border-0 bg-slate-100 p-0 shadow-2xl sm:h-[min(94dvh,940px)] sm:w-[min(94vw,1040px)] sm:rounded-xl sm:border sm:border-slate-200 z-[930]"
+        dir={dir}
+      >
+        <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3 py-2.5 sm:px-4">
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="truncate text-[14px] font-black text-slate-900 sm:text-[15px]">
+              {t("assetImages.reportSelect.allImagesTitle")}
+            </DialogTitle>
+            <p className="mt-0.5 text-[10px] font-semibold text-slate-500 sm:text-[11px]">
+              {t("assetImages.reportSelect.allImagesSubtitle")} · {t("assetImages.reportSelect.assetImagesCount", { count: imageCount })}
+            </p>
+          </div>
+          <DialogClose asChild>
+            <Button type="button" size="icon" variant="ghost" className="h-9 w-9 shrink-0 rounded-full" aria-label={t("common.close")} title={t("common.close")}>
+              <X className="h-4 w-4" aria-hidden />
+            </Button>
+          </DialogClose>
+        </header>
+
+        <div data-report-all-images-scroll className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:p-5">
+          {imageCount === 0 ? (
+            <div className="flex min-h-full flex-col items-center justify-center text-slate-400">
+              <ImageIcon className="h-10 w-10" aria-hidden />
+              <p className="mt-2 text-[12px] font-bold">{t("assetImages.reportSelect.empty")}</p>
+            </div>
+          ) : (
+            <div className="mx-auto max-w-4xl space-y-6">
+              {sections.map((section) => (
+                <section key={section.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur sm:px-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-[13px] font-black text-slate-900 sm:text-sm" dir="auto">{section.name}</h3>
+                        {section.pathLabel ? <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-500" dir="auto">{section.pathLabel}</p> : null}
+                      </div>
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800">
+                        {t("assetImages.reportSelect.assetImagesCount", { count: section.images.length })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {section.images.length === 0 ? (
+                    <p className="px-3 py-8 text-center text-[11px] font-semibold text-slate-500">
+                      {t("assetImages.reportSelect.noImagesInAsset")}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-slate-200">
+                      {section.images.map((image) => (
+                        <article key={image.key} className="p-2.5 sm:p-4">
+                          <div className={cn(
+                            "relative overflow-hidden rounded-xl border bg-slate-950 shadow-sm transition",
+                            image.selected ? "border-emerald-500 ring-2 ring-emerald-100" : "border-slate-200",
+                          )}>
+                            {image.previewUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => onPreviewImage(image)}
+                                className="group relative block w-full cursor-zoom-in overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400"
+                                aria-label={t("assetImages.reportSelect.previewNamedImage", { name: image.name })}
+                                title={t("assetImages.reportSelect.previewNamedImage", { name: image.name })}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={image.previewUrl}
+                                  alt={image.name}
+                                  loading="lazy"
+                                  decoding="async"
+                                  draggable={false}
+                                  className="mx-auto block max-h-[68dvh] min-h-[220px] w-full object-contain transition duration-300 group-hover:scale-[1.01] sm:min-h-[300px]"
+                                />
+                                <span className="absolute bottom-3 end-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-slate-950/75 text-white shadow-lg backdrop-blur transition group-hover:scale-105 group-hover:bg-emerald-700">
+                                  <ZoomIn className="h-4 w-4" aria-hidden />
+                                </span>
+                              </button>
+                            ) : (
+                              <div className="flex min-h-[240px] items-center justify-center text-slate-500">
+                                <ImageIcon className="h-10 w-10" aria-hidden />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={image.selected}
+                              aria-label={t("assetImages.reportSelect.selectNamedImage", { name: image.name })}
+                              title={t("assetImages.reportSelect.selectNamedImage", { name: image.name })}
+                              disabled={saving || image.disabled}
+                              onClick={() => onToggleImage(section.id, image.key)}
+                              className={cn(
+                                "absolute start-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg border border-white/80 bg-white/95 shadow-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 disabled:opacity-50",
+                                image.selected ? "text-emerald-700" : "text-slate-500 hover:text-emerald-700",
+                              )}
+                            >
+                              {image.selected ? <CheckSquare className="h-5 w-5" aria-hidden /> : <Square className="h-5 w-5" aria-hidden />}
+                            </button>
+                          </div>
+                          <p className="mt-2 truncate px-1 text-[11px] font-bold text-slate-700" dir="auto">{image.name}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -181,6 +535,7 @@ export function MvReportImagesSelectModal({
   const [selectionMap, setSelectionMap] = useState<Map<string, boolean>>(() => cloneSelectionMap(sections));
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [previewImage, setPreviewImage] = useState<MvReportSelectImageItem | null>(null);
+  const [allImagesOpen, setAllImagesOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const navItemRefs = useRef(new Map<string, HTMLElement>());
@@ -189,8 +544,9 @@ export function MvReportImagesSelectModal({
   const selectionMapRef = useRef(selectionMap);
   const baselineRef = useRef<Map<string, boolean>>(new Map());
   const dragMovedRef = useRef(false);
-  const activeFromClickRef = useRef(false);
   const activeSectionIdRef = useRef<string | null>(null);
+  const filteredSectionIdsRef = useRef<string[]>([]);
+  const scrollSpyFrameRef = useRef(0);
 
   useEffect(() => {
     selectionMapRef.current = selectionMap;
@@ -238,6 +594,8 @@ export function MvReportImagesSelectModal({
     () => filteredSections.map((section) => section.id),
     [filteredSections],
   );
+  filteredSectionIdsRef.current = filteredSectionIds;
+  const filteredSectionKey = filteredSectionIds.join("\u001f");
 
   const totals = useMemo(() => {
     let total = 0;
@@ -255,72 +613,99 @@ export function MvReportImagesSelectModal({
       setActiveSectionId(null);
       setMarquee(null);
       setPreviewImage(null);
-      activeFromClickRef.current = false;
+      setAllImagesOpen(false);
       return;
     }
     if (filteredSections[0]) setActiveSectionId(filteredSections[0].id);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** تنشيط رابط الأصل حسب القسم الظاهر من أعلى منطقة الصور */
+  const syncActiveSectionFromViewport = useCallback(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const sections = filteredSectionIdsRef.current
+      .map((id) => {
+        const element = sectionRefs.current.get(id);
+        return element ? { id, element } : null;
+      })
+      .filter((row): row is { id: string; element: HTMLElement } => row != null);
+    if (sections.length === 0) {
+      if (activeSectionIdRef.current !== null) setActiveSectionId(null);
+      return;
+    }
+
+    const rootRect = root.getBoundingClientRect();
+    const viewportTop = rootRect.top;
+    const viewportBottom = rootRect.bottom;
+    const markerY = viewportTop + root.clientHeight * 0.35;
+    let bestId = sections[0]!.id;
+    let bestVisibleHeight = -1;
+    let markerMatch: string | null = null;
+
+    for (const { id, element } of sections) {
+      const rect = element.getBoundingClientRect();
+      if (rect.top <= markerY && rect.bottom >= markerY) markerMatch = id;
+      const visibleHeight = Math.max(
+        0,
+        Math.min(rect.bottom, viewportBottom) - Math.max(rect.top, viewportTop),
+      );
+      if (visibleHeight > bestVisibleHeight) {
+        bestVisibleHeight = visibleHeight;
+        bestId = id;
+      }
+    }
+    if (markerMatch) bestId = markerMatch;
+
+    if (
+      root.scrollHeight > root.clientHeight + 1
+      && root.scrollTop + root.clientHeight >= root.scrollHeight - 12
+    ) {
+      bestId = sections[sections.length - 1]!.id;
+    }
+
+    if (bestId !== activeSectionIdRef.current) setActiveSectionId(bestId);
+  }, []);
+
+  const scheduleScrollSpySync = useCallback(() => {
+    if (scrollSpyFrameRef.current !== 0) return;
+    scrollSpyFrameRef.current = requestAnimationFrame(() => {
+      scrollSpyFrameRef.current = 0;
+      syncActiveSectionFromViewport();
+    });
+  }, [syncActiveSectionFromViewport]);
+
+  /** ScrollSpy ثابت حتى مع تحميل الصور أو تغيّر ارتفاع الأقسام أثناء التمرير. */
   useEffect(() => {
     if (!open) return;
     const root = scrollRef.current;
-    if (!root || filteredSectionIds.length === 0) return;
+    if (!root || filteredSectionIdsRef.current.length === 0) return;
+    const elements = filteredSectionIdsRef.current
+      .map((id) => sectionRefs.current.get(id))
+      .filter((element): element is HTMLElement => Boolean(element));
 
-    let frame = 0;
-    const syncActiveFromScroll = () => {
-      if (activeFromClickRef.current) return;
-
-      const sections = filteredSectionIds
-        .map((id) => {
-          const el = sectionRefs.current.get(id);
-          return el ? { id, el } : null;
-        })
-        .filter((row): row is { id: string; el: HTMLElement } => row != null);
-      if (sections.length === 0) return;
-
-      const rootRect = root.getBoundingClientRect();
-      // خط التتبع عند أعلى منطقة التمرير (مع هامش بسيط تحت الترويسة الداخلية)
-      const markerY = rootRect.top + 20;
-
-      let bestId = sections[0]!.id;
-      for (const { id, el } of sections) {
-        if (el.getBoundingClientRect().top <= markerY) {
-          bestId = id;
-        } else {
-          break;
-        }
-      }
-
-      // عند الوصول لنهاية التمرير: نشّط آخر أصل ظاهر
-      if (root.scrollTop + root.clientHeight >= root.scrollHeight - 12) {
-        bestId = sections[sections.length - 1]!.id;
-      }
-
-      if (bestId !== activeSectionIdRef.current) {
-        setActiveSectionId(bestId);
-      }
-    };
-
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(syncActiveFromScroll);
-    };
-
-    root.addEventListener("scroll", onScroll, { passive: true });
-    // بعد رسم الأقسام (refs) أعد المزامنة
-    const boot = window.setTimeout(syncActiveFromScroll, 0);
-    const boot2 = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(syncActiveFromScroll);
+    const intersectionObserver = new IntersectionObserver(scheduleScrollSpySync, {
+      root,
+      threshold: [0, 0.01, 0.25, 0.5, 0.75, 1],
     });
+    const resizeObserver = new ResizeObserver(scheduleScrollSpySync);
+    resizeObserver.observe(root);
+    for (const element of elements) {
+      intersectionObserver.observe(element);
+      resizeObserver.observe(element);
+    }
+
+    const boot = window.setTimeout(scheduleScrollSpySync, 0);
+    const settle = window.setTimeout(scheduleScrollSpySync, 180);
+    scheduleScrollSpySync();
 
     return () => {
-      cancelAnimationFrame(frame);
-      cancelAnimationFrame(boot2);
       window.clearTimeout(boot);
-      root.removeEventListener("scroll", onScroll);
+      window.clearTimeout(settle);
+      cancelAnimationFrame(scrollSpyFrameRef.current);
+      scrollSpyFrameRef.current = 0;
+      intersectionObserver.disconnect();
+      resizeObserver.disconnect();
     };
-  }, [filteredSectionIds, open]);
+  }, [filteredSectionKey, open, scheduleScrollSpySync]);
 
   /** إبقاء رابط الأصل النشط ظاهرًا داخل قائمة التنقل */
   useEffect(() => {
@@ -330,9 +715,10 @@ export function MvReportImagesSelectModal({
     if (!item || !nav) return;
     const itemRect = item.getBoundingClientRect();
     const navRect = nav.getBoundingClientRect();
-    if (itemRect.top < navRect.top + 4 || itemRect.bottom > navRect.bottom - 4) {
-      item.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
+    let delta = 0;
+    if (itemRect.top < navRect.top + 4) delta = itemRect.top - navRect.top - 4;
+    else if (itemRect.bottom > navRect.bottom - 4) delta = itemRect.bottom - navRect.bottom + 4;
+    if (delta !== 0) nav.scrollTo({ top: nav.scrollTop + delta, behavior: "smooth" });
   }, [activeSectionId, open]);
 
   const commitLocalUpdates = useCallback((updates: MvReportSelectUpdate[]) => {
@@ -386,7 +772,6 @@ export function MvReportImagesSelectModal({
     const el = sectionRefs.current.get(sectionId);
     const root = scrollRef.current;
     if (!el || !root) return;
-    activeFromClickRef.current = true;
     setActiveSectionId(sectionId);
     const rootTop = root.getBoundingClientRect().top;
     const elTop = el.getBoundingClientRect().top;
@@ -394,9 +779,6 @@ export function MvReportImagesSelectModal({
       top: root.scrollTop + (elTop - rootTop) - 8,
       behavior: "smooth",
     });
-    window.setTimeout(() => {
-      activeFromClickRef.current = false;
-    }, 450);
   }, []);
 
   const jumpToFirstIncomplete = useCallback(() => {
@@ -584,7 +966,7 @@ export function MvReportImagesSelectModal({
           </div>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="relative min-w-0 w-full flex-1 sm:min-w-[200px]">
+            <div className="relative w-full min-w-0 sm:w-[240px] lg:w-[280px]">
               <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
@@ -594,6 +976,17 @@ export function MvReportImagesSelectModal({
               />
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 rounded-lg border-emerald-200 text-[11px] font-bold text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900"
+                onClick={() => setAllImagesOpen(true)}
+                disabled={totals.total === 0}
+              >
+                <Eye className="h-3.5 w-3.5" aria-hidden />
+                {t("assetImages.reportSelect.showAllImages")}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -645,6 +1038,7 @@ export function MvReportImagesSelectModal({
                     <button
                       key={section.id}
                       type="button"
+                      data-report-section-nav={section.id}
                       ref={(el) => {
                         if (el) navItemRefs.current.set(section.id, el);
                         else navItemRefs.current.delete(section.id);
@@ -678,7 +1072,9 @@ export function MvReportImagesSelectModal({
 
           <div
             ref={scrollRef}
+            data-report-images-scroll
             className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white p-2.5 select-none sm:p-3"
+            onScroll={syncActiveSectionFromViewport}
             onPointerDown={onScrollPointerDown}
             onPointerMove={onScrollPointerMove}
             onPointerUp={finishMarquee}
@@ -851,6 +1247,14 @@ export function MvReportImagesSelectModal({
           </Button>
         </footer>
       </MvDialogContent>
+      <AllReportImagesDialog
+        open={allImagesOpen}
+        onOpenChange={setAllImagesOpen}
+        sections={displaySections}
+        saving={saving}
+        onToggleImage={toggleImage}
+        onPreviewImage={setPreviewImage}
+      />
       {previewImage ? <ReportImagePreviewDialog image={previewImage} onClose={() => setPreviewImage(null)} /> : null}
     </Dialog>
   );
