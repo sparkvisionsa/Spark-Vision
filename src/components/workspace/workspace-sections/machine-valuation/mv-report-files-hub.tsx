@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Calculator, FileText, ShieldCheck } from "lucide-react";
+import { FileText, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MvProjectReportHeader, MvSimpleReportStepNavigation } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame } from "./mv-workflow-page-frame";
 import { useMvI18n } from "./mv-i18n";
 
-type AttachmentTab = "valuation" | "client" | "certificate";
+type AttachmentTab = "client" | "certificate";
 
 function MvAttachmentPanelLoading() {
   return (
@@ -18,30 +18,19 @@ function MvAttachmentPanelLoading() {
   );
 }
 
-const MvValuationAccountingWorkspace = dynamic(
-  () => import("./mv-valuation-accounting-workspace"),
-  { loading: () => <MvAttachmentPanelLoading /> },
-);
-
 const MvClientFilesWorkspace = dynamic(
   () => import("./mv-client-files-workspace"),
   { loading: () => <MvAttachmentPanelLoading /> },
 );
 
 function tabFromHash(): AttachmentTab {
-  if (typeof window === "undefined") return "valuation";
+  if (typeof window === "undefined") return "client";
   const value = window.location.hash.replace("#", "");
   if (value === "client" || value === "certificate") return value;
-  return "valuation";
+  return "client";
 }
 
 const attachmentTabs = [
-  {
-    id: "valuation" as const,
-    title: "حسابات القيمة",
-    icon: Calculator,
-    iconClassName: "bg-sky-100 text-sky-700",
-  },
   {
     id: "client" as const,
     title: "ملفات العميل",
@@ -120,7 +109,6 @@ export default function MvReportFilesHub({ projectId }: { projectId: string }) {
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
             <div className="min-h-0 flex-1">
-              {tab === "valuation" ? <MvValuationAccountingWorkspace projectId={projectId} embedded /> : null}
               {tab === "client" ? <MvClientFilesWorkspace projectId={projectId} embedded /> : null}
               {tab === "certificate" ? <MvClientFilesWorkspace projectId={projectId} kind="certificate" embedded /> : null}
             </div>

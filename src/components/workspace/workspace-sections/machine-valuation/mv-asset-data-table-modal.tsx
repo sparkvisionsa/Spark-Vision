@@ -26,6 +26,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogTitle } from "@/components/ui/dialog";
 import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -54,7 +61,9 @@ import {
   type AssetDescriptionCatalog,
 } from "@/lib/company-asset-descriptions";
 
-const TABLE_PAGE_SIZE = 10;
+const TABLE_PAGE_SIZES = [5, 10, 50, 100] as const;
+type TablePageSize = (typeof TABLE_PAGE_SIZES)[number];
+const DEFAULT_TABLE_PAGE_SIZE: TablePageSize = 10;
 
 type AssetTab = "vehicles" | "other";
 
@@ -1893,6 +1902,7 @@ export function MvAssetDataTableModal({
   const [galleryAsset, setGalleryAsset] = useState<{ asset: PicAsset; name: string } | null>(null);
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_TABLE_PAGE_SIZE);
   const [catalog, setCatalog] = useState<AssetDescriptionCatalog>(EMPTY_ASSET_DESCRIPTION_CATALOG);
   const loadIdRef = useRef(0);
   const hydrateCancelRef = useRef<(() => void) | null>(null);
@@ -2193,7 +2203,7 @@ export function MvAssetDataTableModal({
         return;
       }
       const lookup: FolderLookup = { photosRootId: previewRoot._id, byId };
-      const firstPageIds = summaryEntries.slice(0, TABLE_PAGE_SIZE).map((e) => e.sub._id);
+      const firstPageIds = summaryEntries.slice(0, DEFAULT_TABLE_PAGE_SIZE).map((e) => e.sub._id);
 
       if (loadIdRef.current === myLoadId) {
         folderLookupRef.current = lookup;
@@ -2263,6 +2273,7 @@ export function MvAssetDataTableModal({
     setSourceFilters(new Set());
     setPathFilter("");
     setPage(0);
+    setPageSize(DEFAULT_TABLE_PAGE_SIZE);
   }, [projectId]);
 
   useEffect(() => {
@@ -2359,7 +2370,7 @@ export function MvAssetDataTableModal({
   const visibleRows = activeTab === "vehicles" ? vehicleRows : otherRows;
   const rows = allRows;
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / TABLE_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const safePage = Math.min(page, totalPages - 1);
 
   useEffect(() => {
@@ -2367,9 +2378,9 @@ export function MvAssetDataTableModal({
   }, [page, safePage]);
 
   const pagedRows = useMemo(() => {
-    const start = safePage * TABLE_PAGE_SIZE;
-    return visibleRows.slice(start, start + TABLE_PAGE_SIZE);
-  }, [visibleRows, safePage]);
+    const start = safePage * pageSize;
+    return visibleRows.slice(start, start + pageSize);
+  }, [pageSize, safePage, visibleRows]);
 
   useEffect(() => {
     if (!open || pagedRows.length === 0) return;
@@ -2768,7 +2779,27 @@ export function MvAssetDataTableModal({
               {" — "}
               {t("projects.assetTable.projectTotal", { count: tableCtx.numberFormatter.format(rows.length) })}
             </span>
-            {visibleRows.length > TABLE_PAGE_SIZE ? (
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value) as TablePageSize);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="h-7 w-[92px] rounded-md border-slate-200 bg-slate-50 text-[10px] shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TABLE_PAGE_SIZES.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {t("projects.pagination.perPage", {
+                      size: tableCtx.numberFormatter.format(size),
+                    })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {totalPages > 1 ? (
               <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 tabular-nums">
                 <Button
                   type="button"

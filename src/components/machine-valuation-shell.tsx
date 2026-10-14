@@ -20,6 +20,7 @@ function isMvReportFlowChromePath(pathname: string) {
   if (
     parts[1] === "dashboard" ||
     parts[1] === "projects" ||
+    parts[1] === "archive" ||
     parts[1] === "company" ||
     parts[1] === "report-settings" ||
     parts[1] === "settings" ||
@@ -36,6 +37,7 @@ function isMvReportFlowChromePath(pathname: string) {
 import {
   ArrowLeft,
   ArrowRight,
+  Archive,
   Boxes,
   Building2,
   ChevronDown,
@@ -99,6 +101,7 @@ function userInitials(username: string) {
 const MV_PANEL_SEGMENTS = [
   "dashboard",
   "projects",
+  "archive",
   "settings",
   "company",
   "report-settings",
@@ -123,6 +126,7 @@ function parseMachineValuationPath(pathname: string) {
 
   return {
     isProjectsList: panel === "dashboard" || panel === "projects",
+    isArchivePanel: panel === "archive",
     isProjectContext: panel !== null && !MV_PANEL_SEGMENTS.includes(panel),
     isSettingsPanel: settingsSection != null,
     settingsSection,
@@ -305,6 +309,7 @@ function MachineSidebarNav() {
   const collapsed = !isMobile && state === "collapsed";
   const {
     isProjectsList,
+    isArchivePanel,
     isProjectContext,
     isSettingsPanel,
     settingsSection,
@@ -333,6 +338,13 @@ function MachineSidebarNav() {
       active: isProjectsList || isProjectContext,
       back: !isProjectsList,
       tooltip: isProjectsList ? undefined : t("navigation.backToProjects"),
+    },
+    {
+      key: "archive",
+      href: "/machine-valuation/archive",
+      label: t("navigation.archive"),
+      icon: Archive,
+      active: isArchivePanel,
     },
   ];
 

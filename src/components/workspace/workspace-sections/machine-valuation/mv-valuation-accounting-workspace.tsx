@@ -3084,8 +3084,8 @@ export default function MvValuationAccountingWorkspace({
     setStore(readValuationAccountingStore(projectId));
     void loadProject();
     const visited = readVisitedSimpleReportSteps(projectId);
-    if (!visited.includes("report-files")) {
-      writeVisitedSimpleReportSteps(projectId, [...visited, "report-files"]);
+    if (!visited.includes("valuation-accounting")) {
+      writeVisitedSimpleReportSteps(projectId, [...visited, "valuation-accounting"]);
     }
   }, [loadProject, projectId]);
   useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
@@ -4095,7 +4095,7 @@ export default function MvValuationAccountingWorkspace({
           compact
           projectId={projectId}
           project={project}
-          activeStep="report-files"
+          activeStep="valuation-accounting"
           breadcrumbs={[
             { label: projectName, href: `/machine-valuation/${projectId}/workflow/report-data` },
             { label: t("valuation.breadcrumb") },

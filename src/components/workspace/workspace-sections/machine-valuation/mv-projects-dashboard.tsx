@@ -56,7 +56,6 @@ import { MvDialogContent } from "./mv-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import { toApiUrl } from "@/lib/api-url";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 import type {
@@ -98,6 +97,13 @@ import {
 } from "./mv-project-workflow-status-select";
 import { projectAssetFolderCount, projectProgressPctFromProject } from "./mv-simple-project-progress";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+import {
+  clearMvProjectsViewState,
+  MV_PROJECTS_PAGE_SIZES,
+  readMvProjectsViewState,
+  writeMvProjectsViewState,
+  type MvProjectsPageSize,
+} from "./mv-projects-view-state";
 import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
 import { systemArabicFont as tajawal } from "@/lib/system-fonts";
@@ -399,7 +405,7 @@ function ProjectsPagination({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[5, 8, 10, 20].map((size) => (
+              {MV_PROJECTS_PAGE_SIZES.map((size) => (
                 <SelectItem key={size} value={String(size)}>
                   {t("projects.pagination.perPage", { size: numberFormatter.format(size) })}
                 </SelectItem>
@@ -1185,6 +1191,7 @@ function clearMvProjectsSessionCache() {
   if (typeof sessionStorage === "undefined") return;
   try {
     sessionStorage.removeItem(MV_PROJECTS_SESSION_CACHE_KEY);
+    clearMvProjectsViewState();
   } catch {
     /* ignore */
   }
@@ -1199,6 +1206,7 @@ export default function MvProjectsDashboard() {
   const { toast } = useToast();
   const { user, csrfToken, loading: authLoading } = useAuthTracking();
   const duplicateBusy = useMvBusyPercent();
+  const [initialViewState] = useState(readMvProjectsViewState);
   const [projects, setProjects] = useState<MvProject[]>(() => readMvProjectsSessionCache() ?? []);
   const [loading, setLoading] = useState(() => readMvProjectsSessionCache() == null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1207,11 +1215,11 @@ export default function MvProjectsDashboard() {
   const [creating, setCreating] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<CompanyOptionRow[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
-  const [projectQuery, setProjectQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>("all");
-  const [sortRecentlyWorked, setSortRecentlyWorked] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(8);
+  const [projectQuery, setProjectQuery] = useState(initialViewState.projectQuery);
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>(initialViewState.statusFilter);
+  const [sortRecentlyWorked, setSortRecentlyWorked] = useState(initialViewState.sortRecentlyWorked);
+  const [currentPage, setCurrentPage] = useState(initialViewState.currentPage);
+  const [pageSize, setPageSize] = useState<MvProjectsPageSize>(initialViewState.pageSize);
   const [contactDataOpen, setContactDataOpen] = useState(false);
   const [contactDataProject, setContactDataProject] = useState<MvProject | null>(null);
   const [contactDataForm, setContactDataForm] = useState<MvProjectInspectionSiteForm[]>([
@@ -1353,8 +1361,14 @@ export default function MvProjectsDashboard() {
   }, [user?.role, csrfToken]);
 
   useEffect(() => {
-    setCurrentPage(1);
-  }, [projectQuery, statusFilter, sortRecentlyWorked, pageSize]);
+    writeMvProjectsViewState({
+      currentPage,
+      pageSize,
+      projectQuery,
+      statusFilter,
+      sortRecentlyWorked,
+    });
+  }, [currentPage, pageSize, projectQuery, sortRecentlyWorked, statusFilter]);
 
   useEffect(() => {
     prefetchMvLocationCatalog();
@@ -1423,8 +1437,10 @@ export default function MvProjectsDashboard() {
     const next = visibleProjects.filter((project) => {
       if (normalizedQuery) {
         const nameMatch = project.name.toLocaleLowerCase().includes(normalizedQuery);
-        const serial = (projectSerialLabel(project) ?? "").toLocaleLowerCase();
-        if (!nameMatch && !serial.includes(normalizedQuery)) {
+        const displayNumber = typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
+          ? String(project.displayNumber) : "";
+        const referenceNumber = project.referenceNumber?.trim().toLocaleLowerCase() ?? "";
+        if (!nameMatch && !displayNumber.includes(normalizedQuery) && !referenceNumber.includes(normalizedQuery)) {
           return false;
         }
       }
@@ -1861,6 +1877,7 @@ export default function MvProjectsDashboard() {
     setProjectQuery("");
     setStatusFilter("all");
     setSortRecentlyWorked(false);
+    setCurrentPage(1);
   };
 
   const hasActiveFilters =
@@ -1910,7 +1927,10 @@ export default function MvProjectsDashboard() {
               </span>
               <Input
                 value={projectQuery}
-                onChange={(event) => setProjectQuery(event.target.value)}
+                onChange={(event) => {
+                  setProjectQuery(event.target.value);
+                  setCurrentPage(1);
+                }}
                 aria-label={t("projects.searchPlaceholder")}
                 placeholder={t("projects.searchPlaceholder")}
                 className={cn(
@@ -1922,7 +1942,10 @@ export default function MvProjectsDashboard() {
 
             <Select
               value={statusFilter}
-              onValueChange={(value) => setStatusFilter(value as ProjectStatusFilter)}
+              onValueChange={(value) => {
+                setStatusFilter(value as ProjectStatusFilter);
+                setCurrentPage(1);
+              }}
             >
               <SelectTrigger
                 aria-label={t("projects.status.filterAria")}
@@ -1951,7 +1974,10 @@ export default function MvProjectsDashboard() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setSortRecentlyWorked((current) => !current)}
+              onClick={() => {
+                setSortRecentlyWorked((current) => !current);
+                setCurrentPage(1);
+              }}
               className={cn(
                 "h-9 shrink-0 gap-1.5 rounded-lg px-3 text-[11px] font-bold shadow-sm",
                 sortRecentlyWorked
@@ -2056,11 +2082,12 @@ export default function MvProjectsDashboard() {
           ) : (
             <>
               <div className="hidden overflow-x-auto bg-white xl:block">
-                <table className="w-full min-w-[960px] table-fixed border-collapse text-right">
+                <table className="w-full min-w-[1180px] table-fixed border-collapse text-right">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500">
-                      <th className="w-[120px] px-2 py-2 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
-                      <th className="w-[28%] px-3 py-2">{t("projects.table.project")}</th>
+                      <th className="w-[88px] px-2 py-2 text-center" title={t("projects.table.serialTitle")}>{t("projects.table.serial")}</th>
+                      <th className="w-[140px] px-2 py-2" title={t("projects.table.reference")}>{t("projects.table.reference")}</th>
+                      <th className="w-[25%] px-3 py-2">{t("projects.table.project")}</th>
                       <th className="w-[100px] px-2 py-2">{t("projects.table.status")}</th>
                       <th className="w-[120px] px-2 py-2">{t("projects.table.type")}</th>
                       <th className="w-[76px] px-2 py-2 text-center">{t("projects.table.assets")}</th>
@@ -2079,14 +2106,19 @@ export default function MvProjectsDashboard() {
                       const assetFolders = projectAssetFolderCount(project);
                       const subs = project.subProjectCount ?? 0;
 
-                      const serialLabel = projectSerialLabel(project);
+                      const serialLabel = typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
+                        ? numberFormatter.format(project.displayNumber) : notAvailable;
+                      const referenceLabel = project.referenceNumber?.trim() || notAvailable;
 
                       return (
                         <tr key={project._id} className="bg-white text-right transition-colors hover:bg-cyan-50/40">
                           <td className="px-2 py-2 text-center align-middle">
                             <span className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-lg bg-cyan-50 px-2 text-[11px] font-black tabular-nums text-cyan-800 ring-1 ring-cyan-100" dir="ltr">
-                              {serialLabel ?? notAvailable}
+                              {serialLabel}
                             </span>
+                          </td>
+                          <td className="px-2 py-2 align-middle text-[11px] font-semibold text-slate-600">
+                            <span className="block truncate" dir="ltr" title={referenceLabel}>{referenceLabel}</span>
                           </td>
                           <td className="px-3 py-2 align-middle">
                             <ProjectWorkspaceLink
@@ -2184,7 +2216,9 @@ export default function MvProjectsDashboard() {
                     reportType === "simple" || reportType === "advanced"
                       ? reportTypeLabel(reportType, t, notAvailable)
                       : null;
-                  const mobileSerialLabel = projectSerialLabel(project);
+                  const mobileSerialLabel = typeof project.displayNumber === "number" && Number.isFinite(project.displayNumber)
+                    ? numberFormatter.format(project.displayNumber) : notAvailable;
+                  const mobileReferenceLabel = project.referenceNumber?.trim() || notAvailable;
 
                   return (
                     <article key={project._id} className="bg-white">
@@ -2192,7 +2226,10 @@ export default function MvProjectsDashboard() {
                         <div className="min-w-0 flex-1 px-3 py-2">
                           <div className="flex items-center gap-2">
                             <span className="inline-flex h-6 min-w-[1.9rem] items-center justify-center bg-cyan-50 px-1.5 text-[10px] font-black tabular-nums text-cyan-800" dir="ltr">
-                              {mobileSerialLabel ?? notAvailable}
+                              {mobileSerialLabel}
+                            </span>
+                            <span className="max-w-40 truncate text-[10px] font-semibold text-slate-500" title={`${t("projects.table.reference")}: ${mobileReferenceLabel}`}>
+                              {t("projects.table.reference")}: <bdi>{mobileReferenceLabel}</bdi>
                             </span>
                             <ProjectWorkspaceLink
                               project={project}
@@ -2265,7 +2302,10 @@ export default function MvProjectsDashboard() {
                 pageSize={pageSize}
                 totalItems={filteredProjects.length}
                 onPageChange={(page) => setCurrentPage(Math.max(1, Math.min(page, totalPages)))}
-                onPageSizeChange={setPageSize}
+                onPageSizeChange={(size) => {
+                  setPageSize(size as MvProjectsPageSize);
+                  setCurrentPage(1);
+                }}
               />
             </>
           )}

@@ -18,17 +18,20 @@ import {
   hasMeaningfulSimpleReportData,
 } from "./mv-simple-project-progress";
 import { getSimpleReportSteps, useMvI18n } from "./mv-i18n";
+import { MvProjectFilesDialog } from "./mv-project-files-dialog";
 
 export { hasMeaningfulSimpleReportData };
 export type MvSimpleReportStepId =
   | "report-data"
   | "asset-images"
+  | "valuation-accounting"
   | "report-files"
   | "final-report";
 
 const SIMPLE_REPORT_STEP_IDS = new Set<MvSimpleReportStepId>([
   "report-data",
   "asset-images",
+  "valuation-accounting",
   "report-files",
   "final-report",
 ]);
@@ -40,7 +43,8 @@ function visitedStorageKey(projectId: string) {
 
 function normalizeVisitedStepId(value: string): MvSimpleReportStepId | null {
   if (value === "report-preview") return "final-report";
-  if (value === "valuation-actions" || value === "client-files" || value === "certificate") return "report-files";
+  if (value === "valuation-actions") return "valuation-accounting";
+  if (value === "client-files" || value === "certificate") return "report-files";
   if (SIMPLE_REPORT_STEP_IDS.has(value as MvSimpleReportStepId)) {
     return value as MvSimpleReportStepId;
   }
@@ -89,7 +93,8 @@ export function countProjectAssetImages(subProjects: MvSubProject[]): number {
 /** روابط موحّدة لخطوات التقرير داخل `workflow/...` لتفادي اختلاف التصميم بين المسارات. */
 export function mvSimpleReportStepHref(projectId: string, stepId: MvSimpleReportStepId): string {
   if (stepId === "asset-images") return `/machine-valuation/${projectId}/workflow/asset-images`;
-  if (stepId === "report-files") return `/machine-valuation/${projectId}/workflow/files#valuation`;
+  if (stepId === "valuation-accounting") return `/machine-valuation/${projectId}/workflow/valuation`;
+  if (stepId === "report-files") return `/machine-valuation/${projectId}/workflow/files`;
   if (stepId === "final-report") return `/machine-valuation/${projectId}/workflow/final-report`;
   if (stepId === "report-data") return `/machine-valuation/${projectId}/workflow/report-data`;
   return `/machine-valuation/${projectId}/workflow/report-data`;
@@ -176,10 +181,35 @@ export function MvProjectFoldersMenu({
 }) {
   const { t, isArabic, dir } = useMvI18n();
   const [open, setOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [resolvedFolders, setResolvedFolders] = useState<MvSubProject[]>(folders);
   const numberFormatter = useMemo(
     () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
     [isArabic],
   );
+
+  // Some workflow pages deliberately fetch the light "report" project payload,
+  // which has no folder tree. Load the canonical tree here so this control is
+  // reliable on every tab, not only on the pages that supplied subProjects.
+  useEffect(() => {
+    setResolvedFolders(folders);
+  }, [folders]);
+
+  useEffect(() => {
+    if (!open && !browserOpen) return;
+    const controller = new AbortController();
+    void fetch(`/api/mv/projects/${encodeURIComponent(projectId)}?picAssetMode=summary`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (response) => response.ok ? await response.json() as { subProjects?: MvSubProject[] } : null)
+      .then((data) => {
+        if (!controller.signal.aborted && data?.subProjects) setResolvedFolders(data.subProjects);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [browserOpen, open, projectId]);
 
   const menuButtonClass = cn(
     "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-700 shadow-sm transition-all",
@@ -190,6 +220,7 @@ export function MvProjectFoldersMenu({
   );
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
@@ -226,22 +257,26 @@ export function MvProjectFoldersMenu({
                 <p className="min-w-0 truncate text-[12.5px] font-extrabold text-slate-900">{t("navigation.projectFolders.menu")}</p>
               </div>
               <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">
-                {t("navigation.projectFolders.foldersCount", { count: numberFormatter.format(folders.length) })}
+                {t("navigation.projectFolders.foldersCount", { count: numberFormatter.format(resolvedFolders.length) })}
               </span>
             </div>
 
             <div className="grid max-h-[60vh] gap-1.5 overflow-y-auto p-2 sm:grid-cols-2">
-              {folders.length === 0 ? (
+              {resolvedFolders.length === 0 ? (
                 <div className="col-span-full flex flex-col items-center gap-1.5 rounded-xl bg-slate-50 px-3 py-6 text-center">
                   <Folder className="h-5 w-5 text-slate-300" />
                   <p className="text-[11px] font-medium text-slate-400">{t("navigation.projectFolders.empty")}</p>
                 </div>
               ) : (
-                folders.map((folder, index) => (
-                  <Link
+                resolvedFolders.map((folder, index) => (
+                  <button
                     key={folder._id}
-                    href={`/machine-valuation/${projectId}/${folder._id}`}
-                    onClick={() => setOpen(false)}
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      setActiveFolderId(folder._id);
+                      setBrowserOpen(true);
+                    }}
                     className="flex items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-2 text-start transition hover:border-slate-200 hover:bg-slate-50"
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-500">
@@ -253,12 +288,28 @@ export function MvProjectFoldersMenu({
                     <span className="shrink-0 text-[10px] font-black text-slate-300">
                       {numberFormatter.format(index + 1)}
                     </span>
-                  </Link>
+                  </button>
                 ))
               )}
             </div>
+            <div className="border-t border-slate-100 p-2">
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setActiveFolderId(null); setBrowserOpen(true); }}
+                className="w-full rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-bold text-[#0C447C] transition hover:bg-sky-50"
+              >
+                فتح كل ملفات المشروع
+              </button>
+            </div>
           </PopoverContent>
     </Popover>
+    <MvProjectFilesDialog
+      projectId={projectId}
+      open={browserOpen}
+      onOpenChange={setBrowserOpen}
+      initialFolderId={activeFolderId}
+    />
+    </>
   );
 }
 

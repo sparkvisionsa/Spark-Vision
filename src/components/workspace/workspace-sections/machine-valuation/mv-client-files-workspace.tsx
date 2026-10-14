@@ -47,6 +47,7 @@ import {
   readVisitedSimpleReportSteps,
   writeVisitedSimpleReportSteps,
 } from "./mv-simple-report-navigation";
+import { isImageOrPdfProjectFile, MvProjectFilesDialog } from "./mv-project-files-dialog";
 import type { MvProject } from "./types";
 
 interface MvClientFilesWorkspaceProps {
@@ -112,6 +113,7 @@ export default function MvClientFilesWorkspace({
     src: string;
     name: string;
   } | null>(null);
+  const [projectFilesPickerOpen, setProjectFilesPickerOpen] = useState(false);
 
   useEffect(() => { setStore(readWorkspaceStore(projectId)); }, [projectId, readWorkspaceStore]);
   storeRef.current = store;
@@ -290,6 +292,11 @@ export default function MvClientFilesWorkspace({
     } finally { if (fileInputRef.current) fileInputRef.current.value = ""; }
   }, [uploadUser, projectId, projectName, workspaceTitle, workspaceField, t, toast]);
 
+  const clientFolderMatcher = useCallback(
+    (folder: { name: string }) => /(?:^|\.)\s*ملفات العميل|client files/i.test(folder.name),
+    [],
+  );
+
   useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
     if (pendingSaveRef.current || flushInFlightRef.current) return false;
     setProject((current) => ({ ...current, ...fresh } as MvProject));
@@ -375,6 +382,18 @@ export default function MvClientFilesWorkspace({
                   <Upload className="h-3.5 w-3.5" />
                   {t("clientFiles.upload.button")}
                 </Button>
+                {!isCertificate ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 gap-1.5 rounded-lg px-2.5 text-[11px] font-bold"
+                    disabled={Boolean(busyLabel)}
+                    onClick={() => setProjectFilesPickerOpen(true)}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    تحميل من مجلد ملفات العميل
+                  </Button>
+                ) : null}
               </div>
             </div>
 
@@ -558,6 +577,16 @@ export default function MvClientFilesWorkspace({
           </div>
         </MvDialogContent>
       </Dialog>
+      {!isCertificate ? (
+        <MvProjectFilesDialog
+          projectId={projectId}
+          open={projectFilesPickerOpen}
+          onOpenChange={setProjectFilesPickerOpen}
+          initialFolderMatcher={clientFolderMatcher}
+          fileFilter={isImageOrPdfProjectFile}
+          onPickFiles={ingestFiles}
+        />
+      ) : null}
     </MvWorkflowPageFrame>
   );
 }

@@ -140,14 +140,14 @@ export default function AuthUserMenu({ triggerClassName }: AuthUserMenuProps = {
           onSelect={(e) => {
             e.preventDefault();
             setAccountMenuOpen(false);
-            void (async () => {
-              try {
-                await logout();
-              } finally {
-                // Remove the prior tenant's URL as well as its in-memory UI.
-                router.replace("/value-tech");
-              }
-            })();
+            // `logout` clears the local authenticated state before its network
+            // request. Navigate in the same turn so the protected route never
+            // has time to render its full-page login screen.
+            void logout().catch(() => {
+              // Local sign-out is intentionally retained when the server call
+              // fails, so the user can safely sign in again.
+            });
+            router.replace("/value-tech?login=1");
           }}
         >
           <LogOut className="h-4 w-4" />

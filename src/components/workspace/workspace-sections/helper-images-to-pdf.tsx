@@ -22,6 +22,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { downloadBlob } from "@/lib/download-media";
 import {
+  downloadSavedHelperPdf,
+  listSavedHelperPdfs,
+  saveHelperPdf,
+  type SavedHelperPdf,
+} from "@/lib/helper-pdfs-api";
+import {
   createImagePdf,
   renderPdfPreviewPages,
   type PdfImageFit,
@@ -34,6 +40,7 @@ type ComposerItem = {
   id: string;
   file: File;
   fromPdf: boolean;
+  sourceId: string;
 };
 
 type Copy = {
@@ -71,6 +78,17 @@ type Copy = {
   failed: string;
   invalid: string;
   reorder: string;
+  savedFiles: string;
+  serial: string;
+  imageCount: string;
+  pdfCount: string;
+  fileSize: string;
+  fileDate: string;
+  actions: string;
+  download: string;
+  emptySaved: string;
+  saving: string;
+  saveFailed: string;
 };
 
 const COPY: Record<"ar" | "en", Copy> = {
@@ -79,8 +97,8 @@ const COPY: Record<"ar" | "en", Copy> = {
     folder: "مجلد",
     preview: "معاينة وتنزيل",
     previewTitle: "معاينة PDF",
-    downloadOriginal: "تنزيل PDF عادي",
-    downloadCompressed: "تنزيل PDF مضغوط",
+    downloadOriginal: "حفظ وتنزيل PDF عادي",
+    downloadCompressed: "حفظ وتنزيل PDF مضغوط",
     compressing: "ضغط الملف",
     noReduction: "الملف الحالي هو الأصغر؛ تم تنزيله كما هو.",
     cancel: "إلغاء",
@@ -109,14 +127,25 @@ const COPY: Record<"ar" | "en", Copy> = {
     failed: "تعذر تجهيز بعض الملفات",
     invalid: "لم يتم العثور على صور أو ملفات PDF صالحة",
     reorder: "اسحب لتغيير الترتيب",
+    savedFiles: "ملفات PDF المحفوظة",
+    serial: "م",
+    imageCount: "عدد الصور",
+    pdfCount: "ملفات PDF المرفقة",
+    fileSize: "حجم الملف",
+    fileDate: "تاريخ الملف",
+    actions: "إجراءات",
+    download: "تنزيل",
+    emptySaved: "لا توجد ملفات PDF محفوظة بعد.",
+    saving: "حفظ الملف",
+    saveFailed: "تعذر حفظ ملف PDF",
   },
   en: {
     upload: "Add files",
     folder: "Folder",
     preview: "Preview & download",
     previewTitle: "PDF preview",
-    downloadOriginal: "Download standard PDF",
-    downloadCompressed: "Download compressed PDF",
+    downloadOriginal: "Save & download standard PDF",
+    downloadCompressed: "Save & download compressed PDF",
     compressing: "Compressing file",
     noReduction: "The current PDF is already smaller; it was downloaded as is.",
     cancel: "Cancel",
@@ -145,6 +174,17 @@ const COPY: Record<"ar" | "en", Copy> = {
     failed: "Some files could not be prepared",
     invalid: "No valid image or PDF files found",
     reorder: "Drag to reorder",
+    savedFiles: "Saved PDF files",
+    serial: "No.",
+    imageCount: "Images",
+    pdfCount: "Attached PDFs",
+    fileSize: "File size",
+    fileDate: "File date",
+    actions: "Actions",
+    download: "Download",
+    emptySaved: "No saved PDF files yet.",
+    saving: "Saving file",
+    saveFailed: "Could not save PDF",
   },
 };
 
@@ -157,10 +197,12 @@ function newId() {
 export default function HelperImagesToPdf({
   arabic,
   overlayContainer,
+  csrfToken = "",
 }: {
   arabic: boolean;
   /** Host transient menus inside the parent modal, preserving pointer events. */
   overlayContainer?: HTMLElement | null;
+  csrfToken?: string;
 }) {
   const t = COPY[arabic ? "ar" : "en"];
   const [items, setItems] = useState<ComposerItem[]>([]);
@@ -177,6 +219,8 @@ export default function HelperImagesToPdf({
   const [compressionNotice, setCompressionNotice] = useState("");
   const [previewPages, setPreviewPages] = useState<Blob[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [savedFiles, setSavedFiles] = useState<SavedHelperPdf[]>([]);
+  const [savedFilesLoaded, setSavedFilesLoaded] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const draggedIndex = useRef<number | null>(null);
@@ -191,6 +235,14 @@ export default function HelperImagesToPdf({
   useEffect(() => () => {
     previewPageUrls.forEach((url) => URL.revokeObjectURL(url));
   }, [previewPageUrls]);
+  useEffect(() => {
+    let cancelled = false;
+    void listSavedHelperPdfs()
+      .then((files) => { if (!cancelled) setSavedFiles(files); })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setSavedFilesLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
 
   const addFiles = async (incoming: FileList | File[]) => {
     if (busy) return;
@@ -205,8 +257,9 @@ export default function HelperImagesToPdf({
     try {
       for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
         const file = files[fileIndex]!;
+        const sourceId = newId();
         if (isImageFile(file)) {
-          added.push({ id: newId(), file, fromPdf: false });
+          added.push({ id: newId(), file, fromPdf: false, sourceId });
           setProgress(`${fileIndex + 1} / ${files.length}`);
           continue;
         }
@@ -214,7 +267,7 @@ export default function HelperImagesToPdf({
           onProgress: (done, total) => setProgress(`${t.converting} ${done} / ${total}`),
           trimWhiteMargins: false,
         });
-        added.push(...pages.map((page) => ({ id: newId(), file: page.file, fromPdf: true })));
+        added.push(...pages.map((page) => ({ id: newId(), file: page.file, fromPdf: true, sourceId })));
       }
       setItems((current) => [...current, ...added]);
     } catch {
@@ -278,6 +331,30 @@ export default function HelperImagesToPdf({
     }
   };
 
+  const saveAndDownload = async (blob: Blob, kind: "standard" | "compressed", filename: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setProgress(t.saving);
+    try {
+      const saved = await saveHelperPdf({
+        blob,
+        kind,
+        imageCount: items.filter((item) => !item.fromPdf).length,
+        pdfCount: new Set(items.filter((item) => item.fromPdf).map((item) => item.sourceId)).size,
+        csrfToken,
+      });
+      setSavedFiles((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
+      setSavedFilesLoaded(true);
+      downloadBlob(blob, filename);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t.saveFailed);
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  };
+
   const downloadCompressedPdf = async () => {
     if (!previewBlob || busy) return;
     setCompressionNotice("");
@@ -285,10 +362,19 @@ export default function HelperImagesToPdf({
     if (!blob) return;
     if (!compressedBlob) setCompressedBlob(blob);
     if (blob.size < previewBlob.size) {
-      downloadBlob(blob, "images-compressed.pdf");
+      await saveAndDownload(blob, "compressed", "images-compressed.pdf");
     } else {
-      downloadBlob(previewBlob, "images.pdf");
+      await saveAndDownload(previewBlob, "standard", "images.pdf");
       setCompressionNotice(t.noReduction);
+    }
+  };
+
+  const downloadSaved = async (file: SavedHelperPdf) => {
+    setError("");
+    try {
+      downloadBlob(await downloadSavedHelperPdf(file), file.name);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t.failed);
     }
   };
 
@@ -476,6 +562,43 @@ export default function HelperImagesToPdf({
         </div>
       ) : null}
 
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <h2 className="border-b border-slate-200 px-3 py-2 text-sm font-bold text-slate-800">{t.savedFiles}</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[42rem] text-xs">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="px-3 py-2 text-start font-semibold">{t.serial}</th>
+                <th className="px-3 py-2 text-start font-semibold">{t.imageCount}</th>
+                <th className="px-3 py-2 text-start font-semibold">{t.pdfCount}</th>
+                <th className="px-3 py-2 text-start font-semibold">{t.fileSize}</th>
+                <th className="px-3 py-2 text-start font-semibold">{t.fileDate}</th>
+                <th className="px-3 py-2 text-start font-semibold">{t.actions}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {savedFiles.map((file) => (
+                <tr key={file.id} className="text-slate-700">
+                  <td className="px-3 py-2 font-bold tabular-nums">{file.sequence}</td>
+                  <td className="px-3 py-2 tabular-nums">{file.imageCount}</td>
+                  <td className="px-3 py-2 tabular-nums">{file.pdfCount}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatFileSize(file.size, arabic)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{formatFileDate(file.createdAt, arabic)}</td>
+                  <td className="px-3 py-2">
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void downloadSaved(file)}>
+                      <Download className="h-3.5 w-3.5" />{t.download}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {savedFilesLoaded && !savedFiles.length ? (
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">{t.emptySaved}</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <Dialog
         open={Boolean(previewBlob)}
         onOpenChange={(open) => {
@@ -510,10 +633,10 @@ export default function HelperImagesToPdf({
             {error ? <span role="alert" className="me-auto text-xs text-red-700">{error}</span> : null}
             {compressionNotice ? <span role="status" className="me-auto text-xs text-slate-600">{compressionNotice}</span> : null}
             {progress ? <span role="status" className="me-auto text-xs text-slate-600">{progress}</span> : null}
-            <Button size="sm" variant="outline" className="h-8 px-2.5" disabled={!previewBlob || busy} onClick={() => previewBlob && downloadBlob(previewBlob, "images.pdf")}>
+            <Button size="sm" variant="outline" className="h-8 px-2.5" disabled={!previewBlob || busy || !csrfToken} onClick={() => previewBlob && void saveAndDownload(previewBlob, "standard", "images.pdf")}>
               <Download className="h-4 w-4" />{t.downloadOriginal}
             </Button>
-            <Button size="sm" className="h-8 px-2.5" disabled={!previewBlob || busy} onClick={() => void downloadCompressedPdf()}>
+            <Button size="sm" className="h-8 px-2.5" disabled={!previewBlob || busy || !csrfToken} onClick={() => void downloadCompressedPdf()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{t.downloadCompressed}
             </Button>
           </div>
@@ -521,6 +644,21 @@ export default function HelperImagesToPdf({
       </Dialog>
     </section>
   );
+}
+
+function formatFileSize(bytes: number, arabic: boolean) {
+  const units = arabic ? ["بايت", "ك.ب", "م.ب", "ج.ب"] : ["B", "KB", "MB", "GB"];
+  let value = Math.max(0, bytes);
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${new Intl.NumberFormat(arabic ? "ar-SA" : "en-GB", { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`;
+}
+
+function formatFileDate(value: string, arabic: boolean) {
+  return new Intl.DateTimeFormat(arabic ? "ar-SA" : "en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function SettingSelect({

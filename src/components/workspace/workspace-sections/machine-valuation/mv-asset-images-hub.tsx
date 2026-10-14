@@ -76,6 +76,7 @@ import {
   patchMvSubprojectPicAsset,
 } from "./mv-pic-asset-panel";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
+import { MvAssetImageImportDialog } from "./mv-asset-image-import-dialog";
 import { MvAssetDataTableModal } from "./mv-asset-data-table-modal";
 import {
   MvReportImagesSelectModal,
@@ -102,7 +103,7 @@ import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson, invalidateMvApiCache } from "./mv-api-client";
 import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
-import { buildAssetImagesPdf } from "@/lib/mv-asset-images-pdf";
+import { buildAssetImagesPdf, type MvAssetImagesPdfProgress } from "@/lib/mv-asset-images-pdf";
 
 interface MvAssetImagesHubProps {
   projectId: string;
@@ -1338,6 +1339,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, []);
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
   const [creatingReportImagesPdf, setCreatingReportImagesPdf] = useState(false);
+  const [reportImagesPdfProgress, setReportImagesPdfProgress] = useState<MvAssetImagesPdfProgress | null>(null);
   const [assetDataOpen, setAssetDataOpen] = useState(false);
   const reportSelectionPendingRef = useRef(0);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
@@ -1384,6 +1386,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [draggingPreview, setDraggingPreview] = useState(false);
   const [assetImportResult, setAssetImportResult] = useState<AssetImportResult | null>(null);
   const [assetImageFoldersModalOpen, setAssetImageFoldersModalOpen] = useState(false);
+  const [assetImageImportOpen, setAssetImageImportOpen] = useState(false);
   const [assetSearchOpen, setAssetSearchOpen] = useState(false);
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const [assetSearchMode, setAssetSearchMode] = useState<AssetImagesSearchMode>("all");
@@ -3200,10 +3203,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     }
 
     setCreatingReportImagesPdf(true);
+    setReportImagesPdfProgress({ stage: "loading", percent: 0, completed: 0, total: selectedReportImagePdfSources.length, failed: 0 });
     try {
       const result = await buildAssetImagesPdf({
         sources: selectedReportImagePdfSources,
         filenameBase: projectName ?? projectId,
+        onProgress: setReportImagesPdfProgress,
       });
       if (result.failedNames.length > 0) {
         toast({
@@ -3221,6 +3226,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       }
     } catch (error) {
       const errorCode = error instanceof Error ? error.message : "";
+      setReportImagesPdfProgress(null);
       toast({
         variant: "destructive",
         description:
@@ -5189,6 +5195,38 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           { label: t("assetImages.breadcrumb") },
         ]}
       />
+      {reportImagesPdfProgress ? (
+        <section className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-3" aria-label={t("assetImages.pdf.preparing")}>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="flex items-center gap-2 text-xs font-bold text-sky-900" role="status">
+              {reportImagesPdfProgress.stage === "complete"
+                ? <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+                : <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />}
+              {t(`assetImages.pdf.progress.${reportImagesPdfProgress.stage}`, {
+                count: numberFormatter.format(reportImagesPdfProgress.completed),
+                total: numberFormatter.format(reportImagesPdfProgress.total),
+              })}
+            </p>
+            <span className="shrink-0 text-xs font-bold tabular-nums text-sky-900">
+              {numberFormatter.format(reportImagesPdfProgress.percent)}%
+            </span>
+          </div>
+          <div role="progressbar" aria-label={t("assetImages.pdf.preparing")}
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={reportImagesPdfProgress.percent}
+            className="h-2 overflow-hidden rounded-full bg-sky-100">
+            <div className="h-full rounded-full bg-sky-600 transition-[width] duration-150 motion-reduce:transition-none"
+              style={{ width: `${reportImagesPdfProgress.percent}%` }} />
+          </div>
+          {reportImagesPdfProgress.failed > 0 ? (
+            <p className="mt-2 text-xs text-amber-800">{t("assetImages.pdf.progress.skipped", { count: numberFormatter.format(reportImagesPdfProgress.failed) })}</p>
+          ) : null}
+          {reportImagesPdfProgress.stage === "complete" ? (
+            <Button type="button" variant="ghost" size="sm" className="mt-1 h-7 text-xs" onClick={() => setReportImagesPdfProgress(null)}>
+              {t("common.close")}
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
       <MvAssetImagesDownloadButton
         projectId={projectId}
         buttonRef={assetDownloadButtonRef}
@@ -5373,6 +5411,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               <FolderUp className="h-4 w-4" />
                             </span>
                             {t("assetImages.actions.uploadFolders")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => setAssetImageImportOpen(true)}
+                            className="cursor-pointer text-[12px]"
+                          >
+                            <span className="me-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
+                              <FolderUp className="h-4 w-4" />
+                            </span>
+                            {t("assetImages.actions.importFromProject")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -6052,6 +6100,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         initialImportResult={assetImportResult}
         onImportResultChange={applyAssetImportResult}
         onGenerated={async () => {
+          await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
+        }}
+      />
+
+      <MvAssetImageImportDialog
+        open={assetImageImportOpen}
+        onOpenChange={setAssetImageImportOpen}
+        projectId={projectId}
+        onComplete={async () => {
+          invalidateMvApiCache();
           await Promise.all([loadPreviewPhotoFolders("revalidate"), loadImages("revalidate")]);
         }}
       />

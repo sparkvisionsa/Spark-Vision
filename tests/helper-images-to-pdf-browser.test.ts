@@ -22,6 +22,14 @@ test("PDF settings are usable above the helper-tools modal", { timeout: 120_000 
   const server = createServer((request, response) => {
     if (request.url === "/app.js") { response.setHeader("Content-Type", "text/javascript"); response.end(script); return; }
     if (request.url === "/app.css") { response.setHeader("Content-Type", "text/css; charset=utf-8"); response.end(css.css); return; }
+    if (request.url === "/api/helper-tools/pdfs") {
+      response.setHeader("Content-Type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ files: [{
+        id: "68ef00000000000000000001", sequence: 7, name: "images.pdf", kind: "standard",
+        imageCount: 12, pdfCount: 2, size: 1536000, createdAt: "2026-10-13T08:30:00.000Z",
+      }] }));
+      return;
+    }
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.end('<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><body><div id="root"></div><script src="/app.js"></script></body></html>');
   });
@@ -37,6 +45,13 @@ test("PDF settings are usable above the helper-tools modal", { timeout: 120_000 
     await page.waitForTimeout(100);
     assert.deepEqual(errors, []);
     const modal = page.getByRole("dialog", { name: "الأدوات المساعدة", exact: true });
+    await expect(modal.getByRole("heading", { name: "ملفات PDF المحفوظة" })).toBeVisible();
+    await expect(modal.getByRole("columnheader", { name: "م", exact: true })).toBeVisible();
+    await expect(modal.getByRole("columnheader", { name: "عدد الصور", exact: true })).toBeVisible();
+    await expect(modal.getByRole("columnheader", { name: "ملفات PDF المرفقة", exact: true })).toBeVisible();
+    await expect(modal.getByRole("cell", { name: "7", exact: true })).toBeVisible();
+    await expect(modal.getByRole("cell", { name: "12", exact: true })).toBeVisible();
+    await expect(modal.getByRole("cell", { name: "2", exact: true })).toBeVisible();
     const settings = modal.getByRole("button", { name: "إعدادات PDF", exact: true });
     await page.screenshot({ path: "test-results/helper-pdf-settings-before.png" });
     await expect(settings).toBeVisible();

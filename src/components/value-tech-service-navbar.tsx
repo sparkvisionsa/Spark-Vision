@@ -149,6 +149,7 @@ function HubLanguageSwitcher() {
 
 function HubAuthPill() {
   const { user, loading } = useAuthTracking();
+  const router = useRouter();
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
   const t = copy[language];
@@ -156,6 +157,26 @@ function HubAuthPill() {
 
   const hubTriggerClass =
     "vt-hub-user-pill h-auto shadow-none";
+
+  useEffect(() => {
+    if (loading || user || typeof window === "undefined") return;
+
+    if (new URLSearchParams(window.location.search).get("login") === "1") {
+      setOpenAuthModal(true);
+    }
+  }, [loading, user]);
+
+  const handleAuthModalChange = (open: boolean) => {
+    setOpenAuthModal(open);
+
+    if (open || typeof window === "undefined") return;
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("login") !== "1") return;
+
+    url.searchParams.delete("login");
+    router.replace(`${url.pathname}${url.search}${url.hash}`);
+  };
 
   if (loading) {
     return <div className="h-8 w-24 animate-pulse rounded-full bg-[rgba(232,184,90,0.12)]" />;
@@ -173,7 +194,7 @@ function HubAuthPill() {
           <span>{t.login}</span>
           <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
         </button>
-        <AuthModal open={openAuthModal} onOpenChange={setOpenAuthModal} />
+        <AuthModal open={openAuthModal} onOpenChange={handleAuthModalChange} />
       </>
     );
   }

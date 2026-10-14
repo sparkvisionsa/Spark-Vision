@@ -10,6 +10,7 @@ export function getSimpleReportSteps(t: MvT) {
   return [
     { id: "report-data" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.reportData") },
     { id: "asset-images" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.assetImages") },
+    { id: "valuation-accounting" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.valuationAccounts") },
     { id: "report-files" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.reportFiles") },
     { id: "final-report" as MvSimpleReportStepId, title: t("navigation.simpleReportSteps.finalReport") },
   ];

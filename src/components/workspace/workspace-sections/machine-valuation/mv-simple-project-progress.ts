@@ -3,10 +3,11 @@ import type { MvProjectReportData } from "./types";
 export type MvSimpleReportStepId =
   | "report-data"
   | "asset-images"
+  | "valuation-accounting"
   | "report-files"
   | "final-report";
 
-export const MV_SIMPLE_REPORT_STEP_COUNT = 4;
+export const MV_SIMPLE_REPORT_STEP_COUNT = 5;
 
 /** حقول «بيانات التقرير» الأساسية — يجب اكتمالها لاعتبار الخطوة منتهية (✓). */
 const SIMPLE_REPORT_DATA_REQUIRED_FIELDS = [
@@ -117,8 +118,10 @@ export function computeCompletedSimpleReportSteps(
   if (isAssetImagesStepComplete(input.assetImageCount ?? 0)) {
     done.push("asset-images");
   }
+  if (isValuationActionsStepComplete(input.valuationAccountImageCount ?? 0)) {
+    done.push("valuation-accounting");
+  }
   if (
-    isValuationActionsStepComplete(input.valuationAccountImageCount ?? 0) ||
     isClientFilesStepComplete(input.clientDocumentImageCount ?? 0) ||
     isClientFilesStepComplete(input.sceCertificateImageCount ?? 0)
   ) {

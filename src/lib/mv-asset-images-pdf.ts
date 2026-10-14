@@ -18,6 +18,17 @@ export type MvAssetImagesPdfResult = {
   failedNames: string[];
 };
 
+export type MvAssetImagesPdfProgress = {
+  stage: "loading" | "converting" | "saving" | "complete";
+  percent: number;
+  completed: number;
+  total: number;
+  failed: number;
+};
+
+// Give React and the browser a chance to paint between CPU-heavy PDF steps.
+const yieldForPaint = () => new Promise<void>((resolve) => window.setTimeout(resolve, 16));
+
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
 const PAGE_MARGIN_PT = 14;
@@ -123,6 +134,7 @@ function safePdfFilename(value: string): string {
 export async function buildAssetImagesPdf(params: {
   sources: readonly MvAssetImagePdfSource[];
   filenameBase: string;
+  onProgress?: (progress: MvAssetImagesPdfProgress) => void;
 }): Promise<MvAssetImagesPdfResult> {
   const sources = params.sources.filter((source) => source.url.trim() && isImageSource(source));
   if (sources.length === 0) {
@@ -131,18 +143,28 @@ export async function buildAssetImagesPdf(params: {
 
   const prepared: PreparedImage[] = [];
   const failedNames: string[] = [];
+  const reportProgress = (stage: MvAssetImagesPdfProgress["stage"], percent: number, completed: number, total: number) => {
+    params.onProgress?.({ stage, percent, completed, total, failed: failedNames.length });
+  };
+  reportProgress("loading", 0, 0, sources.length);
+  await yieldForPaint();
   for (const source of sources) {
     try {
       prepared.push(await prepareImage(source));
     } catch {
       failedNames.push(source.name?.trim() || source.url);
     }
+    const processed = prepared.length + failedNames.length;
+    reportProgress("loading", Math.round(processed / sources.length * 60), processed, sources.length);
+    await yieldForPaint();
   }
 
   if (prepared.length === 0) {
     throw new Error("report_images_could_not_be_loaded");
   }
 
+  reportProgress("converting", 60, 0, prepared.length);
+  await yieldForPaint();
   const { jsPDF } = await import("jspdf");
   const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true });
   const imageSlotsPerPage = prepared.length === 1 ? 1 : 2;
@@ -152,7 +174,7 @@ export async function buildAssetImagesPdf(params: {
   const slotHeight =
     (pageHeight - PAGE_MARGIN_PT * 2 - SLOT_GAP_PT * (imageSlotsPerPage - 1)) / imageSlotsPerPage;
 
-  prepared.forEach((image, index) => {
+  for (const [index, image] of prepared.entries()) {
     const slotIndex = index % imageSlotsPerPage;
     if (index > 0 && slotIndex === 0) pdf.addPage("a4", "portrait");
 
@@ -168,9 +190,15 @@ export async function buildAssetImagesPdf(params: {
     pdf.setLineWidth(0.5);
     pdf.rect(slotX, slotY, contentWidth, slotHeight);
     pdf.addImage(image.dataUrl, "JPEG", drawX, drawY, drawWidth, drawHeight, undefined, "FAST");
-  });
+    reportProgress("converting", 60 + Math.round((index + 1) / prepared.length * 35), index + 1, prepared.length);
+    await yieldForPaint();
+  }
 
+  reportProgress("saving", 98, prepared.length, prepared.length);
+  await yieldForPaint();
   const blob = pdf.output("blob");
   downloadBlob(blob, safePdfFilename(params.filenameBase));
+  // The browser owns saving to disk; completion here means download was started.
+  reportProgress("complete", 100, prepared.length, prepared.length);
   return { blob, imageCount: prepared.length, failedNames };
 }

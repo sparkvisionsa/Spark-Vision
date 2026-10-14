@@ -69,9 +69,26 @@ test("handbook onboarding, persistence, accessibility and responsive reading", {
     await expect(book.getByRole("heading", { name: "نموذج البيانات: أساس التقرير", exact: true })).toBeVisible();
     await book.getByRole("checkbox", { name: "عدم الظهور مرة أخرى" }).check();
     await book.getByRole("button", { name: "إغلاق الكتيب", exact: true }).click();
-    await page.evaluate(() => sessionStorage.clear());
-    await page.reload();
+    // Exercise the real authentication cleanup, not just sessionStorage.clear().
+    // Reload also removes the in-memory seen guard that can mask a lost preference.
+    await page.evaluate(() => {
+      localStorage.setItem("mv:project:private-cache", "private project data");
+      localStorage.setItem("sv:mv:private-cache", "private project data");
+      localStorage.setItem("mv-private-cache", "private project data");
+      sessionStorage.setItem("private-project", "private project data");
+    });
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.getByRole("button", { name: "بدء جلسة جديدة", exact: true }).click(),
+    ]);
     await expect(launcher).toBeVisible();
+    assert.equal(await page.evaluate(() => localStorage.getItem("mv:handbook:hidden:reader-one")), "1");
+    assert.deepEqual(await page.evaluate(() => [
+      localStorage.getItem("mv:project:private-cache"),
+      localStorage.getItem("sv:mv:private-cache"),
+      localStorage.getItem("mv-private-cache"),
+      sessionStorage.getItem("private-project"),
+    ]), [null, null, null, null]);
     await page.waitForTimeout(800);
     await expect(book).toHaveCount(0);
     await launcher.click();

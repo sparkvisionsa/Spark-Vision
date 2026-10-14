@@ -11,9 +11,12 @@ import { convertPdfFileToPageImages } from "./machine-valuation/mv-pdf-page-imag
 import HelperToolsScreenCapture from "./helper-tools-screen-capture";
 import HelperImagesToPdf from "./helper-images-to-pdf";
 import { useHelperToolsNav } from "@/components/helper-tools-shell";
+import { useAuthTracking } from "@/components/auth-tracking-provider";
 
 export default function HelperTools({ overlayContainer }: { overlayContainer?: HTMLElement | null }) {
   const { tool, isArabic } = useHelperToolsNav();
+  const { user, session, csrfToken } = useAuthTracking();
+  const pdfOwnerKey = `${user?.companyId ?? user?.id ?? "guest"}:${session?.id ?? "pending"}`;
   const [working, setWorking] = useState(false);
   const [progress, setProgress] = useState("");
   const [pages, setPages] = useState<File[]>([]);
@@ -45,7 +48,7 @@ export default function HelperTools({ overlayContainer }: { overlayContainer?: H
       {tool === "screen" && <HelperToolsScreenCapture arabic={isArabic} />}
 
       {tool === "images" && (
-        <HelperImagesToPdf arabic={isArabic} overlayContainer={overlayContainer} />
+        <HelperImagesToPdf key={pdfOwnerKey} arabic={isArabic} overlayContainer={overlayContainer} csrfToken={csrfToken} />
       )}
 
       {tool === "pdf" && (

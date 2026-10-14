@@ -1,5 +1,6 @@
 import { StrictMode, Suspense, createContext, useContext, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { resetAuthBoundClientState } from "../../src/lib/auth-session-state";
 import { MvHandbookLauncher } from "../../src/components/workspace/workspace-sections/machine-valuation/mv-handbook-launcher";
 
 const Auth = createContext<{ user: { id: string } | null; loading: boolean }>({ user: { id: "reader-one" }, loading: false });
@@ -19,6 +20,7 @@ function Fixture() {
       {otherDialog && <div role="dialog" aria-label="إجراء آخر"><button onClick={() => setOtherDialog(false)}>إغلاق الإجراء الآخر</button></div>}
       <button onClick={() => setUserId(value => value === "reader-one" ? "reader-two" : "reader-one")}>تبديل الحساب</button>
       <button onClick={() => setLoading(value => !value)}>تبديل التحميل</button>
+      <button onClick={() => { resetAuthBoundClientState(); location.reload(); }}>بدء جلسة جديدة</button>
     </main>
   </Auth.Provider>;
 }

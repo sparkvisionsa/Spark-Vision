@@ -53,10 +53,12 @@ export function resetAuthBoundClientState() {
     // The in-memory epoch remains available.
   }
 
-  // Preserve non-sensitive preferences such as the application language.
+  // Preserve the account-scoped handbook opt-out across login, logout and
+  // session restoration. It contains only a display preference, not tenant data.
   clearStorage(
     window.localStorage,
-    (key) => key.startsWith("sv:mv:") || key.startsWith("mv:") || key.startsWith("mv-"),
+    (key) => !key.startsWith("mv:handbook:hidden:") &&
+      (key.startsWith("sv:mv:") || key.startsWith("mv:") || key.startsWith("mv-")),
   );
 
   window.dispatchEvent(new CustomEvent(AUTH_CONTEXT_CHANGED_EVENT, { detail: { epoch } }));
