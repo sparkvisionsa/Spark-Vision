@@ -35,6 +35,7 @@ export const MV_SETTINGS_TABS: Record<
       | "settingsHub.tabs.companyInfo"
       | "settingsHub.tabs.companyUsers"
       | "settingsHub.tabs.signatories"
+      | "settingsHub.tabs.permissions"
       | "settingsHub.tabs.assetDescriptions"
       | "settingsHub.tabs.wordTemplates"
       | "settingsHub.tabs.pptxTemplates"
@@ -50,6 +51,11 @@ export const MV_SETTINGS_TABS: Record<
       key: "signatories",
       href: "/machine-valuation/settings/general/signatories",
       labelKey: "settingsHub.tabs.signatories",
+    },
+    {
+      key: "permissions",
+      href: "/machine-valuation/settings/general/permissions",
+      labelKey: "settingsHub.tabs.permissions",
     },
     {
       key: "asset-descriptions",

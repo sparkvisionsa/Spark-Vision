@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 import { useMvI18n } from "./mv-i18n";
 
 interface DataImportSelectorProps {
-  onSelectImport: () => void;
-  onSelectCreate: () => void;
+  onSelectImport?: () => void;
+  onSelectCreate?: () => void;
   labels?: Partial<{
     label: string;
     importFile: string;
@@ -34,6 +34,7 @@ export default function DataImportSelector({
   };
   const text = { ...copy, ...labels };
   const [open, setOpen] = useState(false);
+  if (!onSelectImport && !onSelectCreate) return null;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -66,7 +67,7 @@ export default function DataImportSelector({
         className="w-[min(100vw-2rem,20rem)] rounded-lg border border-slate-200/90 p-1 shadow-lg"
       >
         <div dir={dir}>
-        <DropdownMenuItem
+        {onSelectImport ? <DropdownMenuItem
           onClick={onSelectImport}
           className={cn(
             "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-[11px] font-semibold",
@@ -79,8 +80,8 @@ export default function DataImportSelector({
             <FileUp className="h-3.5 w-3.5 text-sky-700" />
           </span>
           <span className="min-w-0 leading-tight">{text.importFile}</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {onSelectCreate ? <DropdownMenuItem
           onClick={onSelectCreate}
           className={cn(
             "group mt-0.5 flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-[11px] font-semibold",
@@ -93,7 +94,7 @@ export default function DataImportSelector({
             <Table2 className="h-3.5 w-3.5 text-emerald-800" />
           </span>
           <span className="min-w-0 leading-tight">{text.createSheet}</span>
-        </DropdownMenuItem>
+        </DropdownMenuItem> : null}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

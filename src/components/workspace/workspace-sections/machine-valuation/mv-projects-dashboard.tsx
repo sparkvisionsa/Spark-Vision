@@ -107,6 +107,7 @@ import {
 import { downloadMergedReportFiles } from "@/lib/mv-word-template";
 import { getWorkflowStatusOptions, useMvI18n, type MvT } from "./mv-i18n";
 import { systemArabicFont as tajawal } from "@/lib/system-fonts";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 type PaginationToken = number | "ellipsis-start" | "ellipsis-end";
 type ProjectStatusFilter = "all" | MvProjectWorkflowStatus;
@@ -249,10 +250,14 @@ function ProjectActionsMenu({
   triggerClassName?: string;
 }) {
   const { t, isArabic } = useMvI18n();
+  const { can } = useProductPermissions("machine-valuation");
   const { toast } = useToast();
   const assetDownloadButtonRef = useRef<HTMLButtonElement>(null);
   const projectName = project.name || t("projects.table.project");
   const [exportingAssetsExcel, setExportingAssetsExcel] = useState(false);
+  const hasAnyAction = can("project_workflow.assign") || can("asset_data.import") ||
+    can("asset_media.download") || can("asset_data.access") || can("reports.download") ||
+    can("projects.duplicate") || can("projects.delete");
 
   const handleExportAssetsExcel = async () => {
     if (exportingAssetsExcel) return;
@@ -281,6 +286,8 @@ function ProjectActionsMenu({
     }
   };
 
+  if (!hasAnyAction) return null;
+
   return (
     <>
     <DropdownMenu>
@@ -297,23 +304,23 @@ function ProjectActionsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 text-right">
-        <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenLocations(project)}>
+        {can("project_workflow.assign") ? <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenLocations(project)}>
           <MapPinned className="h-4 w-4 shrink-0 text-emerald-600" />
           {t("projects.actions.locationsInspectors")}
-        </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
+        </DropdownMenuItem> : null}
+        {can("asset_data.import") ? <DropdownMenuItem className="cursor-pointer gap-2 text-[13px]" onSelect={() => onOpenAssetFolders(project)}>
           <FolderPlus className="h-4 w-4 shrink-0 text-[#378ADD]" />
           {t("projects.actions.createAssetFolders")}
-        </DropdownMenuItem>
+        </DropdownMenuItem> : null}
         <DropdownMenuSeparator />
-        <DropdownMenuItem
+        {can("asset_media.download") ? <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px]"
           onSelect={() => assetDownloadButtonRef.current?.click()}
         >
           <FileDown className="h-4 w-4 shrink-0 text-emerald-700" />
           {t("projects.actions.downloadAssetImages")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {can("asset_data.access") ? <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={exportingAssetsExcel}
           onSelect={() => void handleExportAssetsExcel()}
@@ -324,8 +331,8 @@ function ProjectActionsMenu({
             <FileSpreadsheet className="h-4 w-4 shrink-0 text-teal-700" />
           )}
           {t("projects.actions.exportAssetsExcel")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {can("reports.download") ? <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={downloadingFinalReport}
           onSelect={() => onDownloadFinalReport(project)}
@@ -336,8 +343,8 @@ function ProjectActionsMenu({
             <FileDown className="h-4 w-4 shrink-0 text-[#0C447C]" />
           )}
           {t("projects.actions.downloadFinalReport")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {can("projects.duplicate") ? <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={duplicating}
           onSelect={() => onDuplicate(project)}
@@ -348,23 +355,23 @@ function ProjectActionsMenu({
             <Copy className="h-4 w-4 shrink-0 text-sky-700" />
           )}
           {t("projects.actions.duplicateProject")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {can("projects.delete") ? <DropdownMenuItem
           className="cursor-pointer gap-2 text-[13px] text-red-600 focus:text-red-600"
           onSelect={() => onDelete(project._id)}
         >
           <Trash2 className="h-4 w-4 shrink-0" />
           {t("projects.actions.deleteProject")}
-        </DropdownMenuItem>
+        </DropdownMenuItem> : null}
       </DropdownMenuContent>
     </DropdownMenu>
-    <MvAssetImagesDownloadButton
+    {can("asset_media.download") ? <MvAssetImagesDownloadButton
       projectId={project._id}
       buttonRef={assetDownloadButtonRef}
       className="hidden"
     >
       <span>{t("projects.actions.downloadAssetImages")}</span>
-    </MvAssetImagesDownloadButton>
+    </MvAssetImagesDownloadButton> : null}
     </>
   );
 }
@@ -1205,6 +1212,7 @@ export default function MvProjectsDashboard() {
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
   const { user, csrfToken, loading: authLoading } = useAuthTracking();
+  const { can } = useProductPermissions("machine-valuation");
   const duplicateBusy = useMvBusyPercent();
   const [initialViewState] = useState(readMvProjectsViewState);
   const [projects, setProjects] = useState<MvProject[]>(() => readMvProjectsSessionCache() ?? []);
@@ -1266,7 +1274,7 @@ export default function MvProjectsDashboard() {
     return projects;
   }, [projects, user]);
 
-  const canCreateMvProject = (() => {
+  const canCreateMvProject = can("projects.create") && (() => {
     if (!user) return false;
     return user.role === "super_admin" || Boolean(user.companyId?.trim());
   })();
@@ -1901,7 +1909,7 @@ export default function MvProjectsDashboard() {
                 autoOpenAllowed={!createOpen}
                 className="h-9 rounded-lg border border-white/40 bg-white/10 px-3 text-[12px] font-bold text-white shadow-none hover:border-white hover:bg-white/20 focus-visible:ring-offset-0"
               />
-              <Button
+              {can("projects.create") ? <Button
                 type="button"
                 size="sm"
                 onClick={() => setCreateOpen(true)}
@@ -1916,7 +1924,7 @@ export default function MvProjectsDashboard() {
               >
                 <Plus className="h-4 w-4" aria-hidden />
                 <span>{t("projects.createNew")}</span>
-              </Button>
+              </Button> : null}
             </div>
           </div>
 
@@ -2049,7 +2057,7 @@ export default function MvProjectsDashboard() {
               <MvEmptyState
                 title={t("projects.empty.noProjects")}
                 action={
-                  <Button
+                  can("projects.create") ? <Button
                     type="button"
                     variant="outline"
                     size="sm"
@@ -2058,7 +2066,7 @@ export default function MvProjectsDashboard() {
                     className="rounded-lg border-slate-300 text-[12px]"
                   >
                     {t("projects.empty.create")}
-                  </Button>
+                  </Button> : null
                 }
               />
             </div>
@@ -2130,14 +2138,14 @@ export default function MvProjectsDashboard() {
                           </td>
 
                           <td className="px-2 py-2 align-middle">
-                            <MvProjectWorkflowStatusSelect
+                            {can("projects.edit") ? <MvProjectWorkflowStatusSelect
                               projectId={project._id}
                               value={workflowStatus}
                               options={workflowStatusOptions}
                               isArabic={isArabic}
                               disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
                               onChange={handleWorkflowStatusChange}
-                            />
+                            /> : <span className="text-[11px] font-bold text-slate-600">{workflowStatusLabel(workflowStatusOptions.find((item) => item.value === workflowStatus) ?? workflowStatusOptions[0]!, isArabic)}</span>}
                           </td>
 
                           <td className="px-2 py-2 align-middle text-[12px] font-semibold text-slate-600">
@@ -2239,14 +2247,14 @@ export default function MvProjectsDashboard() {
                             />
                           </div>
                           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            <MvProjectWorkflowStatusSelect
+                            {can("projects.edit") ? <MvProjectWorkflowStatusSelect
                               projectId={project._id}
                               value={workflowStatus}
                               options={workflowStatusOptions}
                               isArabic={isArabic}
                               disabled={Boolean(workflowStatusSavingId && workflowStatusSavingId !== project._id)}
                               onChange={handleWorkflowStatusChange}
-                            />
+                            /> : <span className="text-[10px] font-bold text-slate-500">{workflowStatusLabel(workflowStatusOptions.find((item) => item.value === workflowStatus) ?? workflowStatusOptions[0]!, isArabic)}</span>}
                             {reportLabel ? (
                               <span className="text-[10px] font-bold text-slate-400">{reportLabel}</span>
                             ) : null}

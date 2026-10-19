@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FileInput, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -322,6 +323,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const { t, dir } = useMvI18n();
   const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canEditReportData = can("project_workflow.edit");
   const initialCached = readProjectSummaryCache(projectId, "report");
   const [project, setProject] = useState<MvProject | null>(initialCached?.project ?? null);
   const [subProjects, setSubProjects] = useState<MvSubProject[]>(initialCached?.subProjects ?? []);
@@ -759,6 +762,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     reportDataOverride?: MvProjectReportData,
     options: { silent?: boolean } = {},
   ): Promise<boolean> => {
+    if (!canEditReportData) return false;
     if (!project) return false;
     const name = editableProjectName.trim();
     if (!name) {
@@ -1031,7 +1035,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
               <section className="mb-3 flex w-full flex-nowrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-sm">
                 <label className="flex min-w-0 items-center gap-2">
                   <span className="shrink-0 text-[12px] font-bold text-slate-600">نموذج بيانات التقرير</span>
-                  {reportDataModels.length > 1 ? (
+                  {canEditReportData && reportDataModels.length > 1 ? (
                     <Select
                       value={activeReportDataModel.id}
                       onValueChange={(nextId) => {
@@ -1065,7 +1069,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                     </span>
                   )}
                 </label>
-                <Button
+                {canEditReportData ? <Button
                   type="button"
                   variant="outline"
                   className="ms-auto h-9 shrink-0 gap-1.5 rounded-xl border-sky-200 bg-sky-50 px-3 text-[12px] font-black text-sky-950 shadow-none hover:bg-sky-100"
@@ -1074,7 +1078,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileInput className="h-4 w-4" />}
                   استيراد بيانات من ملف
-                </Button>
+                </Button> : null}
               </section>
               <MvReportDataForm
                 project={project}
@@ -1090,8 +1094,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                 highlightSave={showUnsavedCoach}
                 invalidFieldKeys={displayedInvalidFieldKeys}
                 sectionCompletion={sectionCompletion}
-                onProjectNameChange={handleProjectNameChange}
-                onReportDataChange={handleReportDataChange}
+                onProjectNameChange={canEditReportData ? handleProjectNameChange : () => undefined}
+                onReportDataChange={canEditReportData ? handleReportDataChange : () => undefined}
                 onSectionOpenChange={(id, open) => setOpenSections((c) => ({ ...c, [id]: open }))}
                 onToggleAllSections={() =>
                   setOpenSections((current) => {
@@ -1099,9 +1103,9 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                     return createMvReportCollapsibleState(shouldOpen);
                   })
                 }
-                onSave={handleSaveReportData}
-                onReset={handleResetReportData}
-                onCloneFromProject={() => setCloneDialogOpen(true)}
+                onSave={canEditReportData ? handleSaveReportData : undefined}
+                onReset={canEditReportData ? handleResetReportData : undefined}
+                onCloneFromProject={canEditReportData ? () => setCloneDialogOpen(true) : undefined}
               />
             </>
           )}

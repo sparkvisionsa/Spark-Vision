@@ -52,6 +52,7 @@ import type {
   TemplateFieldType,
 } from "@/lib/types/clients";
 import { cn } from "@/lib/utils";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import {
   AlertTriangle,
   Building2,
@@ -372,6 +373,7 @@ export default function ClientsPage({
 }: {
   productId?: Extract<ValueTechProductId, "real-estate-valuation" | "machine-valuation">;
 }) {
+  const { can } = useProductPermissions(productId);
   const productQuery = useMemo(
     () => `?productId=${encodeURIComponent(productId)}`,
     [productId],
@@ -1090,7 +1092,7 @@ export default function ClientsPage({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button
+          {can("clients.create") ? <Button
             type="button"
             size="sm"
             className="h-7 gap-1 px-2.5 text-[11px] bg-gradient-to-r from-sky-600 to-teal-600 text-white shadow-sm hover:from-sky-700 hover:to-teal-700"
@@ -1098,8 +1100,8 @@ export default function ClientsPage({
           >
             <UserPlus className="h-3 w-3" />
             إضافة عميل
-          </Button>
-          <Button
+          </Button> : null}
+          {(can("clients.create") || can("clients.edit") || can("clients.delete")) ? <Button
             type="button"
             variant="outline"
             size="sm"
@@ -1111,8 +1113,8 @@ export default function ClientsPage({
           >
             <FileStack className="h-3 w-3" />
             النماذج
-          </Button>
-          <Button
+          </Button> : null}
+          {(can("clients.create") || can("clients.edit") || can("clients.delete")) ? <Button
             type="button"
             variant="outline"
             size="sm"
@@ -1124,7 +1126,7 @@ export default function ClientsPage({
           >
             <Tag className="h-3 w-3" />
             الأنواع
-          </Button>
+          </Button> : null}
         </div>
       </div>
 
@@ -1492,7 +1494,7 @@ export default function ClientsPage({
 
         {/* Actions */}
         <div className="flex items-center gap-1.5">
-          <Button
+          {(editingId ? can("clients.edit") : can("clients.create")) ? <Button
             type="submit"
             size="sm"
             disabled={
@@ -1509,7 +1511,7 @@ export default function ClientsPage({
               : editingId
                 ? "حفظ التعديلات"
                 : "حفظ"}
-          </Button>
+          </Button> : null}
           <Button
             type="button"
             variant="outline"
@@ -1553,7 +1555,7 @@ export default function ClientsPage({
               <p className="text-[12px] text-slate-400">
                 لا يوجد عملاء بعد.
               </p>
-              <Button
+              {can("clients.create") ? <Button
                 type="button"
                 size="sm"
                 className="h-7 gap-1 px-2.5 text-[11px] bg-sky-600 hover:bg-sky-700"
@@ -1561,7 +1563,7 @@ export default function ClientsPage({
               >
                 <Plus className="h-3 w-3" />
                 إضافة أول عميل
-              </Button>
+              </Button> : null}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -1607,7 +1609,7 @@ export default function ClientsPage({
                       </TableCell>
                       <TableCell className="px-2.5 py-1.5 align-middle">
                         <div className="flex items-center justify-center gap-0.5">
-                          <Button
+                          {can("clients.edit") ? <Button
                             type="button"
                             size="icon"
                             variant="ghost"
@@ -1616,8 +1618,8 @@ export default function ClientsPage({
                             aria-label="تعديل"
                           >
                             <Pencil className="h-3 w-3" />
-                          </Button>
-                          <Button
+                          </Button> : null}
+                          {can("clients.delete") ? <Button
                             type="button"
                             size="icon"
                             variant="ghost"
@@ -1626,7 +1628,7 @@ export default function ClientsPage({
                             aria-label="حذف"
                           >
                             <Trash2 className="h-3 w-3" />
-                          </Button>
+                          </Button> : null}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1656,7 +1658,7 @@ export default function ClientsPage({
                   </DialogDescription>
                 </div>
               </div>
-              <Button
+              {can("clients.create") ? <Button
                 type="button"
                 size="sm"
                 className="h-8 shrink-0 gap-1 bg-white/95 px-2.5 text-[11px] text-sky-700 hover:bg-white"
@@ -1664,7 +1666,7 @@ export default function ClientsPage({
               >
                 <Plus className="h-3.5 w-3.5" />
                 نوع
-              </Button>
+              </Button> : null}
             </div>
           </div>
           <ScrollArea className="max-h-[58vh]">
@@ -1730,7 +1732,7 @@ export default function ClientsPage({
                             </span>
                           </div>
                           <div className="flex shrink-0 gap-0.5">
-                            <Button
+                            {can("clients.edit") ? <Button
                               type="button"
                               size="icon"
                               variant="ghost"
@@ -1739,8 +1741,8 @@ export default function ClientsPage({
                               aria-label="تعديل النوع"
                             >
                               <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
+                            </Button> : null}
+                            {can("clients.delete") ? <Button
                               type="button"
                               size="icon"
                               variant="ghost"
@@ -1749,7 +1751,7 @@ export default function ClientsPage({
                               aria-label="حذف النوع"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            </Button> : null}
                           </div>
                         </div>
                       )}
@@ -1936,7 +1938,7 @@ export default function ClientsPage({
                           ))}
                         </SelectContent>
                       </Select>
-                      <Button
+                      {can("clients.edit") ? <Button
                         type="button"
                         size="icon"
                         variant="ghost"
@@ -1951,7 +1953,7 @@ export default function ClientsPage({
                         aria-label="حذف"
                       >
                         <Trash2 className="h-3 w-3" />
-                      </Button>
+                      </Button> : null}
                     </div>
                     {row.fieldType === "select" && (
                       <div className="space-y-1 pt-1 border-t border-slate-100">
@@ -2062,7 +2064,7 @@ export default function ClientsPage({
                       >
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
+                      {can("clients.edit") ? <Button
                         type="button"
                         size="icon"
                         variant="ghost"
@@ -2074,8 +2076,8 @@ export default function ClientsPage({
                         aria-label="تعديل"
                       >
                         <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
+                      </Button> : null}
+                      {can("clients.delete") ? <Button
                         type="button"
                         size="icon"
                         variant="ghost"
@@ -2084,7 +2086,7 @@ export default function ClientsPage({
                         aria-label="حذف"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      </Button> : null}
                     </div>
                   </div>
                 ))

@@ -69,6 +69,11 @@ import {
 import { CompanyAssetDescriptionsDashboard } from "@/components/company-asset-descriptions-dashboard";
 import { CompanyReportDataModelDashboard } from "@/components/company-report-data-model-dashboard";
 import { CompanyReportSectionModelDashboard } from "@/components/company-report-section-model-dashboard";
+import {
+  CompanyPermissionsDashboard,
+  loadPermissionProfiles,
+  type PermissionProfile,
+} from "@/components/company-permissions-dashboard";
 import { MvReportPageShell } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-page-shell";
 import {
   createDefaultReportDataModel,
@@ -115,7 +120,7 @@ export type CompanyAdminDashboardMode = "general" | "report-defaults";
  * «إعدادات عامة» و«بيانات إعداد التقرير النهائي» يعرضان هذه اللوحة نفسها،
  * فلا يصلح ترك التبويب النشط لحالة داخلية قد تحمل تبويب الوضع الآخر.
  */
-const GENERAL_TABS = ["info", "users", "signatories", "asset-descriptions"] as const;
+const GENERAL_TABS = ["info", "users", "signatories", "permissions", "asset-descriptions"] as const;
 const REPORT_DEFAULTS_TABS = ["report-data-models", "word-template", "pptx-template", "letterhead"] as const;
 
 function tabsForMode(mode: CompanyAdminDashboardMode): readonly string[] {
@@ -137,6 +142,8 @@ type CompanyUserRow = {
   role: string;
   companyId: string;
   productIds?: string[];
+  permissionProfileIds?: Partial<Record<ValueTechProductId, string[]>>;
+  permissionOverrides?: Partial<Record<ValueTechProductId, { allow?: string[]; deny?: string[] }>>;
   email?: string | null;
   phone?: string | null;
   valuationReportDisplayName?: string | null;
@@ -1352,18 +1359,32 @@ function mergeStandardReportSectionModel(
 
 const ROLE_LABELS: Record<string, string> = {
   company_admin: "مدير الشركة",
-  valuer: "مقيم",
-  viewer: "مقيم",
+  department_head: "رئيس قسم",
+  valuer: "مقيم أساسي",
+  viewer: "مقيم أساسي",
+  associate_valuer: "مقيم منتسب",
+  accredited_valuer: "مقيم معتمد",
   data_entry: "مدخل بيانات",
   reviewer: "مراجع",
-  inspector: "مفتش ميداني",
+  inspector: "معاين",
 };
 
-type MemberRoleOption = "valuer" | "data_entry" | "reviewer" | "inspector";
+type MemberRoleOption =
+  | "department_head"
+  | "valuer"
+  | "associate_valuer"
+  | "accredited_valuer"
+  | "data_entry"
+  | "inspector"
+  | "reviewer";
 
 function rowRoleToSelectValue(role: string): MemberRoleOption {
   if (role === "viewer") return "valuer";
-  if (role === "data_entry" || role === "reviewer" || role === "inspector" || role === "valuer") {
+  if (
+    role === "department_head" || role === "data_entry" || role === "reviewer" ||
+    role === "inspector" || role === "valuer" || role === "associate_valuer" ||
+    role === "accredited_valuer"
+  ) {
     return role;
   }
   return "valuer";
@@ -2085,7 +2106,9 @@ export default function CompanyAdminDashboard({
   const [addOpen, setAddOpen] = useState(false);
 
   const [newPassword, setNewPassword] = useState("");
-  const [newRole, setNewRole] = useState<"valuer" | "data_entry" | "reviewer" | "inspector">("valuer");
+  const [newRole, setNewRole] = useState<MemberRoleOption>("valuer");
+  const [permissionProfiles, setPermissionProfiles] = useState<PermissionProfile[]>([]);
+  const [newPermissionProfileIds, setNewPermissionProfileIds] = useState<string[]>([]);
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newReportDisplayName, setNewReportDisplayName] = useState("");
@@ -2107,6 +2130,7 @@ export default function CompanyAdminDashboard({
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CompanyUserRow | null>(null);
   const [editRole, setEditRole] = useState<MemberRoleOption>("valuer");
+  const [editPermissionProfileIds, setEditPermissionProfileIds] = useState<string[]>([]);
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editReportDisplayName, setEditReportDisplayName] = useState("");
@@ -2243,6 +2267,14 @@ export default function CompanyAdminDashboard({
       void load();
     }
   }, [isCompanyAdmin, load, loading]);
+
+  useEffect(() => {
+    if (!loading && isCompanyAdmin && productId) {
+      void loadPermissionProfiles(productId, csrfToken)
+        .then((payload) => setPermissionProfiles(payload.profiles))
+        .catch(() => setPermissionProfiles([]));
+    }
+  }, [csrfToken, isCompanyAdmin, loading, productId]);
 
   const canAccess = Boolean(user) && (!reportDefaultsOnly || isCompanyAdmin);
 
@@ -3212,7 +3244,7 @@ export default function CompanyAdminDashboard({
     try {
       const em = newEmail.trim();
       const ph = newPhone.trim();
-      await apiJson("/api/company/users", csrfToken, {
+      const created = await apiJson<{ user: { id: string } }>("/api/company/users", csrfToken, {
         method: "POST",
         body: JSON.stringify({
           username: ph,
@@ -3226,6 +3258,16 @@ export default function CompanyAdminDashboard({
           phone: ph,
         }),
       });
+      if (productId && newPermissionProfileIds.length > 0 && created.user?.id) {
+        await apiJson(
+          `/api/company/permissions/users/${encodeURIComponent(created.user.id)}?productId=${encodeURIComponent(productId)}`,
+          csrfToken,
+          {
+            method: "PUT",
+            body: JSON.stringify({ profileIds: newPermissionProfileIds }),
+          },
+        );
+      }
       setStatus("تم إنشاء المستخدم.");
       setNewPassword("");
       setNewEmail("");
@@ -3233,6 +3275,7 @@ export default function CompanyAdminDashboard({
       setNewReportDisplayName("");
       setNewJobTitle("");
       setNewMembershipNo("");
+      setNewPermissionProfileIds([]);
       setAddOpen(false);
       await load();
     } catch (e) {
@@ -3251,10 +3294,11 @@ export default function CompanyAdminDashboard({
     setEditJobTitle(u.valuationReportJobTitle ?? "");
     setEditMembershipNo(u.valuationReportMembershipNo ?? "");
     setEditNewPassword("");
+    setEditPermissionProfileIds(productId ? (u.permissionProfileIds?.[productId] ?? []) : []);
     setEditOpen(true);
     setSubmitError(null);
     setStatus(null);
-  }, []);
+  }, [productId]);
 
   const onSaveEditedUser = async () => {
     if (!editTarget) return;
@@ -3298,7 +3342,11 @@ export default function CompanyAdminDashboard({
       }
       body.newPassword = editNewPassword.trim();
     }
-    if (Object.keys(body).length === 0) {
+    const originalPermissionIds = productId ? (editTarget.permissionProfileIds?.[productId] ?? []) : [];
+    const permissionsChanged = productId
+      ? [...originalPermissionIds].sort().join("|") !== [...editPermissionProfileIds].sort().join("|")
+      : false;
+    if (Object.keys(body).length === 0 && !permissionsChanged) {
       setSubmitError("لم يتغيّر أي حقل.");
       return;
     }
@@ -3307,10 +3355,19 @@ export default function CompanyAdminDashboard({
     setSubmitError(null);
     setStatus(null);
     try {
-      await apiJson(`/api/company/users/${encodeURIComponent(editTarget.id)}${productQuery}`, csrfToken, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
+      if (Object.keys(body).length > 1 || Object.keys(body).some((key) => key !== "productId")) {
+        await apiJson(`/api/company/users/${encodeURIComponent(editTarget.id)}${productQuery}`, csrfToken, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      }
+      if (productId && editTarget.role !== "company_admin" && permissionsChanged) {
+        await apiJson(
+          `/api/company/permissions/users/${encodeURIComponent(editTarget.id)}?productId=${encodeURIComponent(productId)}`,
+          csrfToken,
+          { method: "PUT", body: JSON.stringify({ profileIds: editPermissionProfileIds }) },
+        );
+      }
       setStatus("تم تحديث المستخدم.");
       setEditOpen(false);
       setEditTarget(null);
@@ -3850,6 +3907,12 @@ export default function CompanyAdminDashboard({
                 المقيمون والتوقيعات
               </TabsTrigger>
               <TabsTrigger
+                value="permissions"
+                className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              >
+                الصلاحيات
+              </TabsTrigger>
+              <TabsTrigger
                 value="asset-descriptions"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
@@ -4254,6 +4317,23 @@ export default function CompanyAdminDashboard({
           </TabsContent>
 
             </>
+          ) : null}
+
+          {!reportDefaultsOnly ? (
+            <TabsContent value="permissions" className="mt-0 outline-none">
+              {productId && data ? (
+                <CompanyPermissionsDashboard
+                  productId={productId}
+                  csrfToken={csrfToken}
+                  users={data.users}
+                  onUsersChanged={load}
+                />
+              ) : (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+                  افتح الصلاحيات من داخل النظام المطلوب حتى تُحفظ الصلاحيات في نطاقه فقط.
+                </div>
+              )}
+            </TabsContent>
           ) : null}
 
           {!reportDefaultsOnly ? (
@@ -5377,9 +5457,12 @@ export default function CompanyAdminDashboard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[960]">
-                    <SelectItem value="valuer">مقيم</SelectItem>
-                    <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
+                    <SelectItem value="department_head">رئيس قسم</SelectItem>
+                    <SelectItem value="valuer">مقيم أساسي</SelectItem>
+                    <SelectItem value="associate_valuer">مقيم منتسب</SelectItem>
+                    <SelectItem value="accredited_valuer">مقيم معتمد</SelectItem>
                     <SelectItem value="data_entry">مدخل بيانات</SelectItem>
+                    <SelectItem value="inspector">معاين</SelectItem>
                     <SelectItem value="reviewer">مراجع</SelectItem>
                   </SelectContent>
                 </Select>
@@ -5393,6 +5476,31 @@ export default function CompanyAdminDashboard({
                   className="h-11 rounded-xl border-slate-200"
                 />
               </div>
+              {productId && permissionProfiles.length > 0 ? (
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label className="text-[12px] font-bold text-slate-700">الصلاحيات</Label>
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    {permissionProfiles.map((profile) => {
+                      const checked = newPermissionProfileIds.includes(profile.id) || (newPermissionProfileIds.length === 0 && profile.isDefault);
+                      return (
+                        <label key={profile.id} className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setNewPermissionProfileIds((current) =>
+                              current.includes(profile.id)
+                                ? current.filter((id) => id !== profile.id)
+                                : [...current.filter((id) => !permissionProfiles.find((item) => item.id === id)?.isDefault), profile.id]
+                            )}
+                          />
+                          {profile.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-500">عند عدم الاختيار تُطبّق الصلاحية الافتراضية تلقائيًا.</p>
+                </div>
+              ) : null}
             </div>
             <div className="h-px bg-gradient-to-l from-transparent via-slate-200 to-transparent" />
             <div className="grid gap-3">
@@ -5606,14 +5714,41 @@ export default function CompanyAdminDashboard({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="z-[960]">
-                          <SelectItem value="valuer">مقيم</SelectItem>
-                          <SelectItem value="inspector">مفتش / معاين ميداني</SelectItem>
+                          <SelectItem value="department_head">رئيس قسم</SelectItem>
+                          <SelectItem value="valuer">مقيم أساسي</SelectItem>
+                          <SelectItem value="associate_valuer">مقيم منتسب</SelectItem>
+                          <SelectItem value="accredited_valuer">مقيم معتمد</SelectItem>
                           <SelectItem value="data_entry">مدخل بيانات</SelectItem>
+                          <SelectItem value="inspector">معاين</SelectItem>
                           <SelectItem value="reviewer">مراجع</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   )}
+                  {editTarget.role !== "company_admin" && productId && permissionProfiles.length > 0 ? (
+                    <div className="grid gap-2">
+                      <Label className="text-[12px] text-slate-600">الصلاحيات</Label>
+                      <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        {permissionProfiles.map((profile) => {
+                          const checked = editPermissionProfileIds.includes(profile.id) || (editPermissionProfileIds.length === 0 && profile.isDefault);
+                          return (
+                            <label key={profile.id} className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-sm">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => setEditPermissionProfileIds((current) =>
+                                  current.includes(profile.id)
+                                    ? current.filter((id) => id !== profile.id)
+                                    : [...current.filter((id) => !permissionProfiles.find((item) => item.id === id)?.isDefault), profile.id]
+                                )}
+                              />
+                              {profile.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="grid gap-1.5">
                     <Label className="text-[12px] text-slate-600">البريد (اختياري)</Label>
                     <Input

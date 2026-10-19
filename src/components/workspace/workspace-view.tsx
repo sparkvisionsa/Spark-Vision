@@ -5,6 +5,8 @@ import { useMemo } from "react";
 import ValueTechShell from "@/components/value-tech-shell";
 import ValueTechAccessGate from "@/components/value-tech-access-gate";
 import { loadClientChunk } from "@/lib/load-client-chunk";
+import { ProductPermissionGate, ProductPermissionsProvider } from "@/hooks/use-product-permissions";
+import { workspaceSectionToProductId } from "@/lib/value-tech-products";
 
 const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentType<object> }>> = {
   vt: () => import("./workspace-sections/value-tech-hub"),
@@ -57,6 +59,7 @@ export function WorkspaceView({ slug }: { slug?: string[] }) {
   const key = slugToKey(slug);
   const accessKey = slug?.length === 2 && PRODUCT_SUPPORT_ROUTES.has(slug[0]!) && (slug[1] === "support" || slug[1] === "developer-requests") ? slug[0]! : key;
   const loader = SECTION_LOADERS[key];
+  const permissionProduct = workspaceSectionToProductId(accessKey);
 
   const Section = useMemo(() => {
     if (!loader) {
@@ -70,9 +73,19 @@ export function WorkspaceView({ slug }: { slug?: string[] }) {
 
   return (
     <ValueTechAccessGate sectionKey={accessKey}>
-      <ValueTechShell>
-        <Section key={key} />
-      </ValueTechShell>
+      {permissionProduct === "machine-valuation" || permissionProduct === "real-estate-valuation" ? (
+        <ProductPermissionsProvider productId={permissionProduct}>
+          <ValueTechShell>
+          <ProductPermissionGate productId={permissionProduct}>
+            <Section key={key} />
+          </ProductPermissionGate>
+          </ValueTechShell>
+        </ProductPermissionsProvider>
+      ) : (
+        <ValueTechShell>
+          <Section key={key} />
+        </ValueTechShell>
+      )}
     </ValueTechAccessGate>
   );
 }

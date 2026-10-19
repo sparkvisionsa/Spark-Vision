@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog,  DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -1810,6 +1811,10 @@ export default function MvValuationReportWorkspace({
   const { t, dir } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canEditReports = can("reports.edit");
+  const canGenerateReports = can("reports.generate");
+  const canDownloadReports = can("reports.download");
   const { user, profile } = useAuthTracking();
   const embeddedSystemReport = variant === "embedded-system";
   const sessionKey = MV_WORKFLOW_SESSION.valuationReportWorkspace(projectId);
@@ -2957,10 +2962,11 @@ export default function MvValuationReportWorkspace({
 
   const persistValuationAccountingFromReport = useCallback(
     async (nextStore: MvValuationAccountingStore) => {
+      if (!canEditReports) return;
       writeValuationAccountingStore(projectId, nextStore);
       setValuationAccountStore(nextStore);
       try {
-        await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
+        await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}?permissionScope=reports`, {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
@@ -2973,7 +2979,7 @@ export default function MvValuationReportWorkspace({
         /* ignore */
       }
     },
-    [projectId],
+    [canEditReports, projectId],
   );
 
   const reorderValuationImages = useCallback(
@@ -3363,12 +3369,13 @@ export default function MvValuationReportWorkspace({
 
   const persistProjectReportData = useCallback(
     async (nextReportData: MvProjectReportData): Promise<boolean> => {
+      if (!canEditReports) return false;
       const p = projectRef.current;
       if (!p?._id) return false;
       const requestId = ++reportDataPersistRequestRef.current;
       const normalizedReportData = withDraftDefaultReportData(nextReportData);
       try {
-        const res = await fetch(`/api/mv/projects/${projectId}`, {
+        const res = await fetch(`/api/mv/projects/${projectId}?permissionScope=reports`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -3404,11 +3411,12 @@ export default function MvValuationReportWorkspace({
         return false;
       }
     },
-    [projectId, sessionKey],
+    [canEditReports, projectId, sessionKey],
   );
 
   const onReportDataPatch = useCallback(
     (patch: Partial<MvProjectReportData>) => {
+      if (!canEditReports) return;
       setProject((p) => {
         if (!p) return p;
         const rd = withDraftDefaultReportData({ ...(p.reportData ?? {}), ...patch });
@@ -3433,7 +3441,7 @@ export default function MvValuationReportWorkspace({
         return next;
       });
     },
-    [persistProjectReportData, sessionKey, t, toast],
+    [canEditReports, persistProjectReportData, sessionKey, t, toast],
   );
 
   const selectReportSectionModelForProject = useCallback(
@@ -4092,7 +4100,7 @@ export default function MvValuationReportWorkspace({
             >
               <ListTree className="h-4 w-4" />
             </Button>
-            <Button
+            {canEditReports ? <Button
               type="button"
               variant="ghost"
               size="icon"
@@ -4109,8 +4117,8 @@ export default function MvValuationReportWorkspace({
               }}
             >
               <Sliders className="h-4 w-4" />
-            </Button>
-            <Button
+            </Button> : null}
+            {canEditReports ? <Button
               type="button"
               variant="ghost"
               size="sm"
@@ -4131,7 +4139,7 @@ export default function MvValuationReportWorkspace({
               <span className="rounded-md bg-white px-1.5 py-0.5 text-[9px] font-black tabular-nums text-[#0C447C] ring-1 ring-slate-200">
                 {selectedImages.length}
               </span>
-            </Button>
+            </Button> : null}
 
             <span className="mx-0.5 hidden h-5 w-px bg-slate-200 md:block" aria-hidden />
 
@@ -4173,7 +4181,7 @@ export default function MvValuationReportWorkspace({
               <div className="flex h-9 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 shadow-sm sm:min-w-[180px] sm:max-w-[260px]">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-[#0C447C]" />
                 <span className="hidden shrink-0 text-[10px] font-black text-slate-500 lg:inline">{t("report.toolbar.template")}</span>
-                <Select value={pendingReportTemplateId} onValueChange={applyReportTemplateById}>
+                <Select value={pendingReportTemplateId} onValueChange={applyReportTemplateById} disabled={!canEditReports}>
                   <SelectTrigger
                     className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-right text-[10.5px] font-black text-slate-800 shadow-none outline-none ring-0 focus:ring-0 [&>span]:truncate"
                     title={t("report.toolbar.selectTemplate")}
@@ -4201,6 +4209,7 @@ export default function MvValuationReportWorkspace({
                   <Select
                     value={reportSectionModelSelectValue}
                     onValueChange={selectReportSectionModelForProject}
+                    disabled={!canEditReports}
                   >
                     <SelectTrigger
                       className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-right text-[10.5px] font-black text-slate-800 shadow-none outline-none ring-0 focus:ring-0 [&>span]:truncate"
@@ -4232,7 +4241,7 @@ export default function MvValuationReportWorkspace({
                 </div>
               ) : null}
 
-              {isSimpleReport && !embeddedSystemReport ? (
+              {canGenerateReports && canDownloadReports && isSimpleReport && !embeddedSystemReport ? (
                 <>
                   <Button
                     type="button"
@@ -4267,7 +4276,7 @@ export default function MvValuationReportWorkspace({
                 </>
               ) : null}
 
-              <label
+              {canEditReports ? <label
                 htmlFor="mv-report-draft-mode-switch"
                 className={cn(
                   "inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-2.5 text-[11px] font-black shadow-sm transition",
@@ -4301,7 +4310,7 @@ export default function MvValuationReportWorkspace({
                   aria-label={t("report.toolbar.toggleDraft")}
                   className="border-0 shadow-inner data-[state=checked]:bg-amber-500 data-[state=unchecked]:bg-emerald-500"
                 />
-              </label>
+              </label> : null}
             </div>
 
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
@@ -4318,14 +4327,14 @@ export default function MvValuationReportWorkspace({
                 <span>{t("report.toolbar.preview")}</span>
               </Button>
 
-              <MvReportExportMenu
+              {canGenerateReports && canDownloadReports ? <MvReportExportMenu
                 disabled={exportActionsDisabled}
                 exportingFormat={exportingFormat}
                 onExport={handleReportExport}
                 hiddenFormats={embeddedSystemReport ? ["docx-template"] : undefined}
-              />
+              /> : null}
 
-              <Button
+              {canEditReports ? <Button
                 type="button"
                 size="sm"
                 className="h-8 shrink-0 gap-1.5 rounded-lg bg-emerald-700 px-3 text-[10.5px] font-black text-white shadow-sm hover:bg-emerald-800"
@@ -4335,7 +4344,7 @@ export default function MvValuationReportWorkspace({
               >
                 {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 <span>{t("report.toolbar.save")}</span>
-              </Button>
+              </Button> : null}
             </div>
           </div>
         </div>
@@ -4462,7 +4471,7 @@ export default function MvValuationReportWorkspace({
           </main>
 
           {/* === Settings drawer (margins + images) === */}
-          {settingsDrawerOpen ? (
+          {canEditReports && settingsDrawerOpen ? (
             <>
               {/* Backdrop only on mobile so desktop keeps the canvas visible alongside the drawer. */}
               <button
@@ -5085,14 +5094,14 @@ export default function MvValuationReportWorkspace({
                 {t("report.preview.finalHint")}
               </p>
             </div>
-            <MvReportExportMenu
+            {canGenerateReports && canDownloadReports ? <MvReportExportMenu
               variant="preview"
               disabled={exportActionsDisabled}
               exportingFormat={exportingFormat}
               onExport={handleReportExport}
               hiddenFormats={embeddedSystemReport ? ["docx-template"] : undefined}
               className="self-end sm:self-auto"
-            />
+            /> : null}
           </DialogHeader>
           <div
             ref={previewScrollRef}

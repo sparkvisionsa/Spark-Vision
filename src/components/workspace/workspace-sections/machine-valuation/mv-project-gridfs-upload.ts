@@ -215,7 +215,7 @@ export async function uploadProjectFileAndReturnId(
     /* ignore */
   }
 
-  const listRes = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/files`, {
+  const listRes = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/files${qs}`, {
     credentials: "include",
   });
   if (!listRes.ok) throw new Error(uploadT()("files.upload.listRefreshFailed"));

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, FileImage, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MvDialogContent } from "./mv-dialog";
@@ -69,6 +70,9 @@ export default function MvClientFilesWorkspace({
   const { t, dir } = useMvI18n();
   const { user: uploadUser } = useAuthTracking();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUpload = can("asset_media.upload");
+  const canDelete = can("asset_media.delete");
   const isCertificate = kind === "certificate";
   const workspaceField = isCertificate ? "sceCertificateWorkspace" : "clientDocumentsWorkspace";
   const readWorkspaceStore = useCallback(
@@ -171,6 +175,7 @@ export default function MvClientFilesWorkspace({
   }, [projectId, project?._id, readWorkspaceStore, serverStoreKey, workspaceField, writeWorkspaceStore]);
 
   const flushToServer = useCallback(async (options?: { silent?: boolean }) => {
+    if (!canDelete) return false;
     if (flushInFlightRef.current) return false;
     flushInFlightRef.current = true;
     let saved = false;
@@ -229,7 +234,7 @@ export default function MvClientFilesWorkspace({
       if (!saved) pendingSaveRef.current ??= snapshot;
       else if (pendingSaveRef.current) queueMicrotask(() => { void flushToServer(options); });
     }
-  }, [projectId, readWorkspaceStore, toast, t, workspaceField]);
+  }, [canDelete, projectId, readWorkspaceStore, toast, t, workspaceField]);
 
   const persistStore = useCallback(
     (
@@ -280,6 +285,7 @@ export default function MvClientFilesWorkspace({
   }, [flushToServer]);
 
   const ingestFiles = useCallback(async (files: FileList | File[]) => {
+    if (!canUpload) return;
     const list = Array.from(files).filter(file => isPdfFile(file) || isImageFile(file));
     if (!list.length || !uploadUser) {
       toast({ variant: "destructive", description: t("clientFiles.upload.invalidType") });
@@ -290,7 +296,7 @@ export default function MvClientFilesWorkspace({
     } catch (error) {
       toast({ variant: "destructive", description: error instanceof Error ? error.message : t("assetImages.upload.localSaveFailed") });
     } finally { if (fileInputRef.current) fileInputRef.current.value = ""; }
-  }, [uploadUser, projectId, projectName, workspaceTitle, workspaceField, t, toast]);
+  }, [canUpload, uploadUser, projectId, projectName, workspaceTitle, workspaceField, t, toast]);
 
   const clientFolderMatcher = useCallback(
     (folder: { name: string }) => /(?:^|\.)\s*ملفات العميل|client files/i.test(folder.name),
@@ -304,6 +310,7 @@ export default function MvClientFilesWorkspace({
 
   const removeImage = useCallback(
     (imageId: string) => {
+      if (!canDelete) return;
       persistStore((current) => {
         const image = current.images.find((im) => im.id === imageId);
         const nextImages = current.images.filter((im) => im.id !== imageId);
@@ -319,7 +326,7 @@ export default function MvClientFilesWorkspace({
         };
       });
     },
-    [persistStore],
+    [canDelete, persistStore],
   );
 
   if (loadingProject && !project) {
@@ -361,7 +368,7 @@ export default function MvClientFilesWorkspace({
                 </div>
               ) : null}
               <div className="flex flex-wrap items-center gap-1.5">
-                <Button
+                {canDelete ? <Button
                   type="button"
                   variant="outline"
                   className="h-8 gap-1.5 rounded-lg px-2.5 text-[11px] font-bold"
@@ -372,8 +379,8 @@ export default function MvClientFilesWorkspace({
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t("clientFiles.clearAll")}
-                </Button>
-                <Button
+                </Button> : null}
+                {canUpload ? <Button
                   type="button"
                   className="h-8 gap-1.5 rounded-lg bg-[#0C447C] px-2.5 text-[11px] font-bold hover:bg-[#0a3a66]"
                   disabled={Boolean(busyLabel)}
@@ -381,8 +388,8 @@ export default function MvClientFilesWorkspace({
                 >
                   <Upload className="h-3.5 w-3.5" />
                   {t("clientFiles.upload.button")}
-                </Button>
-                {!isCertificate ? (
+                </Button> : null}
+                {canUpload && !isCertificate ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -397,13 +404,13 @@ export default function MvClientFilesWorkspace({
               </div>
             </div>
 
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-bold">
+            {canUpload ? <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-bold">
               {t("assetImages.actions.uploadFolders")}
               <input type="file" multiple {...{ webkitdirectory: "", directory: "" }} className="hidden"
                 onChange={event => { void ingestFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-            </label>
+            </label> : null}
 
-            <input
+            {canUpload ? <input
               ref={fileInputRef}
               type="file"
               accept=".pdf,application/pdf,image/*"
@@ -413,9 +420,9 @@ export default function MvClientFilesWorkspace({
                 const files = event.target.files;
                 if (files?.length) void ingestFiles(files);
               }}
-            />
+            /> : null}
 
-            <div
+            {canUpload ? <div
               role="button"
               tabIndex={0}
               onKeyDown={(event) => {
@@ -476,7 +483,7 @@ export default function MvClientFilesWorkspace({
                   ) : null}
                 </>
               )}
-            </div>
+            </div> : null}
           </section>
 
           <section className={cn("border border-slate-200 bg-white shadow-sm", embedded ? "rounded-xl p-3" : "rounded-2xl p-5")}>
@@ -534,7 +541,7 @@ export default function MvClientFilesWorkspace({
                             {image.sourceKind === "pdf" ? "PDF" : t("clientFiles.gallery.imageKind")}
                           </p>
                         </div>
-                        <button
+                        {canDelete ? <button
                           type="button"
                           onClick={() => removeImage(image.id)}
                           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-red-100 text-red-600 transition hover:bg-red-50"
@@ -542,7 +549,7 @@ export default function MvClientFilesWorkspace({
                           aria-label={t("clientFiles.gallery.delete")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </button> : null}
                       </figcaption>
                     </figure>
                   );
@@ -577,7 +584,7 @@ export default function MvClientFilesWorkspace({
           </div>
         </MvDialogContent>
       </Dialog>
-      {!isCertificate ? (
+      {canUpload && !isCertificate ? (
         <MvProjectFilesDialog
           projectId={projectId}
           open={projectFilesPickerOpen}

@@ -16,6 +16,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -235,6 +236,10 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
   const { t, dir, isArabic } = useMvI18n();
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canEditReports = can("reports.edit");
+  const canGenerateReports = can("reports.generate");
+  const canDownloadReports = can("reports.download");
 
   const [project, setProject] = useState<MvProject | null>(null);
   const [attachments, setAttachments] = useState<AttachmentSnapshot | null>(null);
@@ -544,6 +549,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
     format: ReportFormat,
     templateId: string,
   ) => {
+    if (!canEditReports) return;
     if (!project || busy) return;
     const templates = format === "word" ? wordTemplates : pptxTemplates;
     if (!templates.some((template) => template.id === templateId)) return;
@@ -564,7 +570,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
       ...(format === "word" ? { wordTemplateId: templateId } : { pptxTemplateId: templateId }),
     };
     try {
-      const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
+      const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}?permissionScope=reports`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -593,6 +599,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
     }
   }, [
     busy,
+    canEditReports,
     pptxTemplates,
     project,
     projectId,
@@ -629,6 +636,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
   );
 
   const saveImageLayoutSettings = useCallback(async () => {
+    if (!canEditReports) return;
     if (!project || !layoutSettingsFormat || busy) return;
     const normalizedDraft =
       layoutSettingsFormat === "word"
@@ -656,7 +664,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
     setBusy("settings");
     setBusyLabel(t("report.finalReportPage.savingSettings"));
     try {
-      const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}`, {
+      const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}?permissionScope=reports`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -688,6 +696,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
     }
   }, [
     busy,
+    canEditReports,
     imageLayoutDraft,
     layoutSettingsFormat,
     project,
@@ -699,6 +708,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
 
   const runWord = useCallback(
     async (mode: "file" | "preview") => {
+      if (!canGenerateReports || (mode === "file" && !canDownloadReports)) return;
       if (!project || busy) return;
       if (!selectedWordTemplateId) {
         toast({
@@ -776,11 +786,12 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
         setBusyLabel("");
       }
     },
-    [busy, project, projectId, selectedWordTemplateId, setPreviewBlob, t, toast],
+    [busy, canDownloadReports, canGenerateReports, project, projectId, selectedWordTemplateId, setPreviewBlob, t, toast],
   );
 
   const runPptx = useCallback(
     async (mode: "file" | "preview") => {
+      if (!canGenerateReports || (mode === "file" && !canDownloadReports)) return;
       if (!project || busy) return;
       if (!selectedPptxTemplateId) {
         toast({
@@ -852,7 +863,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
         setBusyLabel("");
       }
     },
-    [busy, project, projectId, selectedPptxTemplateId, setPreviewBlob, t, toast],
+    [busy, canDownloadReports, canGenerateReports, project, projectId, selectedPptxTemplateId, setPreviewBlob, t, toast],
   );
 
   if (!project) {
@@ -921,7 +932,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
             </span>
             <Select
               value={selectedTemplateId || undefined}
-              disabled={Boolean(busy) || templatesLoading || templates.length === 0}
+              disabled={!canEditReports || Boolean(busy) || templatesLoading || templates.length === 0}
               onValueChange={(value) => void selectCompanyDocumentTemplate(format, value)}
             >
               <SelectTrigger
@@ -955,7 +966,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
 
           {selectedTemplateId ? (
             <div className="grid gap-1.5 p-2.5 sm:grid-cols-3">
-              <Button
+              {canEditReports ? <Button
                 type="button"
                 variant="outline"
                 className={cn(
@@ -969,8 +980,8 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
               >
                 <Settings2 className="h-4 w-4" aria-hidden />
                 {t("report.finalReportPage.imageSettings")}
-              </Button>
-              <Button
+              </Button> : null}
+              {canGenerateReports && canDownloadReports ? <Button
                 type="button"
                 className={cn(
                   "h-9 gap-1.5 rounded-xl text-[11px] font-black text-white",
@@ -989,8 +1000,8 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
                 {isWord
                   ? t("report.finalReportPage.downloadWord")
                   : t("report.finalReportPage.downloadPptx")}
-              </Button>
-              <Button
+              </Button> : null}
+              {canGenerateReports ? <Button
                 type="button"
                 variant="outline"
                 className={cn(
@@ -1008,7 +1019,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
                   <Eye className="h-4 w-4" aria-hidden />
                 )}
                 {t("report.finalReportPage.convertAndPreviewPdf")}
-              </Button>
+              </Button> : null}
             </div>
           ) : (
             <div className="p-2.5">
@@ -1336,7 +1347,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
             >
               {t("common.cancel")}
             </Button>
-            <Button
+            {canEditReports ? <Button
               type="button"
               className="h-9 gap-1.5 rounded-xl text-[11px] font-black"
               disabled={Boolean(busy)}
@@ -1344,7 +1355,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
             >
               {busy === "settings" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {t("report.finalReportPage.saveSettings")}
-            </Button>
+            </Button> : null}
           </div>
         </MvDialogContent>
       </Dialog>

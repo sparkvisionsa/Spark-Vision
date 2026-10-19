@@ -28,7 +28,10 @@ type AuthUser = {
     | "user"
     | "super_admin"
     | "company_admin"
+    | "department_head"
     | "valuer"
+    | "associate_valuer"
+    | "accredited_valuer"
     | "data_entry"
     | "reviewer"
     | "inspector";

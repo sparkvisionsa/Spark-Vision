@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Folder, FolderInput, ImageIcon, Loader2, Search } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, Folder, FolderInput, ImageIcon, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -68,6 +68,19 @@ export function MvAssetImageImportDialog({
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
   const storageKey = `mv:asset-image-import:${projectId}`;
+  const isImporting = job?.state === "running";
+  const isCompleted = job?.state === "completed";
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !isImporting) {
+      setJob(null);
+      setSourceProjectId("");
+      setProjectPickerOpen(false);
+      setProjectQuery("");
+      setError("");
+    }
+    onOpenChange(nextOpen);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -147,7 +160,7 @@ export function MvAssetImageImportDialog({
   }, [job?.id, job?.state, projectId, storageKey, t]);
 
   const start = async () => {
-    if (!sourceProjectId || starting) return;
+    if (!sourceProjectId || starting || isImporting || isCompleted) return;
     if (mode === "move" && !window.confirm(t("assetImages.import.moveConfirm"))) return;
     setStarting(true);
     setError("");
@@ -172,7 +185,7 @@ export function MvAssetImageImportDialog({
   const percent = job?.state === "completed" ? 100 : total ? Math.min(99, Math.round(done / total * 100)) : 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <MvDialogContent ref={dialogRef} dir={dir} className="max-w-lg gap-0 overflow-visible rounded-2xl p-0">
         <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 pe-14">
           <DialogTitle className="flex items-center gap-2 text-base font-black text-slate-900">
@@ -192,7 +205,7 @@ export function MvAssetImageImportDialog({
               <PopoverTrigger asChild>
                 <button type="button" role="combobox" aria-expanded={projectPickerOpen}
                   aria-label={t("assetImages.import.sourceProject")}
-                  disabled={Boolean(job && job.state === "running") || loading}
+                  disabled={isImporting || isCompleted || loading}
                   className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-3 text-start text-sm font-medium text-slate-800 shadow-sm transition-colors hover:border-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 disabled:cursor-not-allowed disabled:opacity-60">
                   <span className="min-w-0 truncate">{selectedProject?.name ?? (loading
                     ? t("assetImages.import.loadingProjects") : t("assetImages.import.chooseProject"))}</span>
@@ -256,7 +269,7 @@ export function MvAssetImageImportDialog({
               </PopoverContent>
             </Popover>
           </div>
-          <fieldset disabled={Boolean(job && job.state === "running")} className="space-y-2">
+          <fieldset disabled={isImporting || isCompleted} className="space-y-2">
             <legend className="mb-2 text-sm font-bold text-slate-800">{t("assetImages.import.modeQuestion")}</legend>
             {(["copy", "move"] as const).map(choice => (
               <label key={choice} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm">
@@ -267,15 +280,18 @@ export function MvAssetImageImportDialog({
             ))}
           </fieldset>
           {job ? (
-            <div className="rounded-xl border border-sky-200 bg-sky-50 p-4" role="status">
-              <div className="mb-2 flex justify-between text-sm font-bold text-sky-900">
-                <span>{job.state === "completed" ? t("assetImages.import.completed") : job.state === "failed" ? t("assetImages.import.failed") : t("assetImages.import.inProgress")}</span>
+            <div className={`rounded-xl border p-4 ${isCompleted ? "border-emerald-200 bg-emerald-50" : "border-sky-200 bg-sky-50"}`} role="status">
+              <div className={`mb-2 flex justify-between gap-3 text-sm font-bold ${isCompleted ? "text-emerald-900" : "text-sky-900"}`}>
+                <span className="flex items-center gap-2">
+                  {isCompleted ? <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden="true" /> : null}
+                  {isCompleted ? t("assetImages.import.completed") : job.state === "failed" ? t("assetImages.import.failed") : t("assetImages.import.inProgress")}
+                </span>
                 <span>{number.format(percent)}%</span>
               </div>
               <div role="progressbar" aria-label={t("assetImages.import.progress")}
                 aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
-                className="h-2 overflow-hidden rounded-full bg-sky-100">
-                <div className="h-full bg-sky-600 transition-[width]" style={{ width: `${percent}%` }} />
+                className={`h-2 overflow-hidden rounded-full ${isCompleted ? "bg-emerald-100" : "bg-sky-100"}`}>
+                <div className={`h-full transition-[width] ${isCompleted ? "bg-emerald-600" : "bg-sky-600"}`} style={{ width: `${percent}%` }} />
               </div>
               <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-slate-700">
                 <span>{t("assetImages.import.foldersCount", { done: number.format(job.foldersDone), total: number.format(job.foldersTotal) })}</span>
@@ -286,8 +302,10 @@ export function MvAssetImageImportDialog({
           ) : null}
           {error ? <p role="alert" className="text-xs text-red-700">{error}</p> : null}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t("common.close")}</Button>
-            {job?.state !== "running" ? <Button type="button" disabled={!sourceProjectId || starting}
+            <Button type="button" variant={isCompleted ? "default" : "outline"} onClick={() => handleOpenChange(false)}>
+              {t("common.close")}
+            </Button>
+            {!isImporting && !isCompleted ? <Button type="button" disabled={!sourceProjectId || starting}
               onClick={() => void start()}>
               {starting ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
               {t("assetImages.import.start")}

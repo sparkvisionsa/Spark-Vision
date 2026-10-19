@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { toApiUrl } from "@/lib/api-url";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { RealEstateSearchValues } from "@/components/ui/real-estate-search";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 import {
   Tooltip,
@@ -1482,6 +1483,11 @@ export function ImagesModal({
   t: Copy;
   isRtl: boolean;
 }) {
+  const { can } = useProductPermissions("real-estate-valuation");
+  const canUpload = can("property_media.upload");
+  const canEdit = can("property_media.edit");
+  const canDelete = can("property_media.delete");
+  const canDownload = can("property_media.download");
   const [images, setImages] = useState<ImageFile[]>([]);
   const [loadingImages, setLoadingImages] = useState(true);
   const [pending, setPending] = useState<PendingImageUpload[]>([]);
@@ -1769,7 +1775,7 @@ export function ImagesModal({
 
           <div className="flex-1 overflow-y-auto">
             {/* Drop zone */}
-            <div className="px-6 pt-5 pb-4">
+            {canUpload ? <div className="px-6 pt-5 pb-4">
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1819,7 +1825,7 @@ export function ImagesModal({
                 className="hidden"
                 onChange={(e) => handleFiles(e.target.files)}
               />
-            </div>
+            </div> : null}
 
             {/* Pending uploads */}
             {pending.length > 0 && (
@@ -1900,11 +1906,11 @@ export function ImagesModal({
                   {/* Toolbar */}
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Checkbox
+                      {(canDownload || canDelete) ? <Checkbox
                         checked={allSel}
                         onCheckedChange={toggleSelAll}
                         className="h-4 w-4"
-                      />
+                      /> : null}
                       <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                         {isRtl ? "الصور" : "Images"} ({images.length})
                         {selectedIds.size > 0 && (
@@ -1916,20 +1922,20 @@ export function ImagesModal({
                     </div>
                     {selectedIds.size > 0 && (
                       <div className="flex items-center gap-1.5">
-                        <button
+                        {canDownload ? <button
                           onClick={downloadSelected}
                           className="flex items-center gap-1.5 rounded-lg bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-600 hover:bg-cyan-100 transition-colors"
                         >
                           <Download className="h-3.5 w-3.5" />
                           {t.downloadSelected}
-                        </button>
-                        <button
+                        </button> : null}
+                        {canDelete ? <button
                           onClick={deleteSelected}
                           className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           {t.deleteSelected}
-                        </button>
+                        </button> : null}
                       </div>
                     )}
                   </div>
@@ -1945,10 +1951,10 @@ export function ImagesModal({
                     {sortedImages.map((img) => (
                       <div
                         key={img.id}
-                        draggable
-                        onDragStart={() => handleDragStart(img.id)}
-                        onDragOver={(e) => handleDragOver(e, img.id)}
-                        onDrop={(e) => handleDrop(e, img.id)}
+                        draggable={canEdit}
+                        onDragStart={() => { if (canEdit) handleDragStart(img.id); }}
+                        onDragOver={(e) => { if (canEdit) handleDragOver(e, img.id); }}
+                        onDrop={(e) => { if (canEdit) handleDrop(e, img.id); }}
                         onDragEnd={() => {
                           setDraggedId(null);
                           setDragOverId(null);
@@ -1965,18 +1971,18 @@ export function ImagesModal({
                       >
                         {/* Checkbox */}
                         <div className="absolute start-2 top-2 z-10">
-                          <Checkbox
+                          {(canDownload || canDelete) ? <Checkbox
                             checked={selectedIds.has(img.id)}
                             onCheckedChange={() => toggleSel(img.id)}
                             className="h-4 w-4 border-white bg-white/80 data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600"
-                          />
+                          /> : null}
                         </div>
                         {/* Drag handle */}
-                        <div className="absolute end-2 top-2 z-10 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity">
+                        {canEdit ? <div className="absolute end-2 top-2 z-10 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity">
                           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-black/40 text-white">
                             <GripVertical className="h-3.5 w-3.5" />
                           </div>
-                        </div>
+                        </div> : null}
                         {/* Image */}
                         <div
                           className="relative aspect-[4/3] cursor-pointer overflow-hidden bg-slate-100"
@@ -1987,7 +1993,7 @@ export function ImagesModal({
                             alt={img.name}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105"
                           />
-                          <button
+                          {canDelete ? <button
                             onClick={(e) => {
                               e.stopPropagation();
                               deleteOne(img.id);
@@ -1995,12 +2001,12 @@ export function ImagesModal({
                             className="absolute bottom-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          </button> : null}
                         </div>
                         {/* Card footer */}
                         <div className="p-2">
                           {/* Styled editable filename */}
-                          <div
+                          {canEdit ? <div
                             className={cn(
                               "flex items-center gap-1 rounded-md border px-2 py-1 transition-colors cursor-text",
                               editingNameId === img.id
@@ -2038,13 +2044,13 @@ export function ImagesModal({
                                 {img.name}
                               </span>
                             )}
-                          </div>
+                          </div> : <span className="block truncate px-2 py-1 text-xs font-medium text-slate-700" title={img.name}>{img.name}</span>}
                           {/* Sort index */}
                           <div className="mt-1.5 flex items-center gap-1.5">
                             <span className="text-[10px] text-slate-400 shrink-0">
                               {t.imageIndex}:
                             </span>
-                            <input
+                            {canEdit ? <input
                               type="number"
                               min={1}
                               max={images.length}
@@ -2054,7 +2060,7 @@ export function ImagesModal({
                                 if (!isNaN(val)) setImageIndex(img.id, val);
                               }}
                               className="w-12 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-center text-[11px] font-bold text-violet-700 focus:border-violet-300 focus:outline-none focus:ring-1 focus:ring-violet-100"
-                            />
+                            /> : <span className="text-[11px] font-bold text-violet-700">{img.sortIndex}</span>}
                             <span className="ms-auto text-[10px] text-slate-400">
                               {formatBytes(img.size)}
                             </span>
@@ -2689,6 +2695,11 @@ export function AttachmentsModal({
   t: Copy;
   isRtl: boolean;
 }) {
+  const { can } = useProductPermissions("real-estate-valuation");
+  const canUpload = can("property_media.upload");
+  const canEdit = can("property_media.edit");
+  const canDelete = can("property_media.delete");
+  const canDownload = can("property_media.download");
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [loadingAtts, setLoadingAtts] = useState(true);
   const [pending, setPending] = useState<PendingUpload[]>([]);
@@ -2898,7 +2909,7 @@ export function AttachmentsModal({
         )}
 
         <div className="flex-1 overflow-y-auto">
-          <div className="px-6 pt-5 pb-4">
+          {canUpload ? <div className="px-6 pt-5 pb-4">
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -2946,7 +2957,7 @@ export function AttachmentsModal({
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}
             />
-          </div>
+          </div> : null}
 
           {pending.length > 0 && (
             <div className="px-6 pb-4">
@@ -3030,11 +3041,11 @@ export function AttachmentsModal({
               <>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Checkbox
+                    {(canDownload || canDelete) ? <Checkbox
                       checked={allSel}
                       onCheckedChange={toggleSelAll}
                       className="h-4 w-4"
-                    />
+                    /> : null}
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                       {t.attachments} ({attachments.length})
                       {selectedIds.size > 0 && (
@@ -3046,20 +3057,20 @@ export function AttachmentsModal({
                   </div>
                   {selectedIds.size > 0 && (
                     <div className="flex items-center gap-1.5">
-                      <button
+                      {canDownload ? <button
                         onClick={downloadSelected}
                         className="flex items-center gap-1.5 rounded-lg bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-600 hover:bg-cyan-100 transition-colors"
                       >
                         <Download className="h-3.5 w-3.5" />
                         {t.downloadSelected}
-                      </button>
-                      <button
+                      </button> : null}
+                      {canDelete ? <button
                         onClick={deleteSelected}
                         className="flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         {t.deleteSelected}
-                      </button>
+                      </button> : null}
                     </div>
                   )}
                 </div>
@@ -3075,11 +3086,11 @@ export function AttachmentsModal({
                       )}
                     >
                       <div className="absolute start-2 top-2 z-10">
-                        <Checkbox
+                        {(canDownload || canDelete) ? <Checkbox
                           checked={selectedIds.has(att.id)}
                           onCheckedChange={() => toggleSel(att.id)}
                           className="h-4 w-4 border-white bg-white/80 data-[state=checked]:border-cyan-600 data-[state=checked]:bg-cyan-600"
-                        />
+                        /> : null}
                       </div>
                       <div
                         className="relative aspect-[3/4] overflow-hidden bg-slate-100 cursor-pointer"
@@ -3110,7 +3121,7 @@ export function AttachmentsModal({
                         <span className="absolute end-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
                           {att.type}
                         </span>
-                        <button
+                        {canDelete ? <button
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteOne(att.id);
@@ -3118,11 +3129,11 @@ export function AttachmentsModal({
                           className="absolute bottom-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </button> : null}
                       </div>
                       <div className="p-2">
                         {/* Styled editable filename */}
-                        <div
+                        {canEdit ? <div
                           className={cn(
                             "flex items-center gap-1 rounded-md border px-2 py-1 transition-colors cursor-text",
                             editingId === att.id
@@ -3160,7 +3171,7 @@ export function AttachmentsModal({
                               {att.name}
                             </span>
                           )}
-                        </div>
+                        </div> : <span className="block truncate px-2 py-1 text-xs font-medium text-slate-700" title={att.name}>{att.name}</span>}
                         <p className="mt-1 text-[10px] text-slate-400">
                           {formatBytes(att.size)}
                         </p>
@@ -3204,6 +3215,8 @@ export function NotesModal({
   t: Copy;
   isRtl: boolean;
 }) {
+  const { can } = useProductPermissions("real-estate-valuation");
+  const canEditNotes = can("transactions.edit");
   const [notes, setNotes] = useState<NoteMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
@@ -3492,7 +3505,7 @@ export function NotesModal({
                               <span className="text-[10px] text-slate-400">
                                 {formatTime(note.timestamp)}
                               </span>
-                              <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                              {canEditNotes ? <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                                 <button
                                   onClick={() => {
                                     setReplyTo(note);
@@ -3515,7 +3528,7 @@ export function NotesModal({
                                 >
                                   <Pin className="h-3 w-3" />
                                 </button>
-                              </div>
+                              </div> : null}
                             </div>
                           </div>
                         </div>
@@ -3529,7 +3542,7 @@ export function NotesModal({
           )}
         </div>
 
-        {replyTo && (
+        {canEditNotes && replyTo && (
           <div className="shrink-0 flex items-center gap-3 border-t border-slate-100 bg-slate-50 px-5 py-2">
             <div
               className={cn(
@@ -3553,7 +3566,7 @@ export function NotesModal({
           </div>
         )}
 
-        <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
+        {canEditNotes ? <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3">
           <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 focus-within:border-cyan-300 focus-within:bg-white transition-colors">
             <textarea
               ref={inputRef}
@@ -3589,7 +3602,7 @@ export function NotesModal({
             Enter {isRtl ? "للإرسال" : "to send"} · Shift+Enter{" "}
             {isRtl ? "لسطر جديد" : "for new line"}
           </p>
-        </div>
+        </div> : null}
       </div>
     </div>
   );
@@ -3687,6 +3700,16 @@ function ValuationTableRow({
   onDownloadPdf: (id: string) => void;
   t: Copy;
 }) {
+  const { can } = useProductPermissions("real-estate-valuation");
+  const canOpen = can("valuation.access");
+  const canEditTransaction = can("valuation.edit");
+  const canAssign = can("transactions.assign");
+  const canCreate = can("transactions.create");
+  const canAccessMedia = can("property_media.access");
+  const canAccessNotes = can("transactions.access");
+  const canAccessReports = can("reports.access");
+  const canDownloadReports = can("reports.download");
+  const showMore = canAssign || canCreate;
   const initials = row.assignment.requester
     .split(" ")
     .map((w) => w[0])
@@ -3700,8 +3723,8 @@ function ValuationTableRow({
 
   return (
     <div
-      className="group cursor-pointer border-b border-[#edf1f6] transition-colors last:border-b-0 hover:bg-[#f4f7ff]"
-      onClick={() => onOpen(row.id)}
+      className={cn("group border-b border-[#edf1f6] transition-colors last:border-b-0 hover:bg-[#f4f7ff]", canOpen && "cursor-pointer")}
+      onClick={() => { if (canOpen) onOpen(row.id); }}
     >
       <div className="flex items-center gap-3 px-4 py-3.5">
         {/* Logo stacked over checkbox */}
@@ -3716,11 +3739,11 @@ function ValuationTableRow({
               initials || "—"
             )}
           </div>
-          <Checkbox
+          {can("transactions.delete") ? <Checkbox
             checked={isSelected}
             onCheckedChange={onToggleSelect}
             className="h-3.5 w-3.5"
-          />
+          /> : null}
         </div>
 
         {/* Client + assignment reference */}
@@ -3811,16 +3834,16 @@ function ValuationTableRow({
           className="ms-auto grid w-fit shrink-0 grid-cols-4 gap-[3px]"
           onClick={(e) => e.stopPropagation()}
         >
-          <ActionButton tooltip={t.openTransaction} onClick={() => onOpen(row.id)}>
+          {canOpen ? <ActionButton tooltip={t.openTransaction} onClick={() => onOpen(row.id)}>
             <Eye className="h-3.5 w-3.5" />
-          </ActionButton>
-          <ActionButton tooltip={t.viewReport} onClick={() => viewPdf(row.id)}>
+          </ActionButton> : null}
+          {canAccessReports ? <ActionButton tooltip={t.viewReport} onClick={() => viewPdf(row.id)}>
             <Printer className="h-3.5 w-3.5" />
-          </ActionButton>
-          <ActionButton tooltip={t.downloadPdf} onClick={() => onDownloadPdf(row.id)}>
+          </ActionButton> : null}
+          {canDownloadReports ? <ActionButton tooltip={t.downloadPdf} onClick={() => onDownloadPdf(row.id)}>
             <FileDown className="h-3.5 w-3.5" />
-          </ActionButton>
-          <ActionButton
+          </ActionButton> : null}
+          {canAccessMedia ? <ActionButton
             tooltip={`${t.attachments} (${row.attachmentsCount})`}
             className="relative"
             onClick={() => onOpenAttachments(row)}
@@ -3831,8 +3854,8 @@ function ValuationTableRow({
                 {row.attachmentsCount}
               </span>
             )}
-          </ActionButton>
-          <ActionButton
+          </ActionButton> : null}
+          {canAccessNotes ? <ActionButton
             tooltip={t.followUpNotes}
             className="relative"
             onClick={() => onOpenNotes(row)}
@@ -3841,8 +3864,8 @@ function ValuationTableRow({
             {row.hasUnreadNotes && (
               <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
             )}
-          </ActionButton>
-          <ActionButton
+          </ActionButton> : null}
+          {canAccessMedia ? <ActionButton
             tooltip={`${t.images} (${row.imagesCount})`}
             className="relative"
             onClick={() => onOpenImages(row)}
@@ -3853,31 +3876,27 @@ function ValuationTableRow({
                 {row.imagesCount}
               </span>
             )}
-          </ActionButton>
-          <ActionButton tooltip={t.editTransaction} onClick={() => onEditTransaction(row)}>
+          </ActionButton> : null}
+          {canEditTransaction ? <ActionButton tooltip={t.editTransaction} onClick={() => onEditTransaction(row)}>
             <Pencil className="h-3.5 w-3.5" />
-          </ActionButton>
-          <DropdownMenu>
+          </ActionButton> : null}
+          {showMore ? <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border border-[#e6ebf2] bg-white text-slate-600 transition-all hover:border-[#bcd0ff] hover:bg-[#f4f7ff] hover:text-[#2f66f6]">
                 <MoreVertical className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem className="gap-2 text-sm" onClick={() => onAssignInspectors(row)}>
+              {canAssign ? <DropdownMenuItem className="gap-2 text-sm" onClick={() => onAssignInspectors(row)}>
                 <UserCheck className="h-3.5 w-3.5" />
                 {(t as any).assignInspectors ?? "Assign Inspectors"}
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2 text-sm">
-                <History className="h-3.5 w-3.5" />
-                {t.editLog}
-              </DropdownMenuItem>
-              <DropdownMenuItem className="gap-2 text-sm" onClick={() => onDuplicate(row)}>
+              </DropdownMenuItem> : null}
+              {canCreate ? <DropdownMenuItem className="gap-2 text-sm" onClick={() => onDuplicate(row)}>
                 <Copy className="h-3.5 w-3.5" />
                 {t.duplicate}
-              </DropdownMenuItem>
+              </DropdownMenuItem> : null}
             </DropdownMenuContent>
-          </DropdownMenu>
+          </DropdownMenu> : null}
         </div>
       </div>
     </div>
@@ -4047,6 +4066,7 @@ onFilteredCountChange,
   const language = langContext?.language ?? "ar";
   const isArabic = language === "ar";
   const t = copy[language];
+  const { can } = useProductPermissions("real-estate-valuation");
 
   // Download feedback (reuses the same visual pattern as duplicateMsg)
   const [downloadMsg, setDownloadMsg] = useState<{
@@ -4349,11 +4369,11 @@ onFilteredCountChange,
             <div className="flex items-center gap-3 border-b border-[#e6ebf2] bg-[#f8fafd] px-4 py-3.5">
                           <div className="flex w-8 shrink-0 flex-col items-center gap-1">
                             <div className="h-6 w-6" />
-                            <Checkbox
+                            {can("transactions.delete") ? <Checkbox
                               checked={allSelected}
                               onCheckedChange={toggleSelectAll}
                               className="h-3.5 w-3.5"
-                            />
+                            /> : null}
                           </div>
                           <div className="w-36 shrink-0">
                             <ColumnHeader label={t.assignment} sortable />
@@ -4439,7 +4459,7 @@ onFilteredCountChange,
         />
       </div>
 
-      {!externalOpenAttachments &&
+      {can("property_media.access") && !externalOpenAttachments &&
         attachmentsModal.open &&
         attachmentsModal.row && (
           <AttachmentsModal
@@ -4453,7 +4473,7 @@ onFilteredCountChange,
             isRtl={isArabic}
           />
         )}
-      {!externalOpenNotes && notesModal.open && notesModal.row && (
+      {can("transactions.access") && !externalOpenNotes && notesModal.open && notesModal.row && (
         <NotesModal
           transactionId={notesModal.row.id}
           requester={notesModal.row.assignment.requester}
@@ -4462,7 +4482,7 @@ onFilteredCountChange,
           isRtl={isArabic}
         />
       )}
-      {!externalOpenImages && imagesModal.open && imagesModal.row && (
+      {can("property_media.access") && !externalOpenImages && imagesModal.open && imagesModal.row && (
         <ImagesModal
           transactionId={imagesModal.row.id}
           requester={imagesModal.row.assignment.requester}
@@ -4474,7 +4494,7 @@ onFilteredCountChange,
           isRtl={isArabic}
         />
       )}
-      {editTarget && (
+      {can("valuation.edit") && editTarget && (
         <EditTransactionModal
           transactionId={editTarget.transactionId}
           requester={editTarget.requester}
@@ -4488,7 +4508,7 @@ onFilteredCountChange,
           isRtl={isArabic} // Changed from isRtl to isArabic
         />
       )}
-      {inspectorsModal.open && inspectorsModal.row && (
+      {can("transactions.assign") && inspectorsModal.open && inspectorsModal.row && (
         <AssignInspectorsModal
           transactionId={inspectorsModal.row.id}
           currentInspectorIds={

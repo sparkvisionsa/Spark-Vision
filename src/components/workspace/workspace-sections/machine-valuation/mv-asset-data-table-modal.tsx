@@ -21,10 +21,12 @@ import {
   X,
   Car,
   Package,
+  ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogTitle } from "@/components/ui/dialog";
 import { MvDialogContent } from "./mv-dialog";
+import { MvImageZoomDialog } from "./mv-report-images-select-modal";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -1587,56 +1589,80 @@ function AssetImagesGalleryModal({
   dir: "rtl" | "ltr";
 }) {
   const images = useMemo(() => normalizePicAssetImages(asset), [asset]);
+  const [previewImage, setPreviewImage] = useState<{ name: string; previewUrl: string } | null>(null);
+
+  useEffect(() => {
+    if (!open) setPreviewImage(null);
+  }, [open]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <MvDialogContent closeOnDark className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white" dir={dir}>
-        <DialogTitle className="sr-only">
-          {ctx.t("projects.assetTable.galleryTitle", {
-            name: assetName,
-            count: ctx.numberFormatter.format(images.length),
-          })}
-        </DialogTitle>
-        {images.length === 0 ? (
-          <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 px-6 py-10 text-center text-white/70">
-            <ImageIcon className="h-10 w-10 opacity-40" />
-            <p className="text-sm">{ctx.t("projects.assetTable.noImages")}</p>
-          </div>
-        ) : (
-          <div
-            className="max-h-[min(88vh,900px)] overflow-y-auto scroll-smooth overscroll-contain [scrollbar-gutter:stable]"
-            style={{ scrollSnapType: "y mandatory" as const }}
-          >
-            {images.map((im, idx) => (
-              <div
-                key={picAssetImageKey(im, idx)}
-                className="flex min-h-[min(72vh,640px)] snap-start snap-always flex-col items-center justify-center border-b border-white/10 px-3 py-6 last:border-b-0 sm:px-5"
-              >
-                <p className="mb-2 text-xs text-white/50">
-                  {ctx.numberFormatter.format(idx + 1)} / {ctx.numberFormatter.format(images.length)}
-                </p>
-                {isExternalPicVideo(im) ? (
-                  <video
-                    src={picAssetImageSrc(im, projectId)}
-                    className="max-h-[min(65vh,720px)] w-full max-w-full object-contain"
-                    playsInline
-                    controls
-                    preload="metadata"
-                  />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={picAssetImageSrc(im, projectId)}
-                    alt=""
-                    className="max-h-[min(65vh,720px)] w-full max-w-full object-contain"
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </MvDialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <MvDialogContent closeOnDark className="max-h-[90vh] max-w-5xl border-0 bg-black/90 p-0 text-white" dir={dir}>
+          <DialogTitle className="sr-only">
+            {ctx.t("projects.assetTable.galleryTitle", {
+              name: assetName,
+              count: ctx.numberFormatter.format(images.length),
+            })}
+          </DialogTitle>
+          {images.length === 0 ? (
+            <div className="flex min-h-[200px] flex-col items-center justify-center gap-2 px-6 py-10 text-center text-white/70">
+              <ImageIcon className="h-10 w-10 opacity-40" />
+              <p className="text-sm">{ctx.t("projects.assetTable.noImages")}</p>
+            </div>
+          ) : (
+            <div
+              className="max-h-[min(88vh,900px)] overflow-y-auto overflow-x-hidden scroll-smooth overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              style={{ scrollSnapType: "y mandatory" as const }}
+            >
+              {images.map((im, idx) => {
+                const imageName = `${assetName} ${ctx.numberFormatter.format(idx + 1)}`.trim();
+                const imageSrc = picAssetImageSrc(im, projectId);
+                return (
+                  <div
+                    key={picAssetImageKey(im, idx)}
+                    className="flex min-h-[min(72vh,640px)] snap-start snap-always flex-col items-center justify-center border-b border-white/10 px-3 py-6 last:border-b-0 sm:px-5"
+                  >
+                    <p className="mb-2 text-xs text-white/50">
+                      {ctx.numberFormatter.format(idx + 1)} / {ctx.numberFormatter.format(images.length)}
+                    </p>
+                    {isExternalPicVideo(im) ? (
+                      <video
+                        src={imageSrc}
+                        className="max-h-[min(65vh,720px)] w-full max-w-full object-contain"
+                        playsInline
+                        controls
+                        preload="metadata"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage({ name: imageName, previewUrl: imageSrc })}
+                        className="group/image relative flex w-full cursor-zoom-in items-center justify-center overflow-hidden rounded-xl bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                        aria-label={ctx.t("assetImages.reportSelect.previewNamedImage", { name: imageName })}
+                        title={ctx.t("assetImages.reportSelect.previewNamedImage", { name: imageName })}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imageSrc}
+                          alt={imageName}
+                          draggable={false}
+                          className="max-h-[min(65vh,720px)] w-full max-w-full object-contain transition duration-300 group-hover/image:scale-[1.01]"
+                        />
+                        <span className="absolute bottom-3 end-3 flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-slate-950/75 text-white shadow-lg backdrop-blur transition group-hover/image:scale-105 group-hover/image:bg-emerald-700">
+                          <ZoomIn className="h-4 w-4" aria-hidden />
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </MvDialogContent>
+      </Dialog>
+      {previewImage ? <MvImageZoomDialog image={previewImage} onClose={() => setPreviewImage(null)} /> : null}
+    </>
   );
 }
 

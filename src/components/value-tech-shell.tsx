@@ -43,6 +43,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { usePathname } from "next/navigation";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 function openAuthModal() {
   window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
@@ -508,6 +509,7 @@ export default function ValueTechShell({
   const langContext = useContext(LanguageContext);
   const router = useRouter();
   const pathname = usePathname() || "/";
+  const realEstatePermissions = useProductPermissions("real-estate-valuation");
 
   const isRealEstateValuationPage =
     pathname === "/real-estate-valuation" ||
@@ -674,7 +676,7 @@ export default function ValueTechShell({
                 <SidebarMenu>
                   {isRealEstateSidebar ? (
                     <>
-                    <SidebarMenuItem>
+                    {realEstatePermissions.can("transactions.access") ? <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
                         isActive={isActive("/real-estate-valuation")}
@@ -695,11 +697,11 @@ export default function ValueTechShell({
                           </span>
                         </Link>
                       </SidebarMenuButton>
-                    </SidebarMenuItem>
+                    </SidebarMenuItem> : null}
 
                   <SidebarSeparator className={cn("my-2", separatorClass)} />
 
-                  <SidebarMenuItem>
+                  {realEstatePermissions.can("clients.access") ? <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
                       isActive={isActive("/clients")}
@@ -712,9 +714,9 @@ export default function ValueTechShell({
                         </span>
                       </Link>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  </SidebarMenuItem> : null}
 
-                  <SidebarMenuItem>
+                  {realEstatePermissions.can("settings_company.access") ? <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
                       isActive={isActive("/settings")}
@@ -732,7 +734,7 @@ export default function ValueTechShell({
                         </span>
                       </Link>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  </SidebarMenuItem> : null}
                     </>
                   ) : isEvaluationSourcePage ? (
                     SOURCE_ROUTES.map((route) => {

@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { cn } from "@/lib/utils";
 import CreateDialog from "./create-dialog";
 import { isRootSubProjectParent, sortSubProjectsForDisplay } from "./mv-subproject-helpers";
@@ -156,6 +157,12 @@ export default function MvDriveExplorer({
   const dateLocale = language === "ar" ? "ar-SA" : "en-US";
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUploadFiles = can("asset_media.upload");
+  const canDeleteFiles = can("asset_media.delete");
+  const canDownloadFiles = can("asset_media.download");
+  const canCreateFolders = can("asset_data.create");
+  const canDeleteFolders = can("asset_data.delete");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [project, setProject] = useState<MvProject | null>(null);
@@ -344,6 +351,7 @@ export default function MvDriveExplorer({
 
   const handleCreateFolder = useCallback(
     async (name: string) => {
+      if (!canCreateFolders) return;
       try {
         setCreating(true);
         const response = await fetch(`/api/mv/projects/${projectId}/subprojects`, {
@@ -366,11 +374,12 @@ export default function MvDriveExplorer({
         setCreating(false);
       }
     },
-    [currentSubProjectId, load, projectId, toast, t],
+    [canCreateFolders, currentSubProjectId, load, projectId, toast, t],
   );
 
   const handleDeleteFolder = useCallback(
     async (folder: MvSubProject) => {
+      if (!canDeleteFolders) return;
       if (!window.confirm(t("drive.confirmDeleteFolder", { name: folder.name }))) return;
 
       try {
@@ -391,11 +400,12 @@ export default function MvDriveExplorer({
         toast({ variant: "destructive", description: t("drive.deleteFolderFailed") });
       }
     },
-    [currentSubProjectId, load, navigate, parentFolderHref, projectId, rootExplorerHref, toast, t],
+    [canDeleteFolders, currentSubProjectId, load, navigate, parentFolderHref, projectId, rootExplorerHref, toast, t],
   );
 
   const handleDeleteFile = useCallback(
     async (file: MvDriveFile) => {
+      if (!canDeleteFiles) return;
       if (!window.confirm(t("drive.confirmDeleteFile", { name: file.name }))) return;
 
       try {
@@ -410,11 +420,12 @@ export default function MvDriveExplorer({
         toast({ variant: "destructive", description: t("drive.deleteFileFailed") });
       }
     },
-    [load, projectId, toast],
+    [canDeleteFiles, load, projectId, toast],
   );
 
   const handleUploadFiles = useCallback(
     async (selected: FileList | File[]) => {
+      if (!canUploadFiles) return;
       const picked = Array.from(selected ?? []).filter(Boolean);
       if (picked.length === 0) return;
 
@@ -477,7 +488,7 @@ export default function MvDriveExplorer({
         }
       }
     },
-    [currentSubProjectId, load, projectId, toast, t],
+    [canUploadFiles, currentSubProjectId, load, projectId, toast, t],
   );
 
   if (loading) {
@@ -569,7 +580,7 @@ export default function MvDriveExplorer({
           dragging && "scale-[1.003]",
         )}
         onDragOver={(event) => {
-          if (currentFolderIsPicAsset) return;
+          if (!canUploadFiles || currentFolderIsPicAsset) return;
           event.preventDefault();
           setDragging(true);
         }}
@@ -577,11 +588,11 @@ export default function MvDriveExplorer({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          if (uploading || currentFolderIsPicAsset) return;
+          if (!canUploadFiles || uploading || currentFolderIsPicAsset) return;
           void handleUploadFiles(event.dataTransfer.files);
         }}
       >
-        <input
+        {canUploadFiles ? <input
           ref={inputRef}
           type="file"
           multiple
@@ -591,7 +602,7 @@ export default function MvDriveExplorer({
               void handleUploadFiles(event.target.files);
             }
           }}
-        />
+        /> : null}
 
         <section
           className={cn(
@@ -627,7 +638,7 @@ export default function MvDriveExplorer({
                 </Button>
               ) : null}
 
-              {!currentFolderIsPicAsset ? (
+              {canUploadFiles && !currentFolderIsPicAsset ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -656,7 +667,7 @@ export default function MvDriveExplorer({
                 {t("drive.refreshFromServer")}
               </Button>
 
-              {!currentFolderIsPicAsset ? (
+              {canCreateFolders && !currentFolderIsPicAsset ? (
                 <Button
                   type="button"
                   className="h-8 rounded-lg bg-[#0C447C] px-3 text-[11px] text-white hover:bg-[#0a3a66]"
@@ -738,13 +749,13 @@ export default function MvDriveExplorer({
                           <FolderOpen className="h-4 w-4 text-amber-600" />
                           {t("drive.openFolder")}
                         </DropdownMenuItem>
-                        <DropdownMenuItem
+                        {canDeleteFolders ? <DropdownMenuItem
                           onSelect={() => void handleDeleteFolder(folder)}
                           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
                           {t("drive.deleteFolder")}
-                        </DropdownMenuItem>
+                        </DropdownMenuItem> : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -775,7 +786,7 @@ export default function MvDriveExplorer({
                         </div>
                       </div>
 
-                      <DropdownMenu>
+                      {canDownloadFiles || canDeleteFiles ? <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
                             type="button"
@@ -786,7 +797,7 @@ export default function MvDriveExplorer({
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44 text-right">
-                          <DropdownMenuItem asChild className="text-[12px]">
+                          {canDownloadFiles ? <DropdownMenuItem asChild className="text-[12px]">
                             <a
                               href={`/api/mv/projects/${projectId}/files/${file._id}/download`}
                               target="_blank"
@@ -795,23 +806,23 @@ export default function MvDriveExplorer({
                               <Download className="h-4 w-4 text-sky-600" />
                               {t("drive.openOrDownload")}
                             </a>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
+                          </DropdownMenuItem> : null}
+                          {canDeleteFiles ? <DropdownMenuItem
                             onSelect={() => void handleDeleteFile(file)}
                             className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                           >
                             <Trash2 className="h-4 w-4" />
                             {t("drive.deleteFile")}
-                          </DropdownMenuItem>
+                          </DropdownMenuItem> : null}
                         </DropdownMenuContent>
-                      </DropdownMenu>
+                      </DropdownMenu> : null}
                     </div>
 
                     <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
                       <span className="text-[10px] text-slate-500" dir="auto">
                         {file.extension ? `.${file.extension}` : file.mimeType}
                       </span>
-                      <a
+                      {canDownloadFiles ? <a
                         href={`/api/mv/projects/${projectId}/files/${file._id}/download`}
                         target="_blank"
                         rel="noreferrer"
@@ -819,7 +830,7 @@ export default function MvDriveExplorer({
                       >
                         <Download className="h-3.5 w-3.5" />
                         {t("drive.open")}
-                      </a>
+                      </a> : null}
                     </div>
                   </div>
                 );
@@ -833,13 +844,13 @@ export default function MvDriveExplorer({
           </section>
       </div>
 
-      <CreateDialog
+      {canCreateFolders ? <CreateDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         variant="sub-project"
         loading={creating}
         onSubmit={(name) => void handleCreateFolder(name)}
-      />
+      /> : null}
     </div>
   );
 }

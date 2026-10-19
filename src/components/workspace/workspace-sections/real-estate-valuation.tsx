@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/valuation-table";
 import { toApiUrl } from "@/lib/api-url";
 import { useResourceRefresh } from "@/components/support/realtime-provider";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 type View =
   | { name: "list" }
@@ -67,6 +68,7 @@ const RealEstateValuationSection = () => {
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const langContext = useContext(LanguageContext);
   const language = langContext?.language ?? "ar";
+  const { can } = useProductPermissions("real-estate-valuation");
 
   const [searchValues, setSearchValues] =
     useState<RealEstateSearchValues | null>(null);
@@ -165,6 +167,13 @@ const RealEstateValuationSection = () => {
     return () => window.removeEventListener("sv:real-estate-go-list", handler);
   }, []);
 
+  useEffect(() => {
+    if ((view.name === "new" && !can("transactions.create")) ||
+        (view.name === "evaluation" && !can("valuation.access"))) {
+      setView({ name: "list" });
+    }
+  }, [can, view.name]);
+
   // ─── Navigation helpers ────────────────────────────────────────────────────
 
   const goList = useCallback(() => setView({ name: "list" }), []);
@@ -207,6 +216,9 @@ const RealEstateValuationSection = () => {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   if (view.name === "new") {
+    if (!can("transactions.create")) {
+      return null;
+    }
     return (
       <NewTransactionPage
         onBack={goList}
@@ -220,6 +232,9 @@ const RealEstateValuationSection = () => {
   }
 
   if (view.name === "evaluation") {
+    if (!can("valuation.access")) {
+      return null;
+    }
     return (
       <>
         <TransactionEvaluationPage
@@ -232,7 +247,7 @@ const RealEstateValuationSection = () => {
           onStatusSaved={fetchTransactions}
         />
 
-        {attachmentsTarget && (
+        {attachmentsTarget && can("property_media.access") && (
           <AttachmentsModal
             transactionId={attachmentsTarget.transactionId}
             requester={attachmentsTarget.requester}
@@ -247,7 +262,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {notesTarget && (
+        {notesTarget && can("transactions.access") && (
           <NotesModal
             transactionId={notesTarget.transactionId}
             requester={notesTarget.requester}
@@ -256,7 +271,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {imagesTarget && (
+        {imagesTarget && can("property_media.access") && (
           <ImagesModal
             transactionId={imagesTarget.transactionId}
             requester={imagesTarget.requester}
@@ -271,7 +286,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {editTarget && (
+        {editTarget && can("valuation.edit") && (
           <EditTransactionModal
             transactionId={editTarget.transactionId}
             requester={editTarget.requester}
@@ -305,10 +320,10 @@ const RealEstateValuationSection = () => {
                   : "A unified view of workflow stages, performance, and status for every transaction."}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2.5">
+            {can("transactions.create") ? <div className="flex flex-wrap gap-2.5">
               <NewTransactionButton onClick={goNew} />
               <NewTransactionLawyerButton onClick={goNewLawyer} />
-            </div>
+            </div> : null}
           </div>
 
           {/* Status overview — its own card, full width */}
@@ -325,18 +340,18 @@ const RealEstateValuationSection = () => {
             <ValuationTable
               embedded
               onFilteredCountChange={setFilteredCount}
-              onOpenTransaction={goEvaluation}
+              onOpenTransaction={can("valuation.access") ? goEvaluation : undefined}
               filterValues={mergedFilterValues}
-              onOpenAttachments={openAttachments}
-              onOpenNotes={openNotes}
-              onOpenImages={openImages}
-              onOpenEdit={openEdit}
+              onOpenAttachments={can("property_media.access") ? openAttachments : undefined}
+              onOpenNotes={can("transactions.access") ? openNotes : undefined}
+              onOpenImages={can("property_media.access") ? openImages : undefined}
+              onOpenEdit={can("valuation.edit") ? openEdit : undefined}
               onTransactionMutated={fetchTransactions}
             />
           </div>
         </div>
 
-        {attachmentsTarget && (
+        {attachmentsTarget && can("property_media.access") && (
           <AttachmentsModal
             transactionId={attachmentsTarget.transactionId}
             requester={attachmentsTarget.requester}
@@ -351,7 +366,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {notesTarget && (
+        {notesTarget && can("transactions.access") && (
           <NotesModal
             transactionId={notesTarget.transactionId}
             requester={notesTarget.requester}
@@ -360,7 +375,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {imagesTarget && (
+        {imagesTarget && can("property_media.access") && (
           <ImagesModal
             transactionId={imagesTarget.transactionId}
             requester={imagesTarget.requester}
@@ -375,7 +390,7 @@ const RealEstateValuationSection = () => {
             isRtl={isRtl}
           />
         )}
-        {editTarget && (
+        {editTarget && can("valuation.edit") && (
           <EditTransactionModal
             transactionId={editTarget.transactionId}
             requester={editTarget.requester}

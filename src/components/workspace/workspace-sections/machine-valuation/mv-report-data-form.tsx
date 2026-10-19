@@ -418,7 +418,7 @@ export function MvReportDataForm({
   onReportDataChange: (patch: Partial<MvProjectReportData>) => void;
   onSectionOpenChange: (id: MvReportCollapsibleSectionId, open: boolean) => void;
   onToggleAllSections: () => void;
-  onSave: () => void;
+  onSave?: () => void;
   onReset?: () => void;
   onCloneFromProject?: () => void;
 }) {
@@ -1455,7 +1455,7 @@ export function MvReportDataForm({
             <SectionToggleIcon className="h-[18px] w-[18px]" strokeWidth={2.25} />
           </button>
 
-          <button
+          {onCloneFromProject ? <button
             type="button"
             onClick={onCloneFromProject}
             disabled={!onCloneFromProject || saving}
@@ -1464,9 +1464,9 @@ export function MvReportDataForm({
             aria-label={t("reportData.clone.button")}
           >
             <Copy className="h-[18px] w-[18px]" strokeWidth={2.25} />
-          </button>
+          </button> : null}
 
-          <button
+          {onSave ? <button
             ref={saveButtonRef}
             type="button"
             onClick={onSave}
@@ -1483,9 +1483,9 @@ export function MvReportDataForm({
             ) : (
               <Save className="h-[18px] w-[18px]" strokeWidth={2.25} />
             )}
-          </button>
+          </button> : null}
 
-          <button
+          {onReset ? <button
             type="button"
             onClick={onReset}
             disabled={!onReset || saving}
@@ -1494,7 +1494,7 @@ export function MvReportDataForm({
             aria-label={t("reportData.reset.button")}
           >
             <RotateCcw className="h-4 w-4" strokeWidth={2.25} />
-          </button>
+          </button> : null}
         </div>
       </aside>
     </section>

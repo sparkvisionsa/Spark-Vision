@@ -83,6 +83,7 @@ import {
   type MvSettingsSection,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-settings-nav";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 function openAuthModal() {
   window.dispatchEvent(new CustomEvent("sv:open-auth-modal") as Event);
@@ -320,14 +321,22 @@ function MachineSidebarNav() {
   } = parseMachineValuationPath(currentPath);
   const [settingsOpen, setSettingsOpen] = useState(isSettingsPanel);
   const isCompanyAdmin = user?.role === "company_admin";
+  const { can } = useProductPermissions("machine-valuation");
 
   useEffect(() => {
     if (isSettingsPanel) setSettingsOpen(true);
   }, [isSettingsPanel]);
 
-  const settingsItems = isCompanyAdmin
+  const settingsItemsBase = isCompanyAdmin
     ? MV_SETTINGS_SECTIONS
     : MV_SETTINGS_SECTIONS.filter((item) => item.key === "general");
+  const settingsItems = settingsItemsBase.filter((item) =>
+    item.key === "report"
+      ? can("settings_reports.access")
+      : item.key === "serial-numbering"
+        ? can("settings_serial.access")
+        : can("settings_company.access") || can("settings_users.access") || can("settings_permissions.access") || can("settings_assets.access"),
+  );
 
   const workspaceItems: MachineNavItem[] = [
     {
@@ -346,7 +355,7 @@ function MachineSidebarNav() {
       icon: Archive,
       active: isArchivePanel,
     },
-  ];
+  ].filter((item) => item.key !== "projects" && item.key !== "archive" ? true : can("projects.access"));
 
   const afterSettingsItems: MachineNavItem[] = [
     {
@@ -363,7 +372,7 @@ function MachineSidebarNav() {
       icon: Users,
       active: isClientsPanel,
     },
-  ];
+  ].filter((item) => item.key === "data-extraction" ? can("data_extraction.access") : can("clients.access"));
 
   const supportItems: MachineNavItem[] = [
     {
@@ -381,7 +390,7 @@ function MachineSidebarNav() {
       icon: History,
       active: isDeveloperRequestsPanel,
     }] : []),
-  ];
+  ].filter(() => can("support.access"));
 
   return (
     <SidebarContent className="gap-0 overflow-x-hidden p-1.5">

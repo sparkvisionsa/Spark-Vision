@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -260,6 +261,11 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   const numberLocale = isArabic ? "ar-SA" : "en-US";
   const { navigate } = useMvInPageNavigation();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canImport = can("asset_data.import");
+  const canCreate = can("asset_data.create");
+  const canEdit = can("asset_data.edit");
+  const canDelete = can("asset_data.delete");
   const storageKey = `sv:asset-import:${projectId}`;
   const persistentStorageKey = `sv:asset-import:persistent:${projectId}`;
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -444,6 +450,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   }, [importHydrated, importResult, persistentStorageKey, storageKey]);
 
   const handleFile = async (file: File) => {
+    if (!canImport) return;
     setUploadError("");
     setIsUploading(true);
     try {
@@ -481,6 +488,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   };
 
   const handleCreateManualSheet = async () => {
+    if (!canCreate) return;
     setUploadError("");
     setIsCreatingManual(true);
     try {
@@ -549,6 +557,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const handleDeleteAll = async () => {
+    if (!canDelete) return;
     if (!importResult) return;
     if (!window.confirm(t("import.assetData.deleteAllConfirm"))) return;
     setIsDeletingAll(true);
@@ -589,6 +598,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
   };
 
   const handleDeleteSheet = async (sheet: AssetImportSheetStat) => {
+    if (!canDelete) return;
     if (!importResult) return;
     const norm = withSheetImportIds(importResult);
     const sid = sheet.importId ?? norm.importId;
@@ -692,7 +702,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
         </div>
       </div>
 
-      <input
+      {canImport ? <input
         ref={inputRef}
         type="file"
         className="hidden"
@@ -702,14 +712,14 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
           if (file) void handleFile(file);
           e.currentTarget.value = "";
         }}
-      />
+      /> : null}
 
       <div className="mx-auto max-w-7xl space-y-2 px-3 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <DataImportSelector
-              onSelectImport={() => inputRef.current?.click()}
-              onSelectCreate={() => void handleCreateManualSheet()}
+              onSelectImport={canImport ? () => inputRef.current?.click() : undefined}
+              onSelectCreate={canCreate ? () => void handleCreateManualSheet() : undefined}
               labels={{
                 label: t("import.assetData.addDataLabel"),
                 importFile: t("import.assetData.importData"),
@@ -724,7 +734,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
             ) : null}
           </div>
 
-          {importResult ? (
+          {canDelete && importResult ? (
             <Button
               type="button"
               variant="outline"
@@ -784,7 +794,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                       })}
                     </p>
                   </div>
-                  <span
+                  {canDelete ? <span
                     role="button"
                     tabIndex={0}
                     className="rounded p-1 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
@@ -804,7 +814,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                     ) : (
                       <Trash2 className="h-3 w-3" />
                     )}
-                  </span>
+                  </span> : null}
                 </button>
               );
             })}
@@ -846,13 +856,13 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
           assetType="other"
           omitAssetTypeFilter
           schemaAssetType="other"
-          editOnSingleClick
+          editOnSingleClick={canEdit}
           sheetColumns
           rowCheckboxColumn
-          allowAppendImportRows
-          quickAddMode={manualGridOpen}
+          allowAppendImportRows={canEdit}
+          quickAddMode={canEdit && manualGridOpen}
           displaySheetName={sheetDisplayName ?? viewingSheet?.sheetName ?? manualSheetName ?? t("import.assetData.manualEntry")}
-          onSheetNameChange={(newName) => {
+          onSheetNameChange={canEdit ? (newName) => {
             const oldName = originalSheetNameRef.current ?? viewingSheet?.sheetName ?? manualSheetName ?? "";
             const impId =
               viewingSheet && importResult
@@ -908,7 +918,7 @@ export default function MvAssetDataWorkspace({ projectId }: MvAssetDataWorkspace
                 setSheetDisplayName(oldName);
               }
             })();
-          }}
+          } : undefined}
           onSave={(_changes: CellChange[]) => {}}
           onSheetDimensionsChange={handleSheetDimensionsChange}
           refreshToken={refreshToken}

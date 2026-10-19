@@ -1,5 +1,6 @@
 "use client";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { enqueueUpload, uploadOwner, type UploadFolder } from "@/lib/mv-background-uploads";
 import { useResourceRefresh } from "@/components/support/realtime-provider";
 import { assetBulkSelectionKey, toggleAssetBulkSelection, bulkFolderTargets, toggleBulkFolders, bulkFolderRoots } from "@/lib/mv-asset-bulk-selection";
@@ -1259,6 +1260,11 @@ function fileNameFromPathSafe(file: AssetImageViewFile): string {
 export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImagesHubProps) {
   const { t, dir, isArabic } = useMvI18n();
   const { user: uploadUser } = useAuthTracking();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUpload = can("asset_media.upload");
+  const canEdit = can("asset_media.edit");
+  const canDelete = can("asset_media.delete");
+  const canDownload = can("asset_media.download");
   const { navigate, registerNavigationBlocker } = useMvInPageNavigation();
   const numberFormatter = useMemo(
     () => new Intl.NumberFormat(isArabic ? "ar-SA" : "en-US"),
@@ -2572,6 +2578,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const uploadImagesToActivePreviewLocation = useCallback(
     async (picked: PickedImageFile[], targetNode = selectedPreviewFolderNode) => {
+      if (!canUpload) return;
       const imageFiles = picked.filter((item) => isLikelyImage(item.file));
       if (imageFiles.length === 0) {
         toast({ variant: "destructive", description: t("assetImages.upload.noValidImages") });
@@ -2669,7 +2676,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       }
     },
     [isArabic, loadPreviewPhotoFolders, photosRootId, previewFoldersById, previewPhotoFolders,
-      projectId, projectName, selectedPreviewFolderNode, t, toast, uploadUser],
+      canUpload, projectId, projectName, selectedPreviewFolderNode, t, toast, uploadUser],
   );
 
   const handleActiveTargetInputFiles = useCallback(
@@ -4487,7 +4494,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const selected = isBulkSelected(file);
     const canDragPlace = !isLocalPreviewDriveId(file._id) && !reorderSaving;
     const displayOnly = false;
-    const canMutate = true;
+    const canMutate = canDelete;
     const dragScope = scopeFiles.length > 0 ? scopeFiles : [file];
 
     return (
@@ -4603,7 +4610,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           }}
           onDrop={reorderSaving || dragging ? undefined : handleDropOnFolderPath(node.path)}
         >
-          <button
+          {canDelete ? <button
             type="button"
             draggable={false}
             onClick={() => hasChildren && toggleExpanded(node.path)}
@@ -4618,7 +4625,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             ) : (
               <span className="h-3.5 w-3.5" />
             )}
-          </button>
+          </button> : null}
           <button
             type="button"
             draggable={false}
@@ -4668,17 +4675,17 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 <FolderOpen className="h-4 w-4 text-amber-600" />
                 {t("assetImages.actions.openFolder")}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => toggleFolderSelection(node.path)} className="cursor-pointer text-[12px]">
+              {canDelete ? <DropdownMenuItem onSelect={() => toggleFolderSelection(node.path)} className="cursor-pointer text-[12px]">
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
                 {selected ? t("assetImages.actions.deselectImages") : t("assetImages.actions.selectImages")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
+              </DropdownMenuItem> : null}
+              {canDelete ? <DropdownMenuItem
                 onSelect={() => deleteFolderImages(node)}
                 className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
               >
                 <Trash2 className="h-4 w-4" />
                 {t("assetImages.actions.deleteFolderImages")}
-              </DropdownMenuItem>
+              </DropdownMenuItem> : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -4710,7 +4717,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     const displayOnly = isDisplayOnlyPicAssetImage(file);
     const effectiveId = displayOnly ? effectiveDriveFileId(file) : file._id;
     const effective = effectiveId ? filesById.get(effectiveId) : undefined;
-    const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
+    const canMutate = canDelete && (displayOnly ? true : Boolean(effectiveId && effective));
     const selected = canMutate ? isBulkSelected(file) : false;
     const isVideoRow = treeMedia === "videos" || isViewFileVideo(file);
     const canDragPlace =
@@ -4927,7 +4934,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                 {isAssetFolderNode(node) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
                 {t("assetImages.actions.openKind", { kind: kindLabel })}
               </DropdownMenuItem>
-              {treeMedia === "images" && isManageablePreviewFolderNode(node) ? (
+              {canEdit && treeMedia === "images" && isManageablePreviewFolderNode(node) ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => renamePreviewFolderInstant(node)}
@@ -4946,7 +4953,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   </DropdownMenuItem>
                 </>
               ) : null}
-              {createChildrenParentId && treeMedia === "images" ? (
+              {canEdit && createChildrenParentId && treeMedia === "images" ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => void createPreviewFolder(createChildrenParentId, "folder")}
@@ -4966,14 +4973,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   </DropdownMenuItem>
                 </>
               ) : null}
-              <DropdownMenuItem
+              {canDelete ? <DropdownMenuItem
                 onSelect={() => togglePreviewFolderSelection(node.path)}
                 className="cursor-pointer text-[12px]"
               >
                 {selected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
                 {selected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
-              </DropdownMenuItem>
-              {treeMedia === "images" ? (
+              </DropdownMenuItem> : null}
+              {canDelete && treeMedia === "images" ? (
                 <DropdownMenuItem
                   onSelect={() => deleteFolderImages(node)}
                   className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
@@ -4982,7 +4989,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   {t("assetImages.actions.deleteFolderImages")}
                 </DropdownMenuItem>
               ) : null}
-              {treeMedia === "images" && node.path !== "__pv_root__" ? (
+              {canDelete && treeMedia === "images" && node.path !== "__pv_root__" ? (
                 <DropdownMenuItem
                   onSelect={() => deletePreviewFolderFast(node)}
                   disabled={deleting}
@@ -5090,7 +5097,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52 text-right">
-        <DropdownMenuItem
+        {canDelete ? <DropdownMenuItem
           onSelect={() => {
             void loadImages("revalidate");
             void loadPreviewPhotoFolders("revalidate");
@@ -5101,16 +5108,16 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           {t("assetImages.actions.refresh")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {canDelete ? <DropdownMenuItem
           onSelect={deleteSelectedItems}
           disabled={selectedCount === 0 || deleting}
           className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
         >
           <Trash2 className="h-4 w-4" />
           {t("assetImages.actions.deleteSelectedItems")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
+        </DropdownMenuItem> : null}
+        {canDelete ? <DropdownMenuItem
           onSelect={deleteCurrentPreviewPathImages}
           disabled={
             activeContentFiles.length === 0 || deleting || selectedPreviewFolderId === "__pv_root__"
@@ -5119,7 +5126,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         >
           <Trash2 className="h-4 w-4" />
           {t("assetImages.actions.deleteCurrentPath")}
-        </DropdownMenuItem>
+        </DropdownMenuItem> : null}
         <DropdownMenuItem
           onSelect={() => selectedPreviewFolderNode && deletePreviewFolderFast(selectedPreviewFolderNode)}
           disabled={!selectedPreviewFolderNode || selectedPreviewFolderNode.path === "__pv_root__" || deleting}
@@ -5239,15 +5246,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       <div className="w-full px-2 py-2 sm:px-3">
           <section className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="m-0">
-              <input
+              {canUpload ? <input
                 ref={filePickInputRef}
                 type="file"
                 className="hidden"
                 multiple
                 accept="image/*"
                 onChange={(event) => handleActiveTargetInputFiles(event.target.files)}
-              />
-              <input
+              /> : null}
+              {canUpload ? <input
                 ref={folderPickInputRef}
                 type="file"
                 className="hidden"
@@ -5256,16 +5263,18 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                   webkitdirectory: "",
                 } as Record<string, unknown>)}
                 onChange={(event) => handleActiveTargetInputFiles(event.target.files)}
-              />
+              /> : null}
               <div
                 className={cn("transition-colors", draggingPreview && "bg-emerald-50/50")}
                 onDragOver={(event) => {
+                  if (!canUpload) return;
                   if (!isFileUploadDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDraggingPreview(true);
                 }}
                 onDragLeave={() => setDraggingPreview(false)}
                 onDrop={(event) => {
+                  if (!canUpload) return;
                   if (!isFileUploadDrag(event.dataTransfer)) return;
                   event.preventDefault();
                   setDraggingPreview(false);
@@ -5293,7 +5302,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         {t("navigation.projectFolders.assetData")}
                       </Button>
 
-                      <DropdownMenu>
+                      {canDownload ? <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
@@ -5330,9 +5339,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                               : t("assetImages.actions.downloadReportImagesPdf")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
-                      </DropdownMenu>
+                      </DropdownMenu> : null}
 
-                      <DropdownMenu>
+                      {canEdit ? <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
@@ -5381,9 +5390,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             {t("assetImages.actions.createFolders")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
-                      </DropdownMenu>
+                      </DropdownMenu> : null}
 
-                      <DropdownMenu>
+                      {canUpload ? <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
@@ -5423,7 +5432,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             {t("assetImages.actions.importFromProject")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
-                      </DropdownMenu>
+                      </DropdownMenu> : null}
 
                       <Button
                         type="button"
@@ -5445,7 +5454,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                     <span className="order-2 hidden min-w-0 flex-1 self-stretch xl:block" aria-hidden />
 
                     <div className="contents">
-                      <Button
+                      {canEdit ? <Button
                         type="button"
                         size="sm"
                         className="order-3 h-8 gap-1.5 rounded-lg bg-emerald-700 px-2.5 text-[11px] font-black text-white shadow-sm hover:bg-emerald-800 max-sm:w-full max-sm:justify-center"
@@ -5459,7 +5468,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             {numberFormatter.format(reportSelectSelectedCount)}
                           </span>
                         ) : null}
-                      </Button>
+                      </Button> : null}
 
                       {selectedCount > 0 ? (
                         <Button type="button" variant="outline" size="sm"
@@ -5722,7 +5731,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                         {isAssetFolderNode(folder) ? <Box className="h-4 w-4 text-emerald-600" /> : <FolderOpen className="h-4 w-4 text-amber-600" />}
                                         {t("assetImages.actions.openKind", { kind: folderKindLabel })}
                                       </DropdownMenuItem>
-                                      {isManageablePreviewFolderNode(folder) ? (
+                                      {canEdit && isManageablePreviewFolderNode(folder) ? (
                                         <>
                                           <DropdownMenuItem
                                             onSelect={() => renamePreviewFolderInstant(folder)}
@@ -5741,7 +5750,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           </DropdownMenuItem>
                                         </>
                                       ) : null}
-                                      {folderCreateParentId ? (
+                                      {canEdit && folderCreateParentId ? (
                                         <>
                                           <DropdownMenuItem
                                             onSelect={() => void createPreviewFolder(folderCreateParentId, "folder")}
@@ -5761,21 +5770,21 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           </DropdownMenuItem>
                                         </>
                                       ) : null}
-                                      <DropdownMenuItem
+                                      {canDelete ? <DropdownMenuItem
                                         onSelect={() => togglePreviewFolderSelection(folder.path)}
                                         className="cursor-pointer text-[12px]"
                                       >
                                         {folderSelected ? <Square className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
                                         {folderSelected ? t("assetImages.actions.deselectFolder") : t("assetImages.actions.selectFolder")}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
+                                      </DropdownMenuItem> : null}
+                                      {canDelete ? <DropdownMenuItem
                                         onSelect={() => deleteFolderImages(folder)}
                                         className="cursor-pointer text-[12px] text-red-600 focus:text-red-600"
                                       >
                                         <Trash2 className="h-4 w-4" />
                                         {t("assetImages.actions.deleteFolderImages")}
-                                      </DropdownMenuItem>
-                                      {folder.path !== "__pv_root__" ? (
+                                      </DropdownMenuItem> : null}
+                                      {canDelete && folder.path !== "__pv_root__" ? (
                                         <DropdownMenuItem
                                           onSelect={() => deletePreviewFolderFast(folder)}
                                           disabled={deleting}
@@ -5800,7 +5809,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         const displayOnly = isDisplayOnlyPicAssetImage(file);
                         const effectiveId = displayOnly ? effectiveDriveFileId(file) : file._id;
                         const effective = effectiveId ? filesById.get(effectiveId) : undefined;
-                        const canMutate = displayOnly ? true : Boolean(effectiveId && effective);
+                        const canMutate = canDelete && (displayOnly ? true : Boolean(effectiveId && effective));
                         const isVideoCell = isViewFileVideo(file);
                         const imageSelected = canMutate
                           ? isBulkSelected(file)
@@ -5914,7 +5923,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                       )}
                                       {isVideoCell ? t("assetImages.actions.openVideo") : t("assetImages.actions.openImage")}
                                     </DropdownMenuItem>
-                                    {!displayOnly ? (
+                                    {canDelete && !displayOnly ? (
                                       <>
                                         <DropdownMenuItem
                                           onSelect={() => toggleImageSelection(file._id)}
@@ -5931,7 +5940,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           {t("assetImages.actions.deleteImage")}
                                         </DropdownMenuItem>
                                       </>
-                                    ) : (
+                                    ) : canDelete ? (
                                       <>
                                         <DropdownMenuItem
                                           onSelect={() => void togglePicAssetImageSelection(file)}
@@ -5950,7 +5959,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                                           {t("assetImages.actions.deleteImage")}
                                         </DropdownMenuItem>
                                       </>
-                                    )}
+                                    ) : null}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </div>

@@ -109,11 +109,11 @@ function clampPreviewTransform(
   };
 }
 
-function ReportImagePreviewDialog({
+export function MvImageZoomDialog({
   image,
   onClose,
 }: {
-  image: MvReportSelectImageItem;
+  image: Pick<MvReportSelectImageItem, "name" | "previewUrl">;
   onClose: () => void;
 }) {
   const { t, dir } = useMvI18n();
@@ -130,6 +130,17 @@ function ReportImagePreviewDialog({
     midpoint: PreviewPoint;
     transform: PreviewTransform;
   } | null>(null);
+
+  useEffect(() => {
+    const closePreviewOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", closePreviewOnEscape, true);
+    return () => window.removeEventListener("keydown", closePreviewOnEscape, true);
+  }, [onClose]);
 
   useEffect(() => {
     if (!viewportElement) return;
@@ -1255,7 +1266,7 @@ export function MvReportImagesSelectModal({
         onToggleImage={toggleImage}
         onPreviewImage={setPreviewImage}
       />
-      {previewImage ? <ReportImagePreviewDialog image={previewImage} onClose={() => setPreviewImage(null)} /> : null}
+      {previewImage ? <MvImageZoomDialog image={previewImage} onClose={() => setPreviewImage(null)} /> : null}
     </Dialog>
   );
 }

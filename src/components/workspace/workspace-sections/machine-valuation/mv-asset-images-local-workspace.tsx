@@ -12,6 +12,7 @@ import {
 import Link from "@/components/prefetch-link";
 import { FolderOpen, ImageIcon, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { MvProjectReportHeader } from "./mv-simple-report-navigation";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { useMvI18n } from "./mv-i18n";
@@ -76,6 +77,9 @@ function clusterIncomingFiles(fileList: File[], bundleTitle: string): LocalImage
 
 export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: MvAssetImagesLocalWorkspaceProps) {
   const { t, dir } = useMvI18n();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUpload = can("asset_media.upload");
+  const canDelete = can("asset_media.delete");
   const [groups, setGroups] = useState<LocalImageGroup[]>([]);
   const dirInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,34 +87,39 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
 
   const appendFiles = useCallback(
     (fileList: FileList | File[]) => {
+      if (!canUpload) return;
       const next = clusterIncomingFiles(Array.from(fileList), t("assetImages.local.bundleTitle"));
       if (next.length === 0) return;
       setGroups((g) => [...g, ...next]);
     },
-    [t],
+    [canUpload, t],
   );
 
   const onPickDirectory = useCallback(() => {
+    if (!canUpload) return;
     dirInputRef.current?.click();
-  }, []);
+  }, [canUpload]);
 
   const onPickFiles = useCallback(() => {
+    if (!canUpload) return;
     fileInputRef.current?.click();
-  }, []);
+  }, [canUpload]);
 
   const removeGroup = useCallback((id: string) => {
+    if (!canDelete) return;
     setGroups((g) => g.filter((x) => x.id !== id));
-  }, []);
+  }, [canDelete]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      if (!canUpload) return;
       if (e.dataTransfer.files?.length) {
         appendFiles(e.dataTransfer.files);
       }
     },
-    [appendFiles],
+    [appendFiles, canUpload],
   );
 
   const objectUrls = useMemo(() => {
@@ -154,7 +163,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
       <div className="mx-auto min-h-full max-w-6xl space-y-4 px-4 py-4 pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button
+            {canUpload ? <Button
               type="button"
               variant="outline"
               className="h-9 gap-1.5 rounded-lg text-[12px]"
@@ -162,22 +171,22 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
             >
               <FolderOpen className="h-3.5 w-3.5" />
               {t("assetImages.local.pickFolder")}
-            </Button>
-            <Button
+            </Button> : null}
+            {canUpload ? <Button
               type="button"
               className="h-9 gap-1.5 rounded-lg bg-[#0C447C] text-[12px] text-white hover:bg-[#0a3a66]"
               onClick={onPickFiles}
             >
               <Upload className="h-3.5 w-3.5" />
               {t("assetImages.local.pickImages")}
-            </Button>
+            </Button> : null}
             <Button type="button" variant="ghost" asChild className="h-9 text-[12px]">
               <Link href={`/machine-valuation/${projectId}/workflow/asset-images`}>{t("assetImages.local.back")}</Link>
             </Button>
           </div>
         </div>
 
-        <input
+        {canUpload ? <input
           ref={dirInputRef}
           type="file"
           className="hidden"
@@ -187,8 +196,8 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
             if (e.target.files?.length) appendFiles(e.target.files);
             e.target.value = "";
           }}
-        />
-        <input
+        /> : null}
+        {canUpload ? <input
           ref={fileInputRef}
           id={`${baseId}-files`}
           type="file"
@@ -199,7 +208,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
             if (e.target.files?.length) appendFiles(e.target.files);
             e.target.value = "";
           }}
-        />
+        /> : null}
 
         {groups.length === 0 ? (
           <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
@@ -230,7 +239,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
                       ({imageCountLabel(g.files.length)})
                     </span>
                   </div>
-                  <Button
+                  {canDelete ? <Button
                     type="button"
                     variant="ghost"
                     size="icon"
@@ -239,7 +248,7 @@ export default function MvAssetImagesLocalWorkspace({ projectId, projectName }: 
                     aria-label={t("assetImages.local.removeGroup")}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  </Button> : null}
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   {g.files.map((f, i) => {

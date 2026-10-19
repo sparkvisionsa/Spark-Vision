@@ -57,6 +57,7 @@ import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { cn } from "@/lib/utils";
 import {
   normalizeImportResult,
@@ -2760,6 +2761,9 @@ export default function MvValuationAccountingWorkspace({
   const { user: uploadUser } = useAuthTracking();
   const { t, dir } = useMvI18n();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUpload = can("valuation.upload");
+  const canEdit = can("valuation.edit");
   const [project, setProject] = useState<MvProject | null>(null);
   const [store, setStore] = useState<MvValuationAccountingStore>(() =>
     emptyValuationAccountingStore(),
@@ -2985,6 +2989,7 @@ export default function MvValuationAccountingWorkspace({
       updater: (current: MvValuationAccountingStore) => MvValuationAccountingStore,
       options?: { sync?: "debounce" | "later" | "now" },
     ) => {
+      if (!canEdit) return;
       const syncMode = options?.sync ?? "debounce";
       setStore((current) => {
         const next = updater(current);
@@ -3022,7 +3027,7 @@ export default function MvValuationAccountingWorkspace({
         return next;
       });
     },
-    [projectId, toast, t, flushAccountingWorkspaceToServer],
+    [canEdit, projectId, toast, t, flushAccountingWorkspaceToServer],
   );
 
   const saveEditorModalAndClose = useCallback(async () => {
@@ -3525,6 +3530,7 @@ export default function MvValuationAccountingWorkspace({
     targetApproach: MvValuationAccountingApproachId = activeApproach,
     options?: { originalExcelFiles?: File[]; excelChunkRowsPerPdfPage?: number },
   ) => {
+    if (!canUpload) return false;
     if (!uploadUser) return false;
     try {
       await enqueueAttachments(uploadUser, projectId, `${project?.name || projectId} / ${approachLabel(targetApproach)}`,
@@ -3535,7 +3541,7 @@ export default function MvValuationAccountingWorkspace({
       toast({ variant: "destructive", description: error instanceof Error ? error.message : t("assetImages.upload.localSaveFailed") });
       return false;
     }
-  }, [uploadUser, projectId, project?.name, activeApproach, toast, t]);
+  }, [canUpload, uploadUser, projectId, project?.name, activeApproach, toast, t]);
 
   const closePendingUploadPreview = useCallback(() => {
     pendingUploadTokenRef.current += 1;
@@ -3709,6 +3715,7 @@ export default function MvValuationAccountingWorkspace({
 
   const handleUpload = useCallback(
     async (kind: MvValuationAccountingFileKind, list: FileList | null) => {
+      if (!canUpload) return;
       const files = Array.from(list ?? []).filter((file) => file.size > 0);
       if (files.length === 0) return;
       if (kind === "excel") {
@@ -3717,7 +3724,7 @@ export default function MvValuationAccountingWorkspace({
       }
       await commitUpload(kind, files, activeApproach);
     },
-    [activeApproach, commitUpload, prepareUploadPreview],
+    [activeApproach, canUpload, commitUpload, prepareUploadPreview],
   );
 
   const continuePendingUpload = useCallback(async () => {
@@ -4041,6 +4048,7 @@ export default function MvValuationAccountingWorkspace({
 
   const handleIncludeInReport = useCallback(
     async (checked: boolean) => {
+      if (!canEdit) return;
       persistStore((current) => ({ ...current, includeInReport: checked }));
       const currentReportData: MvProjectReportData = project?.reportData ?? {};
       try {
@@ -4066,7 +4074,7 @@ export default function MvValuationAccountingWorkspace({
         });
       }
     },
-    [persistStore, project?.reportData, projectId, toast],
+    [canEdit, persistStore, project?.reportData, projectId, toast],
   );
 
   const projectName = project?.name ?? projectId;
@@ -4166,16 +4174,16 @@ export default function MvValuationAccountingWorkspace({
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-1.5">
-              <label className={cn("flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 font-bold text-slate-700", embedded ? "h-8 text-[11px]" : "h-9 gap-2 px-3 text-[12px]")}>
+              {canEdit ? <label className={cn("flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 font-bold text-slate-700", embedded ? "h-8 text-[11px]" : "h-9 gap-2 px-3 text-[12px]")}>
                 <Switch
                   checked={store.includeInReport}
                   onCheckedChange={(checked) => void handleIncludeInReport(checked)}
                   dir="ltr"
                 />
                 {t("valuation.showImagesInReport")}
-              </label>
+              </label> : null}
 
-              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
+              {canUpload ? <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-bold">
                   {t("assetImages.actions.uploadFolders")}
                   <input type="file" multiple {...{ webkitdirectory: "", directory: "" }} className="hidden"
@@ -4185,8 +4193,8 @@ export default function MvValuationAccountingWorkspace({
                       event.target.value = "";
                     }} />
                 </label>
-              </Button>
-              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
+              </Button> : null}
+              {canUpload ? <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4201,8 +4209,8 @@ export default function MvValuationAccountingWorkspace({
                   {uploadingKind === "excel" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
                   {t("valuation.uploadExcel")}
                 </label>
-              </Button>
-              <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
+              </Button> : null}
+              {canUpload ? <Button asChild variant="outline" size="sm" className={cn("gap-1.5", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4217,8 +4225,8 @@ export default function MvValuationAccountingWorkspace({
                   {uploadingKind === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                   {t("valuation.uploadPdf")}
                 </label>
-              </Button>
-              <Button asChild size="sm" className={cn("gap-1.5 bg-[#0C447C] hover:bg-[#0a3a66]", embedded && "h-8 px-2.5 text-[11px]")}>
+              </Button> : null}
+              {canUpload ? <Button asChild size="sm" className={cn("gap-1.5 bg-[#0C447C] hover:bg-[#0a3a66]", embedded && "h-8 px-2.5 text-[11px]")}>
                 <label>
                   <input
                     type="file"
@@ -4233,7 +4241,7 @@ export default function MvValuationAccountingWorkspace({
                   {uploadingKind === "image" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   {t("valuation.uploadImage")}
                 </label>
-              </Button>
+              </Button> : null}
             </div>
           </div>
         </section>
@@ -4256,6 +4264,7 @@ export default function MvValuationAccountingWorkspace({
                     : "border-slate-200",
                 )}
                 onDragOver={(event) => {
+                  if (!canUpload) return;
                   if (!Array.from(event.dataTransfer.types).includes("Files")) return;
                   event.preventDefault();
                   setAccountingImageDropActive(true);
@@ -4268,6 +4277,7 @@ export default function MvValuationAccountingWorkspace({
                 onDrop={(event) => {
                   event.preventDefault();
                   setAccountingImageDropActive(false);
+                  if (!canUpload) return;
                   void readDroppedAttachmentFiles(event.dataTransfer).then(files => {
                     const supported = files.filter(file => /\.(xlsx?|xlsm|csv|pdf|jpe?g|png|gif|webp|bmp)$/i.test(file.name));
                     return commitUpload("image", supported, activeApproach);
@@ -4285,7 +4295,7 @@ export default function MvValuationAccountingWorkspace({
                   </div>
                 </div>
 
-                {sources.length === 0 ? (
+                {sources.length === 0 && canUpload ? (
                   <div className={cn("rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 text-center text-[11px] font-bold text-slate-500", embedded ? "mt-2 py-4" : "mt-4 px-4 py-6 text-[12px]")}>
                     ارفع ملف Excel أو PDF أو صورة من الأعلى، أو اسحب صوراً وأفلتها هنا.
                   </div>
@@ -4319,7 +4329,7 @@ export default function MvValuationAccountingWorkspace({
                               </div>
                             </div>
                             <div className="flex flex-wrap justify-end gap-2">
-                              <Button
+                              {canEdit ? <Button
                                 type="button"
                                 size="sm"
                                 variant={source.kind === "excel" ? "outline" : "secondary"}
@@ -4338,8 +4348,8 @@ export default function MvValuationAccountingWorkspace({
                                   <Scissors className="h-3.5 w-3.5" />
                                 )}
                                 {source.kind === "excel" ? "تعديل قص الصورة" : "قص الصورة"}
-                              </Button>
-                              <Button
+                              </Button> : null}
+                              {canEdit ? <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
@@ -4348,7 +4358,7 @@ export default function MvValuationAccountingWorkspace({
                                 aria-label="حذف الملف"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              </Button> : null}
                             </div>
                           </div>
 
@@ -4390,7 +4400,7 @@ export default function MvValuationAccountingWorkspace({
                                             تلقائية
                                           </span>
                                         ) : null}
-                                        <Button
+                                        {canEdit ? <Button
                                           type="button"
                                           variant="ghost"
                                           size="icon"
@@ -4399,10 +4409,10 @@ export default function MvValuationAccountingWorkspace({
                                           aria-label="حذف الصورة"
                                         >
                                           <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
+                                        </Button> : null}
                                       </div>
                                     </div>
-                                    <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
+                                    {canEdit ? <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50/80 px-2 py-1.5">
                                       <span className="text-[10px] font-extrabold text-slate-600">في التقرير</span>
                                       <Switch
                                         checked={image.includeInReport !== false}
@@ -4410,7 +4420,7 @@ export default function MvValuationAccountingWorkspace({
                                         className="scale-90"
                                         dir="ltr"
                                       />
-                                    </label>
+                                    </label> : null}
                                   </figcaption>
                                 </figure>
                               ))}
@@ -4434,7 +4444,7 @@ export default function MvValuationAccountingWorkspace({
       </MvWorkflowPageScrollBody>
 
       <Dialog
-        open={editorSource !== null}
+        open={canEdit && editorSource !== null}
         onOpenChange={(open) => {
           if (!open) setEditorSourceId(null);
         }}
@@ -4466,7 +4476,7 @@ export default function MvValuationAccountingWorkspace({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 self-end">
-                  <Button
+                  {canEdit ? <Button
                     type="button"
                     variant="destructive"
                     size="sm"
@@ -4475,7 +4485,7 @@ export default function MvValuationAccountingWorkspace({
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     حذف الملف
-                  </Button>
+                  </Button> : null}
                   <Button
                     type="button"
                     variant="outline"
@@ -5012,7 +5022,7 @@ export default function MvValuationAccountingWorkspace({
                           <p className="mt-1 line-clamp-2 min-h-[2rem] text-[9px] font-bold leading-tight text-slate-700">
                             {cleanAccountingText(im.name)}
                           </p>
-                          <label className="mt-1 flex cursor-pointer items-center justify-between gap-2 rounded-md border border-slate-100 bg-white/90 px-1.5 py-1">
+                          {canEdit ? <label className="mt-1 flex cursor-pointer items-center justify-between gap-2 rounded-md border border-slate-100 bg-white/90 px-1.5 py-1">
                             <span className="text-[9px] font-extrabold text-slate-600">عرض في التقرير</span>
                             <Switch
                               checked={im.includeInReport !== false}
@@ -5020,7 +5030,7 @@ export default function MvValuationAccountingWorkspace({
                               className="scale-90"
                               dir="ltr"
                             />
-                          </label>
+                          </label> : null}
                         </div>
                       ))}
                     </div>
@@ -5032,7 +5042,7 @@ export default function MvValuationAccountingWorkspace({
                 <p className="text-[10px] font-semibold text-slate-500 sm:text-[11px]">
                   التغييرات تُحفظ محلياً تلقائياً. اضغط «حفظ» لمزامنة القاعدة فوراً.
                 </p>
-                <Button
+                {canEdit ? <Button
                   type="button"
                   className="h-9 min-w-[7.5rem] gap-1.5 bg-emerald-700 px-4 text-[12px] font-bold hover:bg-emerald-800"
                   disabled={editorSaving}
@@ -5040,7 +5050,7 @@ export default function MvValuationAccountingWorkspace({
                 >
                   {editorSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   حفظ
-                </Button>
+                </Button> : null}
               </footer>
             </>
           ) : null}
@@ -5109,7 +5119,7 @@ export default function MvValuationAccountingWorkspace({
               >
                 إغلاق
               </Button>
-              <Button
+              {canEdit ? <Button
                 type="button"
                 className="h-9 min-w-[7rem] gap-1.5 bg-emerald-600 px-4 text-[12px] font-bold hover:bg-emerald-700"
                 disabled={previewSaving}
@@ -5117,14 +5127,14 @@ export default function MvValuationAccountingWorkspace({
               >
                 {previewSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 حفظ
-              </Button>
+              </Button> : null}
             </div>
           </footer>
         </MvDialogContent>
       </Dialog>
 
       <Dialog
-        open={pendingUploadPreview !== null}
+        open={canUpload && pendingUploadPreview !== null}
         onOpenChange={(open) => {
           if (!open) closePendingUploadPreview();
         }}

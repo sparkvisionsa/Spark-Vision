@@ -30,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 import { cn } from "@/lib/utils";
 import type { MvInspectorFile, MvInspectorLogicalFileType, MvProject } from "./types";
 import { MvDialogContent } from "./mv-dialog";
@@ -187,6 +188,10 @@ export function MvInspectorFilesPanel({
 }) {
   const { t, dir } = useMvI18n();
   const { toast } = useToast();
+  const { can } = useProductPermissions("machine-valuation");
+  const canUpload = can("asset_media.upload");
+  const canDelete = can("asset_media.delete");
+  const canDownload = can("asset_media.download");
   const [project, setProject] = useState<MvProject | null>(initialProject);
   const [files, setFiles] = useState<MvInspectorFile[]>(initialProject?.inspectorFiles ?? []);
   const [loading, setLoading] = useState(!initialProject);
@@ -428,6 +433,7 @@ export function MvInspectorFilesPanel({
   }, []);
 
   const remove = async (id: string) => {
+    if (!canDelete) return;
     setDeletingId(id);
     try {
       const res = await fetch(`/api/mv/projects/${projectId}/inspectorFiles/${encodeURIComponent(id)}`, {
@@ -454,6 +460,7 @@ export function MvInspectorFilesPanel({
   };
 
   const removeMany = async (ids: string[]) => {
+    if (!canDelete) return;
     if (ids.length === 0) return;
     setBulkDeleting(true);
     let failed = 0;
@@ -495,6 +502,7 @@ export function MvInspectorFilesPanel({
   );
 
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    if (!canUpload) return;
     const list = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
     void uploadFiles(list);
@@ -503,6 +511,7 @@ export function MvInspectorFilesPanel({
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
+    if (!canUpload) return;
     void uploadFiles(e.dataTransfer.files ? Array.from(e.dataTransfer.files) : []);
   };
 
@@ -595,7 +604,7 @@ export function MvInspectorFilesPanel({
 
         <div className="border-b border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-shadow duration-200 sm:px-4">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
-          <input ref={inputRef} type="file" className="hidden" accept={ACCEPT} multiple onChange={onInputChange} />
+          {canUpload ? <input ref={inputRef} type="file" className="hidden" accept={ACCEPT} multiple onChange={onInputChange} /> : null}
           <MvLocationMultiSelect
             locations={selectableLocations}
             value={selectedLocationIds}
@@ -604,7 +613,7 @@ export function MvInspectorFilesPanel({
             className="min-w-[210px]"
             label={locationSelectionLocked ? t("inspector.files.uploadLocation") : t("inspector.files.uploadTo")}
           />
-          <Button
+          {canUpload ? <Button
             type="button"
             size="sm"
             variant="default"
@@ -613,8 +622,8 @@ export function MvInspectorFilesPanel({
           >
             <Upload className="ms-1 h-3.5 w-3.5" />
             {t("inspector.files.upload")}
-          </Button>
-          <div
+          </Button> : null}
+          {canUpload ? <div
             role="presentation"
             onDragEnter={(e) => {
               e.preventDefault();
@@ -634,8 +643,8 @@ export function MvInspectorFilesPanel({
             )}
           >
             {t("inspector.files.dropHere")}
-          </div>
-          <Button
+          </div> : null}
+          {canUpload ? <Button
             type="button"
             size="sm"
             variant={recording ? "secondary" : "outline"}
@@ -644,9 +653,9 @@ export function MvInspectorFilesPanel({
           >
             {recording ? <MicOff className="ms-1 h-3.5 w-3.5" /> : <Mic className="ms-1 h-3.5 w-3.5" />}
             {recording ? t("inspector.files.stop") : t("inspector.files.record")}
-          </Button>
+          </Button> : null}
 
-            {visibleFiles.length > 0 ? (
+            {canDelete && visibleFiles.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 border-s border-slate-200 ps-2">
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-600">
                 <Checkbox
@@ -730,14 +739,14 @@ export function MvInspectorFilesPanel({
                 className="group relative flex aspect-square flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm ring-0 transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
               >
                 <div className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-slate-100 bg-white px-2">
-                  <Checkbox
+                  {canDelete ? <Checkbox
                     checked={selectedIds.has(f.id)}
                     onCheckedChange={(v) => toggleSelect(f.id, v === true)}
                     onClick={(e) => e.stopPropagation()}
                     aria-label={t("inspector.files.selectItem", { name: f.name })}
-                  />
+                  /> : null}
                   <div className="flex shrink-0 items-center gap-0.5">
-                    <Button
+                    {canDownload ? <Button
                       type="button"
                       size="icon"
                       variant="secondary"
@@ -752,8 +761,8 @@ export function MvInspectorFilesPanel({
                       >
                         <Download className="h-3.5 w-3.5" />
                       </a>
-                    </Button>
-                    <Button
+                    </Button> : null}
+                    {canDelete ? <Button
                       type="button"
                       size="icon"
                       variant="destructive"
@@ -770,7 +779,7 @@ export function MvInspectorFilesPanel({
                       ) : (
                         <Trash2 className="h-3.5 w-3.5" />
                       )}
-                    </Button>
+                    </Button> : null}
                   </div>
                 </div>
 

@@ -18,6 +18,7 @@ import {
   type ReplacementFields,
 } from "./ReplacementCostSection";
 import dynamic from "next/dynamic";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 // ─── Lucide Icons ─────────────────────────────────────────────────────────────
 import {
@@ -1040,7 +1041,7 @@ function WizardShell({
   children: React.ReactNode;
   lastStepActions?: {
     onOverview: () => void;
-    onViewReport: () => void;
+    onViewReport?: () => void;
   };
 }) {
   return (
@@ -1171,7 +1172,7 @@ function WizardShell({
 
                 {activeStep === steps.length - 1 && lastStepActions ? (
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button
+                    {lastStepActions.onViewReport ? <button
                       type="button"
                       onClick={lastStepActions.onOverview}
                       style={{
@@ -1191,7 +1192,7 @@ function WizardShell({
                     >
                       <ClipboardList size={14} />
                       {lang === "ar" ? "نظرة عامة" : "Overview"}
-                    </button>
+                    </button> : null}
                     <button
                       type="button"
                       onClick={lastStepActions.onViewReport}
@@ -1900,6 +1901,8 @@ export function TransactionEvaluationPage({
   const lang: Lang = (langContext?.language === "en" ? "en" : "ar") as Lang;
   const isRtl = lang === "ar";
   const t = T[lang];
+  const { can } = useProductPermissions("real-estate-valuation");
+  const canEditValuation = can("valuation.edit");
 
   // Maps to the `ev` state shape. section = top-level key in ev, field = key within it.
   const REQUIRED_FIELDS: Record<string, { section: string; field: string }[]> = {
@@ -3209,7 +3212,7 @@ export function TransactionEvaluationPage({
         </div>
 
         {/* Status badge-select */}
-        <div style={{ position: "relative" }}>
+        {can("transactions.status") ? <div style={{ position: "relative" }}>
           <select
             value={ev.status}
             onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
@@ -3245,25 +3248,25 @@ export function TransactionEvaluationPage({
               color: statusColor.text,
             }}
           />
-        </div>
+        </div> : null}
       </div>
 
       {/* ── Quick actions ─────────────────────────────────────────────── */}
       <div style={{ borderTop: `1px solid ${DS.border}`, paddingTop: 10 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-          <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} />
-          <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} />
-          <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} />
-          <ActionButton icon={<Map size={14} />} label={t.btnNearComps} />
-          <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} />
-          <ActionButton
+          {can("property_media.access") ? <ActionButton icon={<Image size={14} />} label={t.btnImages} accent="#7c3aed" onClick={() => onOpenImages?.(transactionId, requester)} /> : null}
+          {can("property_media.access") ? <ActionButton icon={<Paperclip size={14} />} label={t.btnAttachments} accent="#0891b2" onClick={() => onOpenAttachments?.(transactionId, requester)} /> : null}
+          {can("valuation.edit") ? <ActionButton icon={<Pencil size={14} />} label={t.btnEdit} accent="#d97706" onClick={() => onOpenEdit?.(transactionId, requester)} /> : null}
+          {canEditValuation ? <ActionButton icon={<Map size={14} />} label={t.btnNearComps} /> : null}
+          {canEditValuation ? <ActionButton icon={<Pin size={14} />} label={t.btnCopyComps} /> : null}
+          {can("reports.access") ? <ActionButton
             icon={<Printer size={14} />}
             label={t.btnView}
             onClick={() =>
               window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank")
             }
-          />
-          <ActionButton
+          /> : null}
+          {can("reports.download") ? <ActionButton
             icon={<FileText size={14} />}
             label={t.btnPdf}
             onClick={() => {
@@ -3273,8 +3276,8 @@ export function TransactionEvaluationPage({
               a.click();
               showStatusMsg("ok", lang === "ar" ? "بدأ تحميل الملف..." : "Download started...");
             }}
-          />
-          <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} />
+          /> : null}
+          {can("transactions.access") ? <ActionButton icon={<MessageSquare size={14} />} label={t.btnMessages} accent="#0891b2" onClick={() => onOpenNotes?.(transactionId, requester)} /> : null}
         </div>
       </div>
     </div>
@@ -3284,8 +3287,9 @@ export function TransactionEvaluationPage({
       {/* ── Request Information ─────────────────────────────────────────────── */}
       <WizardShell steps={STEPS} activeStep={activeStep} onStepChange={setActiveStep} lang={lang} lastStepActions={{
                 onOverview: () => setActiveStep(0),
-                onViewReport: () =>
-                  window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank"),
+                onViewReport: can("reports.access")
+                  ? () => window.open(`/api/transactions/${transactionId}/pdf?disposition=inline`, "_blank")
+                  : undefined,
               }}
 >
       {activeStep === 0 && (
@@ -7449,7 +7453,7 @@ export function TransactionEvaluationPage({
             {statusMsg.text}
           </div>
         )}
-        <button
+        {canEditValuation ? <button
           type="button"
           onClick={handleSave}
           disabled={saving}
@@ -7477,8 +7481,8 @@ export function TransactionEvaluationPage({
           ) : (
             <Save size={22} />
           )}
-        </button>
-        <button
+        </button> : null}
+        {canEditValuation ? <button
                   type="button"
                   onClick={openCopyModal}
                   title={
@@ -7502,11 +7506,11 @@ export function TransactionEvaluationPage({
                   }}
                 >
                   <Copy size={19} />
-                </button>
+                </button> : null}
       </div>
 
 
-      {showCopyModal && (
+      {canEditValuation && showCopyModal && (
               <div
                 style={{
                   position: "fixed",

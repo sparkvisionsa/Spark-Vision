@@ -11,6 +11,7 @@ import {
   MV_SETTINGS_TABS,
   type MvSettingsSection,
 } from "./mv-settings-nav";
+import { useProductPermissions } from "@/hooks/use-product-permissions";
 
 export type { MvSettingsSection };
 
@@ -24,10 +25,20 @@ export default function MvSettingsHub({
   const { t, dir } = useMvI18n();
   const { user } = useAuthTracking();
   const isCompanyAdmin = user?.role === "company_admin";
-  const items =
+  const { can } = useProductPermissions("machine-valuation");
+  const baseItems =
     !isCompanyAdmin && section !== "general"
       ? []
       : MV_SETTINGS_TABS[section];
+  const items = baseItems.filter((item) => {
+    if (section === "report") return can("settings_reports.access");
+    if (section === "serial-numbering") return can("settings_serial.access");
+    if (item.key === "users") return can("settings_users.access");
+    if (item.key === "permissions") return can("settings_permissions.access");
+    if (item.key === "asset-descriptions") return can("settings_assets.access");
+    if (item.key === "signatories") return can("settings_company.access");
+    return can("settings_company.access");
+  });
   const sectionLabel = MV_SETTINGS_SECTIONS.find((item) => item.key === section)?.labelKey;
 
   return (

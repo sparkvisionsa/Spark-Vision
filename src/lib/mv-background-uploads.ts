@@ -111,7 +111,11 @@ class UploadHttpError extends Error {
 }
 async function request(job: UploadJob, url: string, init: RequestInit) {
   if (owner !== job.owner) throw new UploadHttpError("Upload paused for this account", 401);
-  const response = await fetch(url, { ...init, credentials: "include", signal: AbortSignal.timeout(120_000) });
+  const permissionScope = job.attachment?.field === "valuationAccountingWorkspace" ? "valuation" : "asset-media";
+  const scopedUrl = job.attachment && url.includes("/attachment-jobs/")
+    ? `${url}${url.includes("?") ? "&" : "?"}permissionScope=${permissionScope}`
+    : url;
+  const response = await fetch(scopedUrl, { ...init, credentials: "include", signal: AbortSignal.timeout(120_000) });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new UploadHttpError(typeof body?.message === "string" ? body.message : `HTTP ${response.status}`, response.status);
   return body;
