@@ -1903,6 +1903,8 @@ export function TransactionEvaluationPage({
   const t = T[lang];
   const { can } = useProductPermissions("real-estate-valuation");
   const canEditValuation = can("valuation.edit");
+  const canStatus = can("transactions.status");
+
 
   // Maps to the `ev` state shape. section = top-level key in ev, field = key within it.
   const REQUIRED_FIELDS: Record<string, { section: string; field: string }[]> = {
@@ -2192,6 +2194,8 @@ export function TransactionEvaluationPage({
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [tx, setTx] = useState<any>(null);
+  const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const statusValue: string = statusOverride ?? tx?.evalData?.status ?? "new";
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -2552,7 +2556,10 @@ export function TransactionEvaluationPage({
         if (!r.ok) throw new Error(`Error ${r.status}`);
         return r.json();
       })
-      .then((data) => setTx(data))
+      .then((data) => {
+        setTx(data);
+        setStatusOverride(null);
+      })
       .catch((e) => setFetchError(e.message))
       .finally(() => setLoading(false));
   }, [transactionId]);
@@ -2908,7 +2915,6 @@ export function TransactionEvaluationPage({
     showStatusMsg("info", t.saving, false);
     try {
       const evalData = {
-        status: ev.status,
         ...ev.location,
         ...ev.assetInfo, // read-only display values — lower priority
         ...ev.basic, // editable fields win
@@ -3050,7 +3056,7 @@ export function TransactionEvaluationPage({
   ];
 
   const svc = ev.services.availableServices;
-  const statusColor = STATUS_COLORS[ev.status] ?? STATUS_COLORS.new;
+  const statusColor = STATUS_COLORS[statusValue] ?? STATUS_COLORS.new;
 
   // ── Select-all / Deselect-all helper for Property Services ─────────────────
   const ALL_ENV_KEYS = [
@@ -3214,8 +3220,25 @@ export function TransactionEvaluationPage({
         {/* Status badge-select */}
         {can("transactions.status") ? <div style={{ position: "relative" }}>
           <select
-            value={ev.status}
-            onChange={(e) => setEv((p) => ({ ...p, status: e.target.value }))}
+            value={statusValue}
+            onChange={async (e) => {
+              const next = e.target.value;
+              const prev = statusValue;
+              setStatusOverride(next);
+              try {
+                const res = await fetch(toApiUrl(`/api/transactions/${transactionId}/status`), {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: next }),
+                });
+                if (!res.ok) throw new Error();
+                onStatusSaved?.();
+              } catch {
+                setStatusOverride(prev);
+                showStatusMsg("error", t.saveError);
+              }
+            }}
             style={{
               appearance: "none" as const,
               padding: "6px 32px 6px 14px",
@@ -3368,7 +3391,7 @@ export function TransactionEvaluationPage({
                               background: "rgba(255,255,255,0.18)",
                             }}
                           >
-                            {WORKFLOW_STATUSES[lang].find((s) => s.value === ev.status)?.label}
+                            {WORKFLOW_STATUSES[lang].find((s) => s.value === statusValue)?.label}
                           </div>
                           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, justifyContent: isRtl ? "flex-start" : "flex-end" }}>
                             <div
@@ -3387,9 +3410,11 @@ export function TransactionEvaluationPage({
                               {lang === "ar" ? (tx?.isOpened ? "تم الفتح" : "لم يُفتح") : (tx?.isOpened ? "Opened" : "Not opened")}
                             </div>
                             <button
-                              type="button"
-                              onClick={async () => {
-                                const next = !tx?.isCompleted;
+                        type="button"
+                        disabled={!canStatus}
+                        onClick={async () => {
+                          if (!canStatus) return;
+                          const next = !tx?.isCompleted;
                                 setTx((prev: any) => ({ ...prev, isCompleted: next }));
                                 try {
                                   const res = await fetch(
@@ -3419,7 +3444,7 @@ export function TransactionEvaluationPage({
                                 fontSize: 11,
                                 fontWeight: 600,
                                 border: "none",
-                                cursor: "pointer",
+                                cursor: canStatus ? "pointer" : "default",
                                 fontFamily: "inherit",
                                 background: tx?.isCompleted ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.10)",
                                 color: "#fff",
@@ -3595,7 +3620,11 @@ export function TransactionEvaluationPage({
             </div>
           </details>
         </>
-      )}
+        )}
+        <fieldset
+          disabled={!canEditValuation}
+          style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}
+        >
       {activeStep === 1 && (
       <>
             {/* ── Location ────────────────────────────────────────────────────────── */}
@@ -7406,7 +7435,8 @@ export function TransactionEvaluationPage({
             </SectionCard>
 
             </>
-            )}
+          )}
+          </fieldset>
             </WizardShell>
 
       {/* ── Floating Save FAB ────────────────────────────────────────────────── */}

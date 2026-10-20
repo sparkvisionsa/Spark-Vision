@@ -716,7 +716,7 @@ export default function ValueTechShell({
                     </SidebarMenuButton>
                   </SidebarMenuItem> : null}
 
-                  {realEstatePermissions.can("settings_company.access") ? <SidebarMenuItem>
+                  <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
                       isActive={isActive("/settings")}
@@ -734,7 +734,7 @@ export default function ValueTechShell({
                         </span>
                       </Link>
                     </SidebarMenuButton>
-                  </SidebarMenuItem> : null}
+                  </SidebarMenuItem>
                     </>
                   ) : isEvaluationSourcePage ? (
                     SOURCE_ROUTES.map((route) => {
@@ -769,7 +769,11 @@ export default function ValueTechShell({
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-            <div className="px-2"><SupportSidebarLinks product={productFromPath(pathname)} dark={dark} /></div>
+            {!isRealEstateSidebar || realEstatePermissions.can("support.access") ? (
+              <div className="px-2">
+                <SupportSidebarLinks product={productFromPath(pathname)} dark={dark} />
+              </div>
+            ) : null}
           </SidebarContent>
         </Sidebar>
 

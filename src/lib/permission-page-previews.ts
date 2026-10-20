@@ -49,11 +49,6 @@ const DESTINATIONS: Partial<Record<ValueTechProductId, Record<string, Permission
     property_media: [destination("property-media", "الصور والمرفقات", "/real-estate-valuation")],
     reports: [destination("property-report", "التقرير النهائي", "/real-estate-valuation")],
     clients: [destination("clients", "العملاء", "/clients")],
-    settings_company: [destination("company", "بيانات الشركة", "/settings")],
-    settings_users: [destination("users", "مستخدمو الشركة", "/settings/users")],
-    settings_permissions: [destination("permissions", "الصلاحيات", "/settings/permissions")],
-    settings_locations: [destination("locations", "المدن والأحياء", "/settings/locations")],
-    settings_reports: [destination("report-settings", "إعدادات التقرير", "/real-estate-valuation/report-settings")],
     support: [destination("support", "الدعم والتذاكر", "/real-estate-valuation/support")],
   },
 };

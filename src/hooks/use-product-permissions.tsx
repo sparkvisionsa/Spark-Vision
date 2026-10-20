@@ -133,8 +133,7 @@ function requiredPageGrant(pathname: string, productId: ValueTechProductId): str
   if (productId === "real-estate-valuation") {
     if (parts[0] === "real-estate-valuation" && (parts[1] === "support" || parts[1] === "developer-requests")) return "support.access";
     if (parts[0] === "clients") return "clients.access";
-    if (parts[0] === "settings") return "settings_company.access";
-    if (parts[0] === "real-estate-valuation" && parts[1] === "report-settings") return "settings_reports.access";
+    if (parts[0] === "settings" || (parts[0] === "real-estate-valuation" && parts[1] === "report-settings")) return null;
     return "transactions.access";
   }
   const panel = parts[1] ?? "projects";
@@ -179,4 +178,3 @@ export function ProductPermissionGate({ productId, children }: { productId: Valu
   }
   return children;
 }
-
