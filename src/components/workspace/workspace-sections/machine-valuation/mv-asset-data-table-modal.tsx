@@ -1,18 +1,38 @@
 "use client";
 import { useResourceRefresh } from "@/components/support/realtime-provider";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  ArrowDown,
+  ArrowUp,
   Columns2,
   Database,
   Download,
+  Eye,
+  EyeOff,
   FileAudio,
   FileSpreadsheet,
   Filter,
   FolderTree,
+  GripVertical,
   ImageIcon,
   Layers,
   Loader2,
+  Maximize2,
+  Minimize2,
+  Pin,
+  RotateCcw,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -66,8 +86,11 @@ import {
 const TABLE_PAGE_SIZES = [5, 10, 50, 100] as const;
 type TablePageSize = (typeof TABLE_PAGE_SIZES)[number];
 const DEFAULT_TABLE_PAGE_SIZE: TablePageSize = 10;
+const ASSET_TABLE_COLUMN_PREFERENCES_KEY = "mv:asset-data-table:columns:v1";
+const PINNED_ASSET_IMAGE_COLUMN_KEY = "preview";
 
 type AssetTab = "vehicles" | "other";
+type AssetExportLayout = "standard" | "current";
 
 interface PreviewEntry extends PicAssetFolderEntry {}
 
@@ -280,10 +303,10 @@ function EditableTextCell({
   };
 
   const sharedClass =
-    "w-full min-w-[120px] rounded-md border border-transparent bg-white/80 px-2 py-1 text-[12px] text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60";
+    "w-full min-w-[88px] rounded border border-transparent bg-white/80 px-1.5 py-0.5 text-[11px] text-slate-800 shadow-sm transition hover:border-slate-200 focus:border-sky-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-100 disabled:opacity-60";
 
   return (
-    <div className="relative mx-auto max-w-[420px]">
+    <div className="relative mx-auto w-full max-w-none">
       {multiline ? (
         <textarea
           value={draft}
@@ -299,7 +322,7 @@ function EditableTextCell({
               (e.target as HTMLTextAreaElement).blur();
             }
           }}
-          className={cn(sharedClass, "min-h-[4.5rem] resize-y whitespace-pre-wrap break-words leading-relaxed")}
+          className={cn(sharedClass, "min-h-[3.5rem] resize-y whitespace-pre-wrap break-words leading-relaxed")}
         />
       ) : (
         <input
@@ -308,6 +331,7 @@ function EditableTextCell({
           dir="auto"
           disabled={saving}
           placeholder={placeholder}
+          title={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit()}
           onKeyDown={(e) => {
@@ -601,10 +625,10 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
       key: "condition",
       label: c("condition"),
       text: (r) => formatCondition(r.picAsset?.condition, ctx),
-      minWidth: 140,
+      minWidth: 110,
     },
-    { key: "isPresent", label: c("isPresent"), text: (r) => formatBool(r.picAsset?.isPresent, ctx), minWidth: 72 },
-    { key: "isDone", label: c("isDone"), text: (r) => formatBool(r.picAsset?.isDone, ctx), minWidth: 72 },
+    { key: "isPresent", label: c("isPresent"), text: (r) => formatBool(r.picAsset?.isPresent, ctx), minWidth: 64 },
+    { key: "isDone", label: c("isDone"), text: (r) => formatBool(r.picAsset?.isDone, ctx), minWidth: 64 },
     {
       key: "voiceNotes",
       label: c("voiceNotes"),
@@ -612,32 +636,32 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
       render: ({ row, projectId }) => (
         <VoiceNotesCell asset={row.picAsset} projectId={projectId} ctx={ctx} />
       ),
-      minWidth: 220,
+      minWidth: 170,
       excludeFromExport: true,
     },
     {
       key: "notes",
       label: c("notes"),
       text: (r) => formatText(r.picAsset?.notes, ctx.notAvailable),
-      minWidth: 220,
+      minWidth: 170,
     },
     {
       key: "createdAt",
       label: c("createdAt"),
       text: (r) => formatDate(r.picAsset?.createdAt ?? r.sub.createdAt, ctx),
-      minWidth: 150,
+      minWidth: 125,
     },
     {
       key: "updatedAt",
       label: c("updatedAt"),
       text: (r) => formatDate(r.picAsset?.updatedAt ?? r.sub.updatedAt, ctx),
-      minWidth: 150,
+      minWidth: 125,
     },
     {
       key: "asset_source",
       label: c("assetSource"),
       text: (r) => formatAssetSource(r.picAsset?.asset_source, ctx),
-      minWidth: 120,
+      minWidth: 100,
     },
   ];
 }
@@ -645,19 +669,19 @@ function buildSharedTailColumns(ctx: TableFormatContext): ColumnDef[] {
 function buildLeadingColumns(ctx: TableFormatContext): ColumnDef[] {
   const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
   return [
-    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 56 },
+    { key: "_", label: "#", text: (r) => ctx.numberFormatter.format(r.index + 1), minWidth: 44 },
     {
       key: "val_tech_id",
       label: c("valTechId"),
       text: (r) => formatText(r.picAsset?.val_tech_id, ctx.notAvailable),
-      minWidth: 150,
+      minWidth: 115,
     },
-    { key: "preview", label: c("mainImage"), text: (r) => imageCountText(r, ctx), minWidth: 72 },
+    { key: "preview", label: c("mainImage"), text: (r) => imageCountText(r, ctx), minWidth: 64 },
     {
       key: "mainImageUrl",
       label: c("mainImageUrl"),
       text: (r) => formatText(picAssetMainImageUrl(r.picAsset), ctx.notAvailable),
-      minWidth: 240,
+      minWidth: 180,
       render: ({ row }) => {
         const url = picAssetMainImageUrl(row.picAsset);
         if (!url) return <span className="text-slate-400">{ctx.notAvailable}</span>;
@@ -678,36 +702,36 @@ function buildLeadingColumns(ctx: TableFormatContext): ColumnDef[] {
       key: "lable",
       label: c("lable"),
       text: (r) => formatText(picAssetName(r.picAsset, r.sub.name), ctx.notAvailable),
-      minWidth: 180,
+      minWidth: 130,
     },
-    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 200 },
+    { key: "parentPath", label: c("parentPath"), text: (r) => r.parentPath, minWidth: 160 },
     {
       key: "category",
       label: c("category"),
       text: (r) => formatText(picAssetCategory(r.picAsset), ctx.notAvailable),
-      minWidth: 140,
+      minWidth: 110,
     },
     {
       key: "type",
       label: c("type"),
       text: (r) => formatText(picAssetKind(r.picAsset), ctx.notAvailable),
-      minWidth: 160,
+      minWidth: 120,
     },
     {
       key: "asset_location",
       label: c("assetLocation"),
       text: (r) => originalAssetLocationText(r.picAsset, ctx),
-      minWidth: 160,
+      minWidth: 130,
     },
     {
       key: "newAssetLocation",
       label: c("currentAssetLocation"),
       text: (r) => currentAssetLocationText(r.picAsset, ctx),
-      minWidth: 160,
+      minWidth: 130,
     },
-    { key: "client_code", label: c("clientCode"), text: (r) => formatText(r.picAsset?.client_code, ctx.notAvailable), minWidth: 150 },
-    { key: "code", label: c("code"), text: (r) => formatText(r.picAsset?.code, ctx.notAvailable), minWidth: 150 },
-    { key: "employer", label: c("employer"), text: (r) => formatText(r.picAsset?.employer, ctx.notAvailable), minWidth: 140 },
+    { key: "client_code", label: c("clientCode"), text: (r) => formatText(r.picAsset?.client_code, ctx.notAvailable), minWidth: 120 },
+    { key: "code", label: c("code"), text: (r) => formatText(r.picAsset?.code, ctx.notAvailable), minWidth: 120 },
+    { key: "employer", label: c("employer"), text: (r) => formatText(r.picAsset?.employer, ctx.notAvailable), minWidth: 110 },
   ];
 }
 
@@ -715,19 +739,19 @@ function buildVehicleColumns(ctx: TableFormatContext): ColumnDef[] {
   const c = (key: string) => ctx.t(`projects.assetTable.columns.${key}`);
   return [
     ...buildLeadingColumns(ctx),
-    { key: "brand", label: c("brand"), text: (r) => formatText(r.picAsset?.brand, ctx.notAvailable), minWidth: 110 },
-    { key: "model", label: c("model"), text: (r) => formatText(r.picAsset?.model, ctx.notAvailable), minWidth: 110 },
+    { key: "brand", label: c("brand"), text: (r) => formatText(r.picAsset?.brand, ctx.notAvailable), minWidth: 90 },
+    { key: "model", label: c("model"), text: (r) => formatText(r.picAsset?.model, ctx.notAvailable), minWidth: 90 },
     {
       key: "manufactureYear",
       label: c("manufactureYear"),
       text: (r) => formatNumberish(r.picAsset?.manufactureYear, ctx),
-      minWidth: 96,
+      minWidth: 82,
     },
     {
       key: "kilometersDriven",
       label: c("kilometersDriven"),
       text: (r) => formatNumberish(r.picAsset?.kilometersDriven, ctx),
-      minWidth: 110,
+      minWidth: 95,
     },
     ...buildSharedTailColumns(ctx),
   ];
@@ -741,7 +765,7 @@ function buildOtherColumns(ctx: TableFormatContext): ColumnDef[] {
       key: "quantity",
       label: c("quantity"),
       text: (r) => quantityLabel(r.picAsset, ctx),
-      minWidth: 80,
+      minWidth: 68,
     },
     ...buildSharedTailColumns(ctx),
   ];
@@ -897,44 +921,135 @@ async function attachClientRawDataToRows(projectId: string, rows: AssetTableRow[
 function HeaderFilterMenu({
   open,
   onClose,
+  anchorRef,
   minWidth = 240,
   children,
 }: {
   open: boolean;
   onClose: () => void;
+  anchorRef: RefObject<HTMLElement>;
   minWidth?: number;
   children: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<{
+    mobile: boolean;
+    left: number;
+    width: number;
+    maxHeight: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    const updateLayout = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const mobile = viewportWidth < 640;
+      if (mobile) {
+        setLayout({
+          mobile: true,
+          left: 8,
+          width: Math.max(0, viewportWidth - 16),
+          bottom: 8,
+          maxHeight: Math.max(0, viewportHeight - 16),
+        });
+        return;
+      }
+
+      const rect = anchor.getBoundingClientRect();
+      const viewportPadding = 12;
+      const gap = 8;
+      const width = Math.min(Math.max(minWidth, 220), viewportWidth - viewportPadding * 2);
+      const left = Math.min(
+        Math.max(viewportPadding, rect.left + rect.width / 2 - width / 2),
+        viewportWidth - viewportPadding - width,
+      );
+      const availableBelow = viewportHeight - rect.bottom - viewportPadding - gap;
+      const availableAbove = rect.top - viewportPadding - gap;
+      const preferredHeight = Math.min(640, viewportHeight * 0.72);
+      const openBelow =
+        availableBelow >= Math.min(300, preferredHeight) || availableBelow >= availableAbove;
+      const availableHeight = openBelow ? availableBelow : availableAbove;
+      setLayout({
+        mobile: false,
+        left,
+        width,
+        maxHeight: Math.max(0, Math.min(preferredHeight, availableHeight)),
+        ...(openBelow
+          ? { top: rect.bottom + gap }
+          : { bottom: viewportHeight - rect.top + gap }),
+      });
+    };
+
     const onDoc = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (menuRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
       onClose();
     };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [onClose, open]);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    const onScroll = (event: Event) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      updateLayout();
+    };
 
-  if (!open) return null;
-  return (
-    <div
-      ref={menuRef}
-      style={{ minWidth }}
-      className="absolute end-0 top-[calc(100%+6px)] z-[80] flex max-h-[min(20rem,45vh)] w-[min(20rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-800 shadow-2xl"
-      onMouseDown={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-    >
-      {children}
-    </div>
+    updateLayout();
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", updateLayout);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", updateLayout);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [anchorRef, minWidth, onClose, open]);
+
+  if (!open || !layout || typeof document === "undefined") return null;
+  const style: CSSProperties = {
+    left: layout.left,
+    width: layout.width,
+    maxHeight: layout.maxHeight,
+    ...(layout.top != null ? { top: layout.top } : {}),
+    ...(layout.bottom != null ? { bottom: layout.bottom } : {}),
+  };
+
+  return createPortal(
+    <>
+      {layout.mobile ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-auto fixed inset-0 z-[970] bg-slate-950/45 backdrop-blur-[1px]"
+          onMouseDown={onClose}
+        />
+      ) : null}
+      <div
+        ref={menuRef}
+        role="dialog"
+        style={style}
+        className="pointer-events-auto fixed z-[980] flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-[0_24px_80px_-24px_rgba(15,23,42,0.55)] sm:rounded-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {layout.mobile ? (
+          <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300" aria-hidden="true" />
+        ) : null}
+        {children}
+      </div>
+    </>,
+    document.body,
   );
 }
 
 function headerFilterButtonClass(active: boolean) {
   return cn(
-    "inline-flex h-9 min-w-[9.5rem] max-w-[16rem] items-center justify-between gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold shadow-sm transition",
+    "inline-flex h-8 w-full min-w-0 items-center justify-between gap-1 rounded-md border px-2 text-[11px] font-semibold shadow-sm transition sm:w-auto sm:min-w-[8rem] sm:max-w-[14rem]",
     active
       ? "border-sky-300 bg-white text-sky-900"
       : "border-white/20 bg-white/10 text-white hover:bg-white/15",
@@ -972,7 +1087,7 @@ function AssetSourceFilterSelect({
   };
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         ref={buttonRef}
         type="button"
@@ -989,8 +1104,13 @@ function AssetSourceFilterSelect({
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
       </button>
-      <HeaderFilterMenu open={open} onClose={() => setOpen(false)} minWidth={220}>
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
+      <HeaderFilterMenu
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={buttonRef}
+        minWidth={220}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
           <p className="text-[11px] font-bold text-slate-600">{t("projects.assetTable.sourceFilterLabel")}</p>
           {selected.size > 0 ? (
             <button
@@ -1002,7 +1122,7 @@ function AssetSourceFilterSelect({
             </button>
           ) : null}
         </div>
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5" role="listbox" aria-multiselectable="true">
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-gutter:stable]" role="listbox" aria-multiselectable="true">
           {ASSET_SOURCE_FILTER_KEYS.map((key) => {
             const checked = selected.has(key);
             return (
@@ -1061,7 +1181,7 @@ function AssetPathFilterSelect({
   }, [open]);
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         ref={buttonRef}
         type="button"
@@ -1078,8 +1198,13 @@ function AssetPathFilterSelect({
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
       </button>
-      <HeaderFilterMenu open={open} onClose={() => setOpen(false)} minWidth={280}>
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
+      <HeaderFilterMenu
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={buttonRef}
+        minWidth={280}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-2">
           <p className="text-[11px] font-bold text-slate-600">{t("projects.assetTable.pathFilterLabel")}</p>
           {value ? (
             <button
@@ -1094,7 +1219,7 @@ function AssetPathFilterSelect({
             </button>
           ) : null}
         </div>
-        <div className="border-b border-slate-100 p-1.5">
+        <div className="shrink-0 border-b border-slate-100 p-1.5">
           <div className="relative">
             <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
@@ -1106,7 +1231,7 @@ function AssetPathFilterSelect({
             />
           </div>
         </div>
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5" role="listbox">
+        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain p-1.5 [scrollbar-gutter:stable]" role="listbox">
           <button
             type="button"
             role="option"
@@ -1243,6 +1368,330 @@ interface AssetTableRow {
 interface FolderLookup {
   photosRootId: string;
   byId: Map<string, MvSubProject>;
+}
+
+type ColumnDropPlacement = "before" | "after";
+
+interface AssetTableColumnPreferences {
+  order: string[];
+  hidden: string[];
+}
+
+function uniqueColumnKeys(columns: readonly ColumnDef[]): string[] {
+  return Array.from(new Set(columns.map((column) => column.key)));
+}
+
+function mergeColumnKeyOrders(...columnGroups: Array<readonly ColumnDef[]>): string[] {
+  const merged: string[] = [];
+  for (const columns of columnGroups) {
+    const keys = uniqueColumnKeys(columns);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index]!;
+      if (merged.includes(key)) continue;
+      const nextExisting = keys.slice(index + 1).find((candidate) => merged.includes(candidate));
+      if (nextExisting) {
+        merged.splice(merged.indexOf(nextExisting), 0, key);
+        continue;
+      }
+      const previousExisting = keys.slice(0, index).reverse().find((candidate) => merged.includes(candidate));
+      if (previousExisting) {
+        merged.splice(merged.indexOf(previousExisting) + 1, 0, key);
+      } else {
+        merged.push(key);
+      }
+    }
+  }
+  return merged;
+}
+
+function normalizeColumnOrder(order: readonly string[], availableKeys: readonly string[]): string[] {
+  const available = new Set(availableKeys);
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const key of order) {
+    if (!available.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(key);
+  }
+  for (const key of availableKeys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(key);
+  }
+  return normalized;
+}
+
+function readAssetTableColumnPreferences(availableKeys: readonly string[]): AssetTableColumnPreferences {
+  const fallback = { order: [...availableKeys], hidden: [] };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(ASSET_TABLE_COLUMN_PREFERENCES_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<AssetTableColumnPreferences>;
+    const order = Array.isArray(parsed.order)
+      ? parsed.order.filter((key): key is string => typeof key === "string")
+      : [];
+    const available = new Set(availableKeys);
+    const hidden = Array.isArray(parsed.hidden)
+      ? Array.from(
+          new Set(parsed.hidden.filter((key): key is string => typeof key === "string" && available.has(key))),
+        )
+      : [];
+    return { order: normalizeColumnOrder(order, availableKeys), hidden };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeAssetTableColumnPreferences(preferences: AssetTableColumnPreferences) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ASSET_TABLE_COLUMN_PREFERENCES_KEY, JSON.stringify(preferences));
+  } catch {
+    // تبقى التفضيلات فعّالة في الجلسة إذا كان التخزين المحلي غير متاح.
+  }
+}
+
+function orderColumnDefs(columns: readonly ColumnDef[], order: readonly string[]): ColumnDef[] {
+  const byKey = new Map(columns.map((column) => [column.key, column]));
+  const ordered = normalizeColumnOrder(order, uniqueColumnKeys(columns))
+    .map((key) => byKey.get(key))
+    .filter((column): column is ColumnDef => column != null);
+  const pinnedIndex = ordered.findIndex((column) => column.key === PINNED_ASSET_IMAGE_COLUMN_KEY);
+  if (pinnedIndex > 0) {
+    const [pinned] = ordered.splice(pinnedIndex, 1);
+    if (pinned) ordered.unshift(pinned);
+  }
+  return ordered;
+}
+
+function reorderColumnKeys(
+  current: readonly string[],
+  sourceKey: string,
+  targetKey: string,
+  placement: ColumnDropPlacement,
+): string[] {
+  if (sourceKey === targetKey || sourceKey === PINNED_ASSET_IMAGE_COLUMN_KEY) return [...current];
+  const next = [...current];
+  const sourceIndex = next.indexOf(sourceKey);
+  const targetIndex = next.indexOf(targetKey);
+  if (sourceIndex < 0 || targetIndex < 0) return next;
+  next.splice(sourceIndex, 1);
+  if (targetKey === PINNED_ASSET_IMAGE_COLUMN_KEY) {
+    next.unshift(sourceKey);
+    return next;
+  }
+  const adjustedTargetIndex = next.indexOf(targetKey);
+  const insertAt = adjustedTargetIndex + (placement === "after" ? 1 : 0);
+  next.splice(Math.max(0, insertAt), 0, sourceKey);
+  return next;
+}
+
+function AssetTableColumnManager({
+  columns,
+  hiddenKeys,
+  totalHiddenCount,
+  onToggle,
+  onRestoreAll,
+  onResetOrder,
+  onMove,
+  t,
+}: {
+  columns: ColumnDef[];
+  hiddenKeys: ReadonlySet<string>;
+  totalHiddenCount: number;
+  onToggle: (key: string) => void;
+  onRestoreAll: () => void;
+  onResetOrder: () => void;
+  onMove: (sourceKey: string, targetKey: string, placement: ColumnDropPlacement) => void;
+  t: MvT;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const finishDrag = () => {
+    setDraggingKey(null);
+    setDragOverKey(null);
+  };
+
+  return (
+    <div className="relative min-w-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("projects.assetTable.columnManagerLabel")}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={() => setOpen((value) => !value)}
+        className={headerFilterButtonClass(totalHiddenCount > 0)}
+      >
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <Columns2 className="h-3.5 w-3.5 shrink-0 opacity-80" />
+          <span className="truncate">{t("projects.assetTable.columnManagerLabel")}</span>
+          {totalHiddenCount > 0 ? (
+            <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-black text-sky-800">
+              {totalHiddenCount}
+            </span>
+          ) : null}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      </button>
+      <HeaderFilterMenu
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          finishDrag();
+        }}
+        anchorRef={buttonRef}
+        minWidth={320}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-3 py-2.5">
+          <div>
+            <p className="text-[12px] font-black text-slate-800">
+              {t("projects.assetTable.columnManagerTitle")}
+            </p>
+            <p className="mt-0.5 text-[10px] leading-4 text-slate-500">
+              {totalHiddenCount > 0
+                ? t("projects.assetTable.hiddenColumnsCount", { count: String(totalHiddenCount) })
+                : t("projects.assetTable.allColumnsVisible")}
+            </p>
+          </div>
+          {totalHiddenCount > 0 ? (
+            <button
+              type="button"
+              onClick={onRestoreAll}
+              className="shrink-0 text-[10px] font-bold text-sky-700 hover:underline"
+            >
+              {t("projects.assetTable.restoreAllColumns")}
+            </button>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 [scrollbar-gutter:stable]" role="list">
+          {columns.map((column, index) => {
+            const hidden = hiddenKeys.has(column.key);
+            const pinned = column.key === PINNED_ASSET_IMAGE_COLUMN_KEY;
+            return (
+              <div
+                key={column.key}
+                role="listitem"
+                draggable={!pinned}
+                onDragStart={(event) => {
+                  if (pinned) {
+                    event.preventDefault();
+                    return;
+                  }
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", column.key);
+                  setDraggingKey(column.key);
+                }}
+                onDragEnd={finishDrag}
+                onDragOver={(event) => {
+                  if (!draggingKey || draggingKey === column.key) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverKey(column.key);
+                }}
+                onDragLeave={() => {
+                  if (dragOverKey === column.key) setDragOverKey(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (!draggingKey || draggingKey === column.key) return finishDrag();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const placement = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+                  onMove(draggingKey, column.key, placement);
+                  finishDrag();
+                }}
+                className={cn(
+                  "flex items-center gap-1 rounded-lg border px-1.5 py-1.5 transition",
+                  hidden ? "border-slate-100 bg-slate-50 text-slate-400" : "border-slate-200 bg-white text-slate-700",
+                  draggingKey === column.key && "opacity-40",
+                  dragOverKey === column.key && "border-sky-400 bg-sky-50 ring-1 ring-sky-200",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+                    pinned ? "cursor-default text-sky-700" : "cursor-grab text-slate-400 active:cursor-grabbing",
+                  )}
+                  title={
+                    pinned
+                      ? t("projects.assetTable.pinnedImageColumn")
+                      : t("projects.assetTable.dragColumn", { name: column.label })
+                  }
+                >
+                  {pinned ? <Pin className="h-3.5 w-3.5" /> : <GripVertical className="h-4 w-4" />}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold" title={column.label}>
+                  {column.label}
+                </span>
+                {!pinned ? (
+                  <span className="flex shrink-0 items-center">
+                    <button
+                      type="button"
+                      disabled={index <= 1}
+                      onClick={() => onMove(column.key, columns[index - 1]!.key, "before")}
+                      className="flex h-7 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-25"
+                      aria-label={t("projects.assetTable.moveColumnUp", { name: column.label })}
+                      title={t("projects.assetTable.moveColumnUp", { name: column.label })}
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index >= columns.length - 1}
+                      onClick={() => onMove(column.key, columns[index + 1]!.key, "after")}
+                      className="flex h-7 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-25"
+                      aria-label={t("projects.assetTable.moveColumnDown", { name: column.label })}
+                      title={t("projects.assetTable.moveColumnDown", { name: column.label })}
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  aria-pressed={!hidden}
+                  onClick={() => onToggle(column.key)}
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition",
+                    hidden
+                      ? "bg-slate-200 text-slate-600 hover:bg-sky-100 hover:text-sky-700"
+                      : "text-slate-500 hover:bg-red-50 hover:text-red-600",
+                  )}
+                  aria-label={
+                    hidden
+                      ? t("projects.assetTable.showColumn", { name: column.label })
+                      : t("projects.assetTable.hideColumn", { name: column.label })
+                  }
+                  title={
+                    hidden
+                      ? t("projects.assetTable.showColumn", { name: column.label })
+                      : t("projects.assetTable.hideColumn", { name: column.label })
+                  }
+                >
+                  {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="shrink-0 border-t border-slate-100 p-2">
+          <button
+            type="button"
+            onClick={onResetOrder}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {t("projects.assetTable.resetColumnOrder")}
+          </button>
+        </div>
+      </HeaderFilterMenu>
+    </div>
+  );
 }
 
 function isExternalPicImage(
@@ -1732,7 +2181,7 @@ function AssetThumbnailCell({
     <button
       type="button"
       onClick={handleOpen}
-      className="group/thumb relative mx-auto block h-10 w-10 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm transition hover:border-sky-300 hover:ring-2 hover:ring-sky-200"
+      className="group/thumb relative mx-auto block h-9 w-9 overflow-hidden rounded-md border border-slate-200 bg-slate-100 shadow-sm transition hover:border-sky-300 hover:ring-2 hover:ring-sky-200"
       title={viewImagesLabel}
       aria-label={viewImagesAria}
     >
@@ -1893,12 +2342,33 @@ export function MvAssetDataTableModal({
   const tableCtx = useMemo(() => createTableFormatContext(isArabic, t), [isArabic, t]);
   const vehicleColumns = useMemo(() => buildVehicleColumns(tableCtx), [tableCtx]);
   const otherColumns = useMemo(() => buildOtherColumns(tableCtx), [tableCtx]);
+  const discoveredColumnKeys = useMemo(
+    () => mergeColumnKeyOrders(vehicleColumns, otherColumns),
+    [otherColumns, vehicleColumns],
+  );
+  const allColumnKeysSignature = discoveredColumnKeys.join("|");
+  const allColumnKeys = useMemo(
+    () => allColumnKeysSignature.split("|").filter(Boolean),
+    [allColumnKeysSignature],
+  );
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => allColumnKeys);
+  const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() => new Set());
+  const [columnPreferencesReady, setColumnPreferencesReady] = useState(false);
+  const [draggingHeaderColumn, setDraggingHeaderColumn] = useState<string | null>(null);
+  const [headerDropTarget, setHeaderDropTarget] = useState<string | null>(null);
+  const [columnAutoScrollDirection, setColumnAutoScrollDirection] = useState<"left" | "right" | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const columnAutoScrollFrameRef = useRef<number | null>(null);
+  const columnAutoScrollSpeedRef = useRef(0);
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [sourceFilters, setSourceFilters] = useState<Set<AssetSourceFilterKey>>(new Set());
   const [pathFilter, setPathFilter] = useState("");
   const [activeTab, setActiveTab] = useState<AssetTab>("vehicles");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [expandedAssetNameCell, setExpandedAssetNameCell] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportLayoutDialogOpen, setExportLayoutDialogOpen] = useState(false);
   const [clientExportDialogOpen, setClientExportDialogOpen] = useState(false);
   const [entries, setEntries] = useState<PreviewEntry[]>(() => {
     if (typeof window === "undefined") return [];
@@ -1934,6 +2404,110 @@ export function MvAssetDataTableModal({
   const hydrateCancelRef = useRef<(() => void) | null>(null);
   const folderLookupRef = useRef<FolderLookup | null>(null);
   folderLookupRef.current = folderLookup;
+
+  useEffect(() => {
+    const preferences = readAssetTableColumnPreferences(allColumnKeys);
+    setColumnOrder(preferences.order);
+    setHiddenColumnKeys(new Set(preferences.hidden));
+    setColumnPreferencesReady(true);
+    // لا تتغير المفاتيح عند تبديل اللغة؛ يعاد التطبيع فقط عند إضافة عمود برمجياً.
+  }, [allColumnKeysSignature]);
+
+  useEffect(() => {
+    if (!columnPreferencesReady) return;
+    writeAssetTableColumnPreferences({
+      order: normalizeColumnOrder(columnOrder, allColumnKeys),
+      hidden: Array.from(hiddenColumnKeys).filter((key) => allColumnKeys.includes(key)),
+    });
+  }, [allColumnKeys, columnOrder, columnPreferencesReady, hiddenColumnKeys]);
+
+  const toggleColumnVisibility = useCallback((key: string) => {
+    setHiddenColumnKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const restoreAllColumns = useCallback(() => {
+    setHiddenColumnKeys(new Set());
+  }, []);
+
+  const resetColumnOrder = useCallback(() => {
+    setColumnOrder([...allColumnKeys]);
+  }, [allColumnKeys]);
+
+  const moveColumn = useCallback(
+    (sourceKey: string, targetKey: string, placement: ColumnDropPlacement) => {
+      setColumnOrder((current) =>
+        reorderColumnKeys(normalizeColumnOrder(current, allColumnKeys), sourceKey, targetKey, placement),
+      );
+    },
+    [allColumnKeys],
+  );
+
+  const stopColumnDragAutoScroll = useCallback(() => {
+    columnAutoScrollSpeedRef.current = 0;
+    if (columnAutoScrollFrameRef.current != null) {
+      window.cancelAnimationFrame(columnAutoScrollFrameRef.current);
+      columnAutoScrollFrameRef.current = null;
+    }
+    setColumnAutoScrollDirection(null);
+  }, []);
+
+  const startColumnDragAutoScroll = useCallback(() => {
+    if (columnAutoScrollFrameRef.current != null) return;
+    const tick = () => {
+      const speed = columnAutoScrollSpeedRef.current;
+      const scrollElement = tableScrollRef.current;
+      if (!scrollElement || speed === 0) {
+        columnAutoScrollFrameRef.current = null;
+        return;
+      }
+      scrollElement.scrollBy({ left: speed, behavior: "auto" });
+      columnAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    };
+    columnAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+  }, []);
+
+  const updateColumnDragAutoScroll = useCallback(
+    (clientX: number) => {
+      const scrollElement = tableScrollRef.current;
+      if (!scrollElement) return;
+      const rect = scrollElement.getBoundingClientRect();
+      const edgeSize = Math.min(110, Math.max(56, rect.width * 0.18));
+      const maxSpeed = 26;
+      let speed = 0;
+
+      if (clientX < rect.left + edgeSize) {
+        const intensity = Math.min(1, Math.max(0, (rect.left + edgeSize - clientX) / edgeSize));
+        speed = -Math.max(4, maxSpeed * intensity);
+      } else if (clientX > rect.right - edgeSize) {
+        const intensity = Math.min(1, Math.max(0, (clientX - (rect.right - edgeSize)) / edgeSize));
+        speed = Math.max(4, maxSpeed * intensity);
+      }
+
+      columnAutoScrollSpeedRef.current = speed;
+      const direction = speed < 0 ? "left" : speed > 0 ? "right" : null;
+      setColumnAutoScrollDirection((current) => (current === direction ? current : direction));
+      if (speed === 0) {
+        if (columnAutoScrollFrameRef.current != null) {
+          window.cancelAnimationFrame(columnAutoScrollFrameRef.current);
+          columnAutoScrollFrameRef.current = null;
+        }
+        return;
+      }
+      startColumnDragAutoScroll();
+    },
+    [startColumnDragAutoScroll],
+  );
+
+  useEffect(() => {
+    if (!draggingHeaderColumn) stopColumnDragAutoScroll();
+    return stopColumnDragAutoScroll;
+  }, [draggingHeaderColumn, stopColumnDragAutoScroll]);
+
   const assetLocationOptions = useMemo(
     () =>
       Array.from(
@@ -2281,6 +2855,14 @@ export function MvAssetDataTableModal({
   }, [open, projectId, loadAssetFolders]);
 
   useEffect(() => {
+    if (!open) {
+      setIsFullscreen(false);
+      setExportLayoutDialogOpen(false);
+      setClientExportDialogOpen(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void fetchAssetDescriptionCatalog()
@@ -2391,7 +2973,29 @@ export function MvAssetDataTableModal({
     [searchedRows],
   );
 
-  const visibleColumns = activeTab === "vehicles" ? vehicleColumns : otherColumns;
+  const activeTabColumns = activeTab === "vehicles" ? vehicleColumns : otherColumns;
+  const configurableColumns = useMemo(() => {
+    const byKey = new Map(
+      [...vehicleColumns, ...otherColumns].map((column) => [column.key, column]),
+    );
+    return orderColumnDefs(Array.from(byKey.values()), columnOrder);
+  }, [columnOrder, otherColumns, vehicleColumns]);
+  const orderedColumns = useMemo(
+    () => orderColumnDefs(activeTabColumns, columnOrder),
+    [activeTabColumns, columnOrder],
+  );
+  const visibleColumns = useMemo(
+    () => orderedColumns.filter((column) => !hiddenColumnKeys.has(column.key)),
+    [hiddenColumnKeys, orderedColumns],
+  );
+  const currentVehicleExportColumns = useMemo(
+    () => orderColumnDefs(vehicleColumns, columnOrder).filter((column) => !hiddenColumnKeys.has(column.key)),
+    [columnOrder, hiddenColumnKeys, vehicleColumns],
+  );
+  const currentOtherExportColumns = useMemo(
+    () => orderColumnDefs(otherColumns, columnOrder).filter((column) => !hiddenColumnKeys.has(column.key)),
+    [columnOrder, hiddenColumnKeys, otherColumns],
+  );
   const tabRowsAll = activeTab === "vehicles" ? vehicleRowsAll : otherRowsAll;
   const visibleRows = activeTab === "vehicles" ? vehicleRows : otherRows;
   const rows = allRows;
@@ -2446,7 +3050,7 @@ export function MvAssetDataTableModal({
   }, [otherRows, vehicleRows]);
 
   const runExportExcel = useCallback(
-    async (includeClientRawData: boolean) => {
+    async (includeClientRawData: boolean, layout: AssetExportLayout = "standard") => {
       if (exportRowCount === 0) {
         toast({
           variant: "destructive",
@@ -2456,11 +3060,26 @@ export function MvAssetDataTableModal({
         });
         return;
       }
+      const selectedVehicleColumns = layout === "current" ? currentVehicleExportColumns : vehicleColumns;
+      const selectedOtherColumns = layout === "current" ? currentOtherExportColumns : otherColumns;
+      const hasExportableColumns =
+        selectedVehicleColumns.some((column) => !column.excludeFromExport) ||
+        selectedOtherColumns.some((column) => !column.excludeFromExport);
+      if (!hasExportableColumns) {
+        toast({
+          variant: "destructive",
+          description: t("projects.assetTable.exportNoVisibleColumns"),
+        });
+        return;
+      }
+
+      setExportLayoutDialogOpen(false);
       setClientExportDialogOpen(false);
       setExporting(true);
       try {
         let nextVehicleRows = vehicleRows;
         let nextOtherRows = otherRows;
+        if (layout === "current") includeClientRawData = false;
         if (includeClientRawData) {
           const [enrichedVehicles, enrichedOthers] = await Promise.all([
             attachClientRawDataToRows(projectId, vehicleRows),
@@ -2476,11 +3095,13 @@ export function MvAssetDataTableModal({
         }
         const safeName = (projectName ?? "project").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
         const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        const layoutSuffix =
+          layout === "current" ? `-${t("projects.assetTable.exportCurrentFileSuffix")}` : "";
         await exportAssetDataWorkbook({
           projectId,
-          filename: `${t("projects.assetTable.exportFilePrefix")}-${safeName}-${ts}.xlsx`,
-          vehicleColumns,
-          otherColumns,
+          filename: `${t("projects.assetTable.exportFilePrefix")}-${safeName}${layoutSuffix}-${ts}.xlsx`,
+          vehicleColumns: selectedVehicleColumns,
+          otherColumns: selectedOtherColumns,
           vehicleRows: nextVehicleRows,
           otherRows: nextOtherRows,
           vehicleSheetName: t("projects.assetTable.sheetVehicles"),
@@ -2507,6 +3128,8 @@ export function MvAssetDataTableModal({
       }
     },
     [
+      currentOtherExportColumns,
+      currentVehicleExportColumns,
       exportRowCount,
       isArabic,
       otherColumns,
@@ -2532,11 +3155,16 @@ export function MvAssetDataTableModal({
       });
       return;
     }
-    if (sourceFilters.has("client") && clientExportMeta.rowCount > 0) {
+    setExportLayoutDialogOpen(true);
+  };
+
+  const selectExportLayout = (layout: AssetExportLayout) => {
+    setExportLayoutDialogOpen(false);
+    if (layout === "standard" && sourceFilters.has("client") && clientExportMeta.rowCount > 0) {
       setClientExportDialogOpen(true);
       return;
     }
-    void runExportExcel(false);
+    void runExportExcel(false, layout);
   };
 
   return (
@@ -2544,25 +3172,47 @@ export function MvAssetDataTableModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
       <MvDialogContent
         closeOnDark
-        className="flex h-[min(92vh,calc(100dvh-1.5rem))] max-h-[min(92vh,calc(100dvh-1.5rem))] w-[min(96vw,1400px)] max-w-[1400px] flex-col gap-0 overflow-visible rounded-2xl border border-slate-200 bg-white p-0"
+        className={cn(
+          "flex flex-col gap-0 overflow-hidden bg-white p-0",
+          isFullscreen
+            ? "h-[100dvh] max-h-[100dvh] w-screen max-w-none rounded-none border-0"
+            : "h-[100dvh] max-h-[100dvh] w-screen max-w-none rounded-none border-0 sm:h-[min(94vh,calc(100dvh-1.5rem))] sm:max-h-[min(94vh,calc(100dvh-1.5rem))] sm:w-[min(96vw,1400px)] sm:max-w-[1400px] sm:rounded-2xl sm:border sm:border-slate-200",
+        )}
         dir={dir}
       >
         <DialogTitle className="sr-only">
           {t("projects.assetTable.title")} — {projectName ?? t("projects.assetTable.projectFallback")}
         </DialogTitle>
+        <button
+          type="button"
+          onClick={() => setIsFullscreen((current) => !current)}
+          className="absolute end-14 top-4 z-[70] flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-white/95 text-slate-900 shadow-md transition hover:bg-white hover:text-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60 focus-visible:ring-offset-2"
+          aria-label={
+            isFullscreen
+              ? t("projects.assetTable.exitFullscreen")
+              : t("projects.assetTable.enterFullscreen")
+          }
+          title={
+            isFullscreen
+              ? t("projects.assetTable.exitFullscreen")
+              : t("projects.assetTable.enterFullscreen")
+          }
+        >
+          {isFullscreen ? <Minimize2 className="h-[17px] w-[17px]" /> : <Maximize2 className="h-[17px] w-[17px]" />}
+        </button>
 
-        <div className="relative z-30 shrink-0 overflow-visible bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-5 py-4 pe-14 text-white">
+        <div className="relative z-30 max-h-[45dvh] shrink-0 overflow-y-auto overscroll-contain bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-2.5 py-2 pe-24 text-white sm:max-h-none sm:overflow-visible sm:px-4 sm:py-2.5 sm:pe-24">
           <div className="pointer-events-none absolute -left-16 -top-12 h-40 w-40 rounded-full bg-sky-400/20 blur-3xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <div className="relative flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">
                 {projectName ?? t("projects.assetTable.projectFallback")}
               </p>
-              <h2 className="mt-0.5 flex items-center gap-2 text-base font-bold sm:text-lg">
+              <h2 className="mt-0.5 flex items-center gap-1.5 text-sm font-bold sm:text-base">
                 <Database className="h-4 w-4 opacity-90" />
                 {t("projects.assetTable.title")}
               </h2>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-sky-100/90">
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-sky-100/90">
                 <span>
                   {t("projects.assetTable.totalSummary", {
                     total: tableCtx.numberFormatter.format(searchedRows.length),
@@ -2581,7 +3231,17 @@ export function MvAssetDataTableModal({
                 ) : null}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
+              <AssetTableColumnManager
+                columns={configurableColumns}
+                hiddenKeys={hiddenColumnKeys}
+                totalHiddenCount={hiddenColumnKeys.size}
+                onToggle={toggleColumnVisibility}
+                onRestoreAll={restoreAllColumns}
+                onResetOrder={resetColumnOrder}
+                onMove={moveColumn}
+                t={t}
+              />
               <AssetSourceFilterSelect
                 selected={sourceFilters}
                 onChange={setSourceFilters}
@@ -2593,13 +3253,13 @@ export function MvAssetDataTableModal({
                 onChange={setPathFilter}
                 t={t}
               />
-              <div className="relative">
+              <div className="relative min-w-0 sm:col-auto">
                 <Search className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/60" />
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t("projects.assetTable.searchPlaceholder")}
-                  className="h-9 w-[min(92vw,280px)] border-white/20 bg-white/10 pe-2 ps-7 text-[12px] text-white placeholder:text-white/50 focus-visible:ring-white/40"
+                  className="h-8 w-full rounded-md border-white/20 bg-white/10 pe-2 ps-7 text-[11px] text-white placeholder:text-white/50 focus-visible:ring-white/40 sm:w-[240px]"
                   dir="auto"
                 />
                 {query ? (
@@ -2618,7 +3278,7 @@ export function MvAssetDataTableModal({
                 size="sm"
                 disabled={exporting || exportRowCount === 0}
                 onClick={() => void requestExportExcel()}
-                className="h-9 gap-1.5 rounded-lg bg-emerald-500 px-3 text-[12px] font-bold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50"
+                className="col-span-2 h-8 w-full justify-center gap-1 rounded-md bg-emerald-500 px-2.5 text-[11px] font-bold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-50 sm:col-auto sm:w-auto"
               >
                 {exporting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2631,12 +3291,12 @@ export function MvAssetDataTableModal({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-4 pt-1">
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 pt-1 sm:px-4">
           <button
             type="button"
             onClick={() => setActiveTab("vehicles")}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
               activeTab === "vehicles"
                 ? "border-sky-200 bg-sky-50 text-sky-900"
                 : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
@@ -2652,7 +3312,7 @@ export function MvAssetDataTableModal({
             type="button"
             onClick={() => setActiveTab("other")}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-[12px] font-bold transition",
               activeTab === "other"
                 ? "border-violet-200 bg-violet-50 text-violet-900"
                 : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
@@ -2666,7 +3326,23 @@ export function MvAssetDataTableModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-50/40">
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={tableScrollRef}
+            className="h-full overflow-auto bg-slate-50/40"
+            onDragOver={(event) => {
+              if (!draggingHeaderColumn) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              updateColumnDragAutoScroll(event.clientX);
+            }}
+            onDragLeave={(event) => {
+              const nextTarget = event.relatedTarget as Node | null;
+              if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+              stopColumnDragAutoScroll();
+            }}
+            onDrop={stopColumnDragAutoScroll}
+          >
           {error ? (
             <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-6 text-center text-red-600">
               <p className="text-[12px] font-semibold">{error}</p>
@@ -2706,22 +3382,117 @@ export function MvAssetDataTableModal({
                       : t("projects.assetTable.noOtherAssets")}
               </p>
             </div>
+          ) : visibleColumns.length === 0 ? (
+            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-3 px-6 text-center text-slate-500">
+              <Columns2 className="h-8 w-8 text-slate-300" />
+              <p className="text-[12px] font-semibold">{t("projects.assetTable.allColumnsHidden")}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={restoreAllColumns}
+                className="h-8 gap-1.5 border-sky-200 bg-white text-[11px] font-bold text-sky-800 hover:bg-sky-50"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                {t("projects.assetTable.restoreAllColumns")}
+              </Button>
+            </div>
           ) : (
-            <table className="w-full border-separate border-spacing-0 text-[12px]" dir={dir}>
-              <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-sm">
+            <table className="w-full border-separate border-spacing-0 text-[11px]" dir={dir}>
+              <thead className="sticky top-0 z-30 bg-slate-100/95 backdrop-blur-sm">
                 <tr>
-                  {visibleColumns.map((col, idx) => (
-                    <th
-                      key={col.key}
-                      className={cn(
-                        "whitespace-nowrap border-b border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-slate-700",
-                        idx === 0 && "sticky right-0 z-20 bg-slate-100/95 shadow-[1px_0_0_0_rgb(226,232,240)]",
-                      )}
-                      style={{ minWidth: col.minWidth ?? 120 }}
-                    >
-                      {col.label}
-                    </th>
-                  ))}
+                  {visibleColumns.map((col) => {
+                    const isPinnedImage = col.key === PINNED_ASSET_IMAGE_COLUMN_KEY;
+                    return (
+                      <th
+                        key={col.key}
+                        onDragOver={(event) => {
+                          if (!draggingHeaderColumn || draggingHeaderColumn === col.key) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          setHeaderDropTarget(col.key);
+                        }}
+                        onDragLeave={() => {
+                          if (headerDropTarget === col.key) setHeaderDropTarget(null);
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          if (!draggingHeaderColumn || draggingHeaderColumn === col.key) {
+                            stopColumnDragAutoScroll();
+                            setDraggingHeaderColumn(null);
+                            setHeaderDropTarget(null);
+                            return;
+                          }
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const after = dir === "rtl"
+                            ? event.clientX < rect.left + rect.width / 2
+                            : event.clientX > rect.left + rect.width / 2;
+                          moveColumn(
+                            draggingHeaderColumn,
+                            col.key,
+                            isPinnedImage ? "after" : after ? "after" : "before",
+                          );
+                          stopColumnDragAutoScroll();
+                          setDraggingHeaderColumn(null);
+                          setHeaderDropTarget(null);
+                        }}
+                        className={cn(
+                          "whitespace-nowrap border-b border-slate-200 px-1.5 py-1.5 text-center text-[10px] font-bold text-slate-700 transition-colors",
+                          isPinnedImage &&
+                            "sticky z-40 bg-slate-100/95 shadow-[1px_0_0_0_rgb(203,213,225),-8px_0_16px_-14px_rgb(15,23,42)]",
+                          headerDropTarget === col.key && "bg-sky-100/95 ring-2 ring-inset ring-sky-400",
+                        )}
+                        style={{
+                          minWidth: col.minWidth ?? 100,
+                          ...(isPinnedImage ? { insetInlineStart: 0 } : {}),
+                        }}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span
+                            draggable={!isPinnedImage}
+                            onDragStart={(event) => {
+                              if (isPinnedImage) {
+                                event.preventDefault();
+                                return;
+                              }
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", col.key);
+                              setDraggingHeaderColumn(col.key);
+                            }}
+                            onDragEnd={() => {
+                              stopColumnDragAutoScroll();
+                              setDraggingHeaderColumn(null);
+                              setHeaderDropTarget(null);
+                            }}
+                            className={cn(
+                              "flex h-6 w-5 shrink-0 items-center justify-center rounded",
+                              isPinnedImage
+                                ? "cursor-default text-sky-700"
+                                : "cursor-grab text-slate-400 hover:bg-slate-200 hover:text-slate-700 active:cursor-grabbing",
+                            )}
+                            title={
+                              isPinnedImage
+                                ? t("projects.assetTable.pinnedImageColumn")
+                                : t("projects.assetTable.dragColumn", { name: col.label })
+                            }
+                          >
+                            {isPinnedImage ? <Pin className="h-3 w-3" /> : <GripVertical className="h-3.5 w-3.5" />}
+                          </span>
+                          <span>{col.label}</span>
+                          <button
+                            type="button"
+                            draggable={false}
+                            onClick={() => toggleColumnVisibility(col.key)}
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            aria-label={t("projects.assetTable.hideColumn", { name: col.label })}
+                            title={t("projects.assetTable.hideColumn", { name: col.label })}
+                          >
+                            <EyeOff className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -2733,24 +3504,49 @@ export function MvAssetDataTableModal({
                     {visibleColumns.map((col, idx) => {
                       const textValue = col.text(row);
                       const isFirst = idx === 0;
+                      const isPinnedImage = col.key === PINNED_ASSET_IMAGE_COLUMN_KEY;
                       const isLable = col.key === "lable";
                       const isAssetType = col.key === "type";
                       const isCategory = col.key === "category";
                       const isParentPath = col.key === "parentPath";
                       const isQuantity = col.key === "quantity";
+                      const assetNameCellKey = `${row.picAsset?._id ?? row.sub._id}:lable`;
+                      const isExpandedAssetName =
+                        isLable && expandedAssetNameCell === assetNameCellKey;
+                      const baseCellWidth = col.minWidth ?? 100;
+                      const expandedAssetNameWidth = isExpandedAssetName
+                        ? Math.max(baseCellWidth, Math.min(720, Array.from(textValue).length * 7.5 + 52))
+                        : baseCellWidth;
                       return (
                         <td
                           key={col.key}
+                          title={isLable ? textValue : undefined}
+                          onMouseEnter={
+                            isLable ? () => setExpandedAssetNameCell(assetNameCellKey) : undefined
+                          }
+                          onMouseLeave={
+                            isLable
+                              ? () =>
+                                  setExpandedAssetNameCell((current) =>
+                                    current === assetNameCellKey ? null : current,
+                                  )
+                              : undefined
+                          }
                           className={cn(
-                            "border-b border-slate-100 px-3 py-2 text-center align-middle text-slate-800",
-                            isFirst &&
-                              "sticky right-0 z-10 bg-white font-bold tabular-nums text-slate-500 shadow-[1px_0_0_0_rgb(241,245,249)] group-hover:bg-sky-50/60",
+                            "border-b border-slate-100 px-2 py-1.5 text-center align-middle text-slate-800 transition-[min-width,width] duration-200",
+                            isPinnedImage &&
+                              "sticky z-20 bg-white shadow-[1px_0_0_0_rgb(226,232,240),-8px_0_16px_-14px_rgb(15,23,42)] group-hover:bg-sky-50",
+                            isFirst && !isPinnedImage && "font-bold tabular-nums text-slate-500",
                             (isLable || isAssetType || isCategory) && "font-semibold text-slate-900",
                             isParentPath && "text-right text-[11px] leading-relaxed",
                             isQuantity && "font-medium tabular-nums text-slate-900",
                             textValue === tableCtx.notAvailable && !isFirst && col.key !== "preview" && "text-slate-400",
                           )}
-                          style={{ minWidth: col.minWidth ?? 120 }}
+                          style={{
+                            minWidth: expandedAssetNameWidth,
+                            ...(isExpandedAssetName ? { width: expandedAssetNameWidth } : {}),
+                            ...(isPinnedImage ? { insetInlineStart: 0 } : {}),
+                          }}
                         >
                           {col.key === "preview" ? (
                             <AssetThumbnailCell
@@ -2787,10 +3583,31 @@ export function MvAssetDataTableModal({
               </tbody>
             </table>
           )}
+          </div>
+          {draggingHeaderColumn && columnAutoScrollDirection === "left" ? (
+            <div
+              className="pointer-events-none absolute inset-y-0 left-0 z-[60] flex w-16 items-center justify-start bg-gradient-to-r from-sky-500/30 via-sky-300/10 to-transparent ps-2"
+              aria-hidden="true"
+            >
+              <span className="flex h-8 w-8 animate-pulse items-center justify-center rounded-full bg-sky-700/90 text-white shadow-lg">
+                <ChevronLeft className="h-5 w-5" />
+              </span>
+            </div>
+          ) : null}
+          {draggingHeaderColumn && columnAutoScrollDirection === "right" ? (
+            <div
+              className="pointer-events-none absolute inset-y-0 right-0 z-[60] flex w-16 items-center justify-end bg-gradient-to-l from-sky-500/30 via-sky-300/10 to-transparent pe-2"
+              aria-hidden="true"
+            >
+              <span className="flex h-8 w-8 animate-pulse items-center justify-center rounded-full bg-sky-700/90 text-white shadow-lg">
+                <ChevronRight className="h-5 w-5" />
+              </span>
+            </div>
+          ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-500">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex shrink-0 flex-col items-stretch justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500 sm:flex-row sm:flex-wrap sm:items-center sm:px-4 sm:py-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
             <span>
               {tableFilterActive
                 ? t("projects.assetTable.displayedCount", {
@@ -2869,11 +3686,91 @@ export function MvAssetDataTableModal({
             variant="outline"
             size="sm"
             onClick={() => onOpenChange(false)}
-            className="h-8 rounded-md border-slate-200 bg-white px-3 text-[11px] hover:bg-slate-50"
+            className="h-8 w-full rounded-md border-slate-200 bg-white px-3 text-[11px] hover:bg-slate-50 sm:w-auto"
           >
             {t("common.close")}
           </Button>
         </div>
+
+        {exportLayoutDialogOpen ? (
+          <div className="absolute inset-0 z-[65] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-md sm:p-4">
+            <div className="relative my-auto w-full max-w-xl overflow-hidden rounded-2xl border border-white/15 bg-white shadow-[0_30px_80px_-24px_rgba(12,68,124,0.55)] sm:rounded-[28px]">
+              <div className="relative overflow-hidden bg-gradient-to-bl from-[#0C447C] via-[#0c4a8a] to-slate-900 px-4 py-4 text-white sm:px-6 sm:py-5">
+                <div className="pointer-events-none absolute -left-10 -top-10 h-32 w-32 rounded-full bg-sky-400/25 blur-3xl" />
+                <p className="relative text-[9px] font-semibold uppercase tracking-[0.22em] text-white/55">
+                  Spark Vision
+                </p>
+                <h3 className="relative mt-1 flex items-center gap-2 text-base font-black sm:text-lg">
+                  <Download className="h-4 w-4 text-sky-200 sm:h-5 sm:w-5" />
+                  {t("projects.assetTable.exportLayoutDialogTitle")}
+                </h3>
+                <p className="relative mt-1.5 text-[11px] leading-5 text-sky-50/90 sm:text-[12px]">
+                  {t("projects.assetTable.exportLayoutDialogLead")}
+                </p>
+              </div>
+              <div className="space-y-3 px-4 py-4 sm:px-6 sm:py-5">
+                <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
+                  <button
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => selectExportLayout("standard")}
+                    className="group rounded-xl border border-slate-200 bg-white p-3 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md disabled:opacity-60 sm:rounded-2xl sm:p-4"
+                  >
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#0C447C] text-white shadow-sm sm:h-9 sm:w-9 sm:rounded-xl">
+                      <Database className="h-4 w-4" />
+                    </span>
+                    <p className="mt-2 text-[12px] font-black text-slate-900 sm:mt-3 sm:text-[13px]">
+                      {t("projects.assetTable.exportStandardTitle")}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500 sm:text-[11px] sm:leading-5">
+                      {t("projects.assetTable.exportStandardHint")}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      exporting ||
+                      ![...currentVehicleExportColumns, ...currentOtherExportColumns].some(
+                        (column) => !column.excludeFromExport,
+                      )
+                    }
+                    onClick={() => selectExportLayout("current")}
+                    className="group rounded-xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-3 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-2xl sm:p-4"
+                  >
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm sm:h-9 sm:w-9 sm:rounded-xl">
+                      <Columns2 className="h-4 w-4" />
+                    </span>
+                    <p className="mt-2 text-[12px] font-black text-slate-900 sm:mt-3 sm:text-[13px]">
+                      {t("projects.assetTable.exportCurrentTitle")}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500 sm:text-[11px] sm:leading-5">
+                      {t("projects.assetTable.exportCurrentHint", {
+                        count: tableCtx.numberFormatter.format(
+                          new Set(
+                            [...currentVehicleExportColumns, ...currentOtherExportColumns]
+                              .filter((column) => !column.excludeFromExport)
+                              .map((column) => column.key),
+                          ).size,
+                        ),
+                      })}
+                    </p>
+                  </button>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={exporting}
+                    onClick={() => setExportLayoutDialogOpen(false)}
+                    className="h-8 rounded-lg px-3 text-[11px] font-semibold text-slate-500 hover:text-slate-800"
+                  >
+                    {t("projects.assetTable.exportClientDialogCancel")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {clientExportDialogOpen ? (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-md">
@@ -2914,7 +3811,7 @@ export function MvAssetDataTableModal({
                   <button
                     type="button"
                     disabled={exporting}
-                    onClick={() => void runExportExcel(true)}
+                    onClick={() => void runExportExcel(true, "standard")}
                     className="group rounded-2xl border border-sky-100 bg-gradient-to-b from-sky-50 to-white p-4 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg disabled:opacity-60"
                   >
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#0C447C] text-white shadow-sm">
@@ -2930,7 +3827,7 @@ export function MvAssetDataTableModal({
                   <button
                     type="button"
                     disabled={exporting}
-                    onClick={() => void runExportExcel(false)}
+                    onClick={() => void runExportExcel(false, "standard")}
                     className="rounded-2xl border border-slate-200 bg-white p-4 text-start shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md disabled:opacity-60"
                   >
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
