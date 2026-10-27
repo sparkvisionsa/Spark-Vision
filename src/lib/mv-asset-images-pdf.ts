@@ -1,9 +1,14 @@
 "use client";
 
+import {
+  createImagePdf,
+  type BrowserImagePdfOptions,
+} from "@/lib/browser-image-pdf";
+
 /**
- * Creates a print-friendly PDF from the images selected for an asset report.
- * Images are fitted inside their slots (never cropped), with two slots per
- * A4 page when the selection contains more than one image.
+ * Creates a PDF from the images selected inside the simplified asset workflow.
+ * The settings intentionally use the same browser renderer as the helper
+ * "Images and PDF to PDF" tool so both entry points produce identical layouts.
  */
 
 export type MvAssetImagePdfSource = {
@@ -26,14 +31,18 @@ export type MvAssetImagesPdfProgress = {
   failed: number;
 };
 
+export type MvAssetImagesPdfSettings = Omit<BrowserImagePdfOptions, "rtl" | "onProgress">;
+
+export const DEFAULT_MV_ASSET_IMAGES_PDF_SETTINGS: MvAssetImagesPdfSettings = {
+  imagesPerRow: 3,
+  imagesPerPage: 15,
+  fit: "stretch",
+  orientation: "portrait",
+  quality: "best",
+};
+
 // Give React and the browser a chance to paint between CPU-heavy PDF steps.
 const yieldForPaint = () => new Promise<void>((resolve) => window.setTimeout(resolve, 16));
-
-const A4_WIDTH_PT = 595.28;
-const A4_HEIGHT_PT = 841.89;
-const PAGE_MARGIN_PT = 14;
-const SLOT_GAP_PT = 8;
-const MAX_RASTER_DIMENSION = 2400;
 
 function imageExtension(name: string): string {
   return name.trim().toLowerCase().match(/\.([a-z0-9]+)(?:[?#].*)?$/)?.[1] ?? "";
@@ -69,49 +78,16 @@ function fetchImageBlob(source: MvAssetImagePdfSource): Promise<Blob> {
   });
 }
 
-type PreparedImage = {
-  dataUrl: string;
-  width: number;
-  height: number;
-};
-
-async function prepareImage(source: MvAssetImagePdfSource): Promise<PreparedImage> {
+async function loadImageFile(source: MvAssetImagePdfSource, index: number): Promise<File> {
   const blob = await fetchImageBlob(source);
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error("image_decode_failed"));
-      element.src = objectUrl;
-    });
-
-    const sourceWidth = image.naturalWidth || image.width;
-    const sourceHeight = image.naturalHeight || image.height;
-    if (!sourceWidth || !sourceHeight) throw new Error("image_has_no_dimensions");
-
-    // Rasterising through a bounded canvas makes PNG/WebP/SVG behave
-    // consistently in jsPDF and avoids excessive memory for very large photos.
-    const scale = Math.min(1, MAX_RASTER_DIMENSION / Math.max(sourceWidth, sourceHeight));
-    const width = Math.max(1, Math.round(sourceWidth * scale));
-    const height = Math.max(1, Math.round(sourceHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("image_canvas_unavailable");
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-
-    return {
-      dataUrl: canvas.toDataURL("image/jpeg", 0.92),
-      width,
-      height,
-    };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
+  const rawName = source.name?.trim() || `asset-image-${index + 1}`;
+  const name = imageExtension(rawName) ? rawName : `${rawName}.jpg`;
+  const type = blob.type.startsWith("image/")
+    ? blob.type
+    : source.mimeType?.startsWith("image/")
+      ? source.mimeType
+      : "image/jpeg";
+  return new File([blob], name, { type });
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -134,6 +110,8 @@ function safePdfFilename(value: string): string {
 export async function buildAssetImagesPdf(params: {
   sources: readonly MvAssetImagePdfSource[];
   filenameBase: string;
+  settings?: Partial<MvAssetImagesPdfSettings>;
+  rtl?: boolean;
   onProgress?: (progress: MvAssetImagesPdfProgress) => void;
 }): Promise<MvAssetImagesPdfResult> {
   const sources = params.sources.filter((source) => source.url.trim() && isImageSource(source));
@@ -141,16 +119,16 @@ export async function buildAssetImagesPdf(params: {
     throw new Error("no_report_images_selected");
   }
 
-  const prepared: PreparedImage[] = [];
+  const prepared: File[] = [];
   const failedNames: string[] = [];
   const reportProgress = (stage: MvAssetImagesPdfProgress["stage"], percent: number, completed: number, total: number) => {
     params.onProgress?.({ stage, percent, completed, total, failed: failedNames.length });
   };
   reportProgress("loading", 0, 0, sources.length);
   await yieldForPaint();
-  for (const source of sources) {
+  for (const [index, source] of sources.entries()) {
     try {
-      prepared.push(await prepareImage(source));
+      prepared.push(await loadImageFile(source, index));
     } catch {
       failedNames.push(source.name?.trim() || source.url);
     }
@@ -165,40 +143,29 @@ export async function buildAssetImagesPdf(params: {
 
   reportProgress("converting", 60, 0, prepared.length);
   await yieldForPaint();
-  const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4", compress: true });
-  const imageSlotsPerPage = prepared.length === 1 ? 1 : 2;
-  const pageWidth = pdf.internal.pageSize.getWidth() || A4_WIDTH_PT;
-  const pageHeight = pdf.internal.pageSize.getHeight() || A4_HEIGHT_PT;
-  const contentWidth = pageWidth - PAGE_MARGIN_PT * 2;
-  const slotHeight =
-    (pageHeight - PAGE_MARGIN_PT * 2 - SLOT_GAP_PT * (imageSlotsPerPage - 1)) / imageSlotsPerPage;
+  const settings: MvAssetImagesPdfSettings = {
+    ...DEFAULT_MV_ASSET_IMAGES_PDF_SETTINGS,
+    ...params.settings,
+  };
+  const result = await createImagePdf(prepared, {
+    ...settings,
+    rtl: params.rtl,
+    onProgress: (done, total) => {
+      reportProgress(
+        "converting",
+        60 + Math.round((done / Math.max(1, total)) * 35),
+        done,
+        total,
+      );
+    },
+  });
+  failedNames.push(...result.failed);
+  const imageCount = prepared.length - result.failed.length;
 
-  for (const [index, image] of prepared.entries()) {
-    const slotIndex = index % imageSlotsPerPage;
-    if (index > 0 && slotIndex === 0) pdf.addPage("a4", "portrait");
-
-    const slotX = PAGE_MARGIN_PT;
-    const slotY = PAGE_MARGIN_PT + slotIndex * (slotHeight + SLOT_GAP_PT);
-    const scale = Math.min(contentWidth / image.width, slotHeight / image.height);
-    const drawWidth = image.width * scale;
-    const drawHeight = image.height * scale;
-    const drawX = slotX + (contentWidth - drawWidth) / 2;
-    const drawY = slotY + (slotHeight - drawHeight) / 2;
-
-    pdf.setDrawColor(226, 232, 240);
-    pdf.setLineWidth(0.5);
-    pdf.rect(slotX, slotY, contentWidth, slotHeight);
-    pdf.addImage(image.dataUrl, "JPEG", drawX, drawY, drawWidth, drawHeight, undefined, "FAST");
-    reportProgress("converting", 60 + Math.round((index + 1) / prepared.length * 35), index + 1, prepared.length);
-    await yieldForPaint();
-  }
-
-  reportProgress("saving", 98, prepared.length, prepared.length);
+  reportProgress("saving", 98, imageCount, imageCount);
   await yieldForPaint();
-  const blob = pdf.output("blob");
-  downloadBlob(blob, safePdfFilename(params.filenameBase));
+  downloadBlob(result.blob, safePdfFilename(params.filenameBase));
   // The browser owns saving to disk; completion here means download was started.
-  reportProgress("complete", 100, prepared.length, prepared.length);
-  return { blob, imageCount: prepared.length, failedNames };
+  reportProgress("complete", 100, imageCount, imageCount);
+  return { blob: result.blob, imageCount, failedNames };
 }

@@ -6,7 +6,7 @@ import { useResourceRefresh } from "@/components/support/realtime-provider";
 import { assetBulkSelectionKey, toggleAssetBulkSelection, bulkFolderTargets, toggleBulkFolders, bulkFolderRoots } from "@/lib/mv-asset-bulk-selection";
 import { watchAssetMediaRevision } from "@/lib/mv-asset-media-refresh";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import {
   ArrowUp,
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
   CheckSquare,
   ChevronDown,
   Clock,
+  Cog,
   Database,
   Download,
   FileDown,
@@ -52,12 +53,20 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
-  
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import { MvDialogContent } from "./mv-dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -104,11 +113,42 @@ import { useMvInPageNavigation } from "./mv-inpage-navigation";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson, invalidateMvApiCache } from "./mv-api-client";
 import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
-import { buildAssetImagesPdf, type MvAssetImagesPdfProgress } from "@/lib/mv-asset-images-pdf";
+import {
+  buildAssetImagesPdf,
+  DEFAULT_MV_ASSET_IMAGES_PDF_SETTINGS,
+  type MvAssetImagesPdfProgress,
+  type MvAssetImagesPdfSettings,
+} from "@/lib/mv-asset-images-pdf";
 
 interface MvAssetImagesHubProps {
   projectId: string;
   projectName: string | null;
+}
+
+function MvAssetPdfSettingSelect({
+  label,
+  value,
+  onValueChange,
+  portalContainer,
+  children,
+}: {
+  label: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  portalContainer: HTMLElement | null;
+  children: ReactNode;
+}) {
+  return (
+    <label className="grid gap-1.5 text-[11px] font-bold text-slate-600">
+      <span>{label}</span>
+      <Select value={value} onValueChange={onValueChange}>
+        <SelectTrigger className="h-9 rounded-lg border-slate-200 bg-white text-[11px] shadow-none">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent container={portalContainer}>{children}</SelectContent>
+      </Select>
+    </label>
+  );
 }
 
 type PickedImageFile = {
@@ -1346,6 +1386,11 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const [reportSelectionSaving, setReportSelectionSaving] = useState(false);
   const [creatingReportImagesPdf, setCreatingReportImagesPdf] = useState(false);
   const [reportImagesPdfProgress, setReportImagesPdfProgress] = useState<MvAssetImagesPdfProgress | null>(null);
+  const [reportImagesPdfSettingsOpen, setReportImagesPdfSettingsOpen] = useState(false);
+  const [reportImagesPdfSettingsContainer, setReportImagesPdfSettingsContainer] = useState<HTMLElement | null>(null);
+  const [reportImagesPdfSettings, setReportImagesPdfSettings] = useState<MvAssetImagesPdfSettings>(
+    () => ({ ...DEFAULT_MV_ASSET_IMAGES_PDF_SETTINGS }),
+  );
   const [assetDataOpen, setAssetDataOpen] = useState(false);
   const reportSelectionPendingRef = useRef(0);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
@@ -3215,6 +3260,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       const result = await buildAssetImagesPdf({
         sources: selectedReportImagePdfSources,
         filenameBase: projectName ?? projectId,
+        settings: reportImagesPdfSettings,
+        rtl: isArabic,
         onProgress: setReportImagesPdfProgress,
       });
       if (result.failedNames.length > 0) {
@@ -3247,8 +3294,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   }, [
     creatingReportImagesPdf,
     numberFormatter,
+    isArabic,
     projectId,
     projectName,
+    reportImagesPdfSettings,
     selectedReportImagePdfSources,
     t,
     toast,
@@ -5325,7 +5374,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                             {t("assetImages.actions.downloadImagesZip")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onSelect={() => void downloadSelectedReportImagesAsPdf()}
+                            onSelect={() => setReportImagesPdfSettingsOpen(true)}
                             disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
                             className="cursor-pointer text-[12px]"
                           >
@@ -6086,6 +6135,154 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           </div>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={reportImagesPdfSettingsOpen}
+        onOpenChange={(open) => {
+          if (!creatingReportImagesPdf) setReportImagesPdfSettingsOpen(open);
+        }}
+      >
+        <MvDialogContent
+          ref={setReportImagesPdfSettingsContainer}
+          className="max-h-[min(90dvh,720px)] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto p-0 sm:w-[calc(100vw-2rem)]"
+          dir={dir}
+        >
+          <div className="border-b border-sky-100 bg-gradient-to-l from-sky-50 via-white to-white px-4 py-4 sm:px-5">
+            <DialogHeader className="text-start">
+              <div className="flex items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-600 text-white shadow-lg shadow-sky-200">
+                  <Cog className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <DialogTitle className="text-base font-black text-slate-950">
+                    {t("assetImages.pdf.settingsTitle")}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 text-[11px] font-semibold leading-5 text-slate-500">
+                    {t("assetImages.pdf.settingsDescription")}
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+          </div>
+
+          <div className="space-y-4 px-4 py-4 sm:px-5">
+            <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-[11px] font-bold text-sky-800">
+              {t("assetImages.pdf.selectedImagesCount", {
+                count: numberFormatter.format(selectedReportImagePdfSources.length),
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <MvAssetPdfSettingSelect
+                label={t("assetImages.pdf.imagesPerRow")}
+                value={String(reportImagesPdfSettings.imagesPerRow)}
+                onValueChange={(value) =>
+                  setReportImagesPdfSettings((current) => ({ ...current, imagesPerRow: Number(value) }))
+                }
+                portalContainer={reportImagesPdfSettingsContainer}
+              >
+                {[1, 2, 3, 4].map((value) => (
+                  <SelectItem key={value} value={String(value)}>
+                    {numberFormatter.format(value)}
+                  </SelectItem>
+                ))}
+              </MvAssetPdfSettingSelect>
+
+              <MvAssetPdfSettingSelect
+                label={t("assetImages.pdf.imagesPerPage")}
+                value={String(reportImagesPdfSettings.imagesPerPage)}
+                onValueChange={(value) =>
+                  setReportImagesPdfSettings((current) => ({ ...current, imagesPerPage: Number(value) }))
+                }
+                portalContainer={reportImagesPdfSettingsContainer}
+              >
+                {Array.from({ length: 16 }, (_, index) => index + 1).map((value) => (
+                  <SelectItem key={value} value={String(value)}>
+                    {numberFormatter.format(value)}
+                  </SelectItem>
+                ))}
+              </MvAssetPdfSettingSelect>
+
+              <MvAssetPdfSettingSelect
+                label={t("assetImages.pdf.imageFit")}
+                value={reportImagesPdfSettings.fit}
+                onValueChange={(value) =>
+                  setReportImagesPdfSettings((current) => ({
+                    ...current,
+                    fit: value as MvAssetImagesPdfSettings["fit"],
+                  }))
+                }
+                portalContainer={reportImagesPdfSettingsContainer}
+              >
+                {(["contain", "cover", "stretch", "original"] as const).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(`assetImages.pdf.${value}`)}
+                  </SelectItem>
+                ))}
+              </MvAssetPdfSettingSelect>
+
+              <MvAssetPdfSettingSelect
+                label={t("assetImages.pdf.orientation")}
+                value={reportImagesPdfSettings.orientation}
+                onValueChange={(value) =>
+                  setReportImagesPdfSettings((current) => ({
+                    ...current,
+                    orientation: value as MvAssetImagesPdfSettings["orientation"],
+                  }))
+                }
+                portalContainer={reportImagesPdfSettingsContainer}
+              >
+                {(["portrait", "landscape"] as const).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(`assetImages.pdf.${value}`)}
+                  </SelectItem>
+                ))}
+              </MvAssetPdfSettingSelect>
+
+              <MvAssetPdfSettingSelect
+                label={t("assetImages.pdf.quality")}
+                value={reportImagesPdfSettings.quality}
+                onValueChange={(value) =>
+                  setReportImagesPdfSettings((current) => ({
+                    ...current,
+                    quality: value as MvAssetImagesPdfSettings["quality"],
+                  }))
+                }
+                portalContainer={reportImagesPdfSettingsContainer}
+              >
+                {(["best", "high", "compact"] as const).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(`assetImages.pdf.${value}`)}
+                  </SelectItem>
+                ))}
+              </MvAssetPdfSettingSelect>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-row gap-2 border-t border-slate-100 bg-slate-50/80 px-4 py-3 sm:justify-end sm:px-5">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 flex-1 rounded-lg text-[11px] font-extrabold sm:flex-none"
+              onClick={() => setReportImagesPdfSettingsOpen(false)}
+            >
+              {t("assetImages.pdf.cancel")}
+            </Button>
+            <Button
+              type="button"
+              className="h-9 flex-1 gap-1.5 rounded-lg bg-sky-600 px-4 text-[11px] font-extrabold text-white hover:bg-sky-700 sm:flex-none"
+              disabled={creatingReportImagesPdf || selectedReportImagePdfSources.length === 0}
+              onClick={() => {
+                setReportImagesPdfSettingsOpen(false);
+                void downloadSelectedReportImagesAsPdf();
+              }}
+            >
+              <FileDown className="h-4 w-4" aria-hidden />
+              {t("assetImages.pdf.convertAndDownload")}
+            </Button>
+          </DialogFooter>
+        </MvDialogContent>
+      </Dialog>
 
       <MvAssetDataTableModal
         open={assetDataOpen}

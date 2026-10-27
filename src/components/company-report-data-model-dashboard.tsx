@@ -8,6 +8,7 @@ import {
   Copy,
   FilePlus2,
   Layers3,
+  Loader2,
   Plus,
   Save,
   Trash2,
@@ -44,7 +45,7 @@ type Props = {
   saving?: boolean;
   dirty?: boolean;
   onChange: (models: MvReportDataModel[]) => void;
-  onSave: () => void | Promise<void>;
+  onSave: (models?: MvReportDataModel[]) => boolean | Promise<boolean>;
 };
 
 const MODEL_LIMIT = 12;
@@ -75,6 +76,7 @@ export function CompanyReportDataModelDashboard({
   // demand, or when the administrator adds a new section to edit it.
   const [openSectionIds, setOpenSectionIds] = useState<string[]>([]);
   const [fileSectionDialogOpen, setFileSectionDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (models === emittedModelsRef.current) return;
@@ -108,12 +110,20 @@ export function CompanyReportDataModelDashboard({
     setSelectedId(next.id);
   };
 
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (selected.isDefault) return;
     if (!window.confirm(`حذف نموذج «${selected.name}»؟`)) return;
     const next = draftModels.filter((model) => model.id !== selected.id);
-    commit(next);
-    setSelectedId(next[0]?.id ?? "");
+    setDeleting(true);
+    try {
+      const saved = await onSave(next);
+      if (!saved) return;
+      emittedModelsRef.current = next;
+      setDraftModels(next);
+      setSelectedId(next[0]?.id ?? "");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const updateSection = (
@@ -190,7 +200,7 @@ export function CompanyReportDataModelDashboard({
             variant="outline"
             size="sm"
             className="h-8 gap-1 rounded-lg px-2.5 text-[10px] font-black"
-            disabled={saving || draftModels.length >= MODEL_LIMIT}
+            disabled={saving || deleting || draftModels.length >= MODEL_LIMIT}
             onClick={addModel}
           >
             <Copy className="h-3.5 w-3.5" />
@@ -200,7 +210,7 @@ export function CompanyReportDataModelDashboard({
             type="button"
             size="sm"
             className="h-8 gap-1 rounded-lg bg-[#0C447C] px-2.5 text-[10px] font-black hover:bg-[#0a3a66]"
-            disabled={saving || !dirty}
+            disabled={saving || deleting || !dirty}
             onClick={() => void onSave()}
           >
             <Save className="h-3.5 w-3.5" />
@@ -266,11 +276,11 @@ export function CompanyReportDataModelDashboard({
                 variant="ghost"
                 size="sm"
                 className="h-9 gap-1.5 rounded-lg px-2.5 text-[10px] font-black text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                disabled={saving}
-                onClick={removeSelected}
+                disabled={saving || deleting}
+                onClick={() => void removeSelected()}
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                حذف النموذج
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                {deleting ? "جاري الحذف…" : "حذف النموذج"}
               </Button>
             ) : (
               <span className="pb-1 text-[9px] font-semibold text-slate-400">يبقى النموذج الافتراضي متاحًا دائمًا للمشاريع الحالية.</span>

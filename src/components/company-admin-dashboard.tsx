@@ -4921,7 +4921,13 @@ export default function CompanyAdminDashboard({
                   setReportDefaults((current) => ({ ...current, reportDataModels: models }));
                   setReportDefaultsDirty(true);
                 }}
-                onSave={() => void persistReportDefaults()}
+                onSave={(models) =>
+                  persistReportDefaults(
+                    models
+                      ? { ...reportDefaultsRef.current, reportDataModels: models }
+                      : undefined,
+                  )
+                }
               />
             )}
           </TabsContent>
