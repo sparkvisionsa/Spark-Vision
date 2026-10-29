@@ -10,6 +10,7 @@ import { downloadBlob as download } from "@/lib/download-media";
 import { convertPdfFileToPageImages } from "./machine-valuation/mv-pdf-page-images";
 import HelperToolsScreenCapture from "./helper-tools-screen-capture";
 import HelperImagesToPdf from "./helper-images-to-pdf";
+import HelperVideoLibrary from "./helper-video-library";
 import { useHelperToolsNav } from "@/components/helper-tools-shell";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
 
@@ -46,6 +47,8 @@ export default function HelperTools({ overlayContainer }: { overlayContainer?: H
   return (
     <main className="h-full min-h-0 p-3" dir={isArabic ? "rtl" : "ltr"}>
       {tool === "screen" && <HelperToolsScreenCapture arabic={isArabic} />}
+
+      {tool === "library" && <HelperVideoLibrary />}
 
       {tool === "images" && (
         <HelperImagesToPdf key={pdfOwnerKey} arabic={isArabic} overlayContainer={overlayContainer} csrfToken={csrfToken} />

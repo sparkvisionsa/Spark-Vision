@@ -18,6 +18,7 @@ const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentTy
   "asset-inventory": () => import("./workspace-sections/asset-inventory"),
   "asset-inspection": () => import("./workspace-sections/asset-inspection"),
   "helper-tools": () => import("./workspace-sections/helper-tools"),
+  "helper-tools/library": () => import("./workspace-sections/helper-tools"),
   clients: () => import("./workspace-sections/clients"),
   settings: () => import("./workspace-sections/settings"),
   "evaluation-source": () => import("./workspace-sections/evaluation-source-index"),

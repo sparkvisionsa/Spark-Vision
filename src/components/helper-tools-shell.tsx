@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -19,6 +20,7 @@ import {
   FileText,
   Images,
   LogIn,
+  LibraryBig,
   MonitorPlay,
   type LucideIcon,
 } from "lucide-react";
@@ -40,7 +42,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-export type HelperToolId = "screen" | "images" | "pdf" | "words";
+export type HelperToolId = "screen" | "images" | "pdf" | "words" | "library";
 
 type HelperToolsCopy = {
   products: string;
@@ -50,11 +52,13 @@ type HelperToolsCopy = {
   images: string;
   pdf: string;
   words: string;
+  library: string;
   toggle: string;
 };
 
 const COPY = {
   ar: {
+    library: "مكتبة الشرح",
     products: "المنتجات",
     guest: "ضيف",
     signIn: "تسجيل الدخول",
@@ -72,6 +76,7 @@ const COPY = {
     images: "Images & PDF to PDF",
     pdf: "PDF to images",
     words: "Amount in words",
+    library: "Tutorial library",
     toggle: "Toggle sidebar",
   },
 } as const;
@@ -81,6 +86,7 @@ const TOOLS: { id: HelperToolId; icon: LucideIcon }[] = [
   { id: "images", icon: Images },
   { id: "pdf", icon: FileImage },
   { id: "words", icon: FileText },
+  { id: "library", icon: LibraryBig },
 ];
 
 const NAV_ACTIVE = "bg-white font-semibold text-slate-950 shadow-[0_8px_18px_rgba(8,47,73,0.28)]";
@@ -110,9 +116,13 @@ export function HelperToolsNavProvider({
   embedded?: boolean;
 }) {
   const language = useContext(LanguageContext)?.language ?? "ar";
+  const pathname = usePathname() || "/";
   const isArabic = language === "ar";
   const labels = isArabic ? COPY.ar : COPY.en;
   const [tool, setTool] = useState<HelperToolId>("screen");
+  useEffect(() => {
+    if (pathname === "/helper-tools/library") setTool("library");
+  }, [pathname]);
   const value = useMemo(
     () => ({ tool, setTool, isArabic, labels, embedded }),
     [tool, isArabic, labels, embedded],
@@ -189,7 +199,11 @@ function HelperSidebarTools() {
 
   const select = (id: HelperToolId) => {
     setTool(id);
-    if (!embedded && !onToolsPage) router.push("/helper-tools");
+    if (!embedded && id === "library") {
+      if (pathname !== "/helper-tools/library") router.push("/helper-tools/library");
+    } else if (!embedded && (!onToolsPage || pathname === "/helper-tools/library")) {
+      router.push("/helper-tools");
+    }
     if (isMobile) setOpenMobile(false);
   };
 
