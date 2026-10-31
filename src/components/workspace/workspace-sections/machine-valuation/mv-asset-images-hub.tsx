@@ -110,6 +110,10 @@ import {
 } from "./mv-pic-asset-progressive-load";
 import { MvWorkflowPageFrame, MvWorkflowPageScrollBody } from "./mv-workflow-page-frame";
 import { useMvInPageNavigation } from "./mv-inpage-navigation";
+import {
+  markCachedSelectedAssetImageCountStale,
+  updateCachedSelectedAssetImageCount,
+} from "./mv-project-summary-loader";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import { mvFetchJson, invalidateMvApiCache } from "./mv-api-client";
 import { useMvI18n, getMvT, readMvLanguage, type MvT } from "./mv-i18n";
@@ -1393,6 +1397,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   );
   const [assetDataOpen, setAssetDataOpen] = useState(false);
   const reportSelectionPendingRef = useRef(0);
+  const reportSelectionBatchSavingRef = useRef(false);
   const [reportImagesSelectOpen, setReportImagesSelectOpen] = useState(false);
   const [emptyReportSelectionWarningOpen, setEmptyReportSelectionWarningOpen] = useState(false);
   const pendingNavigationPathRef = useRef<string | null>(null);
@@ -2088,6 +2093,9 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       node.videos = [];
       node.imageCount = Math.max(node.images.length, row.picAsset?.photoCount ??
         (entryHasFullPicAssetMedia(row.picAsset) ? 0 : row.picAsset?.imageCount ?? 0));
+      node.includedImageCount = entryHasFullPicAssetMedia(row.picAsset)
+        ? 0
+        : Math.max(0, row.picAsset?.reportImageCount ?? 0);
       node.videoCount = 0;
       actualNodes.set(id, node);
       fb.set(id, node);
@@ -2152,7 +2160,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       node.imageCount = Math.max(node.imageCount, node.images.length) + node.folders.reduce((sum, folder) => sum + folder.imageCount, 0);
       node.videoCount = node.videos.length + node.folders.reduce((sum, folder) => sum + folder.videoCount, 0);
       node.includedImageCount =
-        node.images.filter((image) => isAssetViewFileReportIncluded(image, filesById)).length +
+        Math.max(
+          node.includedImageCount,
+          node.images.filter((image) => isAssetViewFileReportIncluded(image, filesById)).length,
+        ) +
         node.folders.reduce((sum, folder) => sum + folder.includedImageCount, 0);
       node.includedVideoCount =
         node.videos.filter((video) => isAssetViewFileReportIncluded(video, filesById)).length +
@@ -2238,14 +2249,10 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     });
   }, [filesById, previewRoot, projectId]);
 
-  const reportSelectSelectedCount = useMemo(
-    () =>
-      reportSelectSections.reduce(
-        (sum, section) => sum + section.images.filter((image) => image.selected).length,
-        0,
-      ),
-    [reportSelectSections],
-  );
+  const reportSelectSelectedCount = previewRoot.includedImageCount;
+  const reportSelectionHydrating =
+    loadingPreviewFolders ||
+    previewPhotoFolders.some((entry) => !entryHasFullPicAssetMedia(entry.picAsset));
 
   const reportSelectTotalCount = useMemo(
     () =>
@@ -2285,7 +2292,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
     return sources;
   }, [files, projectId, reportSelectSections, t]);
   const shouldWarnAboutEmptyReportSelection =
-    !loading && !loadingPreviewFolders && reportSelectTotalCount > 0 && reportSelectSelectedCount === 0;
+    !loading && !reportSelectionHydrating && reportSelectTotalCount > 0 && reportSelectSelectedCount === 0;
   const shouldWarnAboutEmptyReportSelectionRef = useRef(shouldWarnAboutEmptyReportSelection);
   shouldWarnAboutEmptyReportSelectionRef.current = shouldWarnAboutEmptyReportSelection;
 
@@ -3169,7 +3176,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
   const updateReportSelection = useCallback(
     async (fileIdsInput: Iterable<string>, includeInReport: boolean) => {
       const fileIds = Array.from(new Set(fileIdsInput));
-      if (fileIds.length === 0) return;
+      if (fileIds.length === 0) return true;
 
       const remoteIds = fileIds.filter((id) => !isLocalPreviewDriveId(id));
       const previousById = new Map(filesRef.current.map((file) => [file._id, file.includeInReport === true]));
@@ -3199,7 +3206,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         return next;
       });
 
-      if (remoteIds.length === 0) return;
+      if (remoteIds.length === 0) return true;
 
       reportSelectionPendingRef.current += 1;
       setReportSelectionSaving(true);
@@ -3227,6 +3234,8 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         }
         // لا نستبدل قائمة الصور بالكامل حتى لا تومض الواجهة أو تُخفى الصور أثناء الحفظ
         await response.json().catch(() => null);
+        markCachedSelectedAssetImageCountStale(projectId);
+        return true;
       } catch (error) {
         setFiles((current) =>
           current.map((file) =>
@@ -3239,9 +3248,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           variant: "destructive",
           description: error instanceof Error ? error.message : t("assetImages.toast.reportSelectionSaveFailed"),
         });
+        return false;
       } finally {
         reportSelectionPendingRef.current = Math.max(0, reportSelectionPendingRef.current - 1);
-        if (reportSelectionPendingRef.current === 0) setReportSelectionSaving(false);
+        if (reportSelectionPendingRef.current === 0 && !reportSelectionBatchSavingRef.current) {
+          setReportSelectionSaving(false);
+        }
       }
     },
     [projectId, t, toast],
@@ -3383,7 +3395,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
 
   const syncIncludeAssetImagesFlag = useCallback(
     async (enabled: boolean) => {
-      if ((includeAssetImagesInReport !== false) === enabled) return;
+      if ((includeAssetImagesInReport !== false) === enabled) return true;
       const previousReportData = reportData;
       const nextReportData: MvProjectReportData = {
         ...reportData,
@@ -3404,12 +3416,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           includeAssetImages: savedReportData.includeAssetImages !== false,
         });
         setIncludeAssetImagesInReport(savedReportData.includeAssetImages !== false);
+        return true;
       } catch {
         setReportData(previousReportData);
         setIncludeAssetImagesInReport(previousReportData.includeAssetImages !== false);
+        toast({ variant: "destructive", description: t("assetImages.toast.reportDisplaySaveFailed") });
+        return false;
       }
     },
-    [includeAssetImagesInReport, projectId, reportData],
+    [includeAssetImagesInReport, projectId, reportData, t, toast],
   );
 
   const setPicAssetFolderReportSelection = useCallback(
@@ -3423,7 +3438,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
       const nextImages = previousImages.map((image) =>
         !isExternalPicAssetVideo(image) ? { ...(image as object), includeInReport } : image,
       );
-      setPreviewPhotoFolders((prev) =>
+      setPreviewPhotoFoldersFast((prev) =>
         prev.map((row) =>
           row.sub._id === subProjectId && row.picAsset
             ? { ...row, picAsset: { ...row.picAsset, images: nextImages as PicAssetImage[] } }
@@ -3436,11 +3451,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             nextImages as PicAssetImage[],
           ),
         });
-        setPreviewPhotoFolders((prev) =>
+        setPreviewPhotoFoldersFast((prev) =>
           prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
         );
+        markCachedSelectedAssetImageCountStale(projectId);
       } catch (error) {
-        setPreviewPhotoFolders((prev) =>
+        setPreviewPhotoFoldersFast((prev) =>
           prev.map((row) =>
             row.sub._id === subProjectId && row.picAsset
               ? { ...row, picAsset: { ...row.picAsset, images: previousImages } }
@@ -3454,15 +3470,15 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         });
       }
     },
-    [previewPhotoFolders, projectId, t, toast],
+    [previewPhotoFolders, projectId, setPreviewPhotoFoldersFast, t, toast],
   );
 
   const applyPicAssetReportSelectionBatch = useCallback(
     async (subProjectId: string, indexSelection: Map<number, boolean>) => {
-      if (indexSelection.size === 0) return;
+      if (indexSelection.size === 0) return true;
       const entry = previewPhotoFolders.find((row) => row.sub._id === subProjectId);
       const asset = entry?.picAsset;
-      if (!asset) return;
+      if (!asset) return false;
       const previousImages = (asset.images ?? []).slice();
       const nextImages = previousImages.map((image, i) => {
         if (!indexSelection.has(i)) return image;
@@ -3482,7 +3498,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         }
         return image;
       });
-      setPreviewPhotoFolders((prev) =>
+      setPreviewPhotoFoldersFast((prev) =>
         prev.map((row) =>
           row.sub._id === subProjectId && row.picAsset
             ? { ...row, picAsset: { ...row.picAsset, images: nextImages as PicAssetImage[] } }
@@ -3495,11 +3511,13 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             nextImages as PicAssetImage[],
           ),
         });
-        setPreviewPhotoFolders((prev) =>
+        setPreviewPhotoFoldersFast((prev) =>
           prev.map((row) => (row.sub._id === subProjectId ? { ...row, picAsset: updated } : row)),
         );
+        markCachedSelectedAssetImageCountStale(projectId);
+        return true;
       } catch (error) {
-        setPreviewPhotoFolders((prev) =>
+        setPreviewPhotoFoldersFast((prev) =>
           prev.map((row) =>
             row.sub._id === subProjectId && row.picAsset
               ? { ...row, picAsset: { ...row.picAsset, images: previousImages } }
@@ -3511,13 +3529,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           description:
             error instanceof Error ? error.message : t("assetImages.toast.imageReportToggleFailed"),
         });
+        return false;
       }
     },
-    [previewPhotoFolders, projectId, t, toast],
+    [previewPhotoFolders, projectId, setPreviewPhotoFoldersFast, t, toast],
   );
 
   const handleReportSelectApply = useCallback(
-    (updates: MvReportSelectUpdate[]) => {
+    async (updates: MvReportSelectUpdate[]) => {
       if (updates.length === 0) return;
 
       const includeIds: string[] = [];
@@ -3587,16 +3606,34 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
         pushDriveId(file._id, update.selected);
       }
 
-      for (const [subProjectId, batch] of picBatches) {
-        void applyPicAssetReportSelectionBatch(subProjectId, batch);
+      reportSelectionBatchSavingRef.current = true;
+      setReportSelectionSaving(true);
+      try {
+        const saves: Promise<boolean>[] = [];
+        for (const [subProjectId, batch] of picBatches) {
+          saves.push(applyPicAssetReportSelectionBatch(subProjectId, batch));
+        }
+        if (includeIds.length > 0) saves.push(updateReportSelection(includeIds, true));
+        if (excludeIds.length > 0) saves.push(updateReportSelection(excludeIds, false));
+        saves.push(syncIncludeAssetImagesFlag(selectedAfter > 0));
+
+        const results = await Promise.all(saves);
+        if (results.some((saved) => !saved)) {
+          throw new Error("report_selection_save_failed");
+        }
+
+        invalidateMvApiCache(`project-report:${projectId}`);
+        invalidateMvApiCache(`project-summary:${projectId}`);
+        updateCachedSelectedAssetImageCount(projectId, selectedAfter);
+      } finally {
+        reportSelectionBatchSavingRef.current = false;
+        if (reportSelectionPendingRef.current === 0) setReportSelectionSaving(false);
       }
-      if (includeIds.length > 0) void updateReportSelection(includeIds, true);
-      if (excludeIds.length > 0) void updateReportSelection(excludeIds, false);
-      void syncIncludeAssetImagesFlag(selectedAfter > 0);
     },
     [
       applyPicAssetReportSelectionBatch,
       previewFoldersById,
+      projectId,
       syncIncludeAssetImagesFlag,
       updateReportSelection,
     ],
@@ -3684,9 +3721,12 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
             if (batch.size === 0) return null;
             return applyPicAssetReportSelectionBatch(folder.sub._id, batch);
           })
-          .filter((job): job is Promise<void> => job != null);
+          .filter((job): job is Promise<boolean> => job != null);
         if (picSyncJobs.length > 0) {
-          await Promise.allSettled(picSyncJobs);
+          const picSyncResults = await Promise.all(picSyncJobs);
+          if (picSyncResults.some((saved) => !saved)) {
+            throw new Error(t("assetImages.toast.bulkReportToggleFailed"));
+          }
         }
 
         setReportData({
@@ -3694,6 +3734,7 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
           includeAssetImages: includeMaster,
         });
         setIncludeAssetImagesInReport(includeMaster);
+        markCachedSelectedAssetImageCountStale(projectId);
       } catch (error) {
         try {
           await fetch(`/api/mv/projects/${projectId}`, {
@@ -5507,10 +5548,14 @@ export default function MvAssetImagesHub({ projectId, projectName }: MvAssetImag
                         type="button"
                         size="sm"
                         className="order-3 h-8 gap-1.5 rounded-lg bg-emerald-700 px-2.5 text-[11px] font-black text-white shadow-sm hover:bg-emerald-800 max-sm:w-full max-sm:justify-center"
-                        disabled={reportSelectionSaving}
+                        disabled={reportSelectionSaving || reportSelectionHydrating}
                         onClick={() => setReportImagesSelectOpen(true)}
                       >
-                        <CheckSquare className="h-3.5 w-3.5" />
+                        {reportSelectionHydrating ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <CheckSquare className="h-3.5 w-3.5" />
+                        )}
                         {t("assetImages.report.selectReportImages")}
                         {reportSelectSelectedCount > 0 ? (
                           <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] tabular-nums text-white">

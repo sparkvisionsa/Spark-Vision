@@ -151,6 +151,12 @@ export function mergePicAssetPreferFull(
     images: selectedImages,
     voiceNotes: selectedVoice,
     photoCount: primary.photoCount,
+    reportImageCount:
+      typeof primary.reportImageCount === "number"
+        ? Math.max(0, primary.reportImageCount)
+        : typeof secondary.reportImageCount === "number"
+          ? Math.max(0, secondary.reportImageCount)
+          : undefined,
     // العدد الأحدث يبقى مرجع الاكتمال؛ اختلافه عن المصفوفة القديمة يفرض hydration جديدًا.
     imageCount:
       typeof primary.imageCount === "number"

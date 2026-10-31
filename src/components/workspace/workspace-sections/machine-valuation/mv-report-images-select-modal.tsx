@@ -48,7 +48,7 @@ export type MvReportImagesSelectModalProps = {
   onOpenChange: (open: boolean) => void;
   sections: MvReportSelectAssetSection[];
   saving?: boolean;
-  onApplySelection: (updates: MvReportSelectUpdate[]) => void;
+  onApplySelection: (updates: MvReportSelectUpdate[]) => void | Promise<void>;
 };
 
 type MarqueeState = {
@@ -542,11 +542,14 @@ export function MvReportImagesSelectModal({
 }: MvReportImagesSelectModalProps) {
   const { t, dir } = useMvI18n();
   const [query, setQuery] = useState("");
+  const [imagesPerAsset, setImagesPerAsset] = useState("1");
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [selectionMap, setSelectionMap] = useState<Map<string, boolean>>(() => cloneSelectionMap(sections));
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const [previewImage, setPreviewImage] = useState<MvReportSelectImageItem | null>(null);
   const [allImagesOpen, setAllImagesOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const isSaving = saving || applying;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const navScrollRef = useRef<HTMLDivElement | null>(null);
   const navItemRefs = useRef(new Map<string, HTMLElement>());
@@ -779,6 +782,32 @@ export function MvReportImagesSelectModal({
     [commitLocalUpdates, displaySections],
   );
 
+  const parsedImagesPerAsset = /^\d+$/.test(imagesPerAsset.trim())
+    ? Number(imagesPerAsset)
+    : Number.NaN;
+  const canApplyImagesPerAsset = Number.isSafeInteger(parsedImagesPerAsset)
+    && parsedImagesPerAsset > 0
+    && totals.total > 0;
+
+  const applyImagesPerAsset = useCallback(() => {
+    if (!Number.isSafeInteger(parsedImagesPerAsset) || parsedImagesPerAsset < 1) return;
+
+    const updates: MvReportSelectUpdate[] = [];
+    for (const section of sections) {
+      let selectedInSection = 0;
+      for (const image of section.images) {
+        if (image.disabled) continue;
+        const selected = selectedInSection < parsedImagesPerAsset;
+        selectedInSection += 1;
+        const currentSelected = selectionMap.get(image.key) ?? image.selected;
+        if (currentSelected !== selected) {
+          updates.push({ sectionId: section.id, imageKey: image.key, selected });
+        }
+      }
+    }
+    commitLocalUpdates(updates);
+  }, [commitLocalUpdates, parsedImagesPerAsset, sections, selectionMap]);
+
   const scrollToSection = useCallback((sectionId: string) => {
     const el = sectionRefs.current.get(sectionId);
     const root = scrollRef.current;
@@ -914,7 +943,8 @@ export function MvReportImagesSelectModal({
     [applyMarqueeSelection, marquee],
   );
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (isSaving) return;
     // نحفظ الحالة الكاملة لكل الصور حتى تُكتب false صراحةً لغير المحددة
     const updates: MvReportSelectUpdate[] = [];
     for (const section of sections) {
@@ -929,11 +959,18 @@ export function MvReportImagesSelectModal({
         });
       }
     }
-    if (updates.length > 0) {
-      onApplySelection(updates);
+    try {
+      setApplying(true);
+      if (updates.length > 0) {
+        await onApplySelection(updates);
+      }
+      onOpenChange(false);
+    } catch {
+      // يعرض المكوّن الأب رسالة الخطأ؛ نبقي النافذة مفتوحة ليتمكن المستخدم من إعادة المحاولة.
+    } finally {
+      setApplying(false);
     }
-    onOpenChange(false);
-  }, [onApplySelection, onOpenChange, sections]);
+  }, [isSaving, onApplySelection, onOpenChange, sections]);
 
   const marqueeStyle = useMemo(() => {
     if (!marquee) return null;
@@ -968,7 +1005,7 @@ export function MvReportImagesSelectModal({
                 })}
               </p>
             </div>
-            {saving ? (
+            {isSaving ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 {t("assetImages.reportSelect.saving")}
@@ -985,6 +1022,39 @@ export function MvReportImagesSelectModal({
                 placeholder={t("assetImages.reportSelect.searchPlaceholder")}
                 className="h-9 ps-8 text-[12px]"
               />
+            </div>
+            <div className="flex w-full min-w-0 items-end gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 p-1.5 sm:w-auto">
+              <label className="min-w-0 flex-1 sm:w-[150px] sm:flex-none">
+                <span className="mb-1 block text-[10px] font-extrabold text-emerald-900">
+                  {t("assetImages.reportSelect.imagesPerAssetLabel")}
+                </span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  step={1}
+                  value={imagesPerAsset}
+                  onChange={(event) => setImagesPerAsset(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || !canApplyImagesPerAsset || isSaving) return;
+                    event.preventDefault();
+                    applyImagesPerAsset();
+                  }}
+                  aria-label={t("assetImages.reportSelect.imagesPerAssetLabel")}
+                  data-report-images-per-asset-count
+                  className="h-8 bg-white text-center text-[12px] font-bold tabular-nums"
+                />
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 rounded-lg bg-emerald-700 px-3 text-[11px] font-bold hover:bg-emerald-800"
+                onClick={applyImagesPerAsset}
+                disabled={!canApplyImagesPerAsset || isSaving}
+                data-report-images-per-asset-apply
+              >
+                {t("assetImages.reportSelect.applyImagesPerAsset")}
+              </Button>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Button
@@ -1143,7 +1213,7 @@ export function MvReportImagesSelectModal({
                           variant="outline"
                           size="sm"
                           className="h-8 shrink-0 rounded-lg text-[11px] font-bold"
-                          disabled={saving || selectableImages.length === 0}
+                          disabled={isSaving || selectableImages.length === 0}
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => setSectionSelection(section.id, !allSelected)}
                         >
@@ -1251,7 +1321,7 @@ export function MvReportImagesSelectModal({
           <Button
             type="button"
             className="h-10 w-full shrink-0 rounded-xl bg-emerald-700 px-5 text-[12px] font-black hover:bg-emerald-800 sm:w-auto"
-            disabled={saving}
+            disabled={isSaving}
             onClick={handleSave}
           >
             {t("assetImages.reportSelect.save")}
@@ -1262,7 +1332,7 @@ export function MvReportImagesSelectModal({
         open={allImagesOpen}
         onOpenChange={setAllImagesOpen}
         sections={displaySections}
-        saving={saving}
+        saving={isSaving}
         onToggleImage={toggleImage}
         onPreviewImage={setPreviewImage}
       />

@@ -42,6 +42,30 @@ test("report image overview, scroll sync, selection and preview", { timeout: 120
     const selection = page.getByRole("dialog", { name: "تحديد صور التقرير" });
     await expect(selection).toContainText("المحدد 0 من 15");
 
+    const imagesPerAssetInput = selection.locator("[data-report-images-per-asset-count]");
+    const applyImagesPerAsset = selection.locator("[data-report-images-per-asset-apply]");
+    await imagesPerAssetInput.fill("2");
+    await applyImagesPerAsset.click();
+    await expect(selection).toContainText("المحدد 6 من 15");
+    await expect(selection.locator("[data-report-section-nav]")).toHaveCount(3);
+    for (const sectionNav of await selection.locator("[data-report-section-nav]").all()) {
+      await expect(sectionNav).toContainText("2/5");
+    }
+
+    await imagesPerAssetInput.fill("99");
+    await applyImagesPerAsset.click();
+    await expect(selection).toContainText("المحدد 15 من 15");
+    await selection.getByRole("button", { name: "إلغاء الكل", exact: true }).click();
+    await expect(selection).toContainText("المحدد 0 من 15");
+
+    const searchInput = selection.getByPlaceholder("ابحث باسم الأصل أو الصورة…");
+    await searchInput.fill("فرن حراري");
+    await imagesPerAssetInput.fill("1");
+    await applyImagesPerAsset.click();
+    await searchInput.fill("");
+    await expect(selection).toContainText("المحدد 3 من 15");
+    await selection.getByRole("button", { name: "إلغاء الكل", exact: true }).click();
+
     await selection.getByRole("button", { name: "عرض جميع الصور", exact: true }).click();
     const allImages = page.getByRole("dialog", { name: "عرض جميع صور الأصول" });
     await expect(allImages).toBeVisible();

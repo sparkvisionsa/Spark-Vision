@@ -403,6 +403,8 @@ export interface MvProject {
   sheetCount?: number;
   /** إجمالي صور الأصول (يُحسب في قائمة المشاريع). */
   assetImageCount?: number;
+  /** عدد صور الأصول المحددة فعلياً للتقرير من قاعدة البيانات. */
+  selectedAssetImageCount?: number;
   /** عدد مجلدات صور الأصول (pic assets). */
   picAssetCount?: number;
   /** عدد صور حسابات القيمة في إجراءات التقييم (يُحسب في قائمة المشاريع). */
@@ -538,6 +540,8 @@ export interface PicAsset {
   newAssetLocation?: string | null;
   /** عند ‎GET project?picAssetMode=summary‎ — عرض أعداد دون جلب المصفوفات */
   imageCount?: number;
+  /** عدد صور هذا الأصل المحددة للتقرير، متاح في الملخص قبل تحميل المصفوفة كاملة. */
+  reportImageCount?: number;
   voiceNoteCount?: number;
 }
 

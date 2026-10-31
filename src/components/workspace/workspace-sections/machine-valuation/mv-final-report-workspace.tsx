@@ -176,6 +176,8 @@ function mergeProjectSummaryCounts(previous: MvProject | null | undefined, incom
   return {
     ...incoming,
     assetImageCount: mergePositiveCount(incoming.assetImageCount, previous?.assetImageCount),
+    selectedAssetImageCount:
+      incoming.selectedAssetImageCount ?? previous?.selectedAssetImageCount,
     valuationAccountImageCount: mergePositiveCount(
       incoming.valuationAccountImageCount,
       previous?.valuationAccountImageCount,
@@ -353,7 +355,9 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
         mode: "report",
         signal,
         timeoutMs: 30_000,
-        forceRefresh: (cached?.project?.assetImageCount ?? 0) === 0,
+        forceRefresh:
+          (cached?.project?.assetImageCount ?? 0) === 0 ||
+          typeof cached?.project?.selectedAssetImageCount !== "number",
       });
       if (signal?.aborted) return;
       if (!payload?.project) {
@@ -484,10 +488,8 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
   }, [preview?.url]);
 
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
-  const lastKnownAssetImageCountRef = useRef(0);
-  const displayedAssetImageCount =
-    assetImageCount || project?.assetImageCount || lastKnownAssetImageCountRef.current || 0;
-  if (displayedAssetImageCount > 0) lastKnownAssetImageCountRef.current = displayedAssetImageCount;
+  const totalAssetImageCount = assetImageCount || project?.assetImageCount || 0;
+  const selectedAssetImageCount = project?.selectedAssetImageCount;
   const valuationImageCount = attachments?._id === projectId
     ? attachmentImageCount(attachments.valuationAccountingWorkspace)
     : project?.valuationAccountImageCount ?? attachmentImageCount(project?.valuationAccountingWorkspace);
@@ -503,10 +505,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
       new Set(
         computeCompletedSimpleReportSteps({
           reportData: project?.reportData,
-          assetImageCount:
-            displayedAssetImageCount > 0
-              ? displayedAssetImageCount
-              : (project?.assetImageCount ?? 0),
+          assetImageCount: totalAssetImageCount,
           valuationAccountImageCount: valuationImageCount,
           clientDocumentImageCount,
           visitedFinalReport: visitedSteps.has("final-report"),
@@ -514,11 +513,11 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
       ),
     [
       clientDocumentImageCount,
-      displayedAssetImageCount,
       project?.assetImageCount,
       project?.reportData,
       valuationImageCount,
       visitedSteps,
+      totalAssetImageCount,
     ],
   );
 
@@ -1136,8 +1135,8 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
               />
               <SummaryStat
                 label={t("report.finalReportPage.assetImages")}
-                value={numberFormatter.format(displayedAssetImageCount)}
-                available={displayedAssetImageCount > 0}
+                value={selectedAssetImageCount == null ? "…" : numberFormatter.format(selectedAssetImageCount)}
+                available={selectedAssetImageCount == null ? undefined : selectedAssetImageCount > 0}
                 accent="sky"
               />
               <SummaryStat

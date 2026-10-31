@@ -204,6 +204,36 @@ export function invalidateProjectSummaryCache(projectId?: string) {
 }
 
 /**
+ * يحدّث العدد المؤكد بعد اكتمال حفظ اختيار صور التقرير، حتى ترى الشاشة التالية
+ * نفس القيمة فوراً من كاش الجلسة بينما يبقى الخادم هو مصدر الحقيقة عند إعادة الجلب.
+ */
+export function updateCachedSelectedAssetImageCount(projectId: string, count: number) {
+  const selectedAssetImageCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
+  for (const mode of ["summary", "report"] as const) {
+    const cached = readProjectSummaryCache(projectId, mode);
+    if (!cached?.project || cached.project._id !== projectId) continue;
+    writeProjectSummaryCache(
+      projectId,
+      {
+        project: { ...cached.project, selectedAssetImageCount },
+        subProjects: cached.subProjects,
+      },
+      mode,
+    );
+  }
+}
+
+/** يزيل العدد القديم من كاش الملخص كي يجبر التقرير النهائي على قراءته من قاعدة البيانات. */
+export function markCachedSelectedAssetImageCountStale(projectId: string) {
+  for (const mode of ["summary", "report"] as const) {
+    const cached = readProjectSummaryCache(projectId, mode);
+    if (!cached?.project || cached.project._id !== projectId) continue;
+    const { selectedAssetImageCount: _staleCount, ...project } = cached.project;
+    writeProjectSummaryCache(projectId, { project: project as MvProject, subProjects: cached.subProjects }, mode);
+  }
+}
+
+/**
  * Load project summary with cache-first + SWR.
  * Never throws AbortError to callers that pass a signal — rethrows other errors.
  */

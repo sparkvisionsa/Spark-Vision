@@ -6,9 +6,10 @@ import type { PicAsset } from "../src/components/workspace/workspace-sections/ma
 const pic = (data: Partial<PicAsset>) => ({ _id: "asset", images: [], voiceNotes: [], ...data } as PicAsset);
 test("new summaries invalidate media even if image counts did not change", () => {
   const old = pic({ images: [{ url: "old-1" }, { url: "old-2" }], imageCount: 2, updatedAt: "2026-01-01T00:00:00Z", notes: "old" });
-  const fresh = pic({ images: [{ url: "new-cover" }], imageCount: 2, updatedAt: "2026-01-02T00:00:00Z", notes: "" });
+  const fresh = pic({ images: [{ url: "new-cover" }], imageCount: 2, reportImageCount: 1, updatedAt: "2026-01-02T00:00:00Z", notes: "" });
   const merged = mergePicAssetPreferFull(old, fresh)!;
   assert.deepEqual(merged.images, [{ url: "new-cover" }]);
+  assert.equal(merged.reportImageCount, 1);
   assert.equal(merged.notes, "");
   assert.equal(picAssetNeedsMediaFetch(merged), true);
 });
