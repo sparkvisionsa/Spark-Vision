@@ -12,6 +12,7 @@ type RecordingCornerControlsProps = {
   onTogglePause: () => void;
   onStop: () => void;
   label: string;
+  uploadProgress?: number | null;
 };
 
 /** شريط تحكم صغير في الزاوية لا يغطي وسط الشاشة أثناء التسجيل. */
@@ -23,6 +24,7 @@ export function RecordingCornerControls({
   onTogglePause,
   onStop,
   label,
+  uploadProgress,
 }: RecordingCornerControlsProps) {
   return (
     <div
@@ -35,6 +37,7 @@ export function RecordingCornerControls({
       <span className="px-0.5 font-mono text-[11px] tabular-nums leading-none" aria-label="مدة التسجيل">
         {formatRecordingClock(seconds)}
       </span>
+      {uploadProgress !== null && uploadProgress !== undefined ? <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] tabular-nums text-sky-100" aria-label="تقدم الرفع">↑ {uploadProgress}%</span> : null}
       {countdown ? (
         <span role="timer" className="font-mono text-[10px] tabular-nums text-red-200">
           {formatRecordingClock(remaining)}

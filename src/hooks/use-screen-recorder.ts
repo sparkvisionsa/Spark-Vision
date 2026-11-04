@@ -13,16 +13,21 @@ export const RECORDING_MAX_SECONDS = 3600;
 export const RECORDING_COUNTDOWN_SECONDS = 300;
 /** تسجيل يُرفع إلى الدعم: حجم ومعدل بت يتسعان لساعة كاملة دون قطع. */
 export const RECORDING_UPLOAD_MAX_BYTES = 480 * 1024 * 1024;
-export const RECORDING_UPLOAD_VIDEO_BITS = 950_000;
+export const RECORDING_UPLOAD_VIDEO_BITS = 2_000_000;
 /** تسجيل محلي لا يُرفع: جودة أعلى وحد أوسع. */
 export const RECORDING_LOCAL_MAX_BYTES = 1024 * 1024 * 1024;
-export const RECORDING_LOCAL_VIDEO_BITS = 1_400_000;
+export const RECORDING_LOCAL_VIDEO_BITS = 2_000_000;
 const RECORDING_AUDIO_BITS = 64_000;
 const CLOCK_TICK_MS = 250;
 const LEVEL_TICK_MS = 200;
 
 export function recordingMime() {
-  return ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"].find(type => MediaRecorder.isTypeSupported(type)) ?? "";
+  return [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    "video/mp4",
+  ].find(type => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 export function recordingExtension(blob: Blob | null) {
   return blob?.type.includes("mp4") ? "mp4" : "webm";
@@ -47,7 +52,7 @@ async function requestCamera() {
     return null;
   }
 }
-const COMPOSITE_FPS = 24;
+const COMPOSITE_FPS = 20;
 type VideoFrameCallbackVideo = HTMLVideoElement & {
   requestVideoFrameCallback?: (callback: () => void) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
@@ -213,6 +218,7 @@ export type ScreenRecorderOptions = {
   cameraStream?: MediaStream | null;
   systemAudio?: boolean;
   videoBitsPerSecond?: number;
+  onChunk?: (chunk: Blob, mimeType: string) => void;
 };
 
 export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
@@ -224,6 +230,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
     cameraStream = null,
     systemAudio = false,
     videoBitsPerSecond = RECORDING_UPLOAD_VIDEO_BITS,
+    onChunk,
   } = options;
   const [state, setState] = useState<RecorderState>("idle");
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -246,10 +253,10 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
   const durationMs = useRef(0);
   const compositeStop = useRef<(() => void) | null>(null);
   // تُقرأ الإعدادات لحظة البدء فقط، فلا تتبدّل دوال الهوك مع كل تغيير خيار في الواجهة.
-  const settings = useRef({ maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond });
+  const settings = useRef({ maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond, onChunk });
   useEffect(() => {
-    settings.current = { maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond };
-  }, [maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond]);
+    settings.current = { maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond, onChunk };
+  }, [maxSeconds, maxBytes, microphone, camera, cameraStream, systemAudio, videoBitsPerSecond, onChunk]);
   const stopTracks = useCallback(() => {
     streams.current.forEach(s => s.getTracks().forEach(t => { t.onended = null; t.stop(); }));
     streams.current = [];
@@ -291,7 +298,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
       // Must remain directly connected to the user's click (transient activation).
       const display = await navigator.mediaDevices.getDisplayMedia({
         video: {
-          frameRate: { ideal: 24, max: 30 },
+          frameRate: { ideal: 20, max: 24 },
           width: { ideal: 1920 },
           height: { ideal: 1080 },
           displaySurface: "monitor",
@@ -314,7 +321,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
       const displayTrack = videoTracks[0];
       if (displayTrack?.readyState !== "live") throw new Error("انتهت مشاركة الشاشة؛ ابدأ التسجيل مجدداً.");
       hintMotion(displayTrack);
-      void displayTrack.applyConstraints?.({ frameRate: 24 }).catch(() => undefined);
+      void displayTrack.applyConstraints?.({ frameRate: { ideal: 20, max: 24 } }).catch(() => undefined);
       if (config.camera) {
         const previewTracks = config.cameraStream?.getVideoTracks().filter((track) => track.readyState === "live") ?? [];
         const cameraMedia = previewTracks.length ? new MediaStream(previewTracks.map((track) => track.clone())) : await requestCamera();
@@ -357,7 +364,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
       const chunks: Blob[] = [];
       let bytes = 0;
       recording.ondataavailable = event => {
-        if (event.data.size) { chunks.push(event.data); bytes += event.data.size; }
+        if (event.data.size) { chunks.push(event.data); bytes += event.data.size; config.onChunk?.(event.data, recording.mimeType || mimeType || "video/webm"); }
         if (bytes >= config.maxBytes && recording.state !== "inactive") {
           if (valid()) setNotice("بلغ التسجيل الحد الأقصى للحجم، والمقطع جاهز للمعاينة.");
           stop();
@@ -386,7 +393,7 @@ export function useScreenRecorder(options: ScreenRecorderOptions = {}) {
       for (const track of display.getVideoTracks()) track.onended = stop;
       elapsed.current = { total: 0, since: Date.now() };
       durationMs.current = 0;
-      recording.start(1000); setState("recording");
+      recording.start(5000); setState("recording");
       interval.current = setInterval(() => {
         const ms = elapsed.current.total + (recording.state === "recording" ? Date.now() - elapsed.current.since : 0);
         if (valid()) setSeconds(Math.min(config.maxSeconds, Math.floor(ms / 1000)));

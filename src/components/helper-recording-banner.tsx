@@ -2,7 +2,7 @@
 
 import { Pause, Play, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatRecordingClock, type RecorderSurface } from "@/hooks/use-screen-recorder";
+import { formatRecordingClock } from "@/hooks/use-screen-recorder";
 
 type HelperRecordingBannerProps = {
   paused: boolean;
@@ -10,7 +10,6 @@ type HelperRecordingBannerProps = {
   seconds: number;
   remaining: number;
   countdown: boolean;
-  source: RecorderSurface;
   arabic: boolean;
   onTogglePause: () => void;
   onStop: () => void;
@@ -22,8 +21,6 @@ const copy = {
     paused: "التسجيل متوقف مؤقتاً",
     starting: "بانتظار مشاركة الشاشة…",
     hint: "لا يمكن بدء تسجيل جديد قبل إنهاء التسجيل الحالي",
-    system: "النظام",
-    any: "تسجيل عام",
     pause: "إيقاف مؤقت",
     resume: "استئناف",
     stop: "إنهاء",
@@ -33,8 +30,6 @@ const copy = {
     paused: "Recording paused",
     starting: "Waiting for screen share…",
     hint: "Finish the current recording before starting another",
-    system: "This system",
-    any: "Entire screen",
     pause: "Pause",
     resume: "Resume",
     stop: "Stop",
@@ -47,7 +42,6 @@ export function HelperRecordingBanner({
   seconds,
   remaining,
   countdown,
-  source,
   arabic,
   onTogglePause,
   onStop,
@@ -67,9 +61,7 @@ export function HelperRecordingBanner({
       <span className={cn("h-2 w-2 shrink-0 rounded-full", starting ? "bg-slate-400" : paused ? "bg-amber-500" : "animate-pulse bg-red-500")} />
       <div className="min-w-0 flex-1">
         <p className="text-xs font-bold text-slate-900">{title}</p>
-        <p className="text-[11px] leading-4 text-slate-600">
-          {source === "any" ? labels.any : labels.system} · {labels.hint}
-        </p>
+        <p className="text-[11px] leading-4 text-slate-600">{labels.hint}</p>
       </div>
       <span className="font-mono text-sm font-semibold tabular-nums text-slate-900" aria-label={title}>
         {formatRecordingClock(seconds)}

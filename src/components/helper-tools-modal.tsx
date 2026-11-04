@@ -94,7 +94,7 @@ function EmbeddedToolNav({ collapsed }: { collapsed: boolean }) {
 
 function HelperToolsEmbedded({ overlayContainer }: { overlayContainer: HTMLElement | null }) {
   const { isArabic } = useHelperToolsNav();
-  const { recording, recordedSurface, active, starting } = useHelperRecording();
+  const { recording, active, starting } = useHelperRecording();
   const [collapsed, setCollapsed] = useState(false);
   const live = active || starting;
   const title = isArabic ? "الأدوات المساعدة" : "Helper tools";
@@ -138,7 +138,6 @@ function HelperToolsEmbedded({ overlayContainer }: { overlayContainer: HTMLEleme
               seconds={recording.seconds}
               remaining={recording.remaining}
               countdown={recording.countdown}
-              source={recordedSurface}
               arabic={isArabic}
               onTogglePause={recording.togglePause}
               onStop={recording.stop}

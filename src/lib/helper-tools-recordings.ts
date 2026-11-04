@@ -23,6 +23,10 @@ export type StoredRecordingMeta = {
   ownerKind: RecordingOwnerKind;
   ownerLabel: string;
   remoteId?: string;
+  status?: "uploading" | "processing" | "ready" | "failed";
+  failureReason?: string | null;
+  thumbnailUrl?: string | null;
+  hlsUrl?: string | null;
 };
 
 export type StoredRecording = StoredRecordingMeta & { blob: Blob };

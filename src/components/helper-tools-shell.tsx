@@ -264,7 +264,7 @@ function HelperSidebarToggle({ isArabic, label }: { isArabic: boolean; label: st
 }
 
 function HelperWorkspace({ children }: { children: ReactNode }) {
-  const { recording, recordedSurface, active, starting, isArabic } = useHelperRecording();
+  const { recording, active, starting, isArabic } = useHelperRecording();
   const live = active || starting;
 
   return (
@@ -280,7 +280,6 @@ function HelperWorkspace({ children }: { children: ReactNode }) {
             seconds={recording.seconds}
             remaining={recording.remaining}
             countdown={recording.countdown}
-            source={recordedSurface}
             arabic={isArabic}
             onTogglePause={recording.togglePause}
             onStop={recording.stop}

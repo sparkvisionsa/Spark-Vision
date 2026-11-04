@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, CameraOff, Check, Download, Image as ImageIcon, Mic, MicOff, MonitorSmartphone, Pencil, Plus, Trash2, Video, X } from "lucide-react";
+import { Camera, CameraOff, Check, Download, Image as ImageIcon, Mic, MicOff, MonitorPlay, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { downloadBlob, fileNameTimestamp, safeMediaFileName } from "@/lib/download-media";
-import { formatRecordingClock, recordingExtension, type RecorderSurface } from "@/hooks/use-screen-recorder";
+import { formatRecordingClock, recordingExtension } from "@/hooks/use-screen-recorder";
 import { SeekableVideo } from "@/components/seekable-video";
 import { useHelperRecording } from "@/components/helper-recording-provider";
 import { useAuthTracking } from "@/components/auth-tracking-provider";
@@ -36,21 +36,20 @@ import {
 } from "@/lib/helper-tools-recordings";
 import {
   deleteRemoteScreenRecording,
+  getRemoteScreenRecordingDownloadUrl,
   helperRecordingFileUrl,
+  helperRecordingManifestUrl,
   listVisibleScreenRecordings,
+  ScreenRecordingListError,
   updateRemoteScreenRecording,
 } from "@/lib/helper-tools-recordings-api";
 
 const DESCRIPTION_MAX = 200;
-type SourceFilter = "all" | RecorderSurface;
 
 const text = {
   ar: {
     title: "تصوير الشاشة",
     intro: "سجّل الشاشة بأكملها أثناء التنقل بين صفحات النظام والتطبيقات، مع الميكروفون والكاميرا اختيارياً.",
-    source: "المصدر",
-    system: "النظام",
-    any: "تسجيل عام",
     micOn: "ميكروفون",
     micOff: "بدون ميكروفون",
     cameraOn: "كاميرا",
@@ -73,24 +72,22 @@ const text = {
     defaultName: "تسجيل-الشاشة",
     preview: "معاينة التسجيل",
     library: "التسجيلات السابقة",
-    filter: "المصدر",
-    all: "الكل",
-    empty: "لا توجد تسجيلات في هذا المصدر بعد.",
+    empty: "لا توجد تسجيلات محفوظة بعد.",
     date: "التاريخ",
     duration: "المدة",
     size: "الحجم",
     caption: "الاسم",
     actions: "إجراءات",
     watch: "مشاهدة",
+    processing: "جارٍ تجهيز الفيديو للبث…",
+    failed: "فشلت معالجة التسجيل",
+    uploading: "جارٍ الرفع…",
     deleteTitle: "حذف التسجيل؟",
     deleteBody: "سيُحذف هذا التسجيل من هذا الجهاز ولا يمكن استرجاعه.",
   },
   en: {
     title: "Screen capture",
     intro: "Record the entire screen while moving between pages and apps, with optional microphone and camera.",
-    source: "Source",
-    system: "This system",
-    any: "Entire screen",
     micOn: "Microphone",
     micOff: "No microphone",
     cameraOn: "Camera",
@@ -113,15 +110,16 @@ const text = {
     defaultName: "screen-recording",
     preview: "Recording preview",
     library: "Previous recordings",
-    filter: "Source",
-    all: "All",
-    empty: "No recordings for this source yet.",
+    empty: "No saved recordings yet.",
     date: "Date",
     duration: "Duration",
     size: "Size",
     caption: "Name",
     actions: "Actions",
     watch: "Watch",
+    processing: "Preparing video for playback…",
+    failed: "Recording processing failed",
+    uploading: "Uploading…",
     deleteTitle: "Delete this recording?",
     deleteBody: "This recording will be removed from this device and cannot be recovered.",
   },
@@ -144,7 +142,9 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
   const {
     withMicrophone, setWithMicrophone, withCamera, setWithCamera,
     cameraError, setCameraError, description, setDescription,
-    recording, recordedSurface, savedId, libraryError, owner, active, starting,
+    recording, savedId, recordingsRevision, libraryError, setLibraryError, owner, active, starting,
+    uploadProgress,
+    saveAndCloseRecording,
     startRecording, newRecording,
   } = useHelperRecording();
   const { csrfToken } = useAuthTracking();
@@ -152,7 +152,10 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
   const settingsLocked = live;
   const [url, setUrl] = useState("");
   const [items, setItems] = useState<StoredRecordingMeta[]>([]);
-  const [filter, setFilter] = useState<SourceFilter>("all");
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const [libraryLoadError, setLibraryLoadError] = useState("");
+  const [savingAndClosing, setSavingAndClosing] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [openUrl, setOpenUrl] = useState("");
   const [openBlob, setOpenBlob] = useState<Blob | null>(null);
@@ -163,13 +166,47 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
   const preview = useRef<HTMLVideoElement>(null);
   const libraryPreview = useRef<HTMLVideoElement>(null);
   const captionInput = useRef<HTMLInputElement>(null);
+  const libraryRetryTimer = useRef<number | null>(null);
+  const libraryRetryCount = useRef(0);
+  const refreshLibraryRef = useRef<() => void>(() => undefined);
 
   const refreshLibrary = useCallback(async () => {
     if (!owner) { setItems([]); return; }
-    setItems(await listVisibleScreenRecordings(owner.key, csrfToken, filter === "all" ? undefined : filter));
-  }, [filter, owner, csrfToken]);
+    try {
+      setItems(await listVisibleScreenRecordings(owner.key, csrfToken));
+      setLibraryLoadError("");
+      libraryRetryCount.current = 0;
+      if (libraryRetryTimer.current !== null) window.clearTimeout(libraryRetryTimer.current);
+      libraryRetryTimer.current = null;
+    } catch (cause) {
+      if (cause instanceof ScreenRecordingListError) {
+        setItems((current) => {
+          const visibleIds = new Set(cause.localItems.flatMap((item) => [item.id, item.remoteId].filter((id): id is string => Boolean(id))));
+          return [...cause.localItems, ...current.filter((item) => item.remoteId && !visibleIds.has(item.id))]
+            .sort((a, b) => b.createdAt - a.createdAt);
+        });
+      }
+      setLibraryLoadError(arabic ? "تعذر تحديث قائمة التسجيلات. ما زالت التسجيلات الظاهرة محفوظة." : "Could not refresh recordings. Existing items are still shown.");
+      if (libraryRetryCount.current < 3 && libraryRetryTimer.current === null) {
+        libraryRetryCount.current += 1;
+        libraryRetryTimer.current = window.setTimeout(() => {
+          libraryRetryTimer.current = null;
+          refreshLibraryRef.current();
+        }, libraryRetryCount.current * 2000);
+      }
+    }
+  }, [owner, csrfToken, arabic]);
+  refreshLibraryRef.current = () => { void refreshLibrary(); };
+  useEffect(() => () => {
+    if (libraryRetryTimer.current !== null) window.clearTimeout(libraryRetryTimer.current);
+  }, []);
 
-  useEffect(() => { void refreshLibrary(); }, [refreshLibrary, savedId, recording.blob]);
+  useEffect(() => { void refreshLibrary(); }, [refreshLibrary, savedId, recordingsRevision, recording.blob]);
+  useEffect(() => {
+    if (!items.some((item) => item.status === "processing" || item.status === "uploading")) return;
+    const timer = window.setInterval(() => { void refreshLibrary(); }, 3000);
+    return () => window.clearInterval(timer);
+  }, [items, refreshLibrary]);
   useEffect(() => {
     if (!recording.blob) { setUrl(""); return; }
     const objectUrl = URL.createObjectURL(recording.blob);
@@ -183,6 +220,14 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
     if (!openId) { setOpenUrl(""); setOpenBlob(null); return; }
     setOpenUrl("");
     setOpenBlob(null);
+    const selected = itemsRef.current.find((item) => item.id === openId);
+    const remoteId = selected?.remoteId || (/^[a-f\d]{24}$/i.test(openId) ? openId : "");
+    if (remoteId) {
+      if (selected?.status === "uploading") return;
+      // The fast-start MP4 begins in the native player without HLS playlist/segment round trips.
+      setOpenUrl(helperRecordingFileUrl(remoteId));
+      return;
+    }
     let objectUrl = "";
     let cancelled = false;
     const ownerKey = owner?.key;
@@ -212,24 +257,30 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [openId, owner?.key]);
+  useEffect(() => () => {
+    if (openUrl.startsWith("blob:")) URL.revokeObjectURL(openUrl);
+  }, [openUrl]);
   useEffect(() => {
     if (editingId) captionInput.current?.focus();
   }, [editingId]);
 
-  const sourceLabel = (value: RecorderSurface) => (value === "system" ? labels.system : labels.any);
   const fileFor = (item: StoredRecordingMeta) =>
-    `${safeMediaFileName(item.description, `${labels.defaultName}-${fileNameTimestamp(new Date(item.createdAt))}`)}.${item.mime.includes("mp4") ? "mp4" : "webm"}`;
+    `${safeMediaFileName(item.description, `${labels.defaultName}-${fileNameTimestamp(new Date(item.createdAt))}`)}.${item.hlsUrl || item.mime.includes("mp4") ? "mp4" : "webm"}`;
   const baseName = safeMediaFileName(description, `${labels.defaultName}-${fileNameTimestamp()}`);
   const videoName = `${baseName}.${recordingExtension(recording.blob)}`;
   const saveVideo = () => { if (recording.blob) downloadBlob(recording.blob, videoName); };
   const saveFrameFrom = async (node: HTMLVideoElement | null, name: string) => {
     if (!node?.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = node.videoWidth;
-    canvas.height = node.videoHeight;
-    canvas.getContext("2d")?.drawImage(node, 0, 0);
-    const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-    if (png) downloadBlob(png, name);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = node.videoWidth;
+      canvas.height = node.videoHeight;
+      canvas.getContext("2d")?.drawImage(node, 0, 0);
+      const png = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (png) downloadBlob(png, name);
+    } catch {
+      setLibraryError(arabic ? "تعذر حفظ الإطار من مصدر الفيديو الحالي." : "Could not save a frame from this video source.");
+    }
   };
   const startCaptionEdit = (item: StoredRecordingMeta) => {
     setEditingId(item.id);
@@ -243,9 +294,14 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
     if (!owner) return;
     const next = editingValue.trim().slice(0, DESCRIPTION_MAX);
     const item = items.find((row) => row.id === id);
-    await updateScreenRecordingDescription(id, owner.key, next);
-    if (item?.remoteId || /^[a-f\d]{24}$/i.test(id)) {
-      await updateRemoteScreenRecording(csrfToken, item?.remoteId || id, next).catch(() => undefined);
+    try {
+      if (item?.remoteId || /^[a-f\d]{24}$/i.test(id)) {
+        await updateRemoteScreenRecording(csrfToken, item?.remoteId || id, next);
+      }
+      await updateScreenRecordingDescription(id, owner.key, next);
+    } catch (cause) {
+      setLibraryError(cause instanceof Error ? cause.message : (arabic ? "تعذر حفظ اسم التسجيل." : "Could not save the recording name."));
+      return;
     }
     if (id === savedId) setDescription(next);
     setEditingId(null);
@@ -256,18 +312,19 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
     if (!owner) return;
     setBusyId(item.id);
     try {
+      const remoteId = item.remoteId || (/^[a-f\d]{24}$/i.test(item.id) ? item.id : "");
+      if (remoteId) {
+        const signedUrl = await getRemoteScreenRecordingDownloadUrl(csrfToken, remoteId, fileFor(item));
+        window.location.assign(signedUrl);
+        return;
+      }
       let blob: Blob | null = item.id === openId ? openBlob : null;
-      if (!blob) {
-        const local = await readScreenRecording(item.id, owner.key);
-        blob = local?.blob ?? null;
-      }
-      if (!blob && (item.remoteId || /^[a-f\d]{24}$/i.test(item.id))) {
-        const response = await fetch(helperRecordingFileUrl(item.remoteId || item.id), { credentials: "include" });
-        if (response.ok) blob = await response.blob();
-      }
-      if (!blob) return;
+      if (!blob) blob = (await readScreenRecording(item.id, owner.key))?.blob ?? null;
+      if (!blob) throw new Error(arabic ? "ملف التسجيل غير متاح للتنزيل." : "The recording file is unavailable for download.");
       const playable = item.seconds > 0 ? await finalizeRecordingBlob(blob, item.seconds * 1000) : blob;
       downloadBlob(playable, fileFor(item));
+    } catch (cause) {
+      setLibraryError(cause instanceof Error ? cause.message : (arabic ? "تعذر تنزيل التسجيل." : "Could not download the recording."));
     } finally {
       setBusyId(null);
     }
@@ -292,6 +349,18 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
     newRecording();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  const saveAndClose = async () => {
+    if (savingAndClosing) return;
+    setSavingAndClosing(true);
+    try {
+      await saveAndCloseRecording();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (cause) {
+      setLibraryError(cause instanceof Error ? cause.message : (arabic ? "تعذر حفظ التسجيل." : "Could not save the recording."));
+    } finally {
+      setSavingAndClosing(false);
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-3 px-1 pb-6">
@@ -314,15 +383,6 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
       </div>
 
       <section className={cn("space-y-3 rounded-xl border bg-white p-3", live ? "border-red-200" : "border-slate-200")}>
-        <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2">
-          <p className="text-[11px] font-bold text-slate-400">{labels.source}</p>
-          <div className="flex flex-wrap gap-1.5" aria-label={labels.source}>
-            <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white">
-              <MonitorSmartphone className="h-3.5 w-3.5" />
-              {labels.any}
-            </span>
-          </div>
-        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -387,8 +447,8 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
         ) : null}
       </section>
 
-      {(recording.error || cameraError || libraryError) && (
-        <p role="alert" className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs text-rose-700">{recording.error || cameraError || libraryError}</p>
+      {(recording.error || cameraError || libraryError || libraryLoadError) && (
+        <p role="alert" className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs text-rose-700">{recording.error || cameraError || libraryError || libraryLoadError}</p>
       )}
       {recording.notice && !recording.error && (
         <p role="status" className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800">{recording.notice}</p>
@@ -396,11 +456,17 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
 
       {recording.blob && url && !live && (
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <SeekableVideo ref={preview} src={url} aria-label={labels.preview} className="aspect-video max-h-[42vh] w-full bg-slate-950" />
+          <SeekableVideo ref={preview} src={url} aria-label={labels.preview} lang={arabic ? "ar" : "en"} className="aspect-video max-h-[42vh] w-full bg-slate-950" />
           <div className="border-t border-slate-100 bg-gradient-to-l from-slate-50 to-white p-3">
             <p className="mb-2.5 text-[11px] tabular-nums text-slate-500">
-              {formatRecordingClock(recording.seconds)} · {formatSize(recording.blob.size)} · {sourceLabel(recordedSurface)}
+              {formatRecordingClock(recording.seconds)} · {formatSize(recording.blob.size)}
             </p>
+            {uploadProgress !== null ? (
+              <div className="mb-3 space-y-1.5" role="status" aria-live="polite">
+                <div className="flex justify-between text-[11px] text-slate-600"><span>{arabic ? "رفع التسجيل إلى التخزين" : "Uploading recording to storage"}</span><span>{uploadProgress}%</span></div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-sky-600 transition-[width]" style={{ width: `${uploadProgress}%` }} /></div>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-end">
               <label className="grid w-full gap-1 sm:w-1/2">
                 <span className="text-[11px] font-semibold text-slate-600">{labels.videoName}</span>
@@ -422,10 +488,11 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
                 </Button>
                 <Button
                   className="h-10 rounded-xl bg-slate-900 px-4 text-xs font-semibold shadow-sm hover:bg-slate-800"
-                  onClick={startFresh}
+                  onClick={() => void saveAndClose()}
+                  disabled={savingAndClosing}
                 >
                   <Check className="h-3.5 w-3.5" />
-                  {labels.saveAndClose}
+                  {savingAndClosing ? (arabic ? "جارٍ الحفظ…" : "Saving…") : labels.saveAndClose}
                 </Button>
               </div>
             </div>
@@ -436,25 +503,6 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
             <p className="text-xs font-bold text-slate-800">{labels.library}</p>
-          <div className="flex flex-wrap gap-1 sm:ms-auto" role="group" aria-label={labels.filter}>
-            {([
-              { id: "all" as const, label: labels.all },
-              { id: "any" as const, label: labels.any },
-            ]).map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={filter === id}
-                onClick={() => setFilter(id)}
-                className={cn(
-                  "h-7 shrink-0 rounded-md px-2.5 text-[11px] font-semibold whitespace-nowrap",
-                  filter === id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
         {items.length === 0 ? (
           <p className="px-3 py-8 text-center text-xs text-slate-400">{labels.empty}</p>
@@ -467,7 +515,6 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
                   <th className="whitespace-nowrap px-3 py-2.5 text-start">{labels.date}</th>
                   <th className="whitespace-nowrap px-3 py-2.5 text-start">{labels.duration}</th>
                   <th className="whitespace-nowrap px-3 py-2.5 text-start">{labels.size}</th>
-                  <th className="whitespace-nowrap px-3 py-2.5 text-start">{labels.source}</th>
                   <th className="whitespace-nowrap px-3 py-2.5 text-start">{labels.actions}</th>
                 </tr>
               </thead>
@@ -499,9 +546,11 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
                               </button>
                             </div>
                           ) : (
-                            <span className="text-sm font-semibold leading-5 text-slate-900 break-words">
-                              {item.description || labels.defaultName}
-                            </span>
+                            <div className="grid gap-0.5">
+                              <span className="text-sm font-semibold leading-5 text-slate-900 break-words">{item.description || labels.defaultName}</span>
+                              {item.status === "processing" || item.status === "uploading" ? <span className="text-[10px] text-sky-700">{item.status === "uploading" ? labels.uploading : labels.processing}</span> : null}
+                              {item.status === "failed" ? <span className="text-[10px] text-rose-700">{item.failureReason || labels.failed}</span> : null}
+                            </div>
                           )}
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs text-slate-700">
@@ -513,18 +562,15 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
                         <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs tabular-nums text-slate-600">
                           {formatSize(item.size)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs text-slate-600">
-                          {sourceLabel(item.source)}
-                        </td>
                         <td className="whitespace-nowrap px-2 py-2 align-middle">
                           <div className="flex items-center gap-0.5">
-                            <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-violet-700 hover:bg-violet-50" aria-label={labels.watch} title={labels.watch} onClick={() => setOpenId(item.id)}>
-                              <Video className="h-3.5 w-3.5" />
+                            <button type="button" disabled={item.status === "uploading"} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-violet-700 hover:bg-violet-50 disabled:cursor-wait disabled:opacity-40" aria-label={labels.watch} title={labels.watch} onClick={() => setOpenId(item.id)}>
+                              <MonitorPlay className="h-4 w-4" />
                             </button>
                             <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100" aria-label={labels.edit} title={labels.edit} onClick={() => startCaptionEdit(item)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" disabled={busyId === item.id} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50 disabled:opacity-40" aria-label={labels.download} title={labels.download} onClick={() => void downloadItem(item)}>
+                            <button type="button" disabled={busyId === item.id || item.status === "uploading"} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-sky-700 hover:bg-sky-50 disabled:opacity-40" aria-label={labels.download} title={labels.download} onClick={() => void downloadItem(item)}>
                               <Download className="h-3.5 w-3.5" />
                             </button>
                             <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 hover:bg-rose-50" aria-label={labels.delete} title={labels.delete} onClick={() => setDeleteId(item.id)}>
@@ -542,14 +588,37 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
       </section>
 
       <Dialog open={Boolean(openId)} onOpenChange={(open) => { if (!open) setOpenId(null); }}>
-        <DialogContent className="max-w-4xl gap-3 overflow-hidden p-4 sm:rounded-2xl" dir={arabic ? "rtl" : "ltr"}>
+        <DialogContent className="max-h-[95dvh] w-[calc(100vw-1rem)] max-w-4xl gap-3 overflow-y-auto p-4 sm:rounded-2xl" dir={arabic ? "rtl" : "ltr"}>
           <DialogTitle className={cn("pe-8 text-base", arabic ? "text-right" : "text-left")}>
             {items.find((item) => item.id === openId)?.description || labels.preview}
           </DialogTitle>
           <DialogDescription className="sr-only">{labels.watch}</DialogDescription>
           {openUrl ? (
             <>
-              <SeekableVideo ref={libraryPreview} src={openUrl} className="aspect-video w-full rounded-lg bg-slate-950" />
+              <SeekableVideo
+                ref={libraryPreview}
+                src={openUrl}
+                poster={items.find((item) => item.id === openId)?.thumbnailUrl || undefined}
+                fallbackSrc={items.find((item) => item.id === openId)?.hlsUrl && items.find((item) => item.id === openId)?.remoteId
+                  ? helperRecordingManifestUrl(items.find((item) => item.id === openId)!.remoteId!) : undefined}
+                className="aspect-video max-h-[65dvh] w-full rounded-lg bg-slate-950"
+                lang={arabic ? "ar" : "en"}
+                preload="metadata"
+                revealDuration={false}
+                onError={() => {
+                  if (openBlob || !owner || !openId) return;
+                  void (async () => {
+                    const rows = await listScreenRecordings(owner.key);
+                    const localRow = rows.find((row) => row.id === openId || row.remoteId === openId);
+                    if (!localRow) return;
+                    const local = await readScreenRecording(localRow.id, owner.key);
+                    if (!local) return;
+                    const playable = local.seconds > 0 ? await finalizeRecordingBlob(local.blob, local.seconds * 1000) : local.blob;
+                    setOpenBlob(playable);
+                    setOpenUrl(URL.createObjectURL(playable));
+                  })();
+                }}
+              />
               <div className="flex flex-wrap gap-1.5">
                 <Button
                   variant="outline"
