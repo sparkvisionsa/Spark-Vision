@@ -6,12 +6,12 @@ import {
   REPORT_BODY_CONTENT_FOOTER_GAP_PX,
   REPORT_INTERIOR_FRAME_MM,
 } from "./mv-report-page-metrics";
-import type { MvCompanyReportLetterheadTemplate } from "./types";
+import type { MvCompanyReportSystemTemplate } from "./types";
 
 export type MvReportPageVariant = "cover" | "interior";
 export type MvReportPageOrientation = "portrait" | "landscape";
 
-const MvReportLetterheadContext = createContext<MvCompanyReportLetterheadTemplate | null>(null);
+const MvReportLetterheadContext = createContext<MvCompanyReportSystemTemplate | null>(null);
 
 const VALUE_TECH_OFFICIAL_TEMPLATE_ID = "default-report-template";
 const VALUE_TECH_COVER_ARTWORK = "/report-assets/value-tech-machine-valuation-cover-v1.png";
@@ -49,7 +49,7 @@ export function MvReportLetterheadProvider({
   value,
   children,
 }: {
-  value?: MvCompanyReportLetterheadTemplate | null;
+  value?: MvCompanyReportSystemTemplate | null;
   children: ReactNode;
 }) {
   return (
@@ -133,7 +133,7 @@ export interface MvReportPageShellProps {
   coverChildrenChromeless?: boolean;
   /** علامة مائية «مسودة» على كامل الورقة (وضع المسودة) */
   draftWatermark?: boolean;
-  letterheadTemplate?: MvCompanyReportLetterheadTemplate | null;
+  letterheadTemplate?: MvCompanyReportSystemTemplate | null;
   children: ReactNode;
   className?: string;
 }
@@ -411,16 +411,12 @@ export function MvReportPageShell({
   const activeLetterheadTemplate = letterheadTemplate ?? inheritedLetterheadTemplate;
   const land = orientation === "landscape";
   const shellDim = land ? "h-[210mm] w-[297mm]" : "h-[297mm] w-[210mm]";
-  const letterheadEnabled = activeLetterheadTemplate?.enabled === true;
-  const coverBackground = letterheadEnabled ? activeLetterheadTemplate?.coverImageDataUrl || null : null;
-  const pageBackground = letterheadEnabled
-    ? land
-      ? activeLetterheadTemplate?.landscapePageImageDataUrl || activeLetterheadTemplate?.pageImageDataUrl || null
-      : activeLetterheadTemplate?.pageImageDataUrl || null
-    : null;
-  const effectiveLogoSrc = (letterheadEnabled ? activeLetterheadTemplate?.logoDataUrl || null : null) || logoSrc;
-  const footerImageSrc = letterheadEnabled ? activeLetterheadTemplate?.footerImageDataUrl || null : null;
-  const customInteriorLetterhead = Boolean(pageBackground);
+  const letterheadEnabled = false;
+  const coverBackground: string | null = null;
+  const pageBackground: string | null = null;
+  const effectiveLogoSrc = logoSrc;
+  const footerImageSrc: string | null = null;
+  const customInteriorLetterhead = false;
   const safeArea = land ? LETTERHEAD_SAFE_AREA.landscape : LETTERHEAD_SAFE_AREA.portrait;
   const showDefaultFooterText = !letterheadEnabled && footerLines.length > 0;
   const activeTemplateId = activeLetterheadTemplate?.templateId ?? "default-report-template";

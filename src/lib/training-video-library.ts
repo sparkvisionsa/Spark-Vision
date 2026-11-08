@@ -127,7 +127,7 @@ export const TRAINING_VIDEOS: readonly TrainingVideo[] = [
     "1:04",
     "إعدادات ونماذج تقارير الآلات",
     "Machinery report settings and templates",
-    "تخصيص نماذج البيانات والترقيم والترويسة والعناصر البصرية بما يتوافق مع هوية المنشأة وسياسة التقارير.",
+    "تخصيص نماذج البيانات والترقيم وقوالب النظام والعناصر البصرية بما يتوافق مع سياسة التقارير.",
     "Customize data templates, numbering, headers, and visual elements to match company reporting standards.",
     "الإعدادات",
     "Settings",

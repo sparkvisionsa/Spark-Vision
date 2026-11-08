@@ -158,7 +158,7 @@ export const mvEn = {
       assetDescriptions: "Asset classifications",
       wordTemplates: "Word templates",
       pptxTemplates: "PowerPoint templates",
-      letterhead: "System templates and letterhead",
+      letterhead: "System templates",
       reportDataModels: "Report data models",
     },
   },
@@ -1886,8 +1886,6 @@ export const mvEn = {
       images: "Loading images",
     },
     templates: {
-      uploadLetterheadFirst:
-        "Upload letterhead images in company settings before using this option.",
       applied: "Applied template {title}.",
       default: {
         title: "Value Tech Official",
@@ -1928,11 +1926,6 @@ export const mvEn = {
       deck: {
         title: "PowerPoint Presentation",
         description: "Optimized for 16:9 slide download with presentation cover.",
-      },
-      letterhead: {
-        title: "Use letterhead",
-        description: "Uses letterhead images uploaded from company settings as-is.",
-        badge: "Images",
       },
       aiFallback: "AI template saved from company PDF.",
       aiName: "AI template {n}",

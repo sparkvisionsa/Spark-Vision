@@ -60,7 +60,7 @@ import type {
   MvDriveFile,
   MvCompanyAiReportTemplate,
   MvCompanyReportCustomSection,
-  MvCompanyReportLetterheadTemplate,
+  MvCompanyReportSystemTemplate,
   MvCompanyReportSectionModel,
   MvProject,
   MvProjectReportData,
@@ -950,7 +950,6 @@ function normalizeReportPageOrientations(raw: unknown): ReportPageOrientations {
 }
 
 const DEFAULT_REPORT_TEMPLATE_ID = "default-report-template";
-const COMPANY_LETTERHEAD_TEMPLATE_ID = "company-letterhead";
 const AI_REPORT_TEMPLATE_ID_PREFIX = "ai-template:";
 
 /**
@@ -979,9 +978,7 @@ type MvReportTemplateOption = {
     | "premium"
     | "creative"
     | "deck"
-    | "letterhead"
     | "ai";
-  usesCompanyLetterhead?: boolean;
   usesAiTemplate?: boolean;
   aiTemplate?: MvCompanyAiTemplate;
 };
@@ -1076,16 +1073,6 @@ const REPORT_TEMPLATE_OPTIONS = (t: MvT): MvReportTemplateOption[] => [
     outputFormat: "pptx",
     accentClass: "from-orange-600 to-amber-500",
     previewKind: "deck",
-  },
-  {
-    id: COMPANY_LETTERHEAD_TEMPLATE_ID,
-    title: t("report.templates.letterhead.title"),
-    description: t("report.templates.letterhead.description"),
-    badge: t("report.templates.letterhead.badge"),
-    outputFormat: "pdf",
-    accentClass: "from-amber-600 to-orange-500",
-    previewKind: "letterhead",
-    usesCompanyLetterhead: true,
   },
 ];
 
@@ -1210,18 +1197,6 @@ function companyDocumentTemplatesAvailability(
     word: companyDocumentTemplateAvailability(reportDefaults, "wordTemplate"),
     pptx: companyDocumentTemplateAvailability(reportDefaults, "pptxTemplate"),
   };
-}
-
-function hasCompanyLetterheadImages(template: MvCompanyReportLetterheadTemplate | null | undefined): boolean {
-  if (!template) return false;
-  return Boolean(
-    template.coverImageDataUrl ||
-      template.pageImageDataUrl ||
-      template.landscapePageImageDataUrl ||
-      template.logoDataUrl ||
-      template.footerImageDataUrl ||
-      template.signatureStampDataUrl,
-  );
 }
 
 function ReportTemplateArtwork({
@@ -1876,7 +1851,7 @@ export default function MvValuationReportWorkspace({
   const [companyReportSectionModels, setCompanyReportSectionModels] =
     useState<MvCompanyReportSectionModel[]>([]);
   const reportSectionModelSyncRef = useRef<string | null>(null);
-  const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportLetterheadTemplate | null>(null);
+  const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportSystemTemplate | null>(null);
   const [companyDocumentTemplates, setCompanyDocumentTemplates] =
     useState<MvCompanyDocumentTemplatesAvailability>(UNKNOWN_COMPANY_DOCUMENT_TEMPLATES);
   const [companyAiTemplates, setCompanyAiTemplates] = useState<MvCompanyAiTemplate[]>([]);
@@ -2285,14 +2260,10 @@ export default function MvValuationReportWorkspace({
     const hasSavedProjectTemplate =
       typeof savedProjectTemplateId === "string" && savedProjectTemplateId.trim().length > 0;
     const companySystemTemplateId = letterheadTemplate?.templateId;
-    const companyTemplateIsReady =
-      companySystemTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID || hasCompanyLetterheadImages(letterheadTemplate);
     setPendingReportTemplateId(
       normalizeReportTemplateIdFrom(
         reportTemplateOptions,
-        hasSavedProjectTemplate || !companyTemplateIsReady
-          ? savedProjectTemplateId
-          : companySystemTemplateId,
+        hasSavedProjectTemplate ? savedProjectTemplateId : companySystemTemplateId,
       ),
     );
   }, [letterheadTemplate, project?._id, project?.reportData?.reportTemplateId, reportTemplateOptions]);
@@ -2351,7 +2322,7 @@ export default function MvValuationReportWorkspace({
               body?: string;
             }>;
             reportSectionModels?: unknown[];
-            letterhead?: MvCompanyReportLetterheadTemplate | null;
+            letterhead?: MvCompanyReportSystemTemplate | null;
             aiTemplates?: unknown[];
             wordTemplate?: unknown;
             pptxTemplate?: unknown;
@@ -2403,25 +2374,11 @@ export default function MvValuationReportWorkspace({
           normalizeReportSectionModels(data.reportDefaults?.reportSectionModels),
         );
         const rawLetterhead = data.reportDefaults?.letterhead;
-        const image = (value: unknown): string | null => {
-          if (typeof value !== "string") return null;
-          const trimmed = value.trim();
-          return trimmed.startsWith("data:image/") || trimmed.startsWith("/uploads/company-report-templates/")
-            ? trimmed
-            : null;
-        };
         setLetterheadTemplate(
           rawLetterhead
             ? {
-                enabled: rawLetterhead.enabled === true,
                 templateId: typeof rawLetterhead.templateId === "string" ? rawLetterhead.templateId : null,
                 outputFormat: rawLetterhead.outputFormat === "pptx" ? "pptx" : "pdf",
-                coverImageDataUrl: image(rawLetterhead.coverImageDataUrl),
-                pageImageDataUrl: image(rawLetterhead.pageImageDataUrl),
-                landscapePageImageDataUrl: image(rawLetterhead.landscapePageImageDataUrl),
-                logoDataUrl: image(rawLetterhead.logoDataUrl),
-                footerImageDataUrl: image(rawLetterhead.footerImageDataUrl),
-                signatureStampDataUrl: image(rawLetterhead.signatureStampDataUrl),
               }
             : null,
         );
@@ -2910,19 +2867,14 @@ export default function MvValuationReportWorkspace({
   const hasSavedProjectTemplate =
     typeof savedProjectTemplateId === "string" && savedProjectTemplateId.trim().length > 0;
   const companySystemTemplateId = letterheadTemplate?.templateId;
-  const companyTemplateIsReady =
-    companySystemTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID || hasCompanyLetterheadImages(letterheadTemplate);
   const appliedReportTemplateId = normalizeReportTemplateIdFrom(
     reportTemplateOptions,
-    hasSavedProjectTemplate || !companyTemplateIsReady
-      ? reportData.reportTemplateId
-      : companySystemTemplateId,
+    hasSavedProjectTemplate ? reportData.reportTemplateId : companySystemTemplateId,
   );
   const appliedReportTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
   const reportTemplatePreviewOption = reportTemplatePreviewId
     ? findReportTemplateOptionFrom(reportTemplateOptions, reportTemplatePreviewId)
     : null;
-  const companyLetterheadReady = hasCompanyLetterheadImages(letterheadTemplate);
   const includeAssetImages = reportData.includeAssetImages !== false;
   const includeValuationAccountImages =
     reportData.includeValuationAccountImages !== false &&
@@ -3234,12 +3186,6 @@ export default function MvValuationReportWorkspace({
   const reportImageSources = useMemo(() => {
     const sources: string[] = [];
     if (companyBrand.logoSrc) sources.push(companyBrand.logoSrc);
-    if (letterheadTemplate?.coverImageDataUrl) sources.push(letterheadTemplate.coverImageDataUrl);
-    if (letterheadTemplate?.pageImageDataUrl) sources.push(letterheadTemplate.pageImageDataUrl);
-    if (letterheadTemplate?.landscapePageImageDataUrl) sources.push(letterheadTemplate.landscapePageImageDataUrl);
-    if (letterheadTemplate?.logoDataUrl) sources.push(letterheadTemplate.logoDataUrl);
-    if (letterheadTemplate?.footerImageDataUrl) sources.push(letterheadTemplate.footerImageDataUrl);
-    if (letterheadTemplate?.signatureStampDataUrl) sources.push(letterheadTemplate.signatureStampDataUrl);
     // لا داعٍ لتحميل صور قوالب AI مسبقاً — لم تعد تُستخدم كخلفية إطلاقاً (انظر `renderedLetterheadTemplate` أعلاه).
     for (const file of orderedImages.slice(0, REPORT_PREVIEW_WARM_IMAGE_LIMIT)) {
       sources.push(reportDriveFileImageSrc(projectId, file));
@@ -3252,7 +3198,7 @@ export default function MvValuationReportWorkspace({
       if (row.signatureImageDataUrl) sources.push(row.signatureImageDataUrl);
     }
     return sources.filter(Boolean);
-  }, [companyBrand.logoSrc, letterheadTemplate, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
+  }, [companyBrand.logoSrc, orderedImages, orderedValuationImages, preparerDisplayRows, projectId]);
 
   const reportImageSourcesKey = useMemo(
     () =>
@@ -3268,7 +3214,7 @@ export default function MvValuationReportWorkspace({
     [reportImageCacheVersion],
   );
 
-  const renderedLetterheadTemplate = useMemo<MvCompanyReportLetterheadTemplate | null>(() => {
+  const renderedLetterheadTemplate = useMemo<MvCompanyReportSystemTemplate | null>(() => {
     if (appliedReportTemplateId === DEFAULT_REPORT_TEMPLATE_ID) return null;
     const appliedTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
     if (appliedTemplate.usesAiTemplate && appliedTemplate.aiTemplate) {
@@ -3279,41 +3225,23 @@ export default function MvValuationReportWorkspace({
        * الخاص (نص أبيض ثابت يفرض تصميماً داكناً) كان يُسبب تعارضاً/تراكب نص لا يمكن
        * ضمان سلامته لملف مرفوع عشوائي — بل كانت الخلفية نفسها تتسرب أيضاً إلى صفحة
        * الشكر الختامية (نفس `variant="cover"`). لذلك نتعامل مع قالب AI بالضبط كما
-       * نتعامل مع أي قالب جاهز مبني بالكود (مثل «executive-navy»): بلا صور خلفية إطلاقاً
-       * (`enabled: false`)، معرّف قالب غير معروف لدى `reportTemplateChrome`/
+       * نتعامل مع أي قالب جاهز مبني بالكود (مثل «executive-navy»): بلا صور خلفية إطلاقاً.
+       * معرّف القالب غير المعروف لدى `reportTemplateChrome`/
        * `ReportTemplateCoverDecor` فيسقط تلقائياً وبأمان على تصميم الغلاف الاحترافي
        * الافتراضي (كحلي/ذهبي) — نفس جودة والاتساق البصري لبقية التقرير تماماً.
        * محتوى الصفحات الداخلية لقالب AI يُبنى ديناميكياً من `aiTemplate.sections` داخل
        * `MvValuationReportDocumentBody`، لا من أي صورة.
        */
       return {
-        enabled: false,
         templateId: appliedTemplate.id,
         outputFormat: "pdf",
       };
     }
-    if (appliedReportTemplateId !== COMPANY_LETTERHEAD_TEMPLATE_ID) {
-      return {
-        enabled: false,
-        templateId: appliedTemplate.id,
-        outputFormat: appliedTemplate.outputFormat,
-      };
-    }
-    if (!letterheadTemplate) return null;
-    if (!hasCompanyLetterheadImages(letterheadTemplate)) return null;
-    const image = (src?: string | null) => (src ? getCachedReportImageSrc(src) : null);
     return {
-      enabled: true,
-      templateId: COMPANY_LETTERHEAD_TEMPLATE_ID,
-      outputFormat: "pdf",
-      coverImageDataUrl: image(letterheadTemplate.coverImageDataUrl),
-      pageImageDataUrl: image(letterheadTemplate.pageImageDataUrl),
-      landscapePageImageDataUrl: image(letterheadTemplate.landscapePageImageDataUrl),
-      logoDataUrl: image(letterheadTemplate.logoDataUrl),
-      footerImageDataUrl: image(letterheadTemplate.footerImageDataUrl),
-      signatureStampDataUrl: image(letterheadTemplate.signatureStampDataUrl),
+      templateId: appliedTemplate.id,
+      outputFormat: appliedTemplate.outputFormat,
     };
-  }, [appliedReportTemplateId, letterheadTemplate, reportImageCacheVersion, reportTemplateOptions]);
+  }, [appliedReportTemplateId, reportTemplateOptions]);
 
   useEffect(() => {
     if (loading || reportImageSources.length === 0) return;
@@ -3506,16 +3434,9 @@ export default function MvValuationReportWorkspace({
   const applyReportTemplateById = useCallback((templateId: string) => {
     const option = findReportTemplateOptionFrom(reportTemplateOptions, templateId);
     setPendingReportTemplateId(option.id);
-    if (option.usesCompanyLetterhead && !companyLetterheadReady) {
-      toast({
-        variant: "destructive",
-        description: t("report.templates.uploadLetterheadFirst"),
-      });
-      return;
-    }
     onReportDataPatch({ reportTemplateId: option.id });
     toast({ description: t("report.templates.applied", { title: option.title }) });
-  }, [companyLetterheadReady, onReportDataPatch, reportTemplateOptions, t, toast]);
+  }, [onReportDataPatch, reportTemplateOptions, t, toast]);
 
   const applyProjectReportTemplate = useCallback(() => {
     applyReportTemplateById(pendingReportTemplateId);
@@ -4193,7 +4114,6 @@ export default function MvValuationReportWorkspace({
                       <SelectItem
                         key={option.id}
                         value={option.id}
-                        disabled={option.usesCompanyLetterhead && !companyLetterheadReady}
                       >
                         {option.title} - {option.badge}
                       </SelectItem>
@@ -4591,7 +4511,6 @@ export default function MvValuationReportWorkspace({
                               <SelectItem
                                 key={option.id}
                                 value={option.id}
-                                disabled={option.usesCompanyLetterhead && !companyLetterheadReady}
                               >
                                 {option.title} - {option.badge}
                               </SelectItem>
@@ -4653,13 +4572,8 @@ export default function MvValuationReportWorkspace({
                         {reportTemplateOptions.map((option) => {
                           const active = option.id === appliedReportTemplateId;
                           const pending = option.id === pendingReportTemplateId;
-                          const disabled = Boolean(option.usesCompanyLetterhead && !companyLetterheadReady);
                           const previewImage = option.usesAiTemplate
                             ? option.aiTemplate?.coverImageDataUrl || option.aiTemplate?.pageImageDataUrl
-                            : option.usesCompanyLetterhead
-                            ? letterheadTemplate?.coverImageDataUrl ||
-                              letterheadTemplate?.pageImageDataUrl ||
-                              letterheadTemplate?.landscapePageImageDataUrl
                             : null;
                           return (
                             <div
@@ -4671,7 +4585,6 @@ export default function MvValuationReportWorkspace({
                                   : pending
                                     ? "border-sky-300 ring-2 ring-sky-100"
                                     : "border-slate-200",
-                                disabled && "opacity-60",
                               )}
                             >
                               <div className="relative h-24 bg-slate-50">
@@ -4703,7 +4616,6 @@ export default function MvValuationReportWorkspace({
                                   size="sm"
                                   variant={pending ? "secondary" : "outline"}
                                   className="h-7 shrink-0 rounded-lg px-2 text-[10px] font-black"
-                                  disabled={disabled}
                                   onClick={() => setPendingReportTemplateId(option.id)}
                                 >
                                   {active ? t("report.toolbar.applied") : pending ? t("report.toolbar.selected") : t("report.toolbar.choose")}
@@ -5057,10 +4969,6 @@ export default function MvValuationReportWorkspace({
                         ? reportTemplatePreviewOption.aiTemplate?.coverImageDataUrl ||
                           reportTemplatePreviewOption.aiTemplate?.pageImageDataUrl ||
                           null
-                        : reportTemplatePreviewOption.usesCompanyLetterhead
-                        ? letterheadTemplate?.coverImageDataUrl ||
-                          letterheadTemplate?.pageImageDataUrl ||
-                          letterheadTemplate?.landscapePageImageDataUrl
                         : null
                     }
                     large

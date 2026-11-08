@@ -157,7 +157,7 @@ export const mvAr = {
       assetDescriptions: "تصنيفات الأصول",
       wordTemplates: "قوالب Word",
       pptxTemplates: "قوالب PowerPoint",
-      letterhead: "قوالب النظام والكليشيه",
+      letterhead: "قوالب النظام",
       reportDataModels: "نماذج بيانات التقرير",
     },
   },
@@ -1884,8 +1884,6 @@ export const mvAr = {
       images: "تحميل الصور",
     },
     templates: {
-      uploadLetterheadFirst:
-        "ارفع صور الكليشيه من إعدادات الشركة قبل استخدام هذا الخيار.",
       applied: "تم تطبيق قالب {title}.",
       default: {
         title: "Value Tech الرسمي",
@@ -1926,11 +1924,6 @@ export const mvAr = {
       deck: {
         title: "PowerPoint Presentation",
         description: "مهيأ للتنزيل كعرض شرائح 16:9 مع غلاف عرض تقديمي.",
-      },
-      letterhead: {
-        title: "استخدام كليشيه",
-        description: "يستخدم صور الكليشيه المرفوعة من إعدادات الشركة كما هي.",
-        badge: "صور",
       },
       aiFallback: "قالب ذكاء اصطناعي محفوظ من PDF شركة.",
       aiName: "قالب ذكاء اصطناعي {n}",

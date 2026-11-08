@@ -23,7 +23,7 @@ import type {
   MvProjectReportData,
   MvCompanyAiReportTemplate,
   MvCompanyReportSectionModel,
-  MvCompanyReportLetterheadTemplate,
+  MvCompanyReportSystemTemplate,
   MvReportEditableSection,
   MvReportInsertedBlock,
   MvReportInsertedBlockKind,
@@ -1241,7 +1241,7 @@ export interface MvValuationReportDocumentBodyProps {
   projectName: string;
   reportData: MvProjectReportData;
   companyBrand: { name: string; logoSrc: string | null; commercialRegistration?: string | null };
-  letterheadTemplate?: MvCompanyReportLetterheadTemplate | null;
+  letterheadTemplate?: MvCompanyReportSystemTemplate | null;
   /**
    * قالب تقرير مُستخرج بالذكاء الاصطناعي — عند وجوده، تُبنى صفحات التقرير من
    * `aiTemplate.sections` (مطابَقة بأقسام موثوقة موجودة أو مُركَّبة كقسم AI عام)
@@ -2831,16 +2831,7 @@ export function MvValuationReportDocumentBody({
                   className="min-h-[1.25rem] text-center text-[11.5px] font-semibold text-slate-950"
                   multiline={false}
                 />
-                {!sheetDraft && letterheadTemplate?.enabled && letterheadTemplate.signatureStampDataUrl ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={letterheadTemplate.signatureStampDataUrl}
-                    alt=""
-                    className="mx-auto mt-1 max-h-16 max-w-[170px] object-contain"
-                  />
-                ) : (
-                  <div className="mx-auto mt-3 h-px w-[150px] bg-slate-300" />
-                )}
+                <div className="mx-auto mt-3 h-px w-[150px] bg-slate-300" />
               </div>
             </div>
           </div>

@@ -182,15 +182,8 @@ type CompanyReportCustomGroupForm = {
 };
 
 type CompanyReportLetterheadForm = {
-  enabled: boolean;
   templateId: string | null;
   outputFormat: "pdf" | "pptx";
-  coverImageDataUrl: string | null;
-  pageImageDataUrl: string | null;
-  landscapePageImageDataUrl: string | null;
-  logoDataUrl: string | null;
-  footerImageDataUrl: string | null;
-  signatureStampDataUrl: string | null;
 };
 
 type CompanyReportWordTemplateForm = CompanyReportDocumentTemplateForm;
@@ -277,15 +270,8 @@ type CompanyReportDefaultsForm = {
 
 function emptyReportLetterhead(): CompanyReportLetterheadForm {
   return {
-    enabled: false,
     templateId: "default-report-template",
     outputFormat: "pdf",
-    coverImageDataUrl: null,
-    pageImageDataUrl: null,
-    landscapePageImageDataUrl: null,
-    logoDataUrl: null,
-    footerImageDataUrl: null,
-    signatureStampDataUrl: null,
   };
 }
 
@@ -381,36 +367,22 @@ const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
   },
 ];
 
-const COMPANY_LETTERHEAD_TEMPLATE_OPTION: LetterheadTemplateOption = {
-  id: "company-letterhead",
-  title: "كليشيه الشركة",
-  description: "قالب يعتمد على صور الكليشيه المرفوعة من الشركة.",
-  outputFormat: "pdf",
-  accentClass: "from-amber-600 to-orange-500",
-  badge: "صور",
-};
-
 const A4_PREVIEW_WIDTH_PX = (210 * 96) / 25.4;
 const A4_PREVIEW_HEIGHT_PX = (297 * 96) / 25.4;
 
 function SystemReportTemplatePreview({
   template,
-  letterhead,
   companyName,
   companyLogoSrc,
   large = false,
 }: {
   template: LetterheadTemplateOption;
-  letterhead: CompanyReportLetterheadForm;
   companyName: string;
   companyLogoSrc: string | null;
   large?: boolean;
 }) {
   const scale = large ? 0.58 : 0.29;
-  const companyLetterhead = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
   const previewLetterhead: CompanyReportLetterheadForm = {
-    ...letterhead,
-    enabled: companyLetterhead,
     templateId: template.id,
     outputFormat: template.outputFormat,
   };
@@ -829,8 +801,6 @@ function normalizeReportDefaults(
     }
     return out as T;
   };
-  const image = (value: unknown): string | null =>
-    isReportTemplateImageSource(value) ? value.trim() : null;
   const letterheadRaw =
     raw.letterhead && typeof raw.letterhead === "object" ? raw.letterhead : emptyReportLetterhead();
   const customSections = Array.isArray(raw.customSections)
@@ -889,18 +859,12 @@ function normalizeReportDefaults(
       return models.length > 0 ? models : [createDefaultReportSectionModel()];
     })(),
     letterhead: {
-      enabled: letterheadRaw.enabled === true,
       templateId:
-        typeof letterheadRaw.templateId === "string" && letterheadRaw.templateId.trim()
+        typeof letterheadRaw.templateId === "string" &&
+        LETTERHEAD_TEMPLATE_OPTIONS.some((template) => template.id === letterheadRaw.templateId?.trim())
           ? letterheadRaw.templateId.trim()
           : base.letterhead.templateId,
       outputFormat: letterheadRaw.outputFormat === "pptx" ? "pptx" : "pdf",
-      coverImageDataUrl: image(letterheadRaw.coverImageDataUrl),
-      pageImageDataUrl: image(letterheadRaw.pageImageDataUrl),
-      landscapePageImageDataUrl: image(letterheadRaw.landscapePageImageDataUrl),
-      logoDataUrl: image(letterheadRaw.logoDataUrl),
-      footerImageDataUrl: image(letterheadRaw.footerImageDataUrl),
-      signatureStampDataUrl: image(letterheadRaw.signatureStampDataUrl),
     },
     aiTemplates: normalizeCompanyAiTemplates((raw as { aiTemplates?: unknown }).aiTemplates),
     wordTemplates,
@@ -2159,7 +2123,6 @@ export default function CompanyAdminDashboard({
   const [reportSectionNumber, setReportSectionNumber] = useState("");
   const [reportSectionTitle, setReportSectionTitle] = useState("");
   const [reportSectionBody, setReportSectionBody] = useState("");
-  const [letterheadImagesOpen, setLetterheadImagesOpen] = useState(false);
   const [letterheadPreviewId, setLetterheadPreviewId] = useState<string | null>(null);
   const [aiTemplateFile, setAiTemplateFile] = useState<File | null>(null);
   const [aiTemplateAnalyzing, setAiTemplateAnalyzing] = useState(false);
@@ -2592,17 +2555,6 @@ export default function CompanyAdminDashboard({
     setReportDefaultsDirty(true);
   }, []);
 
-  const updateLetterhead = useCallback(
-    <K extends keyof CompanyReportLetterheadForm,>(key: K, value: CompanyReportLetterheadForm[K]) => {
-      setReportDefaults((current) => ({
-        ...current,
-        letterhead: { ...current.letterhead, [key]: value },
-      }));
-      setReportDefaultsDirty(true);
-    },
-    [],
-  );
-
   const persistReportDefaults = useCallback(async (nextReportDefaults?: CompanyReportDefaultsForm) => {
     const payloadToSave = prepareCompanyDocumentTemplatesForSave(
       nextReportDefaults ?? reportDefaultsRef.current,
@@ -2649,30 +2601,17 @@ export default function CompanyAdminDashboard({
     (template: LetterheadTemplateOption) => {
       if (reportDefaultsSaving) return;
 
-      const isCompanyLetterhead = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
       const next: CompanyReportDefaultsForm = {
         ...reportDefaultsRef.current,
         letterhead: {
           ...reportDefaultsRef.current.letterhead,
           templateId: template.id,
           outputFormat: template.outputFormat,
-          enabled: isCompanyLetterhead,
         },
       };
 
       setReportDefaults(next);
       setReportDefaultsDirty(true);
-      const hasConfiguredCompanyLetterheadImages = [
-        next.letterhead.coverImageDataUrl,
-        next.letterhead.pageImageDataUrl,
-        next.letterhead.landscapePageImageDataUrl,
-        next.letterhead.logoDataUrl,
-        next.letterhead.footerImageDataUrl,
-        next.letterhead.signatureStampDataUrl,
-      ].some(Boolean);
-      if (isCompanyLetterhead && !hasConfiguredCompanyLetterheadImages) {
-        setLetterheadImagesOpen(true);
-      }
       setStatus(`تم اختيار قالب «${template.title}». احفظ التعديلات لتطبيقه.`);
     },
     [reportDefaultsSaving],
@@ -3402,18 +3341,7 @@ export default function CompanyAdminDashboard({
     variant === "embedded"
       ? "flex min-h-0 flex-1 flex-col overflow-hidden"
       : "flex min-h-screen flex-col bg-[#f4f6fb]";
-  const hasLetterheadImages = [
-    reportDefaults.letterhead.coverImageDataUrl,
-    reportDefaults.letterhead.pageImageDataUrl,
-    reportDefaults.letterhead.landscapePageImageDataUrl,
-    reportDefaults.letterhead.logoDataUrl,
-    reportDefaults.letterhead.footerImageDataUrl,
-    reportDefaults.letterhead.signatureStampDataUrl,
-  ].some(Boolean);
-  const letterheadCatalogTemplates = [
-    ...LETTERHEAD_TEMPLATE_OPTIONS,
-    COMPANY_LETTERHEAD_TEMPLATE_OPTION,
-  ];
+  const letterheadCatalogTemplates = LETTERHEAD_TEMPLATE_OPTIONS;
   const letterheadPreviewTemplate = letterheadPreviewId
     ? (letterheadCatalogTemplates.find((item) => item.id === letterheadPreviewId) ?? null)
     : null;
@@ -3883,7 +3811,7 @@ export default function CompanyAdminDashboard({
                 value="letterhead"
                 className="rounded-xl px-4 py-2 text-[13px] data-[state=active]:bg-white data-[state=active]:shadow-sm"
               >
-                قوالب النظام والكليشيه
+                قوالب النظام
               </TabsTrigger>
             </TabsList>
           ) : (
@@ -4639,12 +4567,6 @@ export default function CompanyAdminDashboard({
                         قالب النظام
                       </TabsTrigger>
                       <TabsTrigger
-                        value="company-letterhead"
-                        className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
-                      >
-                        كليشيه الشركة
-                      </TabsTrigger>
-                      <TabsTrigger
                         value="report-sections"
                         className="h-11 rounded-none border-b-2 border-transparent bg-transparent px-3 text-[13px] font-bold text-slate-500 shadow-none hover:text-slate-800 data-[state=active]:border-[#0C447C] data-[state=active]:bg-transparent data-[state=active]:text-[#0C447C] data-[state=active]:shadow-none sm:px-4 sm:text-[14px]"
                       >
@@ -4680,9 +4602,8 @@ export default function CompanyAdminDashboard({
                         <div className="flex items-center justify-center border-b border-slate-100 bg-[radial-gradient(circle_at_50%_18%,#e0f2fe,transparent_58%),linear-gradient(135deg,#f8fafc,#eaf3f8)] p-5 lg:border-b-0 lg:border-l">
                           <SystemReportTemplatePreview
                             template={selectedSystemTemplate}
-                            letterhead={reportDefaults.letterhead}
                             companyName={data?.company?.name ?? "شركة التقييم"}
-                            companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                            companyLogoSrc={logoDraft}
                           />
                         </div>
                         <div className="flex min-w-0 flex-col justify-center p-4 md:p-5">
@@ -4715,7 +4636,6 @@ export default function CompanyAdminDashboard({
                       </div>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {letterheadCatalogTemplates.map((template) => {
-                          const isCompanyTemplate = template.id === COMPANY_LETTERHEAD_TEMPLATE_OPTION.id;
                           const selected = template.id === selectedSystemTemplate.id;
                           return (
                             <article
@@ -4728,9 +4648,8 @@ export default function CompanyAdminDashboard({
                               <div className="relative overflow-hidden bg-slate-100/80 py-3">
                                 <SystemReportTemplatePreview
                                   template={template}
-                                  letterhead={reportDefaults.letterhead}
                                   companyName={data?.company?.name ?? "شركة التقييم"}
-                                  companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                                  companyLogoSrc={logoDraft}
                                 />
                                 <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
                                   <Button
@@ -4752,10 +4671,6 @@ export default function CompanyAdminDashboard({
                                   <h4 className="min-w-0 truncate text-[13px] font-black text-slate-900">{template.title}</h4>
                                   {selected ? (
                                     <Badge className="gap-1 rounded-full bg-[#0C447C] px-2 py-0.5 text-[9px] text-white"><CheckCircle2 className="h-3 w-3" />معتمد</Badge>
-                                  ) : isCompanyTemplate ? (
-                                    <Badge variant="secondary" className={cn("rounded-full px-2 py-0.5 text-[9px]", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-                                      {hasLetterheadImages ? "جاهزة" : "تحتاج صوراً"}
-                                    </Badge>
                                   ) : null}
                                 </div>
                                 <p className="mt-1.5 min-h-10 text-[10.5px] font-semibold leading-5 text-slate-500">{template.description}</p>
@@ -4773,71 +4688,6 @@ export default function CompanyAdminDashboard({
                             </article>
                           );
                         })}
-                      </div>
-                    </section>
-                  </TabsContent>
-
-                  <TabsContent value="company-letterhead" className="m-0 outline-none">
-                    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                      <div className="grid lg:grid-cols-[minmax(0,1fr)_310px]">
-                        <div className="p-4 md:p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="flex gap-2.5">
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Stamp className="h-5 w-5" /></span>
-                              <div>
-                                <h3 className="text-[15px] font-black text-slate-900">كليشيه الشركة</h3>
-                                <p className="mt-1 max-w-xl text-[11px] font-semibold leading-5 text-slate-500">ارفع الغلاف والصفحات الداخلية والشعار والفوتر ليستخدمها التقرير عند اختيار «كليشيه الشركة» من شاشة المشروع.</p>
-                              </div>
-                            </div>
-                            <Badge className={cn("rounded-full px-2.5 py-1 text-[10px]", hasLetterheadImages ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
-                              {hasLetterheadImages ? "جاهزة للتطبيق" : "تحتاج تجهيزاً"}
-                            </Badge>
-                          </div>
-                          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                            {[
-                              ["الغلاف", reportDefaults.letterhead.coverImageDataUrl],
-                              ["الصفحات الطولية", reportDefaults.letterhead.pageImageDataUrl],
-                              ["الصفحات بالعرض", reportDefaults.letterhead.landscapePageImageDataUrl],
-                              ["شعار التقرير", reportDefaults.letterhead.logoDataUrl],
-                              ["الفوتر", reportDefaults.letterhead.footerImageDataUrl],
-                              ["التوقيع والختم", reportDefaults.letterhead.signatureStampDataUrl],
-                            ].map(([label, value]) => (
-                              <div key={label} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                                <span className="text-[10.5px] font-bold text-slate-700">{label}</span>
-                                <span className={cn("h-2 w-2 shrink-0 rounded-full", value ? "bg-emerald-500" : "bg-slate-300")} title={value ? "مرفوع" : "غير مرفوع"} />
-                              </div>
-                            ))}
-                          </div>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <Button type="button" className="h-9 gap-1.5 rounded-xl bg-[#0C447C] text-[11px] font-black hover:bg-[#0a3a66]" onClick={() => setLetterheadImagesOpen(true)}>
-                              <Upload className="h-3.5 w-3.5" />
-                              إدارة صور الكليشيه
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9 gap-1.5 rounded-xl text-[11px] font-black"
-                              disabled={!hasLetterheadImages}
-                              onClick={() => {
-                                updateLetterhead("templateId", COMPANY_LETTERHEAD_TEMPLATE_OPTION.id);
-                                updateLetterhead("outputFormat", "pdf");
-                                updateLetterhead("enabled", true);
-                                setStatus("تم اعتماد كليشيه الشركة. احفظ التعديلات لتطبيقها في إعدادات الشركة.");
-                              }}
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              اعتماد الكليشيه
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-center border-t border-slate-100 bg-[linear-gradient(135deg,#fff7ed,#fffbeb)] p-5 lg:border-r lg:border-t-0">
-                          <SystemReportTemplatePreview
-                            template={COMPANY_LETTERHEAD_TEMPLATE_OPTION}
-                            letterhead={reportDefaults.letterhead}
-                            companyName={data?.company?.name ?? "شركة التقييم"}
-                            companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
-                          />
-                        </div>
                       </div>
                     </section>
                   </TabsContent>
@@ -5245,83 +5095,6 @@ export default function CompanyAdminDashboard({
         </Tabs>
       </div>
 
-      <Dialog open={letterheadImagesOpen} onOpenChange={setLetterheadImagesOpen}>
-        <DialogContent className="max-h-[88vh] max-w-4xl overflow-hidden rounded-2xl border-slate-200 p-0" dir="rtl">
-          <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
-            <DialogTitle className="text-base font-black">صور الكليشيه</DialogTitle>
-          </DialogHeader>
-          <div className="min-h-0 overflow-y-auto px-4 py-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <ReportTemplateImageUploader
-                label="صورة الغلاف"
-                helper="خلفية صفحة الغلاف الأولى."
-                value={reportDefaults.letterhead.coverImageDataUrl}
-                onChange={(value) => updateLetterhead("coverImageDataUrl", value)}
-                maxEdge={1800}
-              />
-              <ReportTemplateImageUploader
-                label="تمبلت الصفحات الطولية"
-                helper="الصورة التي تتكرر خلف الصفحات الداخلية."
-                value={reportDefaults.letterhead.pageImageDataUrl}
-                onChange={(value) => updateLetterhead("pageImageDataUrl", value)}
-                maxEdge={1800}
-              />
-              <ReportTemplateImageUploader
-                label="تمبلت الصفحات بالعرض"
-                helper="يستخدم عند تدوير صفحة أو صورة إلى الوضع العرضي."
-                value={reportDefaults.letterhead.landscapePageImageDataUrl}
-                onChange={(value) => updateLetterhead("landscapePageImageDataUrl", value)}
-                maxEdge={1800}
-              />
-              <ReportTemplateImageUploader
-                label="لوجو الهيدر"
-                helper="إن لم يرفع، يستخدم شعار الشركة من الإعدادات العامة."
-                value={reportDefaults.letterhead.logoDataUrl}
-                onChange={(value) => updateLetterhead("logoDataUrl", value)}
-                maxEdge={900}
-                transparent
-              />
-              <ReportTemplateImageUploader
-                label="صورة بيانات الفوتر"
-                helper="تظهر أسفل كل صفحة بدلاً من نص الفوتر الافتراضي."
-                value={reportDefaults.letterhead.footerImageDataUrl}
-                onChange={(value) => updateLetterhead("footerImageDataUrl", value)}
-                maxEdge={1400}
-              />
-              <ReportTemplateImageUploader
-                label="صورة التوقيع والختم"
-                helper="تظهر في صفحة رأي القيمة عند إخراج التقرير النهائي."
-                value={reportDefaults.letterhead.signatureStampDataUrl}
-                onChange={(value) => updateLetterhead("signatureStampDataUrl", value)}
-                maxEdge={900}
-                transparent
-              />
-            </div>
-          </div>
-          <DialogFooter className="border-t border-slate-100 px-4 py-3 sm:justify-start sm:space-x-0">
-            <Button
-              type="button"
-              className="gap-1.5 rounded-xl bg-[#0C447C] hover:bg-[#0a3a66]"
-              disabled={!reportDefaultsDirty || reportDefaultsSaving}
-              onClick={async () => {
-                await persistReportDefaults();
-                setLetterheadImagesOpen(false);
-              }}
-            >
-              {reportDefaultsSaving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-              حفظ
-            </Button>
-            <Button type="button" variant="outline" className="rounded-xl" onClick={() => setLetterheadImagesOpen(false)}>
-              إغلاق
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog
         open={letterheadPreviewTemplate != null}
         onOpenChange={(open) => {
@@ -5344,9 +5117,8 @@ export default function CompanyAdminDashboard({
               <div className="mx-auto w-max rounded-xl border border-slate-200 bg-white shadow-xl">
                 <SystemReportTemplatePreview
                   template={letterheadPreviewTemplate}
-                  letterhead={reportDefaults.letterhead}
                   companyName={data?.company?.name ?? "شركة التقييم"}
-                  companyLogoSrc={reportDefaults.letterhead.logoDataUrl || logoDraft}
+                  companyLogoSrc={logoDraft}
                   large
                 />
               </div>

@@ -85,16 +85,9 @@ export interface MvCompanyReportSectionModel {
   sections: MvCompanyReportSectionModelSection[];
 }
 
-export interface MvCompanyReportLetterheadTemplate {
-  enabled?: boolean;
+export interface MvCompanyReportSystemTemplate {
   templateId?: string | null;
   outputFormat?: "pdf" | "pptx" | null;
-  coverImageDataUrl?: string | null;
-  pageImageDataUrl?: string | null;
-  landscapePageImageDataUrl?: string | null;
-  logoDataUrl?: string | null;
-  footerImageDataUrl?: string | null;
-  signatureStampDataUrl?: string | null;
 }
 
 /** قوالب التقرير النهائي الافتراضية على مستوى الشركة. */
@@ -104,7 +97,7 @@ export interface MvCompanyReportDefaults {
   assumptions?: MvCompanyReportAssumptionsDefaults;
   customSections?: MvCompanyReportCustomSection[];
   reportSectionModels?: MvCompanyReportSectionModel[];
-  letterhead?: MvCompanyReportLetterheadTemplate;
+  letterhead?: MvCompanyReportSystemTemplate;
 }
 
 /** قسم واحد ضمن بنية قالب الذكاء الاصطناعي المستخرجة من PDF مرفوع. */
