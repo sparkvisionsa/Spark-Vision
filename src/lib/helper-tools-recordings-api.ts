@@ -92,6 +92,8 @@ class UploadChunkHttpError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
+class StorageResponseHeaderError extends Error {}
+
 const multipartResumeByBlob = new WeakMap<Blob, { uploadId: string; partSize: number }>();
 const multipartRequestIdByBlob = new WeakMap<Blob, string>();
 
@@ -117,6 +119,7 @@ export async function uploadStreamingRecordingPart(input: { uploadId: string; pa
       const signed = await helperRequest<{ url: string }>(`/multipart/${encodeURIComponent(input.uploadId)}/parts/${input.partNumber}/url`, input.csrfToken, { method: "GET" });
       return await uploadSignedPart(signed.url, input.chunk, undefined, input.onProgress);
     } catch (error) {
+      if (error instanceof StorageResponseHeaderError) throw error;
       const status = error instanceof HelperRequestError || error instanceof UploadChunkHttpError ? error.status : 0;
       const retryable = status === 0 || status >= 500 || status === 408 || status === 429;
       if (!retryable) throw error;
@@ -285,7 +288,7 @@ async function uploadSignedPart(url: string, chunk: Blob, signal?: AbortSignal, 
           clean();
           if (xhr.status < 200 || xhr.status >= 300) return reject(new UploadChunkHttpError("تعذر رفع جزء الفيديو إلى التخزين.", xhr.status));
           const etag = xhr.getResponseHeader("ETag")?.replace(/^"|"$/g, "");
-          if (!etag) return reject(new Error("لم يُعدّ التخزين رقم تحقق الجزء."));
+          if (!etag) return reject(new StorageResponseHeaderError("لم يُعدّ التخزين رقم تحقق الجزء."));
           resolve(etag);
         };
         xhr.onerror = () => { clean(); reject(new TypeError("network")); };
@@ -297,6 +300,7 @@ async function uploadSignedPart(url: string, chunk: Blob, signal?: AbortSignal, 
     } catch (error) {
       lastError = error;
       if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+      if (error instanceof StorageResponseHeaderError) throw error;
       if (error instanceof UploadChunkHttpError && error.status < 500 && error.status !== 408 && error.status !== 429) throw error;
       if (!navigator.onLine) await new Promise<void>((resolve, reject) => {
         const onOnline = () => { window.removeEventListener("offline", onOffline); resolve(); };
@@ -325,6 +329,7 @@ export async function uploadScreenRecording(input: {
     try {
       return await uploadScreenRecordingAttempt(input);
     } catch (error) {
+      if (error instanceof StorageResponseHeaderError) throw error;
       const status = error instanceof HelperRequestError || error instanceof UploadChunkHttpError ? error.status : 0;
       const retryableStatus = status === 0 || status >= 500 || status === 408 || status === 429 || (error instanceof UploadChunkHttpError && status === 400);
       if (!retryableStatus || input.signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
