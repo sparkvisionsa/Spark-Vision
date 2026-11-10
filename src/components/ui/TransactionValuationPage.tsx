@@ -299,6 +299,11 @@ const T = {
     addRepLine: "بند جديد",
     close: "إغلاق",
     assetCountVal: "1",
+
+    buildingArea: "مساحة المباني",
+    fillFromCover: "تعبئة من نسبة التغطية",
+    buildingAreaHintFootprint: "مقترح: مساحة الأرض × نسبة التغطية (مسطح الدور الأرضي فقط)",
+    buildingAreaHintFloors: "مقترح: مساحة الأرض × نسبة التغطية × عدد الأدوار",
   },
   en: {
     loading: "Loading transaction data...",
@@ -507,6 +512,11 @@ const T = {
     addRepLine: "New Line",
     close: "Close",
     assetCountVal: "1",
+
+    buildingArea: "Building Area",
+    fillFromCover: "Fill from cover %",
+    buildingAreaHintFootprint: "Suggested: land area × cover % (ground-floor footprint only)",
+    buildingAreaHintFloors: "Suggested: land area × cover % × floors",
   },
 } as const;
 
@@ -964,6 +974,35 @@ function emptyAvailableServices(): AvailableServices {
   };
 }
 // ─── Read-only grid ───────────────────────────────────────────────────────────
+
+function suggestBuildingArea(
+  landArea: string,
+  coverPct: string,
+  floorsCount: string,
+): { value: number; usedFloors: boolean } | null {
+  const toNum = (s: string) =>
+    parseFloat(
+      String(s ?? "")
+        .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632)) // Arabic-Indic digits
+        .replace(/,/g, "")
+        .trim(),
+    );
+  const land = toNum(landArea);
+  const pct = toNum(coverPct);
+  if (!(land > 0) || !(pct > 0)) return null;
+
+  const footprint = (land * pct) / 100;
+
+  // Only multiply by floors when the value is a clean positive integer.
+  const floorsRaw = String(floorsCount ?? "")
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+    .trim();
+  const floors = /^\d+$/.test(floorsRaw) ? parseInt(floorsRaw, 10) : 0;
+
+  return floors > 0
+    ? { value: footprint * floors, usedFloors: true }
+    : { value: footprint, usedFloors: false };
+}
 
 function ReadOnlyGrid({ children }: { children: React.ReactNode }) {
   return (
@@ -1679,6 +1718,7 @@ function emptyEval() {
       inspectionBoundaries: "",
       authorizedName: "",
       authorizedLandCoverPct: "",
+      buildingArea: "",
       streetWidth: "",
       streetFronts: "",
     },
@@ -2681,6 +2721,7 @@ export function TransactionEvaluationPage({
         clientName: pick(e.clientName, bl["اسم العميل"]),
         authorizedName: pick(e.authorizedName, bl["اسم المفوض بطلب التقييم"]),
         authorizedLandCoverPct: pick(e.authorizedLandCoverPct),
+        buildingArea: pick(e.buildingArea),
         streetWidth: pick(e.streetWidth),
         streetFronts: pick(e.streetFronts),
       },
@@ -3832,7 +3873,64 @@ export function TransactionEvaluationPage({
                     value={ev.replacementFields.landSpace}
                     onChange={(e) => setLandSpace(e.target.value)}
                   />
-                </Field>
+                  </Field>
+                  {(() => {
+                    const suggestion =
+                      ev.location.assetCategoryId !== "1" // hide for land-only assets
+                        ? suggestBuildingArea(
+                            ev.replacementFields.landSpace,
+                            ev.basic.authorizedLandCoverPct,
+                            ev.finishing.floorsCount,
+                          )
+                        : null;
+
+                    return (
+                      <Field label={t.buildingArea}>
+                        <div style={{ position: "relative" }}>
+                          <Input
+                            type="text"
+                            dir="ltr"
+                            value={ev.basic.buildingArea}
+                            onChange={(e) => setField("basic", "buildingArea", e.target.value)}
+                            placeholder={suggestion ? suggestion.value.toFixed(2) : "0.00"}
+                          />
+                          {suggestion && !ev.basic.buildingArea && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setField("basic", "buildingArea", suggestion.value.toFixed(2))
+                              }
+                              style={{
+                                position: "absolute",
+                                insetInlineEnd: 6,
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                fontSize: 10,
+                                padding: "2px 6px",
+                                background: `${DS.primary}15`,
+                                border: `1px solid ${DS.primary}30`,
+                                borderRadius: DS.radius.sm,
+                                color: DS.primary,
+                                cursor: "pointer",
+                                fontFamily: "inherit",
+                                fontWeight: 700,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {t.fillFromCover}
+                            </button>
+                          )}
+                        </div>
+                        {suggestion && !ev.basic.buildingArea && (
+                          <p style={{ fontSize: 11, color: DS.textLight, marginTop: 3 }}>
+                            {suggestion.usedFloors
+                              ? t.buildingAreaHintFloors
+                              : t.buildingAreaHintFootprint}
+                          </p>
+                        )}
+                      </Field>
+                    );
+                  })()}
           <Field label={t.streetWidth} required={requiredBasicKeys.has("streetWidth")}>
             <Input
               type="text"

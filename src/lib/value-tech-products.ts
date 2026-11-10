@@ -31,7 +31,7 @@ export function workspaceSectionToProductId(sectionKey: string): ValueTechProduc
   if (first === "value-tech-app") return "value-tech-app";
   if (first === "asset-inventory") return "asset-inventory";
   if (first === "asset-inspection") return "asset-inspection";
-  if (first === "clients" || first === "settings") return "real-estate-valuation";
+  if (first === "clients" || first === "settings" || first === "default-values") return "real-estate-valuation";
   return null;
 }
 

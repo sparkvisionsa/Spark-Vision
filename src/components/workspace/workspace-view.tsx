@@ -21,6 +21,7 @@ const SECTION_LOADERS: Record<string, () => Promise<{ default: React.ComponentTy
   "helper-tools/library": () => import("./workspace-sections/helper-tools"),
   clients: () => import("./workspace-sections/clients"),
   settings: () => import("./workspace-sections/settings"),
+  "default-values": () => import("./workspace-sections/default-values"),
   "evaluation-source": () => import("./workspace-sections/evaluation-source-index"),
   "evaluation-source/cars": () => import("./workspace-sections/evaluation-source-cars"),
   "evaluation-source/real-estate": () => import("./workspace-sections/evaluation-source-real-estate"),

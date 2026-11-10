@@ -2005,6 +2005,10 @@ export function NewTransactionPage({
     cityId: string;
     neighborhoodId: string;
   }>({ regionId: "", cityId: "", neighborhoodId: "" });
+  const defaultsLoaded = useRef(false);
+  const defaultEval = useRef<Record<string, string>>({});
+  const defaultLoc = useRef({ regionId: "", cityId: "", neighborhoodId: "" });
+
 
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
   const [evalDataFields, setEvalDataFields] = useState<Record<string, string>>(
@@ -2031,9 +2035,69 @@ export function NewTransactionPage({
   }, [values.client, templates]);
 
   useEffect(() => {
-    setEvalDataFields({});
+    fetch(toApiUrl("/api/company/default-values/assignment-number/next"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.value) {
+          setValues((prev) =>
+            prev.assignmentNumber ? prev : { ...prev, assignmentNumber: data.value },
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch(toApiUrl("/api/company/default-values/resolved?productId=real-estate-valuation"), {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        defaultsLoaded.current = true;
+
+        // Step 1 fields
+        const tx = (d.transaction ?? {}) as Record<string, string>;
+        setValues((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(tx)) {
+            if (!(next as any)[k]) (next as any)[k] = v;
+          }
+          return next;
+        });
+
+        // Step 2 fields: only plain string values can be shown as inputs
+        const strs: Record<string, string> = {};
+        for (const [k, v] of Object.entries((d.evalData ?? {}) as Record<string, unknown>)) {
+          if (typeof v === "string" && v) strs[k] = v;
+        }
+        const loc = {
+          regionId: strs.regionId ?? "",
+          cityId: strs.cityId ?? "",
+          neighborhoodId: strs.neighborhoodId ?? "",
+        };
+        defaultEval.current = strs;
+        defaultLoc.current = loc;
+
+        // Don't override anything already in state (e.g. OCR values)
+        setEvalDataFields((prev) => ({ ...strs, ...prev }));
+        setLocationSelection((prev) => ({
+          regionId: prev.regionId || loc.regionId,
+          cityId: prev.cityId || loc.cityId,
+          neighborhoodId: prev.neighborhoodId || loc.neighborhoodId,
+        }));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setEvalDataFields({ ...defaultEval.current });
     setOcrFilledKeys(new Set());
-    setLocationSelection({ regionId: "", cityId: "", neighborhoodId: "" });
+    setLocationSelection({ ...defaultLoc.current });
     if (!selectedTemplate) {
       setTemplateFieldValues({});
       return;
@@ -2161,7 +2225,7 @@ export function NewTransactionPage({
         filledKeys.add(evalKey);
       }
 
-      setEvalDataFields(newFields);
+            setEvalDataFields({ ...defaultEval.current, ...newFields });
       setOcrFilledKeys(filledKeys);
     } else if (selectedTemplate) {
       const labelToId: Record<string, string> = {};
@@ -2187,7 +2251,7 @@ export function NewTransactionPage({
     setOcrScanned(false);
     setOcrResult(null);
     setScannedDeedFile(null);
-    setEvalDataFields({});
+    setEvalDataFields({ ...defaultEval.current });
     setOcrFilledKeys(new Set());
   };
 

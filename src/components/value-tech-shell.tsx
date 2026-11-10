@@ -23,6 +23,7 @@ import {
   Settings,
   Shapes,
   Users,
+  SlidersHorizontal
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LanguageContext } from "@/components/layout-provider";
@@ -87,6 +88,7 @@ const copy = {
     backToProducts: "Back to Products",
     products: "Products",
     helperTools: "Helper Tools",
+    sidebarDefaultValues: "Default Values"
   },
   ar: {
     sidebarUserGuest: "ضيف",
@@ -113,6 +115,7 @@ const copy = {
     backToProducts: "العودة إلى المنتجات",
     products: "المنتجات",
     helperTools: "الأدوات المساعدة",
+    sidebarDefaultValues: "القيم الافتراضية",
   },
 } as const;
 
@@ -126,6 +129,7 @@ const VALUE_TECH_SIDEBAR_ROUTES = [
   "/evaluation-source",
   "/clients",
   "/settings",
+  "/default-values"
 ] as const;
 
 type ValueTechCopy = (typeof copy)["en"] | (typeof copy)["ar"];
@@ -193,6 +197,8 @@ function isRealEstateProductPath(pathname: string) {
     pathname.startsWith("/real-estate-valuation/") ||
     pathname === "/clients" ||
     pathname.startsWith("/clients/") ||
+    pathname === "/default-values" ||                 // ← add
+    pathname.startsWith("/default-values/") ||        // ← add
     pathname === "/settings" ||
     pathname.startsWith("/settings/")
   );
@@ -540,6 +546,8 @@ export default function ValueTechShell({
     };
   }, [isHubPage]);
 
+
+
   if (!langContext) return null;
 
   const isArabic = langContext.language === "ar";
@@ -714,7 +722,22 @@ export default function ValueTechShell({
                         </span>
                       </Link>
                     </SidebarMenuButton>
-                  </SidebarMenuItem> : null}
+                      </SidebarMenuItem> : null}
+
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive("/default-values")}
+                      className={isActive("/default-values") ? activeClass : idleClass}
+                    >
+                      <Link href="/default-values" className="flex items-center gap-2">
+                        <SlidersHorizontal className="h-4 w-4 text-indigo-500" />
+                        <span className={dark ? undefined : "text-black"}>
+                          {t.sidebarDefaultValues}
+                        </span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
 
                   <SidebarMenuItem>
                     <SidebarMenuButton
