@@ -9,6 +9,28 @@ const scales = [
   { singular: "تريليون", dual: "تريليونان", plural: "تريليونات" },
 ] as const;
 
+export function sanitizeSaudiRiyalAmount(input: string): string {
+  const normalized = input
+    .replace(/[٠-٩]/g, (value) => String(value.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (value) => String(value.charCodeAt(0) - 1776))
+    .replace(/٫/g, ".");
+  let whole = "";
+  let fraction = "";
+  let hasDecimal = false;
+  for (const character of normalized) {
+    if (/\d/.test(character)) {
+      if (hasDecimal) fraction += character;
+      else whole += character;
+    } else if (character === "." && whole && !hasDecimal) {
+      hasDecimal = true;
+    }
+  }
+  const safeWhole = whole.slice(0, 15);
+  const safeFraction = fraction.slice(0, 2);
+  if (!safeWhole) return "";
+  return hasDecimal ? `${safeWhole}.${safeFraction}` : safeWhole;
+}
+
 function threeDigits(n: number): string {
   const parts: string[] = [];
   const h = Math.floor(n / 100);
