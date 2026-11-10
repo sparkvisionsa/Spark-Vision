@@ -272,7 +272,7 @@ function HelperWorkspace({ children }: { children: ReactNode }) {
       <div className="flex h-9 items-center px-2 md:hidden">
         <SidebarTrigger className="rounded-md border border-slate-200 bg-white text-slate-700" />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {live ? (
           <HelperRecordingBanner
             paused={recording.state === "paused"}
