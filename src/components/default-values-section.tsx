@@ -488,6 +488,7 @@ export default function DefaultValuesSection() {
   const [signatories, setSignatories] = useState<Signatory[]>([]);
 
   useEffect(() => {
+    console.log(toApiUrl("/api/locations/regions"), toApiUrl(API));
     const get = (url: string) =>
       fetch(toApiUrl(url), { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
 

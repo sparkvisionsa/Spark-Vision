@@ -128,11 +128,20 @@ export function Can({
   return children;
 }
 
+/**
+ * Owner-only grants. These keys must NEVER be assignable in the permissions
+ * settings UI or granted by the backend. Only unrestricted users
+ * (company_admin / super_admin) pass `can()` for them.
+ */
+const OWNER_ONLY_CLIENTS_GRANT = "clients.owner_only";
+const OWNER_ONLY_DEFAULT_VALUES_GRANT = "default_values.owner_only";
+
 function requiredPageGrant(pathname: string, productId: ValueTechProductId): string | null {
   const parts = pathname.split(/[?#]/)[0]!.split("/").filter(Boolean);
   if (productId === "real-estate-valuation") {
     if (parts[0] === "real-estate-valuation" && (parts[1] === "support" || parts[1] === "developer-requests")) return "support.access";
-    if (parts[0] === "clients") return "clients.access";
+    if (parts[0] === "clients") return OWNER_ONLY_CLIENTS_GRANT;
+    if (parts[0] === "default-values") return OWNER_ONLY_DEFAULT_VALUES_GRANT;
     if (parts[0] === "settings" || (parts[0] === "real-estate-valuation" && parts[1] === "report-settings")) return null;
     return "transactions.access";
   }

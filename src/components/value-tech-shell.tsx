@@ -197,8 +197,8 @@ function isRealEstateProductPath(pathname: string) {
     pathname.startsWith("/real-estate-valuation/") ||
     pathname === "/clients" ||
     pathname.startsWith("/clients/") ||
-    pathname === "/default-values" ||                 // ← add
-    pathname.startsWith("/default-values/") ||        // ← add
+    pathname === "/default-values" ||
+    pathname.startsWith("/default-values/") ||
     pathname === "/settings" ||
     pathname.startsWith("/settings/")
   );
@@ -517,6 +517,11 @@ export default function ValueTechShell({
   const pathname = usePathname() || "/";
   const realEstatePermissions = useProductPermissions("real-estate-valuation");
 
+  // Company owner = company_admin (or super_admin). The permissions hook marks
+  // these roles as `unrestricted`. It is false while loading or for guests, so
+  // owner-only items stay hidden until the role is resolved.
+  const isCompanyOwner = realEstatePermissions.unrestricted;
+
   const isRealEstateValuationPage =
     pathname === "/real-estate-valuation" ||
     pathname.startsWith("/real-estate-valuation/");
@@ -545,8 +550,6 @@ export default function ValueTechShell({
       document.body.classList.remove("vt-products-hub-active");
     };
   }, [isHubPage]);
-
-
 
   if (!langContext) return null;
 
@@ -684,80 +687,87 @@ export default function ValueTechShell({
                 <SidebarMenu>
                   {isRealEstateSidebar ? (
                     <>
-                    {realEstatePermissions.can("transactions.access") ? <SidebarMenuItem>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive("/real-estate-valuation")}
-                        className={
-                          isActive("/real-estate-valuation") ? activeClass : idleClass
-                        }
-                      >
-                        <Link
-                          href="/real-estate-valuation"
-                          onClick={() => {
-                            window.dispatchEvent(new CustomEvent("sv:real-estate-go-list"));
-                          }}
-                          className="flex items-center gap-2"
+                      {realEstatePermissions.can("transactions.access") ? (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            asChild
+                            isActive={isActive("/real-estate-valuation")}
+                            className={
+                              isActive("/real-estate-valuation") ? activeClass : idleClass
+                            }
+                          >
+                            <Link
+                              href="/real-estate-valuation"
+                              onClick={() => {
+                                window.dispatchEvent(new CustomEvent("sv:real-estate-go-list"));
+                              }}
+                              className="flex items-center gap-2"
+                            >
+                              <ClipboardList className="h-4 w-4 text-emerald-600" />
+                              <span className={dark ? undefined : "text-black"}>
+                                {t.sidebarTransactions}
+                              </span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ) : null}
+
+                      {/* Owner-only: Clients + Default Values */}
+                      {isCompanyOwner ? (
+                        <>
+                          <SidebarSeparator className={cn("my-2", separatorClass)} />
+
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={isActive("/clients")}
+                              className={isActive("/clients") ? activeClass : idleClass}
+                            >
+                              <Link href="/clients" className="flex items-center gap-2">
+                                <Users className="h-4 w-4 text-fuchsia-600" />
+                                <span className={dark ? undefined : "text-black"}>
+                                  {t.sidebarClients}
+                                </span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={isActive("/default-values")}
+                              className={isActive("/default-values") ? activeClass : idleClass}
+                            >
+                              <Link href="/default-values" className="flex items-center gap-2">
+                                <SlidersHorizontal className="h-4 w-4 text-indigo-500" />
+                                <span className={dark ? undefined : "text-black"}>
+                                  {t.sidebarDefaultValues}
+                                </span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        </>
+                      ) : null}
+
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive("/settings")}
+                          className={
+                            isActive("/settings") ? activeClass : idleClass
+                          }
                         >
-                          <ClipboardList className="h-4 w-4 text-emerald-600" />
-                          <span className={dark ? undefined : "text-black"}>
-                            {t.sidebarTransactions}
-                          </span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem> : null}
-
-                  <SidebarSeparator className={cn("my-2", separatorClass)} />
-
-                  {realEstatePermissions.can("clients.access") ? <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive("/clients")}
-                      className={isActive("/clients") ? activeClass : idleClass}
-                    >
-                      <Link href="/clients" className="flex items-center gap-2">
-                        <Users className="h-4 w-4 text-fuchsia-600" />
-                        <span className={dark ? undefined : "text-black"}>
-                          {t.sidebarClients}
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                      </SidebarMenuItem> : null}
-
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive("/default-values")}
-                      className={isActive("/default-values") ? activeClass : idleClass}
-                    >
-                      <Link href="/default-values" className="flex items-center gap-2">
-                        <SlidersHorizontal className="h-4 w-4 text-indigo-500" />
-                        <span className={dark ? undefined : "text-black"}>
-                          {t.sidebarDefaultValues}
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive("/settings")}
-                      className={
-                        isActive("/settings") ? activeClass : idleClass
-                      }
-                    >
-                      <Link
-                        href="/settings"
-                        className="flex items-center gap-2"
-                      >
-                        <Settings className="h-4 w-4 text-slate-600" />
-                        <span className={dark ? undefined : "text-black"}>
-                          {t.sidebarSettings}
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                          <Link
+                            href="/settings"
+                            className="flex items-center gap-2"
+                          >
+                            <Settings className="h-4 w-4 text-slate-600" />
+                            <span className={dark ? undefined : "text-black"}>
+                              {t.sidebarSettings}
+                            </span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
                     </>
                   ) : isEvaluationSourcePage ? (
                     SOURCE_ROUTES.map((route) => {
