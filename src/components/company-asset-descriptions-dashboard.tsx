@@ -791,9 +791,9 @@ export function CompanyAssetDescriptionsDashboard({ csrfToken }: { csrfToken: st
             <AlertDialogTitle>حذف؟</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete?.kind === "description"
-                ? `حذف «${pendingDelete.label}»؟`
+                ? `حذف «${pendingDelete.label}»؟ سيُنقل إلى سلة المحذوفات ويمكن استعادته.`
                 : pendingDelete
-                  ? `حذف «${pendingDelete.label}» والعناصر المرتبطة به؟`
+                  ? `حذف «${pendingDelete.label}» والعناصر المرتبطة به؟ ستُنقل إلى سلة المحذوفات ويمكن استعادتها معاً.`
                   : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

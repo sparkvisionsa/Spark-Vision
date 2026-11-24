@@ -37,6 +37,7 @@ import {
 import {
   deleteRemoteScreenRecording,
   getRemoteScreenRecordingDownloadUrl,
+  getRemoteScreenRecordingUnavailableReason,
   helperRecordingFileUrl,
   helperRecordingManifestUrl,
   listVisibleScreenRecordings,
@@ -159,6 +160,7 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
   const [openId, setOpenId] = useState<string | null>(null);
   const [openUrl, setOpenUrl] = useState("");
   const [openBlob, setOpenBlob] = useState<Blob | null>(null);
+  const [openError, setOpenError] = useState<{ id: string; message: string } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -217,6 +219,7 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
     if (openId && !items.some((item) => item.id === openId)) setOpenId(null);
   }, [items, openId]);
   useEffect(() => {
+    setOpenError(null);
     if (!openId) { setOpenUrl(""); setOpenBlob(null); return; }
     setOpenUrl("");
     setOpenBlob(null);
@@ -607,18 +610,25 @@ export default function HelperToolsScreenCapture({ arabic }: { arabic: boolean }
                 revealDuration={false}
                 onError={() => {
                   if (openBlob || !owner || !openId) return;
+                  const failedId = openId;
                   void (async () => {
                     const rows = await listScreenRecordings(owner.key);
-                    const localRow = rows.find((row) => row.id === openId || row.remoteId === openId);
-                    if (!localRow) return;
-                    const local = await readScreenRecording(localRow.id, owner.key);
-                    if (!local) return;
-                    const playable = local.seconds > 0 ? await finalizeRecordingBlob(local.blob, local.seconds * 1000) : local.blob;
-                    setOpenBlob(playable);
-                    setOpenUrl(URL.createObjectURL(playable));
+                    const localRow = rows.find((row) => row.id === failedId || row.remoteId === failedId);
+                    const local = localRow ? await readScreenRecording(localRow.id, owner.key) : null;
+                    if (local) {
+                      const playable = local.seconds > 0 ? await finalizeRecordingBlob(local.blob, local.seconds * 1000) : local.blob;
+                      setOpenBlob(playable);
+                      setOpenUrl(URL.createObjectURL(playable));
+                      return;
+                    }
+                    // No copy on this device either: show the server's reason instead of a bare player error.
+                    const remoteId = itemsRef.current.find((item) => item.id === failedId)?.remoteId || (/^[a-f\d]{24}$/i.test(failedId) ? failedId : "");
+                    const message = remoteId ? await getRemoteScreenRecordingUnavailableReason(csrfToken, remoteId) : null;
+                    if (message) setOpenError({ id: failedId, message });
                   })();
                 }}
               />
+              {openError && openError.id === openId ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs text-rose-700">{openError.message}</p> : null}
               <div className="flex flex-wrap gap-1.5">
                 <Button
                   variant="outline"

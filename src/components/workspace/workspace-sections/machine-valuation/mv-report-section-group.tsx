@@ -22,11 +22,16 @@ import {
   segmentPackKey,
   type FlowSegment,
 } from "./mv-report-flow-segments";
-import { MvReportPageShell, type MvReportPageShellProps } from "./mv-report-page-shell";
+import {
+  MvReportPageShell,
+  useMvReportActiveCustomTemplate,
+  type MvReportPageShellProps,
+} from "./mv-report-page-shell";
 import {
   getBlockAnchorFromNode,
   getReportInteriorBodyMaxPx,
   getReportInteriorBodyWidthPx,
+  resolveReportInteriorFrameMm,
   type ReportPageOrientation,
 } from "./mv-report-page-metrics";
 
@@ -313,13 +318,21 @@ export function ReportFlowPages({
   );
   const [isFlowReady, setIsFlowReady] = useState(false);
 
-  const bodyMaxPx = getReportInteriorBodyMaxPx(orientation);
+  // Paginate with the exact frame the sheet is rendered with (custom template
+  // header/footer/margins), otherwise content is clipped or pages end early.
+  const activeCustomTemplate = useMvReportActiveCustomTemplate(shellProps.letterheadTemplate);
+  const frame = resolveReportInteriorFrameMm(orientation, activeCustomTemplate);
+  const frameKey = `${frame.paddingInline}/${frame.header}/${frame.footer}/${frame.bodyPaddingTop}/${frame.bodyPaddingBottom}`;
+  const bodyMaxPx = getReportInteriorBodyMaxPx(orientation, frame);
   // Small packing guard only.  Real overflow must create continuation pages,
   // not shrink the page until a block is clipped and dropped.
   const renderSafetyPx = 8;
   const effectiveBodyMaxPx = Math.max(1, bodyMaxPx - renderSafetyPx);
-  const bodyWidthPx = getReportInteriorBodyWidthPx(orientation);
-  const contentKey = `${String(measureRevision)}:${blocks.length}:${orientation}`;
+  const bodyWidthPx = getReportInteriorBodyWidthPx(orientation, frame);
+  const typographyKey = activeCustomTemplate
+    ? `${activeCustomTemplate.typography.fontFamily}/${activeCustomTemplate.typography.baseFontSize}/${activeCustomTemplate.typography.lineHeight}/${activeCustomTemplate.typography.fontWeight}`
+    : "default";
+  const contentKey = `${String(measureRevision)}:${blocks.length}:${orientation}:${frameKey}:${typographyKey}`;
 
   const forceBreakAfterBlock = useMemo(() => {
     const set = new Set<number>();
@@ -404,7 +417,7 @@ export function ReportFlowPages({
       cancelled = true;
       ro.disconnect();
     };
-  }, [blocks, effectiveBodyMaxPx, fitToPage, forceBreakAfterBlock, measureRevision, layoutFixGen]);
+  }, [blocks, bodyWidthPx, effectiveBodyMaxPx, fitToPage, forceBreakAfterBlock, measureRevision, layoutFixGen]);
 
   useLayoutEffect(() => {
     const root = renderedFlowRef.current;
@@ -527,6 +540,14 @@ export function ReportFlowPages({
               zIndex: -1,
               color: "#020617",
               fontFamily: "inherit",
+              ...(activeCustomTemplate
+                ? {
+                    fontFamily: activeCustomTemplate.typography.fontFamily,
+                    fontSize: activeCustomTemplate.typography.baseFontSize,
+                    lineHeight: activeCustomTemplate.typography.lineHeight,
+                    fontWeight: activeCustomTemplate.typography.fontWeight,
+                  }
+                : {}),
               ...measureEnvStyle,
             }}
             dir="rtl"

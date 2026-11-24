@@ -44,6 +44,7 @@ import {
   normalizeMvLocationSelection,
 } from "./mv-location-multi-select";
 import { mvErrorMessage, mvFetchJson } from "./mv-api-client";
+import { MV_SITE_UPLOAD_CONCURRENCY, upsertInspectorFile } from "./mv-site-file-uploads";
 import { useMvI18n } from "./mv-i18n";
 import { systemArabicFont as font } from "@/lib/system-fonts";
 
@@ -197,7 +198,11 @@ export function MvInspectorFilesPanel({
   const [loading, setLoading] = useState(!initialProject);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
-  const uploadQueueRef = useRef(Promise.resolve());
+  /** A few upload lanes in parallel (the server appends each file atomically). */
+  const uploadLanesRef = useRef<Promise<void>[]>(
+    Array.from({ length: MV_SITE_UPLOAD_CONCURRENCY }, () => Promise.resolve()),
+  );
+  const nextLaneRef = useRef(0);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -338,8 +343,14 @@ export function MvInspectorFilesPanel({
             resolve();
             return;
           }
-          const body = raw as { inspectorFiles?: MvInspectorFile[] };
-          if (Array.isArray(body.inspectorFiles)) setFiles(body.inspectorFiles);
+          // Add this file by id: parallel answers arriving out of order never drop one.
+          const body = raw as { file?: MvInspectorFile; inspectorFiles?: MvInspectorFile[] };
+          if (body.file?.id) {
+            const uploaded = body.file;
+            setFiles((current) => upsertInspectorFile(current, uploaded));
+          } else if (Array.isArray(body.inspectorFiles)) {
+            setFiles(body.inspectorFiles);
+          }
           patchUploadJob(clientId, { state: "done", progress: 100 });
           scheduleRemoveUploadJob(clientId, 2800);
           resolve();
@@ -369,7 +380,9 @@ export function MvInspectorFilesPanel({
       setUploadJobs((prev) => [...prev, ...jobs]);
       list.forEach((file, i) => {
         const job = jobs[i];
-        uploadQueueRef.current = uploadQueueRef.current.then(() => uploadOne(file, job.clientId));
+        const lane = nextLaneRef.current % uploadLanesRef.current.length;
+        nextLaneRef.current += 1;
+        uploadLanesRef.current[lane] = uploadLanesRef.current[lane]!.then(() => uploadOne(file, job.clientId));
       });
     },
     [uploadOne],
@@ -465,13 +478,18 @@ export function MvInspectorFilesPanel({
     setBulkDeleting(true);
     let failed = 0;
     try {
-      for (const id of ids) {
-        const res = await fetch(`/api/mv/projects/${projectId}/inspectorFiles/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-          credentials: "include",
-        });
-        if (!res.ok) failed += 1;
-      }
+      const queue = ids.slice();
+      await Promise.all(
+        Array.from({ length: Math.min(4, queue.length) }, async () => {
+          for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+            const res = await fetch(`/api/mv/projects/${projectId}/inspectorFiles/${encodeURIComponent(id)}`, {
+              method: "DELETE",
+              credentials: "include",
+            }).catch(() => null);
+            if (!res?.ok) failed += 1;
+          }
+        }),
+      );
       if (failed > 0) {
         toast({
           variant: "destructive",

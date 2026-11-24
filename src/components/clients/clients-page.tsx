@@ -2161,7 +2161,9 @@ export default function ClientsPage({
                 حذف العميل؟
               </AlertDialogTitle>
               <AlertDialogDescription className="text-[11px] text-white/70 mt-0.5">
-                لا يمكن التراجع عن هذا الإجراء.
+                {isMachineProduct
+                  ? "سيُنقل العميل إلى سلة المحذوفات ويمكن استعادته منها."
+                  : "لا يمكن التراجع عن هذا الإجراء."}
               </AlertDialogDescription>
             </div>
           </div>
@@ -2174,7 +2176,7 @@ export default function ClientsPage({
               onClick={() => void confirmDeleteClient()}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              حذف نهائي
+              {isMachineProduct ? "حذف" : "حذف نهائي"}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>

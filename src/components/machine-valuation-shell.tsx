@@ -21,6 +21,7 @@ function isMvReportFlowChromePath(pathname: string) {
     parts[1] === "dashboard" ||
     parts[1] === "projects" ||
     parts[1] === "archive" ||
+    parts[1] === "trash" ||
     parts[1] === "company" ||
     parts[1] === "report-settings" ||
     parts[1] === "settings" ||
@@ -37,7 +38,6 @@ function isMvReportFlowChromePath(pathname: string) {
 import {
   ArrowLeft,
   ArrowRight,
-  Archive,
   Boxes,
   Building2,
   ChevronDown,
@@ -50,6 +50,7 @@ import {
   ListOrdered,
   LogIn,
   Settings,
+  Trash2,
   Users,
   Wrench,
   type LucideIcon,
@@ -103,6 +104,7 @@ const MV_PANEL_SEGMENTS = [
   "dashboard",
   "projects",
   "archive",
+  "trash",
   "settings",
   "company",
   "report-settings",
@@ -127,7 +129,7 @@ function parseMachineValuationPath(pathname: string) {
 
   return {
     isProjectsList: panel === "dashboard" || panel === "projects",
-    isArchivePanel: panel === "archive",
+    isTrashPanel: panel === "trash" || panel === "archive",
     isProjectContext: panel !== null && !MV_PANEL_SEGMENTS.includes(panel),
     isSettingsPanel: settingsSection != null,
     settingsSection,
@@ -310,7 +312,7 @@ function MachineSidebarNav() {
   const collapsed = !isMobile && state === "collapsed";
   const {
     isProjectsList,
-    isArchivePanel,
+    isTrashPanel,
     isProjectContext,
     isSettingsPanel,
     settingsSection,
@@ -348,14 +350,18 @@ function MachineSidebarNav() {
       back: !isProjectsList,
       tooltip: isProjectsList ? undefined : t("navigation.backToProjects"),
     },
+  ].filter(() => can("projects.access"));
+
+  // سلة المحذوفات في أسفل الشريط، وتظهر لكل الأدوار: كل مستخدم يرى فيها ما حذفه بنفسه.
+  const trashItems: MachineNavItem[] = [
     {
-      key: "archive",
-      href: "/machine-valuation/archive",
-      label: t("navigation.archive"),
-      icon: Archive,
-      active: isArchivePanel,
+      key: "trash",
+      href: "/machine-valuation/trash",
+      label: t("navigation.trash"),
+      icon: Trash2,
+      active: isTrashPanel,
     },
-  ].filter((item) => item.key !== "projects" && item.key !== "archive" ? true : can("projects.access"));
+  ];
 
   const afterSettingsItems: MachineNavItem[] = [
     {
@@ -480,9 +486,10 @@ function MachineSidebarNav() {
           <MachineNavLinks items={afterSettingsItems} />
         </SidebarGroupContent>
       </SidebarGroup>
-      <SidebarGroup className="-mx-1.5 w-auto border-t border-white/10 px-1.5 py-0">
+      {/* أسفل الشريط: الدعم والتذاكر ثم سلة المحذوفات تحته مباشرة. */}
+      <SidebarGroup className="-mx-1.5 mt-auto w-auto border-t border-white/10 px-1.5 py-0">
         <SidebarGroupContent>
-          <MachineNavLinks items={supportItems} />
+          <MachineNavLinks items={[...supportItems, ...trashItems]} />
         </SidebarGroupContent>
       </SidebarGroup>
     </SidebarContent>
@@ -620,7 +627,9 @@ function MachineValuationShellInner({ children }: { children: ReactNode }) {
           side={isArabic ? "right" : "left"}
           variant="floating"
           collapsible="icon"
-          className="top-14 z-20 border-0 bg-transparent text-slate-100 shadow-none"
+          // الشريط يبدأ تحت الشريط العلوي (‎top-14‎)، فارتفاعه الشاشة ناقص ارتفاع ذلك الشريط؛
+          // بارتفاع الشاشة كاملاً كان أسفله (وفيه سلة المحذوفات) يقع خارج الشاشة.
+          className="top-14 z-20 h-[calc(100svh-3.5rem)] border-0 bg-transparent text-slate-100 shadow-none"
         >
           <SidebarHeader className="gap-0 p-0">
             <div className="border-b border-white/10 p-1.5">

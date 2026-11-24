@@ -8,6 +8,67 @@ import type { MvDriveFile } from "./types";
 import type { MvValuationAccountingImage } from "./mv-valuation-accounting-store";
 import { resolveValuationAccountingImageSrc } from "./mv-valuation-accounting-store";
 import { useMvI18n } from "./mv-i18n";
+import {
+  assetGalleryHeightMm,
+  ASSET_PHOTOS_MAX_PER_PAGE,
+  ASSET_PHOTOS_MAX_PER_ROW,
+  planAssetPhotoGrid,
+  type AssetPhotoFit,
+} from "./mv-asset-photo-grid";
+import { getReportInteriorBodyMaxPx, REPORT_INTERIOR_FRAME_MM } from "./mv-report-page-metrics";
+
+const ASSET_PER_PAGE_PRESETS = [1, 2, 4, 6, 9, 12, 16, 20, 24] as const;
+
+function SegmentedChoice<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
+      <span className="text-[9px] font-semibold text-slate-600">{label}</span>
+      <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-md bg-slate-100 p-0.5">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "flex-1 rounded px-1 py-1 text-[9.5px] font-black transition",
+              value === option.value ? "bg-[#0C447C] text-white shadow-sm" : "text-slate-600 hover:bg-white",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Thumbnail of the planned page grid (portrait A4). */
+function AssetGridPreview({ columns, rows, count }: { columns: number; rows: number; count: number }) {
+  return (
+    <div
+      aria-hidden
+      className="mx-auto grid aspect-[210/297] w-14 shrink-0 gap-[2px] rounded-sm border border-slate-300 bg-white p-[3px] pt-[7px] shadow-sm"
+      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
+      data-testid="asset-grid-preview"
+    >
+      {Array.from({ length: columns * rows }, (_, i) => (
+        <span key={i} className={cn("rounded-[1px]", i < count ? "bg-sky-300/80" : "bg-slate-100")} />
+      ))}
+    </div>
+  );
+}
 
 function reorderIds(order: string[], fromId: string, toId: string) {
   if (fromId === toId) return order;
@@ -151,6 +212,13 @@ export function MvReportImagesControlPanel({
   assetImagesPerPage,
   assetImagesPerRow,
   assetImagesUniformSize,
+  assetImagesAutoLayout = true,
+  assetImagesFit = "cover",
+  assetImagesNumbered = false,
+  onAssetImagesAutoLayoutChange,
+  onAssetImagesFitChange,
+  onAssetImagesNumberedChange,
+  assetPageCount,
   onAssetReorder,
   getAssetImageSrc,
   onAssetWidthChange,
@@ -181,6 +249,13 @@ export function MvReportImagesControlPanel({
   assetImagesPerPage: number;
   assetImagesPerRow: number;
   assetImagesUniformSize: boolean;
+  assetImagesAutoLayout?: boolean;
+  assetImagesFit?: AssetPhotoFit;
+  assetImagesNumbered?: boolean;
+  onAssetImagesAutoLayoutChange?: (enabled: boolean) => void;
+  onAssetImagesFitChange?: (fit: AssetPhotoFit) => void;
+  onAssetImagesNumberedChange?: (enabled: boolean) => void;
+  assetPageCount?: number;
   onAssetReorder: (next: string[]) => void;
   getAssetImageSrc: (file: MvDriveFile) => string;
   onAssetWidthChange: (width: number) => void;
@@ -225,6 +300,17 @@ export function MvReportImagesControlPanel({
   );
 
   const assetById = new Map(assetFiles.map((f) => [f._id, f]));
+  const portraitFrame = REPORT_INTERIOR_FRAME_MM.portrait;
+  const gridPlan = planAssetPhotoGrid({
+    perPage: assetImagesPerPage,
+    widthMm: 210 - portraitFrame.paddingInline * 2,
+    heightMm: assetGalleryHeightMm(getReportInteriorBodyMaxPx("portrait", portraitFrame)),
+    gapXmm: (imageInnerGap * 25.4) / 96,
+    gapYmm: (imageGroupGap * 25.4) / 96,
+    columns: assetImagesAutoLayout ? undefined : assetImagesPerRow,
+  });
+  const pages = assetPageCount ?? Math.max(1, Math.ceil(assetOrder.length / Math.max(1, gridPlan.perPage)));
+  const setPerPage = (n: number) => onAssetImagesPerPageChange(Math.min(ASSET_PHOTOS_MAX_PER_PAGE, Math.max(1, Math.round(n))));
   const valuationById = new Map(valuationImages.map((im) => [im.id, im]));
 
   return (
@@ -287,62 +373,114 @@ export function MvReportImagesControlPanel({
             <Eye className="h-3 w-3" />
             {t("report.preview.assetImagesPage")}
           </button>
-          <label className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
-            <span className="text-[9px] font-semibold text-slate-600">
-              {t("report.imagesPanel.imagesPerPage")}
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={24}
-              step={1}
-              value={Number.isFinite(assetImagesPerPage) ? assetImagesPerPage : 9}
-              onChange={(event) => {
-                const n = Number(event.target.value);
-                if (Number.isFinite(n)) onAssetImagesPerPageChange(Math.min(24, Math.max(1, Math.round(n))));
-              }}
-              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-center text-[11px] font-black tabular-nums text-[#0C447C] outline-none focus:border-sky-400"
-            />
-          </label>
-          <label className="grid gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5">
-            <span className="text-[9px] font-semibold text-slate-600">
-              {t("report.imagesPanel.imagesPerRow")}
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              step={1}
-              value={Number.isFinite(assetImagesPerRow) ? assetImagesPerRow : 3}
-              onChange={(event) => {
-                const n = Number(event.target.value);
-                if (Number.isFinite(n)) onAssetImagesPerRowChange(Math.min(20, Math.max(1, Math.round(n))));
-              }}
-              className="h-7 rounded-md border border-slate-200 bg-white px-2 text-center text-[11px] font-black tabular-nums text-[#0C447C] outline-none focus:border-sky-400"
-            />
-          </label>
+          <div className="grid gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5">
+            <div className="flex items-center gap-2">
+              <AssetGridPreview columns={gridPlan.columns} rows={gridPlan.rows} count={gridPlan.perPage} />
+              <div className="grid min-w-0 flex-1 gap-1">
+                <label className="flex items-center justify-between gap-1.5">
+                  <span className="text-[9px] font-semibold text-slate-600">{t("report.imagesPanel.imagesPerPage")}</span>
+                  <span className="flex items-center gap-0.5">
+                    <button type="button" aria-label="-" onClick={() => setPerPage(assetImagesPerPage - 1)} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-[12px] font-black text-slate-600 hover:bg-slate-50">−</button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={ASSET_PHOTOS_MAX_PER_PAGE}
+                      step={1}
+                      aria-label={t("report.imagesPanel.imagesPerPage")}
+                      value={Number.isFinite(assetImagesPerPage) ? assetImagesPerPage : 9}
+                      onChange={(event) => {
+                        const n = Number(event.target.value);
+                        if (Number.isFinite(n)) setPerPage(n);
+                      }}
+                      className="h-6 w-10 rounded-md border border-slate-200 bg-white px-1 text-center text-[11px] font-black tabular-nums text-[#0C447C] outline-none focus:border-sky-400"
+                    />
+                    <button type="button" aria-label="+" onClick={() => setPerPage(assetImagesPerPage + 1)} className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-[12px] font-black text-slate-600 hover:bg-slate-50">+</button>
+                  </span>
+                </label>
+                <p className="text-[9px] font-bold tabular-nums text-[#0C447C]" data-testid="asset-grid-summary">
+                  {t("report.imagesPanel.gridSummary", {
+                    cols: String(gridPlan.columns),
+                    rows: String(gridPlan.rows),
+                    pages: String(pages),
+                  })}
+                </p>
+                {gridPlan.perPage < assetImagesPerPage ? (
+                  <p className="text-[8.5px] font-bold leading-4 text-amber-700">
+                    {t("report.imagesPanel.maxPerPage", { count: String(gridPlan.perPage) })}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-0.5">
+              {ASSET_PER_PAGE_PRESETS.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setPerPage(n)}
+                  aria-pressed={assetImagesPerPage === n}
+                  className={cn(
+                    "h-6 min-w-[26px] flex-1 rounded border text-[10px] font-black tabular-nums transition",
+                    assetImagesPerPage === n
+                      ? "border-[#0C447C] bg-[#0C447C] text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50",
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <SegmentedChoice
+            label={t("report.imagesPanel.layoutMode")}
+            value={assetImagesAutoLayout ? "auto" : "manual"}
+            options={[
+              { value: "auto", label: t("report.imagesPanel.layoutAuto") },
+              { value: "manual", label: t("report.imagesPanel.layoutManual") },
+            ]}
+            onChange={(mode) => onAssetImagesAutoLayoutChange?.(mode === "auto")}
+          />
+          {assetImagesAutoLayout ? (
+            <p className="px-0.5 text-[9px] font-semibold leading-4 text-slate-500">{t("report.imagesPanel.layoutAutoHint")}</p>
+          ) : (
+            <label className="flex items-center justify-between gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5">
+              <span className="text-[9px] font-semibold text-slate-600">{t("report.imagesPanel.imagesPerRow")}</span>
+              <input
+                type="number"
+                min={1}
+                max={ASSET_PHOTOS_MAX_PER_ROW}
+                step={1}
+                aria-label={t("report.imagesPanel.imagesPerRow")}
+                value={Number.isFinite(assetImagesPerRow) ? assetImagesPerRow : 3}
+                onChange={(event) => {
+                  const n = Number(event.target.value);
+                  if (Number.isFinite(n)) onAssetImagesPerRowChange(Math.min(ASSET_PHOTOS_MAX_PER_ROW, Math.max(1, Math.round(n))));
+                }}
+                className="h-6 w-12 rounded-md border border-slate-200 bg-white px-1 text-center text-[11px] font-black tabular-nums text-[#0C447C] outline-none focus:border-sky-400"
+              />
+            </label>
+          )}
+          <SegmentedChoice<AssetPhotoFit>
+            label={t("report.imagesPanel.fitMode")}
+            value={assetImagesFit}
+            options={[
+              { value: "cover", label: t("report.imagesPanel.fitCover") },
+              { value: "contain", label: t("report.imagesPanel.fitContain") },
+              { value: "fill", label: t("report.imagesPanel.fitFill") },
+            ]}
+            onChange={(fit) => {
+              onAssetImagesFitChange?.(fit);
+              onAssetImagesUniformSizeChange(fit !== "contain");
+            }}
+          />
           <label className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700">
-            <span>{t("report.imagesPanel.uniformSize")}</span>
+            <span>{t("report.imagesPanel.numbered")}</span>
             <input
               type="checkbox"
-              checked={assetImagesUniformSize}
-              onChange={(event) => onAssetImagesUniformSizeChange(event.target.checked)}
+              checked={assetImagesNumbered}
+              onChange={(event) => onAssetImagesNumberedChange?.(event.target.checked)}
               className="h-4 w-4 accent-[#0C447C]"
             />
           </label>
-          <ImageSettingSlider
-            label={t("report.imagesPanel.allAssetWidth")}
-            value={assetWidthPercent}
-            min={5}
-            max={100}
-            step={1}
-            suffix="%"
-            sliderDir={dir}
-            onChange={(width) => {
-              onAssetWidthChange(width);
-              onAssetImagesPerRowChange(Math.min(20, Math.max(1, Math.round(100 / Math.max(width, 1)))));
-            }}
-          />
         </div>
       ) : null}
       <div className="mb-2 grid gap-1.5">

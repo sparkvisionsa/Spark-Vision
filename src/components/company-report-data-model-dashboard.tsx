@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   Copy,
+  FileText,
   FilePlus2,
   Layers3,
   Loader2,
@@ -44,12 +45,14 @@ type Props = {
   models: MvReportDataModel[];
   saving?: boolean;
   dirty?: boolean;
+  initialStudioView?: "model" | "report";
+  reportDesign?: ReactNode;
   onChange: (models: MvReportDataModel[]) => void;
   onSave: (models?: MvReportDataModel[]) => boolean | Promise<boolean>;
 };
 
 const MODEL_LIMIT = 12;
-const FALLBACK_MODEL_NAME = "نموذج بيانات التقرير";
+const FALLBACK_MODEL_NAME = "نموذج البيانات";
 const FALLBACK_SECTION_TITLE = "قسم جديد";
 const FALLBACK_FIELD_LABEL = "حقل جديد";
 
@@ -62,6 +65,8 @@ export function CompanyReportDataModelDashboard({
   models,
   saving = false,
   dirty = false,
+  initialStudioView = "model",
+  reportDesign,
   onChange,
   onSave,
 }: Props) {
@@ -77,6 +82,9 @@ export function CompanyReportDataModelDashboard({
   const [openSectionIds, setOpenSectionIds] = useState<string[]>([]);
   const [fileSectionDialogOpen, setFileSectionDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [studioView, setStudioView] = useState<"model" | "report">(initialStudioView);
+
+  useEffect(() => setStudioView(initialStudioView), [initialStudioView]);
 
   useEffect(() => {
     if (models === emittedModelsRef.current) return;
@@ -185,7 +193,7 @@ export function CompanyReportDataModelDashboard({
             <Layers3 className="h-4.5 w-4.5" />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-[14px] font-black text-slate-950">نماذج بيانات التقرير</h2>
+            <h2 className="truncate text-[14px] font-black text-slate-950">نماذج التقارير</h2>
             <p className="truncate text-[10.5px] font-semibold text-slate-500">
               اختر الحقول التي تظهر في المشروع وتتوفر كمصادر لقوالب Word وPowerPoint.
             </p>
@@ -254,6 +262,35 @@ export function CompanyReportDataModelDashboard({
         </aside>
 
         <section className="min-w-0 p-3">
+          <div className="mb-3 grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setStudioView("model")}
+              className={cn(
+                "flex min-h-14 items-center justify-center gap-3 rounded-xl px-3 text-right transition",
+                studioView === "model" ? "bg-white text-[#0C447C] shadow-sm" : "text-slate-500 hover:text-slate-800",
+              )}
+            >
+              <Layers3 className="h-5 w-5" />
+              <span><strong className="block text-[12px] font-black">تصميم النموذج</strong><small className="block text-[9px] font-bold text-slate-400">الأقسام والحقول التي تُجمع للتقرير</small></span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudioView("report")}
+              className={cn(
+                "flex min-h-14 items-center justify-center gap-3 rounded-xl px-3 text-right transition",
+                studioView === "report" ? "bg-white text-[#0C447C] shadow-sm" : "text-slate-500 hover:text-slate-800",
+              )}
+            >
+              <FileText className="h-5 w-5" />
+              <span><strong className="block text-[12px] font-black">تصميم التقرير</strong><small className="block text-[9px] font-bold text-slate-400">شكل التقرير الناتج وقوالبه</small></span>
+            </button>
+          </div>
+
+          {studioView === "report" && reportDesign ? (
+            <div className="min-w-0">{reportDesign}</div>
+          ) : (
+          <>
           <div className="mb-2 flex flex-wrap items-end justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
             <Label className="grid min-w-[220px] flex-1 gap-1.5 text-[10px] font-black text-slate-500">
               اسم النموذج
@@ -498,6 +535,8 @@ export function CompanyReportDataModelDashboard({
             <FilePlus2 className="h-3.5 w-3.5" />
             إنشاء قسم من ملف
           </Button>
+          </>
+          )}
         </section>
       </div>
       <MvReportDataModelFileSectionDialog

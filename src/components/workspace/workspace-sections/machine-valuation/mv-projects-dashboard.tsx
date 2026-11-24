@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useResourceRefresh } from "@/components/support/realtime-provider";
 import {
+  AlertTriangle,
   ArrowDownWideNarrow,
   Check,
   ChevronDown,
@@ -70,20 +71,16 @@ import CreateDialog from "./create-dialog";
 import { MvHandbookLauncher } from "./mv-handbook-launcher";
 import { MvProjectNameIcon } from "./mv-project-name-icon";
 import {
-  createProjectInspectionSiteForm,
-  projectContactDataFromInspectionSites,
-  projectInspectionSitesFromData,
-  type MvProjectInspectionSiteForm,
-} from "./mv-project-contact-data";
-import { MvInspectionLocationsFields } from "./mv-inspection-locations-fields";
+  MvProjectSitesEditor,
+  type MvProjectSitesEditorHandle,
+  type MvProjectSitesEditorState,
+} from "./mv-project-sites-editor";
 import { prefetchMvLocationCatalog } from "./use-mv-location-catalog";
 import { MvAssetImageFoldersModal } from "./mv-asset-image-folders-modal";
-import { MvInspectorFilesPanel } from "./mv-inspector-files-workspace";
 import { MvAssetImagesDownloadButton } from "./mv-asset-images-download-button";
 import {
   MV_ALL_LOCATIONS_VALUE,
   MvLocationMultiSelect,
-  mvLocationId,
   mvLocationSelectionSummary,
 } from "./mv-location-multi-select";
 import { MvEmptyState, MvErrorState, MvTopBar } from "./mv-ui";
@@ -944,13 +941,21 @@ function MvInspectorAssignmentsPanel({
   const [systemInspectorSearchOpen, setSystemInspectorSearchOpen] = useState(false);
   const projectId = project?._id;
 
+  // Latest sites (they are autosaved in the other tab) without touching the
+  // inspector choices being edited here.
   useEffect(() => {
-    if (!active || !project) return;
-    setProjectSnapshot(project);
-    setDraftAssignments(project.inspectionAssignments ?? []);
+    if (project) setProjectSnapshot(project);
+  }, [project]);
+
+  const projectForDrafts = useRef(project);
+  projectForDrafts.current = project;
+  useEffect(() => {
+    const current = projectForDrafts.current;
+    if (!active || !current) return;
+    setDraftAssignments(current.inspectionAssignments ?? []);
     setSelectedInspectorIds([]);
     setSelectedLocationIds([MV_ALL_LOCATIONS_VALUE]);
-  }, [active, project]);
+  }, [active, project?._id]);
 
   useEffect(() => {
     if (!active || !projectId) return;
@@ -1230,14 +1235,18 @@ export default function MvProjectsDashboard() {
   const [pageSize, setPageSize] = useState<MvProjectsPageSize>(initialViewState.pageSize);
   const [contactDataOpen, setContactDataOpen] = useState(false);
   const [contactDataProject, setContactDataProject] = useState<MvProject | null>(null);
-  const [contactDataForm, setContactDataForm] = useState<MvProjectInspectionSiteForm[]>([
-    createProjectInspectionSiteForm(0),
-  ]);
   const [contactDialogTab, setContactDialogTab] = useState<ContactDialogTab>("locations");
-  const [inspectorFilesOpen, setInspectorFilesOpen] = useState(false);
-  const [inspectorFilesProject, setInspectorFilesProject] = useState<MvProject | null>(null);
-  const [inspectorFilesSiteId, setInspectorFilesSiteId] = useState<string | null>(null);
-  const [openingInspectorFilesSiteId, setOpeningInspectorFilesSiteId] = useState<string | null>(null);
+  /** The sites editor mounts once the latest copy of the project is loaded. */
+  const [contactDataReady, setContactDataReady] = useState(false);
+  const [contactEditorSession, setContactEditorSession] = useState(0);
+  const [sitesEditorState, setSitesEditorState] = useState<MvProjectSitesEditorState>({
+    status: "saved",
+    pendingUploads: 0,
+    failedUploads: 0,
+  });
+  const sitesEditorRef = useRef<MvProjectSitesEditorHandle | null>(null);
+  const contactProjectRef = useRef<MvProject | null>(null);
+  const contactOpenTokenRef = useRef(0);
   const [savingContactData, setSavingContactData] = useState(false);
   /** لتصيير قوائم المنطقة/المدينة داخل طبقة الحوار وليس خلف الغلافة التي تعطل النقرات */
   const [inspectionPickersPortalHost, setInspectionPickersPortalHost] = useState<HTMLElement | null>(null);
@@ -1253,17 +1262,7 @@ export default function MvProjectsDashboard() {
     getWorkflowStatusOptions(),
   );
   const [workflowStatusSavingId, setWorkflowStatusSavingId] = useState<string | null>(null);
-  const inspectorFilesLocationOptions = useMemo(() => {
-    if (!inspectorFilesProject || !inspectorFilesSiteId) return inspectorFilesProject?.locations ?? [];
-    const target = (inspectorFilesProject.locations ?? []).find(
-      (location, index) => mvLocationId(location, index) === inspectorFilesSiteId,
-    );
-    return target ? [{ ...target, id: target.id || inspectorFilesSiteId }] : [];
-  }, [inspectorFilesProject, inspectorFilesSiteId]);
-  const inspectorFilesInitialLocationIds = useMemo(
-    () => (inspectorFilesSiteId ? [inspectorFilesSiteId] : [MV_ALL_LOCATIONS_VALUE]),
-    [inspectorFilesSiteId],
-  );
+  contactProjectRef.current = contactDataProject;
 
   /**
    * القائمة مُصفّاة من الخادم حسب شركة الجلسة؛ لا نعيد تصفية حسب `companyId` هنا
@@ -1568,14 +1567,19 @@ export default function MvProjectsDashboard() {
   };
 
   const openContactDataModal = async (project: MvProject) => {
+    const token = ++contactOpenTokenRef.current;
     setContactDataProject(project);
-    setContactDataForm(projectInspectionSitesFromData(project.locations, project.contacts));
     setContactDialogTab("locations");
+    setContactDataReady(false);
+    setSitesEditorState({ status: "saved", pendingUploads: 0, failedUploads: 0 });
+    setContactEditorSession((value) => value + 1);
     setContactDataOpen(true);
 
     try {
+      // Always the latest sites and files: the editor starts from them.
       const response = await fetch(`/api/mv/projects/${project._id}?picAssetMode=summary`, {
         credentials: "include",
+        cache: "no-store",
       });
       if (!response.ok) return;
       const raw = (await response.json().catch(() => null)) as { project?: MvProject } | MvProject | null;
@@ -1585,139 +1589,87 @@ export default function MvProjectsDashboard() {
           : raw && "_id" in raw
             ? raw
             : undefined;
-      if (!freshProject?._id) return;
+      if (!freshProject?._id || token !== contactOpenTokenRef.current) return;
 
       setProjects((prev) =>
         prev.map((item) => (item._id === freshProject._id ? { ...item, ...freshProject } : item)),
       );
       setContactDataProject(freshProject);
-      setContactDataForm(projectInspectionSitesFromData(freshProject.locations, freshProject.contacts));
     } catch {
-      // Keep the already-open form populated from the project list fallback.
+      // Keep the copy from the projects list.
+    } finally {
+      if (token === contactOpenTokenRef.current) setContactDataReady(true);
     }
   };
 
-  const handleSaveContactData = async (
-    options: {
-      closeDialog?: boolean;
-      continueCreatedFlow?: boolean;
-      showToast?: boolean;
-    } = {},
-  ): Promise<MvProject | null> => {
-    const {
-      closeDialog = false,
-      continueCreatedFlow = false,
-      showToast = true,
-    } = options;
-    if (!contactDataProject) return null;
-    const payload = projectContactDataFromInspectionSites(contactDataForm);
-    try {
-      setSavingContactData(true);
-      const response = await fetch(`/api/mv/projects/${contactDataProject._id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
+  /** Autosaved sites / uploaded files flow back into the list and the inspectors tab. */
+  const handleSitesProjectChange = useCallback((patch: Partial<MvProject>) => {
+    const projectId = contactProjectRef.current?._id;
+    if (!projectId) return;
+    setContactDataProject((current) => (current?._id === projectId ? { ...current, ...patch } : current));
+    setProjects((prev) => {
+      const next = prev.map((item) => (item._id === projectId ? { ...item, ...patch } : item));
+      writeMvProjectsSessionCache(next);
+      return next;
+    });
+  }, []);
+
+  /**
+   * Leaves the sites dialog only once everything is on the server: pending
+   * edits are saved now and uploads in progress must finish first.
+   */
+  const settleSitesEditor = async (): Promise<boolean> => {
+    const editor = sitesEditorRef.current;
+    if (!editor) return true;
+    const pending = editor.pendingUploads();
+    if (pending > 0) {
+      toast({ description: t("inspector.sites.waitUploads", { count: pending }) });
+      return false;
+    }
+    if (sitesEditorState.failedUploads > 0) {
+      toast({
+        variant: "destructive",
+        description: t("inspector.sites.failedUploadsLeft", { count: sitesEditorState.failedUploads }),
       });
-      if (!response.ok) throw new Error();
-
-      const raw = (await response.json().catch(() => null)) as { project?: MvProject } | null;
-      const updatedProject: MvProject = raw?.project
-        ? raw.project
-        : {
-            ...contactDataProject,
-            ...payload,
-            updatedAt: new Date().toISOString(),
-          };
-
-      setProjects((prev) =>
-        prev.map((project) =>
-          project._id === contactDataProject._id
-            ? {
-                ...project,
-                ...updatedProject,
-                locations: updatedProject.locations ?? payload.locations,
-                contacts: updatedProject.contacts ?? payload.contacts,
-              }
-            : project,
-        ),
-      );
-      setContactDataProject(updatedProject);
-      if (closeDialog) setContactDataOpen(false);
-      if (continueCreatedFlow && createdFlowProject?._id === contactDataProject._id) {
-        setCreatedFlowProject(updatedProject);
-        setAssetFoldersOpen(true);
-      }
-      if (showToast) toast({ description: t("projects.toast.locationsUpdated") });
-      return updatedProject;
-    } catch {
-      if (showToast) toast({ variant: "destructive", description: t("errors.locations.updateFailed") });
-      return null;
+      return false;
+    }
+    setSavingContactData(true);
+    try {
+      const saved = await editor.flush();
+      if (!saved) toast({ variant: "destructive", description: t("inspector.sites.saveFailedClose") });
+      return saved;
     } finally {
       setSavingContactData(false);
     }
   };
 
-  const openInspectorFilesForSite = async (site: MvProjectInspectionSiteForm) => {
-    if (!contactDataProject?._id) return;
-    setOpeningInspectorFilesSiteId(site.id);
-    try {
-      const updatedProject = await handleSaveContactData({
-        closeDialog: false,
-        continueCreatedFlow: false,
-        showToast: false,
-      });
-      if (!updatedProject) {
-        toast({ variant: "destructive", description: t("errors.locations.saveFirst") });
-        return;
-      }
-
-      const hasSavedLocation = (updatedProject.locations ?? []).some(
-        (location, index) => mvLocationId(location, index) === site.id,
-      );
-      if (!hasSavedLocation) {
-        toast({
-          variant: "destructive",
-          description: t("errors.locations.addDataFirst"),
-        });
-        return;
-      }
-
-      setContactDataProject(updatedProject);
-      setInspectorFilesProject(updatedProject);
-      setInspectorFilesSiteId(site.id);
-      setInspectorFilesOpen(true);
-    } finally {
-      setOpeningInspectorFilesSiteId(null);
+  const finishContactDialog = async (mode: "close" | "continue") => {
+    if (savingContactData) return;
+    if (!(await settleSitesEditor())) return;
+    const project = contactProjectRef.current;
+    setContactDataOpen(false);
+    setContactDialogTab("locations");
+    if (!project) return;
+    if (mode === "close") {
+      setCreatedFlowProject((current) => (current?._id === project._id ? null : current));
+      setContactDataProject(null);
+      return;
     }
-  };
-
-  const handleContactBackToCreate = () => {
-    setContactDataOpen(false);
-    setContactDialogTab("locations");
-    setCreateOpen(true);
-  };
-
-  const handleSaveContactAndClose = async () => {
-    const updatedProject = await handleSaveContactData({ closeDialog: true, continueCreatedFlow: false });
-    if (!updatedProject) return;
-    setCreatedFlowProject((current) => (current?._id === updatedProject._id ? null : current));
-    setContactDataProject(null);
-  };
-
-  const handleSaveContactAndContinue = async () => {
-    const updatedProject = await handleSaveContactData({ closeDialog: false, continueCreatedFlow: false });
-    if (!updatedProject) return;
-    setContactDataOpen(false);
-    setContactDialogTab("locations");
-    if (createdFlowProject?._id === updatedProject._id) {
-      setCreatedFlowProject(updatedProject);
-      setAssetFoldersProject(updatedProject);
+    if (createdFlowProject?._id === project._id) {
+      setCreatedFlowProject(project);
+      setAssetFoldersProject(project);
       setAssetFoldersOpen(true);
       return;
     }
     setContactDataProject(null);
-    navigate(`/machine-valuation/${updatedProject._id}/workflow/report-data`);
+    navigate(`/machine-valuation/${project._id}/workflow/report-data`);
+  };
+
+  const handleContactBackToCreate = async () => {
+    if (!(await settleSitesEditor())) return;
+    setContactDataOpen(false);
+    setContactDialogTab("locations");
+    setCreateOpen(true);
   };
 
   const finishAssetFoldersAndContinue = () => {
@@ -2327,23 +2279,58 @@ export default function MvProjectsDashboard() {
             setContactDataOpen(true);
             return;
           }
-          setContactDataOpen(false);
-          setContactDataProject(null);
-          setContactDialogTab("locations");
+          void finishContactDialog("close");
         }}
       >
         <MvDialogContent
-          className="flex max-h-[90vh] flex-col overflow-visible border-slate-200 p-0 shadow-2xl sm:max-w-4xl"
+          className="flex max-h-[92vh] flex-col overflow-visible border-slate-200 p-0 shadow-2xl sm:max-w-4xl"
           dir={dir}
         >
           <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
                 <MapPinned className="h-4 w-4" />
               </span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <DialogTitle className="truncate text-[15px] font-bold text-slate-900">{t("projects.dialog.locationsInspectors.title")}</DialogTitle>
+                {contactDataProject?.name ? (
+                  <p className="truncate text-[11.5px] font-semibold text-slate-500">{contactDataProject.name}</p>
+                ) : null}
               </div>
+              {contactDataReady ? (
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold",
+                    sitesEditorState.status === "error"
+                      ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                      : sitesEditorState.status === "saved"
+                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                        : "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+                  )}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {sitesEditorState.status === "saving" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : sitesEditorState.status === "saved" ? (
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                  ) : sitesEditorState.status === "error" ? (
+                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                  )}
+                  {t(`inspector.sites.status.${sitesEditorState.status}`)}
+                  {sitesEditorState.status === "error" ? (
+                    <button
+                      type="button"
+                      className="ms-1 underline underline-offset-2"
+                      onClick={() => sitesEditorRef.current?.retrySave()}
+                    >
+                      {t("inspector.sites.retrySave")}
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
           </DialogHeader>
           <div
@@ -2379,15 +2366,31 @@ export default function MvProjectsDashboard() {
                 </TabsTrigger>
               </TabsList>
             </div>
-            <TabsContent value="locations" className="m-0 min-h-0 flex-1 overflow-y-auto p-3 data-[state=inactive]:hidden">
-              <MvInspectionLocationsFields
-                value={contactDataForm}
-                onChange={setContactDataForm}
-                disabled={savingContactData}
-                pickerPopoverHost={inspectionPickersPortalHost}
-                onOpenInspectorFiles={(site) => void openInspectorFilesForSite(site)}
-                openingInspectorFilesSiteId={openingInspectorFilesSiteId}
-              />
+            <TabsContent
+              value="locations"
+              forceMount
+              className="m-0 min-h-0 flex-1 overflow-y-auto p-3 data-[state=inactive]:hidden"
+            >
+              {contactDataProject?._id && contactDataReady ? (
+                <MvProjectSitesEditor
+                  key={`${contactDataProject._id}:${contactEditorSession}`}
+                  ref={sitesEditorRef}
+                  project={contactDataProject}
+                  pickerPopoverHost={inspectionPickersPortalHost}
+                  onProjectChange={handleSitesProjectChange}
+                  onStateChange={setSitesEditorState}
+                />
+              ) : contactDataProject?._id ? (
+                <div className="space-y-3" aria-busy="true">
+                  {[0, 1].map((item) => (
+                    <div key={item} className="h-44 animate-pulse rounded-xl bg-slate-200/60" />
+                  ))}
+                </div>
+              ) : (
+                <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
+                  {t("projects.dialog.selectProjectFirst")}
+                </div>
+              )}
             </TabsContent>
             <TabsContent value="inspectors" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
               {contactDataProject?._id ? (
@@ -2410,84 +2413,41 @@ export default function MvProjectsDashboard() {
                 type="button"
                 variant="outline"
                 className="h-10 rounded-xl border-slate-200 bg-white px-5"
-                onClick={handleContactBackToCreate}
+                onClick={() => void handleContactBackToCreate()}
                 disabled={savingContactData}
               >
                 {t("projects.dialog.back")}
               </Button>
             ) : null}
-            <div className="flex flex-1 flex-wrap justify-end gap-2">
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+              {sitesEditorState.pendingUploads > 0 ? (
+                <span className="me-auto inline-flex items-center gap-1.5 text-[11.5px] font-bold text-sky-800">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  {t("inspector.sites.uploadingCount", { count: sitesEditorState.pendingUploads })}
+                </span>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
                 className="h-10 rounded-xl border-slate-200 bg-white px-5 text-[12px] font-bold"
-                onClick={() => void handleSaveContactAndClose()}
-                disabled={savingContactData}
+                onClick={() => void finishContactDialog("close")}
+                disabled={savingContactData || sitesEditorState.pendingUploads > 0}
               >
-                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : t("projects.dialog.saveClose")}
+                {t("projects.dialog.done")}
               </Button>
               <Button
                 type="button"
-                className="h-10 min-w-[170px] rounded-xl bg-slate-950 px-5 text-[12px] font-bold text-white hover:bg-slate-800"
-                onClick={() => void handleSaveContactAndContinue()}
-                disabled={savingContactData}
+                className="h-10 min-w-[170px] gap-1.5 rounded-xl bg-slate-950 px-5 text-[12px] font-bold text-white hover:bg-slate-800"
+                onClick={() => void finishContactDialog("continue")}
+                disabled={savingContactData || sitesEditorState.pendingUploads > 0}
               >
-                {savingContactData ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : createdFlowProject ? (
-                  t("projects.dialog.saveContinueAssetFolders")
-                ) : (
-                  t("projects.dialog.saveOpenReportData")
-                )}
+                {savingContactData ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {createdFlowProject
+                  ? t("projects.dialog.nextAssetFolders")
+                  : t("projects.dialog.openReportData")}
               </Button>
             </div>
           </DialogFooter>
-        </MvDialogContent>
-      </Dialog>
-
-      <Dialog
-        open={inspectorFilesOpen}
-        onOpenChange={(open) => {
-          setInspectorFilesOpen(open);
-          if (!open) {
-            setInspectorFilesProject(null);
-            setInspectorFilesSiteId(null);
-          }
-        }}
-      >
-        <MvDialogContent
-          className="flex max-h-[90vh] flex-col overflow-hidden border-slate-200 p-0 shadow-2xl sm:max-w-5xl"
-          dir={dir}
-        >
-          <DialogHeader className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 pe-14 text-start">
-            <DialogTitle className="text-[15px] font-black text-slate-950">{t("projects.dialog.attachFiles")}</DialogTitle>
-          </DialogHeader>
-          {inspectorFilesProject?._id ? (
-            <MvInspectorFilesPanel
-              key={`${inspectorFilesProject._id}:${inspectorFilesSiteId ?? "all"}`}
-              projectId={inspectorFilesProject._id}
-              initialProject={inspectorFilesProject}
-              embedded
-              initialLocationIds={inspectorFilesInitialLocationIds}
-              locationOptions={inspectorFilesLocationOptions}
-              locationSelectionLocked={Boolean(inspectorFilesSiteId)}
-              className="h-[min(72vh,720px)]"
-              onProjectLoaded={(project) => {
-                mergeProjectIntoList(project);
-                setInspectorFilesProject(project);
-                setContactDataProject((current) => (current?._id === project._id ? project : current));
-              }}
-              onSaveAndClose={() => {
-                setInspectorFilesOpen(false);
-                setInspectorFilesProject(null);
-                setInspectorFilesSiteId(null);
-              }}
-            />
-          ) : (
-            <div className="px-5 py-8 text-center text-[13px] font-semibold text-slate-400">
-              {t("projects.dialog.selectProjectFirst")}
-            </div>
-          )}
         </MvDialogContent>
       </Dialog>
 
@@ -2549,10 +2509,7 @@ export default function MvProjectsDashboard() {
           setAssetFoldersOpen(false);
           setAssetFoldersProject(null);
           if (!project) return;
-          setContactDataProject(project);
-          setContactDataForm(projectInspectionSitesFromData(project.locations, project.contacts));
-          setContactDialogTab("locations");
-          setContactDataOpen(true);
+          void openContactDataModal(project);
         }}
         onSaveAndClose={() => {
           setAssetFoldersOpen(false);

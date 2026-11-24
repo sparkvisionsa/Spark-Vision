@@ -213,12 +213,12 @@ function SummaryStat({
             ? "border-cyan-100 bg-cyan-50/90 text-cyan-950"
             : "border-amber-100 bg-amber-50/80 text-amber-950";
   return (
-    <div className={cn("min-w-0 rounded-lg border px-2 py-1.5", accentClass)}>
-      <p className="truncate text-[9px] font-bold leading-3 opacity-65">{label}</p>
+    <div className={cn("min-w-0 rounded-lg border px-1.5 py-1.5", accentClass)}>
+      <p className="truncate text-[8.5px] font-bold leading-3 opacity-65">{label}</p>
       <p
         className={cn(
           "mt-0.5 truncate font-black leading-4 tabular-nums tracking-tight",
-          emphasize ? "text-[12px]" : "text-[11px]",
+          emphasize ? "text-[11.5px]" : "text-[10.5px]",
         )}
         title={String(value)}
       >
@@ -1115,7 +1115,7 @@ export default function MvFinalReportWorkspace({ projectId }: { projectId: strin
                 {t("report.finalReportPage.summaryTitle")}
               </h2>
             </div>
-            <div className="grid grid-flow-col auto-cols-[minmax(7.25rem,1fr)] gap-1 overflow-x-auto pb-0.5 lg:grid-flow-row lg:grid-cols-6 lg:auto-cols-auto lg:overflow-visible lg:pb-0">
+            <div className="grid min-w-0 grid-flow-col auto-cols-[minmax(5.75rem,1fr)] gap-1 overflow-x-auto pb-0.5 lg:grid-flow-row lg:grid-cols-7 lg:auto-cols-auto lg:overflow-visible lg:pb-0">
               <SummaryStat
                 label={t("report.finalReportPage.finalValue")}
                 value={finalValueLabel}

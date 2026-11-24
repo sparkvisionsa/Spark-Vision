@@ -23,7 +23,7 @@ function lazyPage<T extends { default: ComponentType<any> }>(loader: () => Promi
 }
 
 const ProjectsList = lazyPage(() => import("./projects-list"));
-const MvProjectArchive = lazyPage(() => import("./mv-project-archive"));
+const MvTrashBin = lazyPage(() => import("./mv-trash-bin"));
 const ClientsPage = lazyPage(() => import("@/components/clients/clients-page"));
 const MvSettingsHub = lazyPage(() => import("./mv-settings-hub"));
 const MvDriveExplorer = lazyPage(() => import("./mv-drive-explorer"));
@@ -52,7 +52,8 @@ function parseMvPath(pathname: string) {
   if (segments[0] === "support") return { view: "support" as const, segments };
   if (segments[0] === "developer-requests") return { view: "developer-requests" as const, segments };
   if (segments[0] === "data-extraction") return { view: "data-extraction" as const, segments };
-  if (segments[0] === "archive") return { view: "archive" as const, segments };
+  // «archive» هو المسار القديم لأرشيف المشاريع؛ صار سلة المحذوفات الموحّدة.
+  if (segments[0] === "trash" || segments[0] === "archive") return { view: "trash" as const, segments };
   if (segments[0] === "dashboard") {
     return { view: "projects" as const, segments };
   }
@@ -162,8 +163,8 @@ export default function MachineValuationSection() {
       return <DeveloperRequestsPage />;
     case "data-extraction":
       return <MvDataExtractionWorkspace />;
-    case "archive":
-      return <MvProjectArchive />;
+    case "trash":
+      return <MvTrashBin />;
     case "settings":
       return (
         <MvSettingsHub

@@ -15,13 +15,26 @@ export const MV_REPORT_SECTION_MODEL_LIMIT = 12;
 export const MV_REPORT_SECTION_MODEL_SECTION_LIMIT = 50;
 export const MV_REPORT_SECTION_MODEL_ITEM_LIMIT = 160;
 
+/** Single source of truth for the DOM/navigation anchor of a model section. */
+export function reportSectionModelAnchor(
+  modelId: string,
+  section: Pick<MvCompanyReportSectionModelSection, "id" | "systemAnchor">,
+): string {
+  return section.systemAnchor?.trim() || `custom:report-model:${modelId}:${section.id}`;
+}
+
+/** Single source of truth for the DOM/navigation anchor of a model item. */
+export function reportSectionModelItemAnchor(
+  modelId: string,
+  section: Pick<MvCompanyReportSectionModelSection, "id" | "systemAnchor">,
+  itemId: string,
+): string {
+  return `${reportSectionModelAnchor(modelId, section)}--item-${itemId}`;
+}
+
 type SystemModelItemSeed = { id: string; title: string; body: string };
 
-/**
- * The detailed model mirrors every section which actually appears in the
- * system report. `systemAnchor` preserves the rich built-in rendering for
- * the default model while giving administrators one ordered, editable model.
- */
+/** The original detailed model remains the company default. */
 const SYSTEM_MODEL_ITEM_SEEDS: Record<string, SystemModelItemSeed[]> = {
   "mv-toc-1": [{ id: "system:intro", title: "النص الافتتاحي", body: "تقرير {{reportData.reportTitle}} المعد لصالح {{project.clientName}} بشأن {{project.name}}." }],
   "mv-toc-2": [{ id: "system:dates", title: "بيانات التواريخ", body: "تاريخ المعاينة: {{reportData.inspectionDate}}\nتاريخ التقييم: {{reportData.valuationDate}}\nتاريخ إصدار التقرير: {{reportData.reportIssueDate}}" }],
@@ -62,6 +75,19 @@ const SYSTEM_MODEL_ITEM_SEEDS: Record<string, SystemModelItemSeed[]> = {
   "mv-report-closing": [{ id: "system:closing", title: "الصفحة الختامية", body: "شكراً لثقتكم." }],
 };
 
+const NEW_MODEL_SECTION_SEEDS: Array<{ title: string; sectionNumber: string; systemAnchor: string; items: SystemModelItemSeed[] }> = [
+  { title: "الغلاف", sectionNumber: "1", systemAnchor: "report-cover", items: [
+    { id: "system:report-title", title: "عنوان التقرير", body: "{{reportData.reportTitle}}" },
+    { id: "system:client-name", title: "العميل", body: "{{project.clientName}}" },
+  ] },
+  { title: "المقدمة", sectionNumber: "2", systemAnchor: "mv-toc-1", items: [{ id: "system:introduction-text", title: "نص المقدمة", body: "تقرير {{reportData.reportTitle}} المعد لصالح {{project.clientName}} بشأن {{project.name}}." }] },
+  { title: "الملخص التنفيذي", sectionNumber: "3", systemAnchor: "mv-toc-24", items: [{ id: "system:executive-summary-text", title: "نص الملخص", body: "الرأي النهائي للقيمة: {{reportData.finalValue}} {{reportData.currency}}." }] },
+  { title: "حسابات القيمة", sectionNumber: "4", systemAnchor: "mv-annex-1", items: [{ id: "system:valuation-images", title: "صور حسابات القيمة", body: "{{project.valuationAccountingWorkspace.images}}" }] },
+  { title: "صور الأصول", sectionNumber: "5", systemAnchor: "mv-annex-2", items: [{ id: "system:asset-images-list", title: "صور الأصول", body: "{{project.assetImages}}" }] },
+  { title: "صور ملفات العميل", sectionNumber: "6", systemAnchor: "mv-annex-3", items: [{ id: "system:client-files-list", title: "صور ملفات العميل", body: "{{images.client}}" }] },
+  { title: "صفحة الخاتمة", sectionNumber: "7", systemAnchor: "mv-report-closing", items: [{ id: "system:closing-text", title: "نص الخاتمة", body: "شكراً لثقتكم." }] },
+];
+
 export function isSystemReportSectionModel(model: MvCompanyReportSectionModel | null | undefined): boolean {
   return model?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID;
 }
@@ -78,8 +104,35 @@ export function createDetailedReportModelSections(): MvCompanyReportSectionModel
   }));
 }
 
+export function createNewReportSectionModelSections(): MvCompanyReportSectionModelSection[] {
+  return NEW_MODEL_SECTION_SEEDS.map((seed, index) => ({
+    id: `new:${seed.systemAnchor}`,
+    title: seed.title,
+    sectionNumber: seed.sectionNumber || String(index + 1),
+    systemAnchor: seed.systemAnchor,
+    visibleInReport: true,
+    items: seed.items.map((item) => ({ ...item, visibleInReport: true })),
+  }));
+}
+
+export function isCompactDefaultReportSectionModel(model: MvCompanyReportSectionModel | null | undefined): boolean {
+  if (!model || model.sections.length > 12) return false;
+  const compactAnchors = new Set([
+    "report-cover",
+    "mv-toc-1",
+    "mv-toc-24",
+    "mv-annex-1",
+    "mv-annex-2",
+    "mv-annex-3",
+    "mv-report-closing",
+  ]);
+  return model.sections.some((section) => section.systemAnchor === "report-cover") &&
+    model.sections.every((section) => !section.systemAnchor || compactAnchors.has(section.systemAnchor));
+}
+
 function isLegacySparseDefaultModel(model: MvCompanyReportSectionModel): boolean {
   return model.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID &&
+    model.sections.length > 0 &&
     !model.sections.some((section) => section.systemAnchor || section.id.startsWith("system:")) &&
     model.sections.every((section) => section.id === "report-definitions");
 }
@@ -94,6 +147,43 @@ function isTruncatedDetailedDefaultModel(model: MvCompanyReportSectionModel): bo
   return model.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID &&
     model.sections.length === 30 &&
     model.sections.every((section) => Boolean(section.systemAnchor || section.id.startsWith("system:")));
+}
+
+function isLegacyCompactDefaultModel(model: MvCompanyReportSectionModel): boolean {
+  return model.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID && isCompactDefaultReportSectionModel(model);
+}
+
+function migrateCompactDefaultToDetailed(
+  model: MvCompanyReportSectionModel,
+): MvCompanyReportSectionModel {
+  const existingByAnchor = new Map(model.sections.map((section) => [section.systemAnchor, section] as const));
+  const detailed = createDetailedReportModelSections().map((seed) => {
+    const existing = existingByAnchor.get(seed.systemAnchor);
+    if (!existing) return seed;
+    const existingItems = new Map(existing.items.map((item) => [item.id, item] as const));
+    return {
+      ...seed,
+      title: existing.title || seed.title,
+      sectionNumber: existing.sectionNumber || seed.sectionNumber,
+      visibleInReport: existing.visibleInReport !== false,
+      items: [
+        ...seed.items.map((item) => ({
+          ...item,
+          ...(existingItems.get(item.id) ?? {}),
+          visibleInReport: existingItems.get(item.id)?.visibleInReport !== false,
+        })),
+        ...companyAddedReportSectionItems(seed.items, existing.items),
+      ],
+    };
+  });
+  return {
+    ...model,
+    sections: detailed,
+  };
+}
+
+function isExpandedDetailedDefaultModel(model: MvCompanyReportSectionModel): boolean {
+  return false;
 }
 
 function restoreTruncatedDetailedDefaultModel(
@@ -113,13 +203,53 @@ function restoreTruncatedDetailedDefaultModel(
         title: existing.title || seed.title,
         sectionNumber: existing.sectionNumber || seed.sectionNumber,
         visibleInReport: existing.visibleInReport !== false,
-        items: seed.items.map((item) => ({
-          ...item,
-          ...(existingItems.get(item.id) ?? {}),
-          visibleInReport: existingItems.get(item.id)?.visibleInReport !== false,
-        })),
+        items: [
+          ...seed.items.map((item) => ({
+            ...item,
+            ...(existingItems.get(item.id) ?? {}),
+            visibleInReport: existingItems.get(item.id)?.visibleInReport !== false,
+          })),
+          ...companyAddedReportSectionItems(seed.items, existing.items),
+        ],
       };
     }),
+  };
+}
+
+function migrateExpandedDetailedDefaultModel(
+  model: MvCompanyReportSectionModel,
+): MvCompanyReportSectionModel {
+  const oldByAnchor = new Map(model.sections.map((section) => [section.systemAnchor, section] as const));
+  const oldItems = new Map(model.sections.flatMap((section) => section.items.map((item) => [item.id, item] as const)));
+  const migratedSections = createDetailedReportModelSections().map((seed) => {
+    const old = oldByAnchor.get(seed.systemAnchor);
+    const preservedItems = old ? companyAddedReportSectionItems(seed.items, old.items) : [];
+    return {
+      ...seed,
+      title: old?.title || seed.title,
+      sectionNumber: old?.sectionNumber || seed.sectionNumber,
+      visibleInReport: old?.visibleInReport !== false,
+      items: [
+        ...seed.items.map((item) => ({
+          ...item,
+          ...(oldItems.get(item.id) ?? {}),
+          visibleInReport: oldItems.get(item.id)?.visibleInReport !== false,
+        })),
+        ...preservedItems,
+      ],
+    };
+  });
+  return {
+    ...createDefaultReportSectionModel(),
+    name: model.name || "نموذج تقرير مفصل",
+    isDefault: model.isDefault,
+    visibleInReport: model.visibleInReport !== false,
+    sections: [
+      ...migratedSections,
+      ...model.sections
+        .filter((section) => !section.systemAnchor && !section.id.startsWith("system:"))
+        .map(cloneSection),
+    ],
   };
 }
 
@@ -144,6 +274,19 @@ export function createReportSectionModelItem(): MvCompanyReportSectionModelItem 
     body: "",
     visibleInReport: true,
   };
+}
+
+/**
+ * Returns company-created items that are not part of a system section's seed.
+ * The settings studio rebuilds the standard model after every edit, so these
+ * items must be reattached instead of being mistaken for obsolete seed data.
+ */
+export function companyAddedReportSectionItems(
+  systemItems: readonly MvCompanyReportSectionModelItem[],
+  existingItems: readonly MvCompanyReportSectionModelItem[],
+): MvCompanyReportSectionModelItem[] {
+  const systemItemIds = new Set(systemItems.map((item) => item.id));
+  return existingItems.filter((item) => !systemItemIds.has(item.id));
 }
 
 export function createReportSectionModelSection(): MvCompanyReportSectionModelSection {
@@ -225,6 +368,19 @@ export function normalizeReportSectionModels(value: unknown): MvCompanyReportSec
       });
     }
 
+    const usedSystemAnchors = new Set<string>();
+    const uniqueAnchorSections = sections.map((section) => {
+      if (!section.systemAnchor || !usedSystemAnchors.has(section.systemAnchor)) {
+        if (section.systemAnchor) usedSystemAnchors.add(section.systemAnchor);
+        return section;
+      }
+      // A repeated native anchor would create duplicate DOM ids and make
+      // sidebar navigation nondeterministic. Keep the first native mapping;
+      // subsequent sections remain custom sections with their own ids.
+      const { systemAnchor: _duplicateAnchor, ...withoutAnchor } = section;
+      return withoutAnchor;
+    });
+
     const normalizedModel: MvCompanyReportSectionModel = {
       id,
       name:
@@ -236,18 +392,34 @@ export function normalizeReportSectionModels(value: unknown): MvCompanyReportSec
       // of force-enabling the built-in one while normalizing the list.
       isDefault: modelRaw.isDefault === true,
       visibleInReport: modelRaw.visibleInReport !== false,
-      sections,
+      sections: uniqueAnchorSections,
     };
     models.push(
       isLegacySparseDefaultModel(normalizedModel)
         ? createDefaultReportSectionModel()
+        : isLegacyCompactDefaultModel(normalizedModel)
+          ? migrateCompactDefaultToDetailed(normalizedModel)
         : isTruncatedDetailedDefaultModel(normalizedModel)
-          ? restoreTruncatedDetailedDefaultModel(normalizedModel)
-          : normalizedModel,
+            ? restoreTruncatedDetailedDefaultModel(normalizedModel)
+            : normalizedModel,
     );
   }
 
-  return resolveReportSectionModelDefaults(models);
+  // Older saves could contain the same model twice under different ids (for
+  // example after a company/default merge). Keep the first canonical copy so
+  // selectors and report navigation never render duplicate entries.
+  const seenFingerprints = new Set<string>();
+  const deduplicated = models.filter((model) => {
+    const fingerprint = JSON.stringify({
+      name: model.name,
+      visibleInReport: model.visibleInReport,
+      sections: model.sections,
+    });
+    if (seenFingerprints.has(fingerprint)) return false;
+    seenFingerprints.add(fingerprint);
+    return true;
+  });
+  return resolveReportSectionModelDefaults(deduplicated);
 }
 
 /**

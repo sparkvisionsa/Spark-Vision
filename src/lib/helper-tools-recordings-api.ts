@@ -70,6 +70,16 @@ export async function getRemoteScreenRecordingDownloadUrl(csrfToken: string, id:
   return result.url;
 }
 
+/** Asks the server why a recording cannot be served. Null when it can, or when the reason is unknown. */
+export async function getRemoteScreenRecordingUnavailableReason(csrfToken: string, id: string) {
+  try {
+    await helperRequest(`/${encodeURIComponent(id)}/download-link?name=recording.mp4`, csrfToken);
+    return null;
+  } catch (error) {
+    return error instanceof HelperRequestError && (error.status === 400 || error.status === 404) ? error.message : null;
+  }
+}
+
 export async function listRemoteScreenRecordings(csrfToken: string, source?: RecorderSurface): Promise<RemoteRecording[]> {
   const query = source ? `?source=${encodeURIComponent(source)}` : "";
   const result = await helperRequest<{ recordings: RemoteRecording[] }>(query, csrfToken, { method: "GET" });

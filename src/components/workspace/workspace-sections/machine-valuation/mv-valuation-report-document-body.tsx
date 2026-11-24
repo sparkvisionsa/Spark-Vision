@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   Fragment,
   useEffect,
   useLayoutEffect,
@@ -31,11 +31,17 @@ import type {
 } from "./types";
 import {
   buildAiReportFlowChildren,
+  resolveAiVariable,
   resolveReportModelText,
   type MvAiReportTopicKey,
   type MvAiVariableContext,
 } from "./mv-ai-report-sections";
-import { MV_DEFAULT_REPORT_SECTION_MODEL_ID } from "./mv-report-section-models";
+import {
+  isCompactDefaultReportSectionModel,
+  MV_DEFAULT_REPORT_SECTION_MODEL_ID,
+  reportSectionModelAnchor,
+  reportSectionModelItemAnchor,
+} from "./mv-report-section-models";
 import type { MvReportTocRow } from "./mv-valuation-report-toc";
 import {
   MV_VALUATION_ACCOUNTING_APPROACHES,
@@ -56,11 +62,32 @@ import {
 } from "./mv-valuation-report-narrative-defaults";
 import { MvValuationAnnexImageSheet } from "./mv-valuation-annex-image-sheet";
 import {
+  MvReportIdentityProvider,
   MvReportLetterheadProvider,
   MvReportPageShell,
   MvReportSectionDivider,
+  useMvReportActiveCustomTemplate,
 } from "./mv-report-page-shell";
+import { getReportInteriorBodyMaxPx, REPORT_INTERIOR_FRAME_MM, resolveReportInteriorFrameMm } from "./mv-report-page-metrics";
 import { ReportFlowPages } from "./mv-report-section-group";
+import {
+  assetGalleryHeightMm,
+  ASSET_PHOTOS_MAX_PER_PAGE,
+  ASSET_PHOTOS_MAX_PER_ROW,
+  normalizeAssetPhotoFit,
+  planAssetPhotoGrid,
+  type AssetPhotoFit,
+} from "./mv-asset-photo-grid";
+import { formatTemplateReportDate } from "@/components/system-report-template-canvas";
+import { TemplateVariablesProvider } from "@/components/system-template-variables";
+import {
+  hasActiveSummaryTable,
+  resolveSummaryFieldValue,
+  resolveTemplateVariableValue,
+  SUMMARY_TABLE_ANCHOR,
+  SystemTemplateSummaryTable,
+  type SummaryValueContext,
+} from "@/components/system-template-summary-table";
 import { MvReportTocPages } from "./mv-report-toc-pages";
 
 type ReportSignatureRow = {
@@ -239,16 +266,25 @@ function SectionShell({
   );
 }
 
-type ReportModelFlowSectionData = {
+export type ReportModelFlowSectionData = {
   id: string;
+  anchor: string;
   sectionNumber?: string;
   title: string;
-  items: Array<{ id: string; title: string; body: string }>;
+  items: Array<{ id: string; anchor: string; title: string; body: string }>;
+  /** Rendered right under the section heading (e.g. the template's summary table). */
+  lead?: ReactNode;
 };
 
 // These annexes have dedicated image sheets later in this document. Rendering
 // a text summary before them duplicates the images with an unhelpful count.
-const NATIVE_IMAGE_ANNEX_ANCHORS = new Set(["mv-annex-1", "mv-annex-2"]);
+const NATIVE_MODEL_ANCHORS = new Set([
+  "report-cover",
+  "mv-annex-1",
+  "mv-annex-2",
+  "mv-annex-3",
+  "mv-report-closing",
+]);
 
 /**
  * Company report models are edited in the company settings, so their output
@@ -257,12 +293,13 @@ const NATIVE_IMAGE_ANNEX_ANCHORS = new Set(["mv-annex-1", "mv-annex-2"]);
  * ReportFlowPages pack several sections on one sheet and split only at a
  * sensible paragraph boundary when needed.
  */
-function ReportModelFlowSection({ section }: { section: ReportModelFlowSectionData }) {
+export function renderReportModelFlowSection(section: ReportModelFlowSectionData) {
   const showItemTitles = section.items.length > 1;
   return (
     <section
-      id={`custom:${section.id}`}
-      data-mv-report-insert-anchor={`custom:${section.id}`}
+      key={section.id}
+      id={section.anchor}
+      data-mv-report-insert-anchor={section.anchor}
       dir="rtl"
       className="scroll-mt-4 text-right"
     >
@@ -275,13 +312,14 @@ function ReportModelFlowSection({ section }: { section: ReportModelFlowSectionDa
         <h2 className="text-[17px] font-black leading-snug sm:text-[19px]">{section.title}</h2>
       </div>
       <div className="my-2 h-[2px] w-full bg-[#0C447C]/75" />
+      {section.lead ? <div className="mb-3">{section.lead}</div> : null}
       {section.items.map((item) => {
         const paragraphs = item.body
           .split(/\n{2,}/)
           .map((paragraph) => paragraph.trim())
           .filter(Boolean);
         return (
-          <div key={item.id}>
+          <div key={item.id} id={item.anchor}>
             {showItemTitles ? (
               <h3 className="mt-3 text-[13px] font-extrabold leading-6 text-slate-800">{item.title}</h3>
             ) : null}
@@ -345,6 +383,9 @@ function AssetPhotoFigure({
   pageOrientation,
   onRotatePage,
   uniformSize,
+  frameHeightMm,
+  fit,
+  index,
 }: {
   file: MvDriveFile;
   projectId: string;
@@ -357,6 +398,11 @@ function AssetPhotoFigure({
   pageOrientation: MvReportPageOrientationPreference;
   onRotatePage: () => void;
   uniformSize: boolean;
+  /** Fixed frame height (smart page-filling grid). */
+  frameHeightMm?: number;
+  fit?: AssetPhotoFit;
+  /** 1-based photo number printed on the photo (omit to hide). */
+  index?: number;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -388,10 +434,15 @@ function AssetPhotoFigure({
       }}
       className={cn(
         "group relative break-inside-avoid bg-white transition",
+        frameHeightMm !== undefined && "flex flex-col",
         dragging && "opacity-60",
         dragOver && "ring-2 ring-sky-400 ring-offset-1 ring-offset-white",
       )}
-      style={{ width: widthCss ?? `${widthPercent}%` }}
+      style={{
+        width: widthCss ?? `${widthPercent}%`,
+        ...(frameHeightMm !== undefined ? { height: `${frameHeightMm}mm` } : {}),
+      }}
+      data-mv-asset-photo
     >
       <div className="mv-report-chrome absolute left-0.5 top-0.5 z-10 flex gap-0.5 opacity-100 lg:opacity-0 lg:transition lg:group-hover:opacity-100">
         <span
@@ -421,6 +472,39 @@ function AssetPhotoFigure({
         </button>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
+      {frameHeightMm !== undefined ? (
+        <div
+          className="relative flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden bg-white"
+          style={{
+            borderRadius: cornerRadius || "var(--mv-image-radius, 0px)",
+            filter: "var(--mv-image-shadow, none)",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt=""
+            draggable={false}
+            data-mv-asset-photo-fit={fit ?? "cover"}
+            className={cn(
+              "block bg-white",
+              fit === "contain" ? "max-h-full max-w-full object-contain" : "h-full w-full",
+              fit === "fill" ? "object-fill" : fit === "contain" ? "" : "object-cover",
+            )}
+            style={{ imageRendering: "auto" }}
+            loading="eager"
+          />
+          {index !== undefined ? (
+            <span
+              className="absolute bottom-1 right-1 min-w-[18px] rounded px-1 text-center text-[9px] font-black leading-[16px] text-white"
+              style={{ backgroundColor: "var(--mv-template-primary, #0C447C)" }}
+              data-mv-asset-photo-number
+            >
+              {index}
+            </span>
+          ) : null}
+        </div>
+      ) : (
       <div
         className={cn(
           "flex w-full items-center justify-center bg-white",
@@ -433,14 +517,14 @@ function AssetPhotoFigure({
           filter: "var(--mv-image-shadow, none)",
         }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
           alt=""
           draggable={false}
           className={cn(
             "block bg-white",
-            /* توحيد المساحة: تمطيط لملء الإطار (object-fill) — بدون قصّ وبدون فراغات */
-            uniformSize ? "h-full w-full object-fill" : "h-auto w-full object-contain",
+            uniformSize ? "h-full w-full object-cover" : "h-auto w-full object-contain",
           )}
           style={{
             maxHeight: uniformSize ? "100%" : `${maxImageHeightMm}mm`,
@@ -449,6 +533,7 @@ function AssetPhotoFigure({
           loading="eager"
         />
       </div>
+      )}
     </figure>
   );
 }
@@ -1284,6 +1369,12 @@ export interface MvValuationReportDocumentBodyProps {
   assetImagesPerPage?: number;
   assetImagesPerRow?: number;
   assetImagesUniformSize?: boolean;
+  /** ملء الصفحة تلقائياً: يختار عدد الأعمدة والصفوف الأنسب لعدد الصور. */
+  assetImagesAutoLayout?: boolean;
+  /** طريقة ملاءمة الصورة داخل إطارها. */
+  assetImagesFit?: AssetPhotoFit;
+  /** ترقيم الصور داخل المرفق. */
+  assetImagesNumbered?: boolean;
   /** نصف قطر حواف الصور (px) — عرض فقط، لا يؤثر على جودة التقرير. */
   imageCornerRadius?: number;
   /** ارتفاع السطر في الفقرات (×) — عرض فقط. */
@@ -1378,6 +1469,9 @@ export function MvValuationReportDocumentBody({
   assetImagesPerPage = 9,
   assetImagesPerRow = 3,
   assetImagesUniformSize = true,
+  assetImagesAutoLayout = true,
+  assetImagesFit,
+  assetImagesNumbered = false,
   imageCornerRadius = 0,
   paragraphLineHeight = 1.75,
   headingScale = 1,
@@ -1404,7 +1498,8 @@ export function MvValuationReportDocumentBody({
   onReportDataPatch,
   companyReportDefaults,
 }: MvValuationReportDocumentBodyProps) {
-  const isBuiltInDetailedModel = reportSectionModel?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID;
+  const isCompactDefaultModel = isCompactDefaultReportSectionModel(reportSectionModel);
+  const isBuiltInDetailedModel = reportSectionModel?.id === MV_DEFAULT_REPORT_SECTION_MODEL_ID && !isCompactDefaultModel;
   const builtInModelSectionByAnchor = new Map(
     isBuiltInDetailedModel
       ? reportSectionModel.sections
@@ -1422,7 +1517,7 @@ export function MvValuationReportDocumentBody({
   const usesIndependentReportSectionModel = Boolean(
     reportSectionModel &&
       reportSectionModel.visibleInReport !== false &&
-      reportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID,
+      (reportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID || isCompactDefaultModel),
   );
   const textOverrides = reportData.reportTextOverrides ?? {};
   const hasTextOverride = (key: string) => Object.prototype.hasOwnProperty.call(textOverrides, key);
@@ -1602,8 +1697,8 @@ export function MvValuationReportDocumentBody({
   /**
    * عناصر الغلاف — نص أبيض على الخلفية الكحلية/الداكنة كما في نموذج التقرير.
    */
-  const coverPrimaryTextClass = "text-white";
-  const coverSecondaryTextClass = "text-white";
+  const coverPrimaryTextClass = "text-[var(--mv-cover-text,#fff)]";
+  const coverSecondaryTextClass = "text-[var(--mv-cover-text,#fff)] opacity-80";
   const reportIssueDateDisplay = editableText(
     "reportIssueDateDisplay",
     shortDateValue(reportData.reportIssueDate),
@@ -1742,34 +1837,33 @@ export function MvValuationReportDocumentBody({
   const sceRegistrationHtml =
     reportData.sceRegistrationCertificateHtml?.trim() || MV_DEFAULT_SCE_REGISTRATION_HTML;
 
-  const assetPhotosPerRow = Math.min(20, Math.max(1, Math.round(assetImagesPerRow || 3)));
-  const requestedAssetPhotosPerPage = Math.min(24, Math.max(1, Math.round(assetImagesPerPage || 9)));
-  // A 4:3 asset tile must leave enough room for the annex heading, its
-  // controls and page margins.  Treat the user preference as an upper bound
-  // rather than allowing a large gallery to overflow an A4 sheet silently.
-  // Use the smaller capacity of portrait and landscape so rotating a gallery
-  // page cannot turn an otherwise valid sheet into a clipped one.
-  const imageRowGapMm = Math.max(0, imageGroupGap) / (96 / 25.4);
-  const assetCapacityForFrame = (contentWidthMm: number, galleryHeightMm: number) => {
-    const tileHeightMm = (contentWidthMm / assetPhotosPerRow) * 0.75;
-    const rows = Math.max(
-      1,
-      Math.floor((galleryHeightMm + imageRowGapMm) / (tileHeightMm + imageRowGapMm)),
-    );
-    return rows * assetPhotosPerRow;
+  const activeCustomTemplate = useMvReportActiveCustomTemplate(letterheadTemplate);
+  // Smart page-filling gallery: the grid (columns x rows) is planned from
+  // the free body area of the active sheet frame (custom template header,
+  // footer and margins included), so photos always fill the page and a tall
+  // header can never clip a row.
+  const assetPhotoFit = normalizeAssetPhotoFit(assetImagesFit, assetImagesUniformSize);
+  const assetPhotosPerRow = Math.min(ASSET_PHOTOS_MAX_PER_ROW, Math.max(1, Math.round(assetImagesPerRow || 3)));
+  const requestedAssetPhotosPerPage = Math.min(ASSET_PHOTOS_MAX_PER_PAGE, Math.max(1, Math.round(assetImagesPerPage || 9)));
+  const cssPxToMm = 25.4 / 96;
+  const portraitFrame = resolveReportInteriorFrameMm("portrait", activeCustomTemplate);
+  const landscapeFrame = resolveReportInteriorFrameMm("landscape", activeCustomTemplate);
+  const assetGridPlan = (orientation: MvReportPageOrientationPreference, count = requestedAssetPhotosPerPage) => {
+    const landscape = orientation === "landscape";
+    const frame = landscape ? landscapeFrame : portraitFrame;
+    const pageWidthMm = landscape ? 297 : 210;
+    return planAssetPhotoGrid({
+      perPage: count,
+      widthMm: pageWidthMm - frame.paddingInline * 2,
+      heightMm: assetGalleryHeightMm(getReportInteriorBodyMaxPx(orientation, frame)),
+      gapXmm: Math.max(0, imageInnerGap) * cssPxToMm,
+      gapYmm: Math.max(0, imageGroupGap) * cssPxToMm,
+      columns: assetImagesAutoLayout ? undefined : assetPhotosPerRow,
+    });
   };
-  const safeAssetPhotosPerPage = Math.min(
-    24,
-    assetCapacityForFrame(186, 180),
-    assetCapacityForFrame(269, 138),
-  );
-  const assetPhotosPerPage = Math.min(requestedAssetPhotosPerPage, safeAssetPhotosPerPage);
-  const assetPhotoWidthCss = (orientation: MvReportPageOrientationPreference) =>
-    assetPhotosPerRow <= 1
-      ? orientation === "landscape"
-        ? "min(100%, 185mm)"
-        : "100%"
-      : `calc((100% - ${Math.max(0, imageInnerGap) * (assetPhotosPerRow - 1)}px) / ${assetPhotosPerRow})`;
+  // Same page split for both orientations, so rotating a page never moves
+  // photos to another page.
+  const assetPhotosPerPage = Math.min(assetGridPlan("portrait").perPage, assetGridPlan("landscape").perPage);
   const assetPhotoChunks: MvDriveFile[][] =
     orderedImages.length > 0 ? chunkArray(orderedImages, assetPhotosPerPage) : [[]];
   const clientDocsPerRow = (
@@ -1888,6 +1982,24 @@ export function MvValuationReportDocumentBody({
     ? MV_REPORT_TOC_ROWS.filter((row) => !isBuiltInModelAnchorVisible(row.anchor)).map((row) => row.anchor)
     : [];
   const hiddenAnchorIds = Array.from(new Set([...userHiddenAnchorIds, ...modelHiddenAnchorIds]));
+  const compactModelSectionsByAnchor = new Map(
+    isCompactDefaultModel
+      ? (reportSectionModel?.sections ?? [])
+          .filter((section) => section.systemAnchor)
+          .map((section) => [section.systemAnchor!, section] as const)
+      : [],
+  );
+  const shouldRenderNativeAnchor = (anchor: string) => {
+    if (!isCompactDefaultModel) return true;
+    const section = compactModelSectionsByAnchor.get(anchor);
+    return Boolean(
+      section &&
+        section.visibleInReport !== false &&
+        section.items.some((item) => item.visibleInReport !== false),
+    );
+  };
+  const nativeModelTitle = (anchor: string, fallback: string) =>
+    compactModelSectionsByAnchor.get(anchor)?.title?.trim() || fallback;
   const toggleHiddenAnchor = (anchorId: string, hidden: boolean) => {
     const current = reportData.reportHiddenAnchorIds ?? [];
     const next = hidden
@@ -2082,7 +2194,7 @@ export function MvValuationReportDocumentBody({
               onClick={() => {
                 if (
                   typeof window !== "undefined" &&
-                  !window.confirm("هل تريد إخفاء هذا القسم من التقرير؟ يمكن استرجاعه من قائمة الأقسام المخفية.")
+                  !window.confirm("هل تريد حذف هذا القسم من التقرير؟ يمكن استعادته من سلة المحذوفات أو من قائمة الأقسام المخفية.")
                 ) {
                   return;
                 }
@@ -2751,10 +2863,89 @@ export function MvValuationReportDocumentBody({
           {insertedAfter("mv-toc-23")}
         </section>
   );
+  /*
+   * Executive-summary table defined by the active system template: field
+   * names on the right, values filled automatically from the project's
+   * report data (system keys and `field:<id>` custom fields).
+   */
+  const summaryTableConfig = hasActiveSummaryTable(activeCustomTemplate?.summaryTable)
+    ? activeCustomTemplate!.summaryTable!
+    : null;
+  const summaryValueContext: SummaryValueContext = {
+    resolved: {
+      projectName: projectDisplayName,
+      clientName,
+      reportTitle,
+      reportReference: referenceLabel,
+      finalValue: reportData.finalValue == null ? "" : finalValueDisplay,
+      finalValueWords,
+      currencyLabel: effectiveCurrencyLabel,
+      valuationTeam: preparerDisplayRows.map((row) => row.name).filter(Boolean).join("، "),
+      companyName,
+      commercialRegistration,
+      companyManagerName: leadValuerName,
+      companyManagerMembership: leadValuerMembershipDisplay === "—" ? "" : leadValuerMembershipDisplay,
+      reportDate: formatTemplateReportDate(reportIssueDateDisplay) ?? reportIssueDateDisplay,
+      // The values the report prints (fallbacks + per-report edits), so a
+      // variable shows exactly what the report body shows.
+      reportIssueDate: formatTemplateReportDate(reportIssueDateDisplay) ?? reportIssueDateDisplay,
+      valuationFirmName: companyName,
+      valuationFirmLicense,
+      leadValuerName,
+      leadValuerMembershipNo: leadValuerMembershipDisplay === "—" ? "" : leadValuerMembershipDisplay,
+      clientPhone,
+      clientEmail,
+      clientRepresentativeName,
+      inspectionLocation: effectiveInspectionLocation === "غير محدد" ? "" : effectiveInspectionLocation,
+      inspectionMapUrl: effectiveInspectionMapUrl,
+      ...(project?.displayNumber != null ? { displayNumber: String(project.displayNumber) } : {}),
+    },
+    reportData: reportData as Record<string, unknown>,
+    customFields: reportData.customFields ?? [],
+  };
+  const summaryTableNode: ReactNode = summaryTableConfig ? (
+    <SystemTemplateSummaryTable
+      table={summaryTableConfig}
+      rows={summaryTableConfig.fields.map((field) => {
+        // Per-project edits of a row's name/value are kept as text overrides.
+        const labelKey = `summary.label.${field.id}`;
+        const valueKey = `summary.value.${field.id}`;
+        const rowLabel = editableText(labelKey, field.label || field.sourceKey);
+        const rowValue = editableText(valueKey, resolveSummaryFieldValue(field, summaryValueContext) || "—");
+        const rowValueMissing = ["", "—", "-", "غير محدد"].includes(rowValue.replace(/<[^>]*>/g, "").trim());
+        return {
+          id: field.id,
+          label: (
+            <EditableBlock
+              value={rowLabel}
+              onChange={(value) => setTextOverride(labelKey, value)}
+              className="min-h-[1.25rem] text-right"
+              placeholder={field.label || "اسم الحقل"}
+              deletable={false}
+            />
+          ),
+          value: (
+            // `display: contents` keeps the table layout; the marker feeds the pre-export data check.
+            <div className="contents" data-mv-template-missing={rowValueMissing ? rowLabel.replace(/<[^>]*>/g, "").trim() || field.sourceKey : undefined}>
+              <EditableBlock
+                value={rowValue}
+                onChange={(value) => setTextOverride(valueKey, value)}
+                className="min-h-[1.25rem] text-right"
+                placeholder="القيمة"
+                deletable={false}
+              />
+            </div>
+          ),
+        };
+      })}
+    />
+  ) : null;
+
   const topic_valueOpinion: ReactNode = (
         <section key="mv-toc-24" id="mv-toc-24" data-mv-report-insert-anchor="mv-toc-24">
           {editableHeading("mv-toc-24", mvReportTocHeading("mv-toc-24"))}
           <div className="mt-3 space-y-6 text-right">
+            {summaryTableNode}
             <EditableBlock
               value={editableText("paragraph.valueOpinion", valueOpinionSentence)}
               onChange={(value) => setTextOverride("paragraph.valueOpinion", value)}
@@ -3013,31 +3204,46 @@ export function MvValuationReportDocumentBody({
     customFieldValues: Object.fromEntries(
       (reportData.customFields ?? []).map((field) => [field.id, field.value ?? ""]),
     ),
+    resolveVariable: (key) => resolveTemplateVariableValue(key, summaryValueContext),
   };
   const aiFlow = buildAiReportFlowChildren({
     aiTemplate,
     topicSections,
     ctx: aiVariableContext,
   });
+  const compactCoverSection = isCompactDefaultModel
+    ? reportSectionModel?.sections.find((section) => section.systemAnchor === "report-cover")
+    : undefined;
+  const compactCoverTitle = compactCoverSection?.items.find((item) => item.id === "system:report-title");
+  const compactCoverClient = compactCoverSection?.items.find((item) => item.id === "system:client-name");
+  const coverTitleValue = compactCoverTitle?.body
+    ? resolveReportModelText(compactCoverTitle.body, aiVariableContext) || reportTitle
+    : reportTitle;
+  const coverClientValue = compactCoverClient?.body
+    ? resolveReportModelText(compactCoverClient.body, aiVariableContext) || clientName
+    : clientName;
   const modelFlowSections: ReportModelFlowSectionData[] = usesIndependentReportSectionModel
     ? (reportSectionModel?.sections ?? [])
         .filter(
           (section) =>
             section.visibleInReport !== false &&
             section.items.some((item) => item.visibleInReport !== false) &&
-            !NATIVE_IMAGE_ANNEX_ANCHORS.has(section.systemAnchor ?? ""),
+            !NATIVE_MODEL_ANCHORS.has(section.systemAnchor ?? ""),
         )
         .map((section) => ({
           id: `report-model:${reportSectionModel!.id}:${section.id}`,
+          anchor: reportSectionModelAnchor(reportSectionModel!.id, section),
           sectionNumber: section.sectionNumber,
           title: section.title,
           items: section.items
             .filter((item) => item.visibleInReport !== false)
             .map((item) => ({
               id: item.id,
+              anchor: reportSectionModelItemAnchor(reportSectionModel!.id, section, item.id),
               title: item.title,
               body: resolveReportModelText(item.body, aiVariableContext),
             })),
+          lead: section.systemAnchor === SUMMARY_TABLE_ANCHOR ? summaryTableNode : undefined,
         }))
     : [];
   const flowChildren: ReactNode[] = aiFlow?.nodes ?? defaultFlowChildren;
@@ -3056,9 +3262,7 @@ export function MvValuationReportDocumentBody({
         .map((section, index) => ({
           num: section.sectionNumber || `${index + 1}.0`,
           title: section.title,
-          anchor: NATIVE_IMAGE_ANNEX_ANCHORS.has(section.systemAnchor ?? "")
-            ? section.systemAnchor!
-            : `custom:report-model:${reportSectionModel!.id}:${section.id}`,
+          anchor: reportSectionModelAnchor(reportSectionModel!.id, section),
         }))
     : aiFlow
       ? aiFlow.tocRows.map((row, index) => ({ ...row, num: `${index + 1}.0` }))
@@ -3102,10 +3306,24 @@ export function MvValuationReportDocumentBody({
         ["--mv-heading-scale" as string]: String(headingScale),
       }}
     >
-      {modelFlowSections.map((section) => <ReportModelFlowSection key={section.id} section={section} />)}
+      {modelFlowSections.map((section) => renderReportModelFlowSection(section))}
     </ReportFlowPages>
   );
+  // One resolver for every template and model: system-template text,
+  // summary-table rows and `{{project.x}}`-style model keys all agree.
+  const resolveReportVariable = (key: string) =>
+    resolveTemplateVariableValue(key, summaryValueContext) || resolveAiVariable(key, aiVariableContext) || "";
+  const reportIdentity = {
+    reportTitle: coverTitleValue,
+    clientName: coverClientValue,
+    companyManagerName: leadValuerName || undefined,
+    companyManagerMembership: leadValuerMembershipDisplay === "—" ? undefined : leadValuerMembershipDisplay,
+    reportReference: referenceLabel || undefined,
+    reportDate: reportIssueDateDisplay || undefined,
+  };
   return (
+    <TemplateVariablesProvider resolve={resolveReportVariable}>
+    <MvReportIdentityProvider value={reportIdentity}>
     <MvReportLetterheadProvider value={letterheadTemplate}>
     <div
       dir="rtl"
@@ -3219,11 +3437,18 @@ export function MvValuationReportDocumentBody({
         }}
       />
       {insertMenuNode}
+      {shouldRenderNativeAnchor("report-cover") ? (
       <MvReportPageShell
         variant="cover"
         companyName={companyName}
         companyNameNode={editableCoverCompanyNameNode}
         commercialRegistration={commercialRegistration}
+        reportTitle={coverTitleValue}
+        clientName={coverClientValue}
+        companyManagerName={leadValuerName}
+        companyManagerMembership={leadValuerMembershipDisplay === "—" ? undefined : leadValuerMembershipDisplay}
+        reportReference={referenceLabel}
+        reportDate={reportIssueDateDisplay}
         logoSrc={logoSrc}
         footerLines={identityFooterLines}
         draftWatermark={sheetDraft}
@@ -3243,7 +3468,7 @@ export function MvValuationReportDocumentBody({
           className="w-full max-w-3xl space-y-5 text-center"
         >
           <EditableBlock
-            value={reportTitle}
+            value={coverTitleValue}
             onChange={(value) => setTextOverride("reportTitle", value)}
             className={cn(
               "mx-auto px-3 py-2 text-center text-[28px] font-black leading-[1.25] tracking-tight text-white sm:text-[36px]",
@@ -3258,7 +3483,7 @@ export function MvValuationReportDocumentBody({
           />
 
           <EditableBlock
-            value={clientName ? `(${clientName})` : "—"}
+            value={coverClientValue ? `(${coverClientValue})` : "—"}
             onChange={(value) => {
               const trimmed = value.trim().replace(/^\(/, "").replace(/\)$/, "");
               setTextOverride("clientName", trimmed);
@@ -3273,8 +3498,9 @@ export function MvValuationReportDocumentBody({
 
         </div>
       </MvReportPageShell>
+      ) : null}
 
-      {insertedAfterOnOwnPages("report-cover")}
+      {shouldRenderNativeAnchor("report-cover") ? insertedAfterOnOwnPages("report-cover") : null}
 
       {boundary("report-cover")}
 
@@ -3382,7 +3608,7 @@ export function MvValuationReportDocumentBody({
         />
       ) : null}
 
-      {!includeValuationAccountImages ? (
+      {shouldRenderNativeAnchor("mv-annex-1") ? (!includeValuationAccountImages ? (
         <ReportFlowPages
           shellProps={interiorShellProps}
           measureRevision={`annex-valuation-disabled:${insertedBlocks.length}`}
@@ -3391,7 +3617,7 @@ export function MvValuationReportDocumentBody({
             id="mv-annex-1"
             title={
               <EditableBlock
-                value={editableText("heading.mv-annex-1", "مرفق 1: حسابات القيمة")}
+                value={editableText("heading.mv-annex-1", nativeModelTitle("mv-annex-1", "حسابات القيمة"))}
                 onChange={(value) => setTextOverride("heading.mv-annex-1", value)}
                 className="min-h-[1.75rem]"
                 multiline={false}
@@ -3413,7 +3639,7 @@ export function MvValuationReportDocumentBody({
             id="mv-annex-1"
             title={
               <EditableBlock
-                value={editableText("heading.mv-annex-1", "مرفق 1: حسابات القيمة")}
+                value={editableText("heading.mv-annex-1", nativeModelTitle("mv-annex-1", "حسابات القيمة"))}
                 onChange={(value) => setTextOverride("heading.mv-annex-1", value)}
                 className="min-h-[1.75rem]"
                 multiline={false}
@@ -3460,7 +3686,7 @@ export function MvValuationReportDocumentBody({
                   <EditableBlock
                     value={editableText(
                       vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`,
-                      "مرفق 1: حسابات القيمة",
+                      nativeModelTitle("mv-annex-1", "حسابات القيمة"),
                     )}
                     onChange={(value) =>
                       setTextOverride(vIdx === 0 ? "heading.mv-annex-1" : `heading.mv-annex-1-${vIdx}`, value)
@@ -3474,11 +3700,29 @@ export function MvValuationReportDocumentBody({
             </Fragment>
           );
         })
-      )}
+      )) : null}
 
-      {assetPhotoChunks.map((chunk, chunkIdx) => {
+      {shouldRenderNativeAnchor("mv-annex-2") ? assetPhotoChunks.map((chunk, chunkIdx) => {
         const anchorId = chunkIdx === 0 ? "mv-annex-2" : `mv-annex-2-${chunkIdx}`;
         const orientation = pageOrientation(anchorId, "portrait");
+        // Smart mode re-plans a partly filled last page for its own photo
+        // count, so it is filled as well instead of leaving a blank half page.
+        const plan = assetGridPlan(
+          orientation,
+          assetImagesAutoLayout && chunk.length > 0 && chunk.length < assetPhotosPerPage ? chunk.length : assetPhotosPerPage,
+        );
+        const gridColumns = Math.min(plan.columns, Math.max(1, assetPhotosPerPage));
+        // Blocks inserted after the gallery need room: keep 4:3 frames
+        // instead of stretching the rows to the bottom of the page.
+        const sharesPage = insertedBlocks.some((block) => block.anchorId === anchorId && block.position !== "before");
+        const floorMm = (value: number) => Math.floor(value * 10) / 10;
+        const frameWidthMm = floorMm(plan.frameWidthMm);
+        const frameHeightMm = floorMm(sharesPage ? Math.min(plan.frameHeightMm, plan.frameWidthMm * 0.75) : plan.frameHeightMm);
+        const galleryHeightMm = sharesPage ? undefined : floorMm(plan.galleryHeightMm);
+        const cellWidthCss = gridColumns <= 1
+          ? "100%"
+          : `calc((100% - ${Math.max(0, imageInnerGap) * (gridColumns - 1)}px) / ${gridColumns})`;
+        const photoWidthCss = `min(${frameWidthMm}mm, ${cellWidthCss})`;
         return (
           <ReportFlowPages
             key={`assets-${chunkIdx}`}
@@ -3491,7 +3735,7 @@ export function MvValuationReportDocumentBody({
               footerLines: identityFooterLines,
               draftWatermark: sheetDraft,
             }}
-            measureRevision={`asset-photos:${anchorId}:${chunk.map((item) => item._id).join(",")}:${assetImageWidth}:${assetPhotosPerRow}`}
+            measureRevision={`asset-photos:${anchorId}:${chunk.map((item) => item._id).join(",")}:${gridColumns}x${plan.rows}:${frameWidthMm}x${frameHeightMm}:${galleryHeightMm ?? "flow"}:${assetPhotoFit}:${assetImagesNumbered ? 1 : 0}`}
           >
             <SectionShell
               id={anchorId}
@@ -3499,7 +3743,7 @@ export function MvValuationReportDocumentBody({
                 <EditableBlock
                   value={editableText(
                     chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`,
-                    "مرفق 2: صور الأصول",
+                    nativeModelTitle("mv-annex-2", "صور الأصول"),
                   )}
                   onChange={(value) =>
                     setTextOverride(chunkIdx === 0 ? "heading.mv-annex-2" : `heading.mv-annex-2-${chunkIdx}`, value)
@@ -3528,16 +3772,30 @@ export function MvValuationReportDocumentBody({
               </div>
             ) : (
               <div
-                className="flex flex-wrap gap-0 p-0"
-                style={{ columnGap: imageInnerGap, rowGap: imageGroupGap }}
+                className="flex flex-wrap justify-center gap-0 p-0"
+                style={{
+                  columnGap: imageInnerGap,
+                  rowGap: imageGroupGap,
+                  // Rows spread evenly over the page when the frames are
+                  // aspect-limited, so the page always looks filled.
+                  ...(galleryHeightMm !== undefined
+                    ? { height: `${galleryHeightMm}mm`, alignContent: "space-evenly" }
+                    : {}),
+                }}
+                data-mv-asset-photo-grid
+                data-columns={gridColumns}
+                data-rows={plan.rows}
               >
-                {chunk.map((file) => (
+                {chunk.map((file, photoIdx) => (
                   <AssetPhotoFigure
                     key={file._id}
                     file={file}
                     projectId={projectId}
                     widthPercent={assetImageWidth}
-                    widthCss={assetPhotoWidthCss(orientation)}
+                    widthCss={photoWidthCss}
+                    frameHeightMm={frameHeightMm}
+                    fit={assetPhotoFit}
+                    index={assetImagesNumbered ? chunkIdx * assetPhotosPerPage + photoIdx + 1 : undefined}
                     cornerRadius={imageCornerRadius}
                     resolveImageSrc={resolveImageSrc}
                     pageOrientation={orientation}
@@ -3566,9 +3824,9 @@ export function MvValuationReportDocumentBody({
             </SectionShell>
           </ReportFlowPages>
         );
-      })}
+      }) : null}
 
-      {clientDocChunks.map((chunk, chunkIdx) => {
+      {shouldRenderNativeAnchor("mv-annex-3") ? clientDocChunks.map((chunk, chunkIdx) => {
         const anchorId = chunkIdx === 0 ? "mv-annex-3" : `mv-annex-3-${chunkIdx}`;
         const orientation = pageOrientation(anchorId, "portrait");
         return (
@@ -3594,7 +3852,7 @@ export function MvValuationReportDocumentBody({
                 <EditableBlock
                   value={editableText(
                     chunkIdx === 0 ? "heading.mv-annex-3" : `heading.mv-annex-3-${chunkIdx}`,
-                    "مرفق 3: مستندات العميل",
+                    nativeModelTitle("mv-annex-3", "صور ملفات العميل"),
                   )}
                   onChange={(value) =>
                     setTextOverride(
@@ -3721,9 +3979,9 @@ export function MvValuationReportDocumentBody({
             </SectionShell>
           </ReportFlowPages>
         );
-      })}
+      }) : null}
 
-      <ReportFlowPages
+      {shouldRenderNativeAnchor("mv-annex-sce") ? <ReportFlowPages
         shellProps={interiorShellProps}
         measureRevision={`sce:${sceRegistrationHtml}:${sceCertificateImages.map((image) => image.id).join(",")}`}
         measureEnvStyle={{
@@ -3840,16 +4098,22 @@ export function MvValuationReportDocumentBody({
             {insertedAfter("mv-annex-sce")}
           </div>
         </section>
-      </ReportFlowPages>
+      </ReportFlowPages> : null}
 
       {boundary("mv-annex-sce")}
 
-      <MvReportPageShell
+      {shouldRenderNativeAnchor("mv-report-closing") ? <MvReportPageShell
         variant="cover"
-        coverArtwork="divider"
+        coverArtwork="closing"
         companyName={companyName}
         companyNameNode={editableCompanyNameNode}
         commercialRegistration={commercialRegistration}
+        reportTitle={coverTitleValue}
+        clientName={coverClientValue}
+        companyManagerName={leadValuerName}
+        companyManagerMembership={leadValuerMembershipDisplay === "—" ? undefined : leadValuerMembershipDisplay}
+        reportReference={referenceLabel}
+        reportDate={reportIssueDateDisplay}
         logoSrc={logoSrc}
         footerLines={identityFooterLines}
         coverFooterContent={reportIdentityFooter}
@@ -3863,21 +4127,23 @@ export function MvValuationReportDocumentBody({
           <EditableBlock
             value={editableText("closing.thankYou", "Thank You")}
             onChange={(value) => setTextOverride("closing.thankYou", value)}
-            className="px-2 py-2 text-center text-[34px] font-black leading-tight text-slate-950 sm:text-[42px]"
+            className="px-2 py-2 text-center text-[34px] font-black leading-tight text-[var(--mv-cover-text,#fff)] sm:text-[42px]"
             multiline={false}
             placeholder="Thank You"
           />
           <EditableBlock
             value={editableText("closing.note", "شكراً لثقتكم")}
             onChange={(value) => setTextOverride("closing.note", value)}
-            className="mx-auto max-w-md px-2 text-center text-[15px] font-extrabold leading-8 text-slate-950"
+            className="mx-auto max-w-md px-2 text-center text-[15px] font-extrabold leading-8 text-[var(--mv-cover-text,#fff)]"
             placeholder="نص الخاتمة"
           />
         </section>
-      </MvReportPageShell>
+      </MvReportPageShell> : null}
 
-      {insertedAfterOnOwnPages("mv-report-closing")}
+      {shouldRenderNativeAnchor("mv-report-closing") ? insertedAfterOnOwnPages("mv-report-closing") : null}
     </div>
     </MvReportLetterheadProvider>
+    </MvReportIdentityProvider>
+    </TemplateVariablesProvider>
   );
 }

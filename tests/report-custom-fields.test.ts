@@ -123,7 +123,7 @@ test("report-data models retain the default individual model and company fields"
   ]);
 
   assert.equal(models[0]?.id, MV_DEFAULT_REPORT_DATA_MODEL_ID);
-  assert.equal(models[0]?.name, "نموذج فرد");
+  assert.equal(models[0]?.name, "نموذج البيانات");
   assert.equal(models[1]?.sections[0]?.fields[0]?.sourceKey, "field:equipment-serial");
   assert.equal(models[1]?.sections[0]?.fields[0]?.required, true);
 });

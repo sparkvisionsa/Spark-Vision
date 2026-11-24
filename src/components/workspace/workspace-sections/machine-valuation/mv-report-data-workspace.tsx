@@ -77,8 +77,14 @@ import {
   getReportDataModel,
   isReportDataModelCustomField,
   normalizeReportDataModels,
+  resolveProjectReportDataModel,
   type MvReportDataModel,
 } from "./mv-report-data-models";
+import {
+  applyReportDataModel,
+  reportDataHasUserInput,
+  reportDataNeedsModelMaterialization,
+} from "./mv-report-data-model-apply";
 import { projectSerialLabel } from "@/lib/mv-serial-numbering";
 import { MvErrorState, MvPageLoading } from "./mv-ui";
 import { systemArabicFont as reportFont } from "@/lib/system-fonts";
@@ -206,101 +212,8 @@ function normalizeReportData(
   };
 }
 
-const MODEL_BUILT_IN_SECTION_IDS = new Set<string>(MV_REPORT_COLLAPSIBLE_IDS);
-
-/**
- * Materialize the model's company fields in the project's existing custom
- * field store.  Values stay inside `reportData`, which also lets the merge
- * services expose the same keys to Word and PowerPoint.
- */
-function applyReportDataModel(
-  current: MvProjectReportData,
-  model: MvReportDataModel,
-): MvProjectReportData {
-  const currentFields = normalizeReportCustomFields(current.customFields);
-  const currentSections = normalizeReportCustomSections(current.customSections);
-  const previousValueById = new Map(currentFields.map((field) => [field.id, field.value ?? ""]));
-  const modelFields = model.sections
-    .flatMap((section) =>
-      section.fields
-        .filter(isReportDataModelCustomField)
-        .map((field) => ({ sectionId: section.id, field })),
-    )
-    .filter(({ field }) => field.sourceKey.slice("field:".length).trim().length > 0);
-  const modelFieldIds = new Set(modelFields.map(({ field }) => field.sourceKey.slice("field:".length)));
-  const manualFields = currentFields.filter((field) => !field.modelId && !modelFieldIds.has(field.id));
-  const generatedFields = modelFields.map(({ sectionId, field }) => {
-    const id = field.sourceKey.slice("field:".length);
-    return {
-      id,
-      sectionId,
-      modelId: model.id,
-      label: field.label,
-      type: field.type,
-      required: field.required,
-      value: previousValueById.get(id) ?? "",
-    };
-  });
-  const modelSections = model.sections
-    .filter((section) => !MODEL_BUILT_IN_SECTION_IDS.has(section.id))
-    .map((section) => ({ id: section.id, title: section.title, modelId: model.id }));
-  const modelSectionIds = new Set(modelSections.map((section) => section.id));
-  const manualSections = currentSections.filter(
-    (section) => !section.modelId && !modelSectionIds.has(section.id),
-  );
-
-  return {
-    ...current,
-    reportDataModelId: model.id,
-    customFields: [...manualFields, ...generatedFields],
-    customSections: [...manualSections, ...modelSections],
-  };
-}
-
-function reportDataNeedsModelMaterialization(
-  data: MvProjectReportData,
-  model: MvReportDataModel,
-): boolean {
-  if (data.reportDataModelId !== model.id) return true;
-  const fields = normalizeReportCustomFields(data.customFields);
-  const modelFieldIds = new Set(
-    model.sections
-      .flatMap((section) => section.fields)
-      .filter(isReportDataModelCustomField)
-      .map((field) => field.sourceKey.slice("field:".length)),
-  );
-  if (fields.some((field) => field.modelId === model.id && !modelFieldIds.has(field.id))) return true;
-  for (const field of model.sections.flatMap((section) => section.fields).filter(isReportDataModelCustomField)) {
-    const id = field.sourceKey.slice("field:".length);
-    const stored = fields.find((item) => item.id === id && item.modelId === model.id);
-    if (
-      !stored ||
-      stored.label !== field.label ||
-      stored.type !== field.type ||
-      stored.required !== field.required ||
-      stored.sectionId !== model.sections.find((section) => section.fields.includes(field))?.id
-    ) {
-      return true;
-    }
-  }
-  const sections = normalizeReportCustomSections(data.customSections);
-  return model.sections
-    .filter((section) => !MODEL_BUILT_IN_SECTION_IDS.has(section.id))
-    .some((section) => {
-      const stored = sections.find((item) => item.id === section.id && item.modelId === model.id);
-      return !stored || stored.title !== section.title;
-    });
-}
-
 interface MvReportDataWorkspaceProps {
   projectId: string;
-}
-
-function resolvedReportDataModelId(data: MvProjectReportData | undefined | null): string {
-  const explicit = data?.reportDataModelId?.trim() ?? "";
-  if (explicit) return explicit;
-  const fromField = (data?.customFields ?? []).find((field) => field.modelId?.trim())?.modelId?.trim();
-  return fromField ?? "";
 }
 
 function reportDataLooksFilled(data: MvProjectReportData): boolean {
@@ -332,6 +245,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const reportDataDirtyRef = useRef(false);
+  /** إعادة ضبط البيانات بانتظار الحفظ: الخادم يحفظ نسخة ما قبلها في سلة المحذوفات. */
+  const reportDataResetPendingRef = useRef(false);
   const projectNameDirtyRef = useRef(false);
   const isDirtyRef = useRef(false);
   const saveButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -607,23 +522,36 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
     });
   }, [preparerOptions, preparersLoaded, reportData.valuationTeam]);
 
+  // The project's model: the company model while it exists, otherwise the
+  // project's own saved copy. A project is never moved to another model
+  // behind the user's back (that used to drop the deleted model's fields).
+  const projectModel = useMemo(
+    () =>
+      resolveProjectReportDataModel(reportDataModels, reportData) ??
+      resolveProjectReportDataModel(reportDataModels, project?.reportData),
+    [project?.reportData, reportData, reportDataModels],
+  );
+
   useEffect(() => {
     if (!project || !reportDataModelsLoaded) return;
-    const selectedId = resolvedReportDataModelId(reportData) || resolvedReportDataModelId(project.reportData);
-    if (selectedId) {
-      const selectedModel = getReportDataModel(reportDataModels, selectedId);
-      if (reportDataNeedsModelMaterialization(reportData, selectedModel)) {
-        setReportData((current) => applyReportDataModel(current, selectedModel));
-      }
-      setModelChoiceOpen(false);
-      return;
-    }
-    // بطاقة القائمة لا تحتوي بيانات التقرير الكاملة — لا تُظهر اختيار النموذج قبل التحميل.
+    // بطاقة القائمة لا تحتوي بيانات التقرير الكاملة — انتظر التحميل الكامل قبل أي قرار.
     if (!Array.isArray(project.reportData?.customFields)) {
       setModelChoiceOpen(false);
       return;
     }
-    if (reportDataModels.length <= 1) {
+    if (projectModel) {
+      // Keeps the project in step with its model without losing a value
+      // (fields that leave the model keep their data as project fields).
+      if (reportDataNeedsModelMaterialization(reportData, projectModel.model)) {
+        setReportData((current) => applyReportDataModel(current, projectModel.model));
+      }
+      setModelChoiceOpen(false);
+      return;
+    }
+    // No model yet. The picker belongs to a brand-new project only: an
+    // existing report (data already entered) silently keeps the default
+    // model's complete form and is never interrupted again.
+    if (reportDataModels.length <= 1 || reportDataHasUserInput(project.reportData) || reportDataHasUserInput(reportData)) {
       const defaultModel = reportDataModels[0]!;
       if (reportDataNeedsModelMaterialization(reportData, defaultModel)) {
         setReportData((current) => applyReportDataModel(current, defaultModel));
@@ -631,14 +559,17 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
       setModelChoiceOpen(false);
       return;
     }
-    setPendingModelId(reportDataModels[0]?.id ?? "");
+    setPendingModelId((current) =>
+      current && reportDataModels.some((model) => model.id === current) ? current : reportDataModels[0]?.id ?? "",
+    );
     setModelChoiceOpen(true);
-  }, [project, reportData, reportDataModels, reportDataModelsLoaded]);
+  }, [project, projectModel, reportData, reportDataModels, reportDataModelsLoaded]);
 
   const activeReportDataModel = useMemo(
-    () => getReportDataModel(reportDataModels, reportData.reportDataModelId),
-    [reportData.reportDataModelId, reportDataModels],
+    () => projectModel?.model ?? getReportDataModel(reportDataModels, null),
+    [projectModel, reportDataModels],
   );
+  const activeModelIsProjectCopy = projectModel != null && projectModel.source !== "company";
 
   const assetImageCount = useMemo(() => countProjectAssetImages(subProjects), [subProjects]);
 
@@ -797,9 +728,11 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
           name,
           reportType: project.reportType ?? "simple",
           reportData: normalizedData,
+          ...(reportDataResetPendingRef.current ? { reportDataReset: true } : {}),
         }),
       });
       if (!response.ok) throw new Error();
+      reportDataResetPendingRef.current = false;
       const payload = (await response.json()) as { project?: MvProject };
       const updated = payload.project ?? {
         ...project,
@@ -830,7 +763,8 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const selectReportDataModel = useCallback(
     async (modelId: string) => {
-      const model = getReportDataModel(reportDataModels, modelId);
+      const model = reportDataModels.find((item) => item.id === modelId);
+      if (!model) return;
       const nextReportData = applyReportDataModel(reportData, model);
       setPendingModelId(model.id);
 
@@ -881,6 +815,7 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
 
   const handleResetReportData = useCallback(() => {
     if (!window.confirm(t("reportData.reset.confirm"))) return;
+    reportDataResetPendingRef.current = true;
     reportDataDirtyRef.current = true;
     markDirty();
     setReportData(applyReportDataModel(normalizeReportData(null, project), activeReportDataModel));
@@ -1035,18 +970,21 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
               <section className="mb-3 flex w-full flex-nowrap items-center justify-between gap-3 rounded-2xl border border-slate-200/90 bg-white px-2.5 py-2 shadow-sm">
                 <label className="flex min-w-0 items-center gap-2">
                   <span className="shrink-0 text-[12px] font-bold text-slate-600">نموذج بيانات التقرير</span>
-                  {canEditReportData && reportDataModels.length > 1 ? (
+                  {canEditReportData && (reportDataModels.length > 1 || activeModelIsProjectCopy) ? (
                     <Select
                       value={activeReportDataModel.id}
                       onValueChange={(nextId) => {
                         if (nextId === activeReportDataModel.id) return;
+                        if (!reportDataModels.some((model) => model.id === nextId)) return;
                         if (
                           reportDataLooksFilled(reportData) &&
-                          !window.confirm("سيبقى المحتوى الحالي محفوظًا، وستتغير الحقول الظاهرة حسب النموذج الجديد. متابعة؟")
+                          !window.confirm(
+                            "ستتغير الحقول الظاهرة حسب النموذج الجديد، وتبقى كل القيم المدخلة محفوظة في التقرير (الحقول التي لا يحتويها النموذج الجديد تبقى بقيمها كحقول خاصة بالمشروع). متابعة؟",
+                          )
                         ) {
                           return;
                         }
-                        selectReportDataModel(nextId);
+                        void selectReportDataModel(nextId);
                       }}
                     >
                       <SelectTrigger
@@ -1056,6 +994,11 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent dir={dir}>
+                        {activeModelIsProjectCopy ? (
+                          <SelectItem value={activeReportDataModel.id} className="text-[12px] font-bold">
+                            {activeReportDataModel.name} (نسخة المشروع)
+                          </SelectItem>
+                        ) : null}
                         {reportDataModels.map((model) => (
                           <SelectItem key={model.id} value={model.id} className="text-[12px] font-bold">
                             {model.name}
@@ -1068,6 +1011,15 @@ export default function MvReportDataWorkspace({ projectId }: MvReportDataWorkspa
                       {activeReportDataModel.name}
                     </span>
                   )}
+                  {activeModelIsProjectCopy ? (
+                    <span
+                      data-testid="report-data-model-project-copy"
+                      title="حُذف النموذج الأصلي أو لم يعد متاحًا، ويستمر هذا التقرير بنسخته المحفوظة دون فقد أي بيانات."
+                      className="hidden shrink-0 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-800 ring-1 ring-amber-200 sm:inline"
+                    >
+                      نسخة محفوظة في التقرير
+                    </span>
+                  ) : null}
                 </label>
                 {canEditReportData ? <Button
                   type="button"

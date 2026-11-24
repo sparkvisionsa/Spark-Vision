@@ -35,7 +35,7 @@ test("template preparation, copying, model selection, upload and manual binding 
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await page.goto(`${origin}/?format=${format}`);
-        await expect(page.getByRole("combobox", { name: "نموذج بيانات التقرير" })).toHaveText("نموذج فرد");
+        await expect(page.getByRole("combobox", { name: "نموذج بيانات التقرير" })).toHaveText("نموذج البيانات");
         await expect(page.locator('input[type="file"]')).toHaveCount(0);
         const basis = page.locator("code").filter({ hasText: "<<اساس_القيمة>>" });
         await expect(basis).toHaveClass(/text-orange-700/);
@@ -82,7 +82,7 @@ test("template preparation, copying, model selection, upload and manual binding 
         await expect(page.getByRole("button", { name: "العودة إلى القوالب", exact: true })).toHaveCount(0);
         await expect(page.locator("code").filter({ hasText: "<<خاص_بالقالب>>" })).toHaveClass(/text-emerald-700/);
         await page.getByRole("button", { name: "إضافة قالب جديد", exact: true }).click();
-        await expect(page.getByRole("combobox", { name: "نموذج بيانات التقرير" })).toHaveText("نموذج فرد");
+        await expect(page.getByRole("combobox", { name: "نموذج بيانات التقرير" })).toHaveText("نموذج البيانات");
         await expect(basis).toHaveClass(/text-orange-700/);
         await expect(page.locator("code.text-emerald-700")).toHaveCount(0);
         await page.setViewportSize({ width: 390, height: 844 });

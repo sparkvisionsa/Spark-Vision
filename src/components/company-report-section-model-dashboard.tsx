@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Copy, Eye, EyeOff, FolderPlus, Pencil, Plus, Save, Star, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AlertTriangle, Copy, Eye, EyeOff, FolderPlus, GripVertical, Pencil, Plus, Save, Star, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,6 +25,7 @@ import {
   cloneReportSectionModel,
   createReportSectionModelItem,
   createReportSectionModelSection,
+  createNewReportSectionModelSections,
   resolveReportSectionModelDefaults,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-section-models";
 import { normalizeReportDataModels, type MvReportDataModel } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
@@ -88,7 +89,7 @@ function newModel(): MvCompanyReportSectionModel {
     id: createReportCustomId("report-model"),
     name: "نموذج تقرير جديد",
     visibleInReport: true,
-    sections: [createReportSectionModelSection()],
+    sections: createNewReportSectionModelSections(),
   };
 }
 
@@ -145,6 +146,45 @@ export function CompanyReportSectionModelDashboard({
     });
   }, [normalizedReportDataModels]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [draggedSectionId, setDraggedSectionId] = useState<string | null>(null);
+  const [sectionDropTarget, setSectionDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [sidebarWidthReady, setSidebarWidthReady] = useState(false);
+  const [resizingSidebar, setResizingSidebar] = useState(false);
+  const [pendingFocusItemId, setPendingFocusItemId] = useState<string | null>(null);
+  const [pendingSidebarFocusSectionId, setPendingSidebarFocusSectionId] = useState<string | null>(null);
+  const [sidebarItemTitle, setSidebarItemTitle] = useState("");
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const editBaselineModelsRef = useRef<string | null>(null);
+
+  const cloneModels = (value: MvCompanyReportSectionModel[]) =>
+    JSON.parse(JSON.stringify(value)) as MvCompanyReportSectionModel[];
+  const hasUnsavedChanges = Boolean(
+    editingId &&
+      editBaselineModelsRef.current !== null &&
+      JSON.stringify(normalized) !== editBaselineModelsRef.current,
+  );
+
+  useEffect(() => {
+    try {
+      const storedWidth = Number(window.localStorage.getItem("vt-sections-w"));
+      if (storedWidth >= 180 && storedWidth <= 560) setSidebarWidth(storedWidth);
+    } catch {
+      // The editor still works when localStorage is unavailable.
+    } finally {
+      setSidebarWidthReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sidebarWidthReady) return;
+    try {
+      window.localStorage.setItem("vt-sections-w", String(sidebarWidth));
+    } catch {
+      // Persisting the preferred sidebar width is an optional enhancement.
+    }
+  }, [sidebarWidth, sidebarWidthReady]);
 
   useEffect(() => {
     if (editingId && !normalized.some((model) => model.id === editingId)) setEditingId(null);
@@ -160,7 +200,35 @@ export function CompanyReportSectionModelDashboard({
     value.trim() || nameBeforeEditRef.current[key]?.trim() || fallback;
 
   const active = normalized.find((model) => model.id === editingId) ?? null;
+  const activeSection = active
+    ? active.sections.find((section) => section.id === activeSectionId) ?? active.sections[0] ?? null
+    : null;
   const editorOpen = Boolean(editingId);
+
+  useEffect(() => setSidebarItemTitle(""), [activeSectionId]);
+
+  useEffect(() => {
+    if (!pendingFocusItemId || !editorOpen) return;
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-report-item-id="${pendingFocusItemId}"] input`,
+    );
+    if (!input) return;
+    input.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    input.focus();
+    input.select();
+    setPendingFocusItemId(null);
+  }, [activeSection, editorOpen, pendingFocusItemId]);
+
+  useEffect(() => {
+    if (!pendingSidebarFocusSectionId || !editorOpen) return;
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-sidebar-item-input="${pendingSidebarFocusSectionId}"]`,
+    );
+    if (!input) return;
+    input.focus();
+    setPendingSidebarFocusSectionId(null);
+  }, [activeSection, editorOpen, pendingSidebarFocusSectionId]);
+
   const commit = (next: MvCompanyReportSectionModel[]) =>
     onChange(resolveReportSectionModelDefaults(next));
   const setDefaultModel = (modelId: string) =>
@@ -211,6 +279,48 @@ export function CompanyReportSectionModelDashboard({
       ),
     });
   };
+  const addItemBelowSection = (
+    sectionId: string,
+    options: { title?: string; focus?: "detail" | "sidebar" } = {},
+  ) => {
+    if (!active) return;
+    const section = active.sections.find((entry) => entry.id === sectionId);
+    const itemCount = active.sections.reduce((total, entry) => total + entry.items.length, 0);
+    if (!section || itemCount >= 160) return;
+    const item = createReportSectionModelItem();
+    const title = options.title?.trim();
+    if (title) item.title = title.slice(0, 220);
+    setActiveSectionId(sectionId);
+    if (options.focus === "sidebar") {
+      setSidebarItemTitle("");
+      setPendingSidebarFocusSectionId(sectionId);
+    } else {
+      setPendingFocusItemId(item.id);
+    }
+    patchSection(sectionId, { items: [...section.items, item] });
+  };
+
+  const focusItemInDetail = (itemId: string) => {
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-report-item-id="${itemId}"] input`,
+    );
+    input?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    input?.focus();
+    input?.select();
+  };
+  const focusSidebarItemInput = (sectionId: string) => {
+    setActiveSectionId(sectionId);
+    setPendingSidebarFocusSectionId(sectionId);
+    // If the section is already selected, React may keep the same state value
+    // and therefore skip the effect; focus on the next frame as well so every
+    // click reliably places the caret in the add-item field.
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        `[data-sidebar-item-input="${sectionId}"]`,
+      );
+      input?.focus();
+    });
+  };
   const insertVariable = (sectionId: string, itemId: string, source: string) => {
     if (!active || !source) return;
     const item = active.sections
@@ -224,8 +334,44 @@ export function CompanyReportSectionModelDashboard({
   };
   const openNewModel = () => {
     const model = newModel();
+    editBaselineModelsRef.current = JSON.stringify(normalized);
     commit([...normalized, model]);
     setEditingId(model.id);
+    setActiveSectionId(model.sections[0]?.id ?? null);
+  };
+  const openModel = (modelId: string) => {
+    const model = normalized.find((entry) => entry.id === modelId);
+    editBaselineModelsRef.current = JSON.stringify(normalized);
+    setEditingId(modelId);
+    setActiveSectionId(model?.sections[0]?.id ?? null);
+  };
+  const requestCloseEditor = () => {
+    if (hasUnsavedChanges) {
+      setCloseConfirmOpen(true);
+      return;
+    }
+    editBaselineModelsRef.current = null;
+    setEditingId(null);
+  };
+  const discardAndCloseEditor = () => {
+    const baseline = editBaselineModelsRef.current;
+    if (baseline) {
+      try {
+        onChange(cloneModels(JSON.parse(baseline) as MvCompanyReportSectionModel[]));
+      } catch {
+        // Keep the current draft if a malformed snapshot ever occurs.
+      }
+    }
+    editBaselineModelsRef.current = null;
+    setCloseConfirmOpen(false);
+    setEditingId(null);
+  };
+  const saveAndCloseEditor = async () => {
+    const saved = await onSave();
+    if (!saved) return;
+    editBaselineModelsRef.current = null;
+    setCloseConfirmOpen(false);
+    setEditingId(null);
   };
   const removeModel = (model: MvCompanyReportSectionModel) => {
     if (normalized.length === 1) {
@@ -235,6 +381,22 @@ export function CompanyReportSectionModelDashboard({
     if (!window.confirm(`حذف نموذج «${model.name}»؟`)) return;
     commit(normalized.filter((entry) => entry.id !== model.id));
     if (editingId === model.id) setEditingId(null);
+  };
+  const moveSection = (sectionId: string, destinationIndex: number) => {
+    if (!active) return;
+    const sections = [...active.sections];
+    const sourceIndex = sections.findIndex((section) => section.id === sectionId);
+    if (sourceIndex < 0 || destinationIndex < 0 || destinationIndex > sections.length) return;
+    const [section] = sections.splice(sourceIndex, 1);
+    if (!section) return;
+    if (sourceIndex < destinationIndex) destinationIndex -= 1;
+    sections.splice(destinationIndex, 0, section);
+    patchModel(active.id, { sections });
+  };
+  const dropSection = (sectionId: string, targetSectionId: string, after: boolean) => {
+    if (!active || !sectionId || sectionId === targetSectionId) return;
+    const targetIndex = active.sections.findIndex((section) => section.id === targetSectionId);
+    moveSection(sectionId, targetIndex + (after ? 1 : 0));
   };
 
   if (loading) {
@@ -257,7 +419,7 @@ export function CompanyReportSectionModelDashboard({
           disabled={saving || normalized.length >= 12}
         >
           <Plus className="h-3.5 w-3.5" />
-          إضافة نموذج
+          إضافة نموذج الأقسام
         </Button>
       </div>
 
@@ -278,7 +440,7 @@ export function CompanyReportSectionModelDashboard({
                   <button
                     type="button"
                     className="max-w-full truncate text-[11px] font-black text-slate-800 hover:text-[#0C447C]"
-                    onClick={() => setEditingId(model.id)}
+                    onClick={() => openModel(model.id)}
                   >
                     {model.name}
                   </button>
@@ -303,7 +465,7 @@ export function CompanyReportSectionModelDashboard({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 rounded-md text-slate-600 hover:bg-sky-50 hover:text-[#0C447C]"
-                      onClick={() => setEditingId(model.id)}
+                      onClick={() => openModel(model.id)}
                       title="تعديل النموذج"
                       aria-label="تعديل النموذج"
                     >
@@ -331,9 +493,11 @@ export function CompanyReportSectionModelDashboard({
                       size="icon"
                       className="h-7 w-7 rounded-md text-slate-500 hover:bg-slate-100 hover:text-[#0C447C]"
                       onClick={() => {
+                        editBaselineModelsRef.current = JSON.stringify(normalized);
                         const copy = cloneReportSectionModel(model);
                         commit([...normalized, copy]);
                         setEditingId(copy.id);
+                        setActiveSectionId(copy.sections[0]?.id ?? null);
                       }}
                       disabled={saving || normalized.length >= 12}
                       title="نسخ النموذج"
@@ -372,13 +536,22 @@ export function CompanyReportSectionModelDashboard({
         </table>
       </div>
 
-      <Dialog open={editorOpen} onOpenChange={(open) => !open && setEditingId(null)}>
+      <Dialog open={editorOpen} onOpenChange={(open) => !open && requestCloseEditor()}>
         <DialogContent
           hideCloseButton
           className="max-h-[88vh] max-w-5xl overflow-hidden rounded-xl border-slate-200 p-0"
           dir="rtl"
         >
-          <DialogHeader className="flex-row items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 text-right">
+          <button
+            type="button"
+            className="absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-300"
+            onClick={requestCloseEditor}
+            title="إغلاق"
+            aria-label="إغلاق"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <DialogHeader className="flex-row items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 pr-12 text-right">
             <DialogTitle className="text-[13px] font-black">{active?.name || "النموذج"}</DialogTitle>
             {active ? (
               <Button
@@ -386,7 +559,12 @@ export function CompanyReportSectionModelDashboard({
                 variant="outline"
                 size="sm"
                 className="h-7 gap-1 rounded-md px-2 text-[10px] font-bold"
-                onClick={() => patchModel(active.id, { sections: [...active.sections, createReportSectionModelSection()] })}
+                onClick={() => {
+                  const section = createReportSectionModelSection();
+                  patchModel(active.id, { sections: [...active.sections, section] });
+                  setActiveSectionId(section.id);
+                  setPendingSidebarFocusSectionId(section.id);
+                }}
                 disabled={active.sections.length >= 50}
               >
                 <FolderPlus className="h-3.5 w-3.5" />
@@ -427,134 +605,343 @@ export function CompanyReportSectionModelDashboard({
                 )}
               </div>
 
-              {active.sections.map((section) => (
-                <div key={section.id} className="rounded-lg border border-slate-200 bg-white p-2">
-                  <div className="grid gap-1.5 sm:grid-cols-[76px_minmax(0,1fr)_auto]">
-                    <Input
-                      value={section.sectionNumber ?? ""}
-                      onChange={(event) => patchSection(section.id, { sectionNumber: event.target.value })}
-                      placeholder="رقم"
-                      className="h-8 rounded-md border-slate-200 text-[10.5px] font-bold"
-                      dir="ltr"
-                      maxLength={40}
-                    />
-                    <Input
-                      value={section.title}
-                      onChange={(event) => patchSection(section.id, { title: event.target.value })}
-                      onFocus={(event) => rememberName(`section:${section.id}`, event.target.value)}
-                      onBlur={(event) => {
-                        const title = finalizeName(`section:${section.id}`, event.target.value, "قسم جديد");
-                        if (title !== section.title) patchSection(section.id, { title });
-                      }}
-                      placeholder="اسم القسم"
-                      className="h-8 rounded-md border-slate-200 text-[11px] font-black"
-                      maxLength={220}
-                    />
-                    <div className="flex items-center justify-end gap-0.5">
-                      {visibilityButton(
-                        section.visibleInReport !== false,
-                        () => patchSection(section.id, { visibleInReport: section.visibleInReport === false }),
-                        "القسم",
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 rounded-md text-rose-500 hover:bg-rose-50"
-                        onClick={() => patchModel(active.id, { sections: active.sections.filter((item) => item.id !== section.id) })}
-                        title="حذف القسم"
-                        aria-label="حذف القسم"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
-                    {section.items.map((item) => (
-                      <div key={item.id} className="rounded-md bg-slate-50/70 p-1.5">
-                        <div className="flex gap-1.5">
-                          <Input
-                            value={item.title}
-                            onChange={(event) => patchItem(section.id, item.id, { title: event.target.value })}
-                            onFocus={(event) => rememberName(`item:${item.id}`, event.target.value)}
-                            onBlur={(event) => {
-                              const title = finalizeName(`item:${item.id}`, event.target.value, "بند جديد");
-                              if (title !== item.title) patchItem(section.id, item.id, { title });
-                            }}
-                            placeholder="عنوان البند أو التعريف"
-                            className="h-7 border-slate-200 bg-white text-[10.5px] font-bold"
-                            maxLength={220}
-                          />
-                          {visibilityButton(
-                            item.visibleInReport !== false,
-                            () => patchItem(section.id, item.id, { visibleInReport: item.visibleInReport === false }),
-                            "البند",
-                          )}
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 rounded-md text-rose-500 hover:bg-rose-50"
-                            onClick={() => patchSection(section.id, { items: section.items.filter((entry) => entry.id !== item.id) })}
-                            title="حذف البند"
-                            aria-label="حذف البند"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                        <Textarea
-                          value={displayReportModelText(item.body ?? "", variableOptions)}
-                          onChange={(event) =>
-                            patchItem(section.id, item.id, {
-                              body: storeReportModelText(event.target.value, variableOptions),
-                            })
+              <div
+                className={cn("vtd-grid", resizingSidebar && "resizing")}
+                style={{ "--vtd-w": `${sidebarWidth}px` } as CSSProperties}
+              >
+                <nav className="vtd-list" aria-label="أقسام النموذج">
+                  <p className="vtd-cap">الأقسام ({active.sections.length})</p>
+                  {active.sections.map((section, index) => {
+                    const selected = section.id === activeSection?.id;
+                    const hidden = section.visibleInReport === false;
+                    return (
+                      <div key={section.id} className="vtd-section-group">
+                      <div
+                        role="button"
+                        tabIndex={-1}
+                        className={cn(
+                          "vtd-it",
+                          selected && "on",
+                          hidden && "hid",
+                          draggedSectionId === section.id && "drag",
+                          sectionDropTarget?.id === section.id &&
+                            draggedSectionId !== section.id &&
+                            (sectionDropTarget.after ? "ov-b" : "ov-t"),
+                        )}
+                        aria-current={selected ? "true" : undefined}
+                        onClick={(event) => {
+                          const target = event.target as HTMLElement;
+                          if (!target.closest("input, button")) {
+                            focusSidebarItemInput(section.id);
+                          } else {
+                            setActiveSectionId(section.id);
                           }
-                          placeholder="نص البند"
-                          className="mt-1.5 min-h-[58px] resize-y rounded-md border-slate-200 bg-white px-2 py-1.5 text-[10.5px] leading-5"
-                          maxLength={50_000}
-                        />
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <Select onValueChange={(source) => insertVariable(section.id, item.id, source)}>
-                            <SelectTrigger className="h-7 w-[170px] rounded-md border-slate-200 bg-white text-[9.5px] font-bold shadow-none">
-                              <SelectValue placeholder="إدراج قيمة من بيانات التقرير" />
-                            </SelectTrigger>
-                            <SelectContent dir="rtl" className="max-h-72">
-                              {variableOptions.map((option) => (
-                                <SelectItem key={option.source} value={option.source} className="text-[10px] font-semibold">
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {(item.body ?? "").match(/\{\{[^{}]+\}\}/g)?.map((token, index) => {
-                            const source = sourceForReportModelVariable(token.slice(2, -2));
-                            const label = variableOptions.find((option) => option.source === source)?.label ?? "قيمة مرتبطة";
-                            return (
-                              <span
-                                key={`${token}-${index}`}
-                                className="rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold text-[#0C447C]"
-                              >
-                                {label}
-                              </span>
+                        }}
+                        onDragOver={(event) => {
+                          if (!draggedSectionId) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "move";
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const after = event.clientY > rect.top + rect.height / 2;
+                          if (sectionDropTarget?.id !== section.id || sectionDropTarget.after !== after) {
+                            setSectionDropTarget({ id: section.id, after });
+                          }
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          dropSection(
+                            draggedSectionId ?? "",
+                            section.id,
+                            event.clientY > rect.top + rect.height / 2,
+                          );
+                          setDraggedSectionId(null);
+                          setSectionDropTarget(null);
+                        }}
+                      >
+                        <span
+                          className="vtd-grip"
+                          draggable
+                          tabIndex={0}
+                          role="button"
+                          title="اسحب لتغيير الترتيب — أو استخدم الأسهم ↑↓"
+                          aria-label={`تحريك القسم ${section.title}`}
+                          onClick={(event) => event.stopPropagation()}
+                          onDragStart={(event) => {
+                            setDraggedSectionId(section.id);
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", section.id);
+                            const row = event.currentTarget.closest(".vtd-it");
+                            if (row instanceof HTMLElement) event.dataTransfer.setDragImage(row, 20, 16);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedSectionId(null);
+                            setSectionDropTarget(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                            event.preventDefault();
+                            const sectionIndex = active.sections.findIndex((entry) => entry.id === section.id);
+                            moveSection(
+                              section.id,
+                              event.key === "ArrowUp" ? sectionIndex - 1 : sectionIndex + 2,
                             );
-                          })}
-                        </div>
+                            const target = event.currentTarget;
+                            window.setTimeout(() => target.focus(), 0);
+                          }}
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                        <input
+                          className="vtd-in vtd-n"
+                          dir="ltr"
+                          value={section.sectionNumber ?? ""}
+                          placeholder={String(index + 1)}
+                          maxLength={40}
+                          aria-label="رقم القسم"
+                          onFocus={() => setActiveSectionId(section.id)}
+                          onChange={(event) => patchSection(section.id, { sectionNumber: event.target.value })}
+                        />
+                        <span className="vtd-t">
+                          <input
+                            className="vtd-in vtd-title"
+                            value={section.title}
+                            placeholder="اسم القسم"
+                            maxLength={220}
+                            aria-label="اسم القسم"
+                            onFocus={(event) => {
+                              setActiveSectionId(section.id);
+                              rememberName(`section:${section.id}`, event.target.value);
+                            }}
+                            onChange={(event) => patchSection(section.id, { title: event.target.value })}
+                            onBlur={(event) => {
+                              const title = finalizeName(`section:${section.id}`, event.target.value, "قسم جديد");
+                              if (title !== section.title) patchSection(section.id, { title });
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur();
+                            }}
+                          />
+                          <small>
+                            {section.items.length} بند{hidden ? " · مخفي" : ""}
+                          </small>
+                        </span>
+                        <span className="vtd-acts" onClick={(event) => event.stopPropagation()}>
+                          {visibilityButton(
+                            section.visibleInReport !== false,
+                            () => patchSection(section.id, { visibleInReport: section.visibleInReport === false }),
+                            "القسم",
+                          )}
+                          <button
+                            type="button"
+                            className="vtd-del"
+                            title="حذف القسم"
+                            aria-label={`حذف القسم ${section.title}`}
+                            onClick={() => {
+                              const sections = active.sections.filter((entry) => entry.id !== section.id);
+                              patchModel(active.id, { sections });
+                              if (activeSection?.id === section.id) {
+                                setActiveSectionId(sections[Math.min(index, sections.length - 1)]?.id ?? null);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </span>
                       </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 justify-start gap-1 rounded-md px-1.5 text-[10px] font-bold text-[#0C447C] hover:bg-sky-50"
-                      onClick={() => patchSection(section.id, { items: [...section.items, createReportSectionModelItem()] })}
-                      disabled={active.sections.reduce((total, entry) => total + entry.items.length, 0) >= 160}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      إضافة بند
-                    </Button>
-                  </div>
+                      {selected ? (
+                        <div className="vtd-sidebar-items" aria-label={`بنود قسم ${section.title}`}>
+                          {section.items.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className="vtd-sidebar-item"
+                              onClick={() => focusItemInDetail(item.id)}
+                              title={item.title}
+                            >
+                              <span className="vtd-sidebar-item-dot" />
+                              <span>{item.title}</span>
+                            </button>
+                          ))}
+                          <form
+                            className="vtd-sidebar-add-item"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              if (!sidebarItemTitle.trim()) return;
+                              addItemBelowSection(section.id, {
+                                title: sidebarItemTitle,
+                                focus: "sidebar",
+                              });
+                            }}
+                          >
+                            <span className="vtd-sidebar-add-icon"><Plus className="h-3 w-3" /></span>
+                            <input
+                              data-sidebar-item-input={section.id}
+                              value={sidebarItemTitle}
+                              onChange={(event) => setSidebarItemTitle(event.target.value)}
+                              placeholder="بند جديد"
+                              aria-label={`اكتب بنداً جديداً أسفل قسم ${section.title}`}
+                              maxLength={220}
+                              disabled={active.sections.reduce((total, entry) => total + entry.items.length, 0) >= 160}
+                            />
+                            <kbd>Enter</kbd>
+                          </form>
+                        </div>
+                      ) : null}
+                      </div>
+                    );
+                  })}
+                </nav>
+
+                <div
+                  className="vtd-split"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-valuemin={180}
+                  aria-valuemax={560}
+                  aria-valuenow={sidebarWidth}
+                  aria-label="عرض قائمة الأقسام"
+                  tabIndex={0}
+                  title="اسحب لتغيير عرض القائمة — نقر مزدوج للإرجاع"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    const startX = event.clientX;
+                    const startWidth = sidebarWidth;
+                    const separator = event.currentTarget;
+                    separator.setPointerCapture?.(event.pointerId);
+                    setResizingSidebar(true);
+                    const move = (pointerEvent: PointerEvent) =>
+                      setSidebarWidth(Math.max(180, Math.min(560, startWidth + (startX - pointerEvent.clientX))));
+                    const finish = () => {
+                      setResizingSidebar(false);
+                      separator.removeEventListener("pointermove", move);
+                      separator.removeEventListener("pointerup", finish);
+                      separator.removeEventListener("pointercancel", finish);
+                    };
+                    separator.addEventListener("pointermove", move);
+                    separator.addEventListener("pointerup", finish);
+                    separator.addEventListener("pointercancel", finish);
+                  }}
+                  onDoubleClick={() => setSidebarWidth(250)}
+                  onKeyDown={(event) => {
+                    const delta = event.key === "ArrowLeft" ? 16 : event.key === "ArrowRight" ? -16 : 0;
+                    if (!delta) return;
+                    event.preventDefault();
+                    setSidebarWidth((width) => Math.max(180, Math.min(560, width + delta)));
+                  }}
+                >
+                  <i />
                 </div>
-              ))}
+
+                <div className="vtd-detail">
+                  {activeSection ? (
+                    <div className="vtd-card">
+                      <div className="vtd-items">
+                        {activeSection.items.map((item) => (
+                          <div key={item.id} data-report-item-id={item.id} className="rounded-md bg-slate-50/70 p-1.5">
+                            <div className="flex gap-1.5">
+                              <Input
+                                value={item.title}
+                                onChange={(event) =>
+                                  patchItem(activeSection.id, item.id, { title: event.target.value })
+                                }
+                                onFocus={(event) => rememberName(`item:${item.id}`, event.target.value)}
+                                onBlur={(event) => {
+                                  const title = finalizeName(`item:${item.id}`, event.target.value, "بند جديد");
+                                  if (title !== item.title) patchItem(activeSection.id, item.id, { title });
+                                }}
+                                placeholder="عنوان البند أو التعريف"
+                                className="h-7 border-slate-200 bg-white text-[10.5px] font-bold"
+                                maxLength={220}
+                              />
+                              {visibilityButton(
+                                item.visibleInReport !== false,
+                                () =>
+                                  patchItem(activeSection.id, item.id, {
+                                    visibleInReport: item.visibleInReport === false,
+                                  }),
+                                "البند",
+                              )}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 shrink-0 rounded-md text-rose-500 hover:bg-rose-50"
+                                onClick={() =>
+                                  patchSection(activeSection.id, {
+                                    items: activeSection.items.filter((entry) => entry.id !== item.id),
+                                  })
+                                }
+                                title="حذف البند"
+                                aria-label="حذف البند"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <Textarea
+                              value={displayReportModelText(item.body ?? "", variableOptions)}
+                              onChange={(event) =>
+                                patchItem(activeSection.id, item.id, {
+                                  body: storeReportModelText(event.target.value, variableOptions),
+                                })
+                              }
+                              placeholder="نص البند"
+                              className="mt-1.5 min-h-[58px] resize-y rounded-md border-slate-200 bg-white px-2 py-1.5 text-[10.5px] leading-5"
+                              maxLength={50_000}
+                            />
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <Select onValueChange={(source) => insertVariable(activeSection.id, item.id, source)}>
+                                <SelectTrigger className="h-7 w-[170px] rounded-md border-slate-200 bg-white text-[9.5px] font-bold shadow-none">
+                                  <SelectValue placeholder="إدراج قيمة من بيانات التقرير" />
+                                </SelectTrigger>
+                                <SelectContent dir="rtl" className="max-h-72">
+                                  {variableOptions.map((option) => (
+                                    <SelectItem
+                                      key={option.source}
+                                      value={option.source}
+                                      className="text-[10px] font-semibold"
+                                    >
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {(item.body ?? "").match(/\{\{[^{}]+\}\}/g)?.map((token, index) => {
+                                const source = sourceForReportModelVariable(token.slice(2, -2));
+                                const label =
+                                  variableOptions.find((option) => option.source === source)?.label ??
+                                  "قيمة مرتبطة";
+                                return (
+                                  <span
+                                    key={`${token}-${index}`}
+                                    className="rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold text-[#0C447C]"
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 h-8 w-full justify-center gap-1.5 rounded-lg border-dashed border-sky-200 bg-sky-50/60 text-[10px] font-black text-[#0C447C] hover:bg-sky-100"
+                          onClick={() => addItemBelowSection(activeSection.id)}
+                          disabled={active.sections.reduce((total, entry) => total + entry.items.length, 0) >= 160}
+                          aria-label={`إضافة بند جديد أسفل آخر بند في قسم ${activeSection.title}`}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          إضافة بند
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="vtd-empty">لا توجد أقسام بعد — أضف قسماً من الأعلى.</div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : null}
           <DialogFooter className="sticky bottom-0 flex-row justify-start gap-2 border-t border-slate-100 bg-white px-3 py-2 sm:justify-start sm:space-x-0">
@@ -576,10 +963,53 @@ export function CompanyReportSectionModelDashboard({
               variant="outline"
               size="sm"
               className="h-7 rounded-md text-[10px]"
-              onClick={() => setEditingId(null)}
+                onClick={requestCloseEditor}
               disabled={saving}
             >
-              إغلاق
+              إلغاء
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={closeConfirmOpen} onOpenChange={setCloseConfirmOpen}>
+        <DialogContent className="max-w-md rounded-2xl border-slate-200 p-0" dir="rtl">
+          <DialogHeader className="border-b border-slate-100 px-4 py-3 text-right">
+            <DialogTitle className="flex items-center gap-2 text-[14px] font-black text-slate-900">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+              تغييرات غير محفوظة
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-4 py-4 text-right text-[12px] font-semibold leading-6 text-slate-600">
+            هل أنت متأكد من إغلاق نافذة النموذج بدون حفظ التغييرات؟
+          </div>
+          <DialogFooter className="flex-row justify-start gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-3 sm:justify-start sm:space-x-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-lg border-rose-200 px-3 text-[11px] font-black text-rose-700 hover:bg-rose-50"
+              onClick={discardAndCloseEditor}
+            >
+              إغلاق بدون حفظ
+            </Button>
+            <Button
+              type="button"
+              className="h-8 gap-1.5 rounded-lg bg-[#0C447C] px-3 text-[11px] font-black text-white hover:bg-[#0a3a66]"
+              disabled={saving}
+              onClick={() => void saveAndCloseEditor()}
+            >
+              <Save className="h-3.5 w-3.5" />
+              حفظ وإغلاق
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 rounded-lg px-3 text-[11px] font-bold text-slate-600"
+              onClick={() => setCloseConfirmOpen(false)}
+            >
+              متابعة التعديل
             </Button>
           </DialogFooter>
         </DialogContent>

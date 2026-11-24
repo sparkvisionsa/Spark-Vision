@@ -1,12 +1,14 @@
 "use client";
 
-import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
+import React, { createContext, useContext, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   REPORT_BODY_CONTENT_FOOTER_GAP_PX,
   REPORT_INTERIOR_FRAME_MM,
+  resolveReportInteriorFrameMm,
 } from "./mv-report-page-metrics";
-import type { MvCompanyReportSystemTemplate } from "./types";
+import type { MvCompanyReportSystemTemplate, MvCompanyReportSystemTemplateDefinition } from "./types";
+import { SystemTemplateElementLayer, templateReportDateLabel } from "@/components/system-report-template-canvas";
 
 export type MvReportPageVariant = "cover" | "interior";
 export type MvReportPageOrientation = "portrait" | "landscape";
@@ -43,6 +45,37 @@ export function isMvReportDarkCover(
     default:
       return false;
   }
+}
+
+function findActiveCustomTemplate(
+  letterhead: MvCompanyReportSystemTemplate | null | undefined,
+): MvCompanyReportSystemTemplateDefinition | null {
+  const templateId = letterhead?.templateId ?? "default-report-template";
+  return letterhead?.customTemplates?.find((template) => template.id === templateId) ?? null;
+}
+
+/** The custom system template currently applied to report sheets (if any). */
+export function useMvReportActiveCustomTemplate(
+  override?: MvCompanyReportSystemTemplate | null,
+): MvCompanyReportSystemTemplateDefinition | null {
+  const inherited = useContext(MvReportLetterheadContext);
+  return findActiveCustomTemplate(override ?? inherited);
+}
+
+/** Report identity values shared by every sheet of one report. */
+export type MvReportIdentityData = {
+  reportTitle?: ReactNode;
+  clientName?: ReactNode;
+  companyManagerName?: ReactNode;
+  companyManagerMembership?: ReactNode;
+  reportReference?: ReactNode;
+  reportDate?: ReactNode;
+};
+
+const MvReportIdentityContext = createContext<MvReportIdentityData | null>(null);
+
+export function MvReportIdentityProvider({ value, children }: { value: MvReportIdentityData; children: ReactNode }) {
+  return <MvReportIdentityContext.Provider value={value}>{children}</MvReportIdentityContext.Provider>;
 }
 
 export function MvReportLetterheadProvider({
@@ -113,6 +146,12 @@ export interface MvReportPageShellProps {
   companyNameNode?: ReactNode;
   /** السجل التجاري — يُعرض بجانب اسم الشركة. */
   commercialRegistration?: string;
+  reportTitle?: ReactNode;
+  clientName?: ReactNode;
+  companyManagerName?: ReactNode;
+  companyManagerMembership?: ReactNode;
+  reportReference?: ReactNode;
+  reportDate?: ReactNode;
   logoSrc: string | null;
   /** أسطر الفوتر (ديناميكية من الشركة / المستخدم / المشروع) */
   footerLines: string[];
@@ -124,7 +163,7 @@ export interface MvReportPageShellProps {
   /** محتوى فوتر للصفحات الداخلية — label + value في صف واحد بدون اقتطاع. */
   footerContent?: ReactNode;
   /** Chooses the built-in Value Tech artwork for a cover or a section divider. */
-  coverArtwork?: "hero" | "divider";
+  coverArtwork?: "hero" | "divider" | "closing";
   /**
    * Cover فقط: يلغي بطاقة الخلفية البيضاء حول الـ ‎children‎ في الأغلفة الداكنة
    * عند تفعيلها يظهر المحتوى مباشرة فوق الخلفية الكحلية (تصميم مطابق لتقارير
@@ -396,6 +435,12 @@ export function MvReportPageShell({
   companyName,
   companyNameNode,
   commercialRegistration,
+  reportTitle: reportTitleProp,
+  clientName: clientNameProp,
+  companyManagerName: companyManagerNameProp,
+  companyManagerMembership: companyManagerMembershipProp,
+  reportReference: reportReferenceProp,
+  reportDate: reportDateProp,
   logoSrc,
   footerLines,
   coverFooterContent,
@@ -408,23 +453,84 @@ export function MvReportPageShell({
   className,
 }: MvReportPageShellProps) {
   const inheritedLetterheadTemplate = useContext(MvReportLetterheadContext);
+  // Every page (interior, TOC, annexes, inserted sections) gets the report's
+  // identity data, so template fields placed on any page are filled.
+  const identity = useContext(MvReportIdentityContext);
+  const reportTitle = reportTitleProp ?? identity?.reportTitle;
+  const clientName = clientNameProp ?? identity?.clientName;
+  const companyManagerName = companyManagerNameProp ?? identity?.companyManagerName;
+  const companyManagerMembership = companyManagerMembershipProp ?? identity?.companyManagerMembership;
+  const reportReference = reportReferenceProp ?? identity?.reportReference;
+  const reportDate = reportDateProp ?? identity?.reportDate;
   const activeLetterheadTemplate = letterheadTemplate ?? inheritedLetterheadTemplate;
   const land = orientation === "landscape";
   const shellDim = land ? "h-[210mm] w-[297mm]" : "h-[297mm] w-[210mm]";
-  const letterheadEnabled = false;
-  const coverBackground: string | null = null;
-  const pageBackground: string | null = null;
-  const effectiveLogoSrc = logoSrc;
-  const footerImageSrc: string | null = null;
-  const customInteriorLetterhead = false;
-  const safeArea = land ? LETTERHEAD_SAFE_AREA.landscape : LETTERHEAD_SAFE_AREA.portrait;
-  const showDefaultFooterText = !letterheadEnabled && footerLines.length > 0;
   const activeTemplateId = activeLetterheadTemplate?.templateId ?? "default-report-template";
+  const customTemplate = activeLetterheadTemplate?.customTemplates?.find(
+    (template) => template.id === activeTemplateId,
+  ) ?? null;
+  const letterheadEnabled = Boolean(customTemplate);
+  const coverBackground = customTemplate
+    ? coverArtwork === "closing"
+      ? customTemplate.assets.closingBackgroundImage ?? customTemplate.assets.coverBackgroundImage ?? null
+      : customTemplate.assets.coverBackgroundImage ?? null
+    : null;
+  const pageBackground = customTemplate
+    ? land
+      ? customTemplate.assets.landscapePageBackgroundImage ?? customTemplate.assets.portraitPageBackgroundImage ?? null
+      : customTemplate.assets.portraitPageBackgroundImage ?? null
+    : null;
+  const effectiveLogoSrc = customTemplate?.layout.showLogo === false ? null : logoSrc;
+  const headerImageSrc = customTemplate?.assets.headerImage ?? null;
+  const footerImageSrc = customTemplate?.assets.footerImage ?? null;
+  const customInteriorLetterhead = Boolean(customTemplate);
+  const canvasElements = customTemplate?.canvasElements ?? [];
+  const canvasCoverPage = coverArtwork === "closing" ? "closing" : "cover";
+  const managedCoverCanvas = Boolean(
+    customTemplate &&
+    coverArtwork !== "divider" &&
+    canvasElements.some((element) => element.page === canvasCoverPage && !element.hidden),
+  );
+  const hasInteriorCanvasLogo = canvasElements.some(
+    (element) => element.page === "interior" && element.kind === "logo" && !element.hidden,
+  );
+  const hasInteriorCanvasCompanyName = canvasElements.some(
+    (element) => element.page === "interior" && element.binding === "companyName" && !element.hidden,
+  );
+  const hasInteriorCanvasReportContent = canvasElements.some(
+    (element) => element.page === "interior" && element.binding === "reportContent" && !element.hidden,
+  );
+  const hasInteriorCanvasFooterContent = canvasElements.some(
+    (element) => element.page === "interior" && (element.binding === "footerContent" || element.binding === "commercialRegistration" || element.binding === "companyManagerName" || element.binding === "companyManagerMembership" || element.binding === "reportReference" || element.binding === "reportDate") && !element.hidden,
+  );
+  const footerFieldValue = (...prefixes: string[]) => {
+    const line = footerLines.find((item) => prefixes.some((prefix) => item.trim().startsWith(prefix)));
+    return line?.replace(/^[^:：]+[:：]\s*/, "").trim() || undefined;
+  };
+  const resolvedManagerName = companyManagerName ?? footerFieldValue("مدير الشركة", "المقيم المعتمد");
+  const resolvedManagerMembership = companyManagerMembership ?? footerFieldValue("رقم العضوية", "عضوية رقم");
+  const resolvedReportReference = reportReference ?? footerFieldValue("الرقم المرجعي");
+  const resolvedReportDate = reportDate ?? footerFieldValue("تاريخ التقرير");
+  const defaultSafeArea = land ? LETTERHEAD_SAFE_AREA.landscape : LETTERHEAD_SAFE_AREA.portrait;
+  const customFrame = customTemplate ? resolveReportInteriorFrameMm(orientation, customTemplate) : null;
+  const safeArea = customFrame
+    ? {
+        paddingInline: millimeters(customFrame.paddingInline),
+        headerHeight: millimeters(customFrame.header),
+        footerHeight: millimeters(customFrame.footer),
+        bodyPaddingTop: millimeters(customFrame.bodyPaddingTop),
+        bodyPaddingBottom: millimeters(customFrame.bodyPaddingBottom),
+      }
+    : defaultSafeArea;
+  const customHeaderHidden = Boolean(customFrame && customFrame.header <= 0);
+  const customFooterHidden = Boolean(customFrame && customFrame.footer <= 0);
+  const showDefaultFooterText =
+    footerLines.length > 0 && (!letterheadEnabled || customTemplate?.layout.showFooter !== false);
   const isValueTechOfficial = activeTemplateId === VALUE_TECH_OFFICIAL_TEMPLATE_ID;
   const builtInCoverArtwork = isValueTechOfficial
-    ? coverArtwork === "divider"
-      ? VALUE_TECH_DIVIDER_ARTWORK
-      : VALUE_TECH_COVER_ARTWORK
+    ? coverArtwork === "hero"
+      ? VALUE_TECH_COVER_ARTWORK
+      : VALUE_TECH_DIVIDER_ARTWORK
     : null;
   const resolvedCoverBackground = coverBackground || builtInCoverArtwork;
   const reportFrame = REPORT_INTERIOR_FRAME_MM[land ? "landscape" : "portrait"];
@@ -444,14 +550,22 @@ export function MvReportPageShell({
   const coverFooterTextClass = darkCoverChrome ? "text-white" : "text-slate-950";
 
   if (variant === "cover") {
-    const customCover = Boolean(coverBackground);
-    const showCoverBrand = !customCover;
+    const customCover = Boolean(customTemplate);
+    const closingCover = coverArtwork === "closing";
+    const templatePrimary = closingCover ? (customTemplate?.colors.closingPrimary ?? customTemplate?.colors.primary) : customTemplate?.colors.primary;
+    const templateSecondary = closingCover ? (customTemplate?.colors.closingSecondary ?? customTemplate?.colors.secondary) : customTemplate?.colors.secondary;
+    const templateText = closingCover ? (customTemplate?.colors.closingText ?? customTemplate?.colors.coverText) : customTemplate?.colors.coverText;
+    const templateColorMode = closingCover ? (customTemplate?.layout.closingColorMode ?? customTemplate?.layout.coverColorMode) : customTemplate?.layout.coverColorMode;
+    const templateGradientAngle = closingCover ? (customTemplate?.layout.closingGradientAngle ?? customTemplate?.layout.coverGradientAngle ?? 145) : (customTemplate?.layout.coverGradientAngle ?? 145);
+    const templateOverlayOpacity = closingCover ? (customTemplate?.layout.closingOverlayOpacity ?? customTemplate?.layout.coverOverlayOpacity) : customTemplate?.layout.coverOverlayOpacity;
+    const showCoverBrand = true;
     const officialCoverLayout = isValueTechOfficial && !customCover;
     const coverContentStyle: CSSProperties | undefined = customCover
       ? {
-          paddingInline: LETTERHEAD_SAFE_AREA.cover.paddingInline,
+          paddingInline: millimeters(customTemplate?.layout.pageMarginMm ?? 16),
           paddingTop: LETTERHEAD_SAFE_AREA.cover.paddingTop,
           paddingBottom: LETTERHEAD_SAFE_AREA.cover.paddingBottom,
+          color: templateText,
         }
       : undefined;
     return (
@@ -460,6 +574,7 @@ export function MvReportPageShell({
         data-mv-report-sheet
         data-mv-report-orientation="portrait"
         data-mv-report-variant="cover"
+        data-mv-custom-template={customTemplate ? "true" : undefined}
         data-mv-letterhead-active={letterheadEnabled ? "true" : undefined}
         data-mv-letterhead-background={resolvedCoverBackground ? "true" : undefined}
         className={cn(
@@ -468,20 +583,71 @@ export function MvReportPageShell({
           "h-[297mm] w-[210mm] transition-shadow duration-500 ease-out hover:shadow-[0_22px_55px_-16px_rgba(12,68,124,0.42)]",
           className,
         )}
+        style={customTemplate ? {
+          background: coverBackground
+            ? templateSecondary
+            : templateColorMode === "solid"
+              ? templatePrimary
+              : `linear-gradient(${templateGradientAngle}deg, ${templateSecondary}, ${templatePrimary})`,
+          borderRadius: customTemplate.layout.borderRadiusPx,
+          color: templateText,
+          fontFamily: customTemplate.typography.fontFamily,
+          fontSize: customTemplate.typography.baseFontSize,
+          lineHeight: customTemplate.typography.lineHeight,
+          fontWeight: customTemplate.typography.fontWeight,
+          ["--mv-cover-text" as string]: templateText,
+          ["--mv-template-primary" as string]: templatePrimary,
+          ["--mv-template-accent" as string]: customTemplate.colors.accent,
+          ["--mv-template-muted" as string]: customTemplate.colors.mutedText,
+          ["--mv-heading-scale" as string]: customTemplate.typography.headingScale,
+          ["--mv-heading-font" as string]: customTemplate.typography.headingFontFamily,
+        } : undefined}
       >
+        {customTemplate?.typography.googleFontUrl ? <style>{`@import url('${customTemplate.typography.googleFontUrl}');`}</style> : null}
         {resolvedCoverBackground ? (
           <ReportBackgroundImage
             src={resolvedCoverBackground}
-            fit={coverBackground ? "fill" : "cover"}
+            fit={customTemplate?.layout.backgroundFit ?? "cover"}
+          />
+        ) : null}
+        {customTemplate ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-[1] bg-black"
+            style={{ opacity: templateOverlayOpacity }}
+            aria-hidden
           />
         ) : null}
         {!customCover ? (
           <ReportTemplateCoverDecor templateId={activeTemplateId} />
         ) : null}
+        {managedCoverCanvas ? (
+          <SystemTemplateElementLayer
+            elements={canvasElements}
+            page={canvasCoverPage}
+            bindings={{
+              logoSrc: effectiveLogoSrc,
+              companyName: companyNameNode ?? companyName,
+              reportContent: children,
+              reportTitle,
+              clientName,
+              commercialRegistration: commercialRegistration ? `السجل التجاري: ${commercialRegistration}` : undefined,
+              companyManagerName: resolvedManagerName ? <>مدير الشركة: {resolvedManagerName}</> : undefined,
+              companyManagerMembership: resolvedManagerMembership ? <>رقم العضوية: {resolvedManagerMembership}</> : undefined,
+              reportReference: resolvedReportReference ? <>الرقم المرجعي: <bdi dir="ltr" className="whitespace-nowrap">{resolvedReportReference}</bdi></> : undefined,
+              reportDate: typeof resolvedReportDate === "string" ? templateReportDateLabel(resolvedReportDate) : resolvedReportDate ? <>تاريخ التقرير {resolvedReportDate}</> : undefined,
+              footerContent: coverFooterContent ?? (
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
+                  {footerLines.map((line, index) => <span key={`${index}-${line}`}>{line}</span>)}
+                </div>
+              ),
+            }}
+          />
+        ) : null}
         <div
           className={cn(
-            "relative z-[1] flex h-[297mm] min-h-0 flex-col overflow-hidden",
+            "relative z-[2] flex h-[297mm] min-h-0 flex-col overflow-hidden",
             customCover ? "px-0 pb-0 pt-0" : "px-[4mm] pb-[7mm] pt-[9mm]",
+            managedCoverCanvas && "invisible",
           )}
           style={coverContentStyle}
           data-mv-report-page-content
@@ -500,7 +666,11 @@ export function MvReportPageShell({
                   "flex flex-col justify-end gap-4",
                   officialCoverLayout
                     ? "mr-auto w-full max-w-[92mm] items-start px-0 text-right"
-                    : "items-center px-6 text-center",
+                    : customTemplate?.layout.contentAlign === "left"
+                      ? "items-start px-6 text-left"
+                      : customTemplate?.layout.contentAlign === "center"
+                        ? "items-center px-6 text-center"
+                        : "items-end px-6 text-right",
                 )}
                 style={{ flexBasis: officialCoverLayout ? "39%" : "45%" }}
               >
@@ -524,7 +694,7 @@ export function MvReportPageShell({
                   )}>
                     <div className={cn(
                       officialCoverLayout ? "text-right" : "text-center",
-                      "text-[22px] font-black leading-snug tracking-tight text-white sm:text-[26px]",
+                      "text-[22px] font-black leading-snug tracking-tight text-[var(--mv-cover-text,#fff)] sm:text-[26px]",
                       templateChrome.brand,
                     )}>
                       {companyNameNode ?? companyName}
@@ -532,7 +702,7 @@ export function MvReportPageShell({
                     {commercialRegistration?.trim() ? (
                       <p className={cn(
                         officialCoverLayout ? "text-right" : "text-center",
-                        "text-[11px] font-bold tracking-wide text-white/80",
+                        "text-[11px] font-bold tracking-wide opacity-80",
                       )}>
                         السجل التجاري: {commercialRegistration.trim()}
                       </p>
@@ -544,9 +714,13 @@ export function MvReportPageShell({
             <div
               className={cn(
                 "flex flex-1 flex-col",
-                officialCoverLayout
+                  officialCoverLayout
                   ? "items-start justify-end px-[18mm] pb-[25mm] text-right"
-                  : "items-center justify-center px-6 text-center",
+                    : customTemplate?.layout.contentAlign === "left"
+                      ? "items-start justify-center px-6 text-left"
+                      : customTemplate?.layout.contentAlign === "right"
+                        ? "items-end justify-center px-6 text-right"
+                        : "items-center justify-center px-6 text-center",
               )}
             >
               <div
@@ -567,17 +741,24 @@ export function MvReportPageShell({
               "relative z-[1] mt-auto shrink-0",
               coverFooterTextClass,
               footerImageSrc
-                ? "py-1 px-2 text-[9px] font-semibold leading-relaxed bg-transparent"
+                ? "py-1 px-2 text-[11px] font-bold leading-relaxed bg-transparent"
+                : customTemplate
+                  ? "min-h-[11mm] border-t px-[3mm] py-[1mm] text-[11px] font-bold leading-relaxed"
                 : coverFooterContent
                   ? isValueTechOfficial
                     ? "min-h-[11mm] border-t-2 border-[#c9a227] bg-[#031525]/92 px-[3mm] py-[1mm] text-white backdrop-blur-[2px]"
                     : "min-h-[11mm] border-t border-white/25 bg-black/25 px-[3mm] py-[1mm] text-white"
                   : letterheadEnabled
-                    ? "bg-transparent px-2 py-3 text-[9px] font-semibold leading-relaxed"
+                    ? "bg-transparent px-2 py-3 text-[11px] font-bold leading-relaxed"
                     : darkCoverChrome
-                      ? "border-t border-white/20 bg-black/20 px-2 py-3 text-[9px] font-semibold leading-relaxed backdrop-blur-[2px]"
-                      : "border-t border-[#0C447C]/12 bg-white/88 px-2 py-3 text-[9px] font-semibold leading-relaxed backdrop-blur-[2px]",
+                      ? "border-t border-white/20 bg-black/20 px-2 py-3 text-[11px] font-bold leading-relaxed backdrop-blur-[2px]"
+                      : "border-t border-[#0C447C]/12 bg-white/88 px-2 py-3 text-[11px] font-bold leading-relaxed backdrop-blur-[2px]",
             )}
+            style={customTemplate ? {
+              backgroundColor: customTemplate.colors.footerBackground,
+              borderColor: customTemplate.colors.accent,
+              color: customTemplate.colors.mutedText,
+            } : undefined}
           >
             {footerImageSrc ? (
               <ReportLogoImg
@@ -609,6 +790,7 @@ export function MvReportPageShell({
       data-mv-report-sheet
       data-mv-report-orientation={land ? "landscape" : "portrait"}
       data-mv-report-variant="interior"
+      data-mv-custom-template={customTemplate ? "true" : undefined}
       data-mv-letterhead-active={letterheadEnabled ? "true" : undefined}
       data-mv-letterhead-background={pageBackground ? "true" : undefined}
       className={cn(
@@ -616,14 +798,36 @@ export function MvReportPageShell({
         shellDim,
         className,
       )}
+      style={customTemplate ? {
+        backgroundColor: customTemplate.colors.pageBackground,
+        borderRadius: customTemplate.layout.borderRadiusPx,
+        color: customTemplate.colors.text,
+        fontFamily: customTemplate.typography.fontFamily,
+        fontSize: customTemplate.typography.baseFontSize,
+        lineHeight: customTemplate.typography.lineHeight,
+        fontWeight: customTemplate.typography.fontWeight,
+        ["--mv-template-primary" as string]: customTemplate.colors.primary,
+        ["--mv-template-accent" as string]: customTemplate.colors.accent,
+        ["--mv-template-text" as string]: customTemplate.colors.text,
+        ["--mv-template-muted" as string]: customTemplate.colors.mutedText,
+        ["--mv-heading-scale" as string]: customTemplate.typography.headingScale,
+        ["--mv-heading-font" as string]: customTemplate.typography.headingFontFamily,
+      } : undefined}
     >
-      {pageBackground ? <ReportBackgroundImage src={pageBackground} /> : null}
+      {customTemplate?.typography.googleFontUrl ? <style>{`@import url('${customTemplate.typography.googleFontUrl}');`}</style> : null}
+      {pageBackground ? <ReportBackgroundImage src={pageBackground} fit={customTemplate?.layout.backgroundFit} /> : null}
       {isValueTechOfficial && !customInteriorLetterhead ? (
         <ValueTechOfficialWatermark orientation={orientation} />
+      ) : null}
+      {customTemplate?.layout.showWatermark ? (
+        <div className="pointer-events-none absolute inset-0 z-0 flex rotate-[-32deg] items-center justify-center text-[48px] font-black opacity-[0.035]" aria-hidden>
+          {companyName || "VALUE TECH"}
+        </div>
       ) : null}
       <header
         className={cn(
           "relative z-[1] shrink-0",
+          customHeaderHidden && "hidden",
           customInteriorLetterhead
             ? "bg-transparent"
             : headerTemplateClass,
@@ -636,6 +840,8 @@ export function MvReportPageShell({
                 paddingInline: safeArea.paddingInline,
                 paddingTop: land ? "3mm" : "4mm",
                 paddingBottom: "2mm",
+                backgroundColor: customTemplate?.colors.headerBackground,
+                borderBottom: `1px solid ${customTemplate?.colors.accent ?? "transparent"}`,
               }
             : {
                 minHeight: millimeters(reportFrame.header),
@@ -654,28 +860,57 @@ export function MvReportPageShell({
               <div className="h-9 w-9 rounded-lg bg-[#0C447C]/10" aria-hidden />
             )}
             <div className="min-w-0">
-              <div className="min-w-0 break-words text-[10px] font-black leading-snug text-[#061b2d]">
+              <div className="min-w-0 break-words text-[12px] font-black leading-snug text-[#061b2d]">
                 {companyNameNode ?? (companyName || "—")}
               </div>
               {commercialRegistration?.trim() ? (
-                <div className="mt-0.5 break-words text-[7.5px] font-bold leading-snug text-[#35516a]">
+                <div className="mt-0.5 break-words text-[10px] font-bold leading-snug text-[#35516a]">
                   السجل التجاري: {commercialRegistration.trim()}
                 </div>
               ) : null}
             </div>
           </div>
+        ) : customTemplate ? (
+          headerImageSrc ? (
+            <ReportLogoImg src={headerImageSrc} className="h-full w-full object-fill" />
+          ) : (
+            <div
+              className="flex h-full min-w-0 items-center gap-2.5"
+              dir="rtl"
+              style={{
+                justifyContent:
+                  customTemplate.layout.logoPosition === "center"
+                    ? "center"
+                    : customTemplate.layout.logoPosition === "left"
+                      ? "flex-end"
+                      : "flex-start",
+              }}
+            >
+              {!hasInteriorCanvasLogo && effectiveLogoSrc ? (
+                <ReportLogoImg src={effectiveLogoSrc} className="h-10 w-auto max-w-[130px] object-contain" />
+              ) : null}
+              {!hasInteriorCanvasCompanyName ? <div className="min-w-0">
+                <div className="break-words text-[12px] font-black leading-snug" style={{ color: customTemplate.colors.primary, fontFamily: customTemplate.typography.headingFontFamily }}>
+                  {companyNameNode ?? (companyName || "—")}
+                </div>
+                {commercialRegistration?.trim() ? (
+                  <div className="mt-0.5 text-[10px] font-bold" style={{ color: customTemplate.colors.mutedText }}>
+                    السجل التجاري: {commercialRegistration.trim()}
+                  </div>
+                ) : null}
+              </div> : null}
+            </div>
+          )
         ) : (
           <div className="flex min-w-0 flex-col items-center gap-1" dir="rtl">
-            {!customInteriorLetterhead && effectiveLogoSrc ? (
+            {effectiveLogoSrc ? (
               <ReportLogoImg src={effectiveLogoSrc} className="h-14 max-h-16 w-auto max-w-[200px] object-contain" />
-            ) : customInteriorLetterhead ? null : (
+            ) : (
               <div className="h-10 w-24 rounded bg-slate-100" aria-hidden />
             )}
-            {!customInteriorLetterhead ? (
-              <div className={cn("max-w-full text-center text-[11px] font-black leading-snug", headerAccentTextClass)}>
-                {companyNameNode ?? (companyName || "—")}
-              </div>
-            ) : null}
+            <div className={cn("max-w-full text-center text-[11px] font-black leading-snug", headerAccentTextClass)}>
+              {companyNameNode ?? (companyName || "—")}
+            </div>
           </div>
         )}
       </header>
@@ -684,6 +919,7 @@ export function MvReportPageShell({
         className={cn(
           "relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden text-right",
           customInteriorLetterhead ? "px-0" : "px-0 py-0",
+          hasInteriorCanvasReportContent && "invisible",
         )}
         style={
           customInteriorLetterhead
@@ -707,6 +943,8 @@ export function MvReportPageShell({
         data-mv-report-footer
         className={cn(
           "relative z-[1] mt-auto shrink-0 overflow-hidden",
+          customFooterHidden && "hidden",
+          hasInteriorCanvasFooterContent && "invisible",
           customInteriorLetterhead
             ? "bg-transparent"
             : footerImageSrc
@@ -721,6 +959,9 @@ export function MvReportPageShell({
                 paddingInline: safeArea.paddingInline,
                 paddingTop: footerImageSrc ? "0.5mm" : "1mm",
                 paddingBottom: footerImageSrc ? "0.5mm" : land ? "3mm" : "4mm",
+                backgroundColor: customTemplate?.colors.footerBackground,
+                borderTop: `1px solid ${customTemplate?.colors.accent ?? "transparent"}`,
+                color: customTemplate?.colors.mutedText,
               }
             : {
                 minHeight: millimeters(reportFrame.footer),
@@ -735,10 +976,11 @@ export function MvReportPageShell({
           className={cn(
             footerContent
               ? "flex h-full w-full min-w-0 items-stretch overflow-hidden"
-              : "flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-center text-[8px] font-semibold leading-relaxed",
-            interiorFooterTextClass,
+              : "flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-center text-[10px] font-bold leading-relaxed",
+            !customTemplate && interiorFooterTextClass,
+            customTemplate && !footerContent && "text-[12px]",
             footerImageSrc && "h-full min-h-[10mm] items-center",
-            !footerContent && isValueTechOfficial && !customInteriorLetterhead && "h-full items-center justify-stretch gap-x-3 gap-y-0.5 text-[8px] text-[#35516a]",
+            !footerContent && isValueTechOfficial && !customInteriorLetterhead && "h-full items-center justify-stretch gap-x-3 gap-y-0.5 text-[10px] text-[#35516a]",
           )}
         >
           {footerImageSrc ? (
@@ -756,6 +998,29 @@ export function MvReportPageShell({
           ) : null}
         </div>
       </footer>
+      {customTemplate && canvasElements.some((element) => element.page === "interior" && !element.hidden) ? (
+        <SystemTemplateElementLayer
+          elements={canvasElements}
+          page="interior"
+          bindings={{
+            logoSrc: effectiveLogoSrc,
+            companyName: companyNameNode ?? companyName,
+            reportContent: children,
+            reportTitle,
+            clientName,
+            commercialRegistration: commercialRegistration ? `السجل التجاري: ${commercialRegistration}` : undefined,
+            companyManagerName: resolvedManagerName ? <>مدير الشركة: {resolvedManagerName}</> : undefined,
+            companyManagerMembership: resolvedManagerMembership ? <>رقم العضوية: {resolvedManagerMembership}</> : undefined,
+            reportReference: resolvedReportReference ? <>الرقم المرجعي: <bdi dir="ltr" className="whitespace-nowrap">{resolvedReportReference}</bdi></> : undefined,
+            reportDate: typeof resolvedReportDate === "string" ? templateReportDateLabel(resolvedReportDate) : resolvedReportDate ? <>تاريخ التقرير {resolvedReportDate}</> : undefined,
+            footerContent: footerContent ?? (
+              <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5">
+                {footerLines.map((line, index) => <span key={`${index}-${line}`}>{line}</span>)}
+              </div>
+            ),
+          }}
+        />
+      ) : null}
       {draftWatermark ? <DraftWatermarkLayer orientation={orientation} /> : null}
     </div>
   );

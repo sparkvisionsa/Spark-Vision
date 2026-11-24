@@ -68,7 +68,14 @@ import {
 } from "@/components/company-report-document-template-dashboard";
 import { CompanyAssetDescriptionsDashboard } from "@/components/company-asset-descriptions-dashboard";
 import { CompanyReportDataModelDashboard } from "@/components/company-report-data-model-dashboard";
+import { CompanyReportDesignTabs, type CompanyReportDesignTab } from "@/components/company-report-design-tabs";
+import { CompanyReportLetterheadEditor } from "@/components/company-report-letterhead-editor";
 import { CompanyReportSectionModelDashboard } from "@/components/company-report-section-model-dashboard";
+import { normalizeSummaryTable } from "@/components/system-template-summary-table";
+import {
+  CompanySystemTemplateLibrary,
+  createEmptySystemTemplate,
+} from "@/components/company-system-template-library";
 import {
   CompanyPermissionsDashboard,
   loadPermissionProfiles,
@@ -83,11 +90,16 @@ import {
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-data-models";
 import {
   MV_DEFAULT_REPORT_SECTION_MODEL_ID,
+  companyAddedReportSectionItems,
   createDefaultReportSectionModel,
   createDetailedReportModelSections,
   normalizeReportSectionModels,
 } from "@/components/workspace/workspace-sections/machine-valuation/mv-report-section-models";
-import type { MvCompanyReportSectionModel } from "@/components/workspace/workspace-sections/machine-valuation/types";
+import type {
+  MvCompanyReportSectionModel,
+  MvCompanyReportSystemTemplateDefinition,
+  MvCompanyReportTemplateCanvasElement,
+} from "@/components/workspace/workspace-sections/machine-valuation/types";
 import {
   Building2,
   CheckCircle2,
@@ -184,6 +196,13 @@ type CompanyReportCustomGroupForm = {
 type CompanyReportLetterheadForm = {
   templateId: string | null;
   outputFormat: "pdf" | "pptx";
+  customTemplates: MvCompanyReportSystemTemplateDefinition[];
+  companyName?: string;
+  headerLine?: string;
+  footerText?: string;
+  logoPosition?: "right" | "center" | "left";
+  showOnAllPages?: boolean;
+  dataModelId?: string;
 };
 
 type CompanyReportWordTemplateForm = CompanyReportDocumentTemplateForm;
@@ -272,6 +291,9 @@ function emptyReportLetterhead(): CompanyReportLetterheadForm {
   return {
     templateId: "default-report-template",
     outputFormat: "pdf",
+    customTemplates: [],
+    logoPosition: "right",
+    showOnAllPages: true,
   };
 }
 
@@ -367,6 +389,150 @@ const LETTERHEAD_TEMPLATE_OPTIONS: LetterheadTemplateOption[] = [
   },
 ];
 
+function normalizeTemplateCanvasElements(
+  raw: unknown,
+  fallback: MvCompanyReportTemplateCanvasElement[],
+): MvCompanyReportTemplateCanvasElement[] {
+  if (!Array.isArray(raw)) return fallback.map((element) => ({ ...element }));
+  const seen = new Set<string>();
+  const num = (value: unknown, fallbackValue: number, min: number, max: number) =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallbackValue;
+  const color = (value: unknown) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toUpperCase() : undefined;
+  return raw.slice(0, 120).flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const data = item as Record<string, unknown>;
+    const id = typeof data.id === "string" && data.id.trim() ? data.id.trim().slice(0, 120) : `canvas-element-${index + 1}`;
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const page = data.page === "interior" || data.page === "closing" ? data.page : "cover";
+    const kind = data.kind === "logo" || data.kind === "shape" || data.kind === "image" || data.kind === "binding" ? data.kind : "text";
+    const binding = data.binding === "companyName" || data.binding === "reportContent" || data.binding === "footerContent" || data.binding === "reportTitle" || data.binding === "clientName" || data.binding === "commercialRegistration" || data.binding === "companyManagerName" || data.binding === "companyManagerMembership" || data.binding === "reportReference" || data.binding === "reportDate" ? data.binding : undefined;
+    const shapeType = data.shapeType === "rounded" || data.shapeType === "circle" || data.shapeType === "pill" || data.shapeType === "line" || data.shapeType === "triangle" || data.shapeType === "diamond" || data.shapeType === "hexagon" || data.shapeType === "star" || data.shapeType === "arrow" || data.shapeType === "chevron" || data.shapeType === "speech" ? data.shapeType : "rectangle";
+    return [{
+      id,
+      name: typeof data.name === "string" && data.name.trim() ? data.name.trim().slice(0, 120) : `عنصر ${index + 1}`,
+      page,
+      kind,
+      ...(binding ? { binding } : {}),
+      ...(kind === "shape" ? { shapeType } : {}),
+      ...(typeof data.text === "string" ? { text: data.text.slice(0, 2000) } : {}),
+      ...(typeof data.imageDataUrl === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(data.imageDataUrl) ? { imageDataUrl: data.imageDataUrl } : {}),
+      x: num(data.x, 10, 0, 100),
+      y: num(data.y, 10, 0, 100),
+      width: num(data.width, 30, 2, 100),
+      height: num(data.height, 10, 0.3, 100),
+      rotation: num(data.rotation, 0, -180, 180),
+      zIndex: num(data.zIndex, index + 1, -100, 500),
+      opacity: num(data.opacity, 1, 0, 1),
+      ...(color(data.color) ? { color: color(data.color) } : {}),
+      ...(color(data.backgroundColor) ? { backgroundColor: color(data.backgroundColor) } : {}),
+      ...(color(data.borderColor) ? { borderColor: color(data.borderColor) } : {}),
+      borderWidth: num(data.borderWidth, 0, 0, 20),
+      borderRadius: num(data.borderRadius, 0, 0, 100),
+      ...(typeof data.fontFamily === "string" && data.fontFamily.trim() ? { fontFamily: data.fontFamily.trim().slice(0, 160) } : {}),
+      fontSize: num(data.fontSize, 16, 6, 96),
+      fontWeight: num(data.fontWeight, 500, 100, 900),
+      textAlign: data.textAlign === "center" || data.textAlign === "left" ? data.textAlign : "right",
+      locked: data.locked === true,
+      hidden: data.hidden === true,
+    }];
+  });
+}
+
+function normalizeSystemTemplateDefinitions(raw: unknown): MvCompanyReportSystemTemplateDefinition[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const color = (value: unknown, fallback: string) =>
+    typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toUpperCase() : fallback;
+  const text = (value: unknown, fallback: string, max = 180) =>
+    typeof value === "string" && value.trim() ? value.trim().slice(0, max) : fallback;
+  const number = (value: unknown, fallback: number, min: number, max: number) =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+  const image = (value: unknown) =>
+    typeof value === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(value) ? value : null;
+
+  return raw.slice(0, 20).flatMap((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const data = item as Record<string, unknown>;
+    const id = text(data.id, `system-template-${index + 1}`, 120);
+    if (id === "default-report-template" || seen.has(id)) return [];
+    seen.add(id);
+    const seed = createEmptySystemTemplate();
+    const colors = data.colors && typeof data.colors === "object" && !Array.isArray(data.colors)
+      ? data.colors as Record<string, unknown>
+      : {};
+    const typography = data.typography && typeof data.typography === "object" && !Array.isArray(data.typography)
+      ? data.typography as Record<string, unknown>
+      : {};
+    const assets = data.assets && typeof data.assets === "object" && !Array.isArray(data.assets)
+      ? data.assets as Record<string, unknown>
+      : {};
+    const layout = data.layout && typeof data.layout === "object" && !Array.isArray(data.layout)
+      ? data.layout as Record<string, unknown>
+      : {};
+    return [{
+      ...seed,
+      id,
+      name: text(data.name, `قالب نظام ${index + 1}`, 120),
+      description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : "",
+      createdAt: typeof data.createdAt === "string" ? data.createdAt.slice(0, 40) : seed.createdAt,
+      updatedAt: typeof data.updatedAt === "string" ? data.updatedAt.slice(0, 40) : seed.updatedAt,
+      canvasElements: normalizeTemplateCanvasElements(data.canvasElements, seed.canvasElements ?? []),
+      summaryTable: normalizeSummaryTable(data.summaryTable),
+      colors: {
+        primary: color(colors.primary, seed.colors.primary),
+        secondary: color(colors.secondary, seed.colors.secondary),
+        accent: color(colors.accent, seed.colors.accent),
+        coverText: color(colors.coverText, seed.colors.coverText),
+        text: color(colors.text, seed.colors.text),
+        mutedText: color(colors.mutedText, seed.colors.mutedText),
+        pageBackground: color(colors.pageBackground, seed.colors.pageBackground),
+        headerBackground: color(colors.headerBackground, seed.colors.headerBackground),
+        footerBackground: color(colors.footerBackground, seed.colors.footerBackground),
+        closingPrimary: color(colors.closingPrimary, color(colors.primary, seed.colors.closingPrimary ?? seed.colors.primary)),
+        closingSecondary: color(colors.closingSecondary, color(colors.secondary, seed.colors.closingSecondary ?? seed.colors.secondary)),
+        closingText: color(colors.closingText, color(colors.coverText, seed.colors.closingText ?? seed.colors.coverText)),
+      },
+      typography: {
+        fontFamily: text(typography.fontFamily, seed.typography.fontFamily, 160),
+        headingFontFamily: text(typography.headingFontFamily, seed.typography.headingFontFamily, 160),
+        baseFontSize: number(typography.baseFontSize, seed.typography.baseFontSize, 8, 24),
+        headingScale: number(typography.headingScale, seed.typography.headingScale, 0.7, 2),
+        lineHeight: number(typography.lineHeight, seed.typography.lineHeight, 1, 3),
+        fontWeight: number(typography.fontWeight, seed.typography.fontWeight, 300, 900),
+        ...(/^https:\/\/fonts\.googleapis\.com\//i.test(typeof typography.googleFontUrl === "string" ? typography.googleFontUrl : "") ? { googleFontUrl: String(typography.googleFontUrl).slice(0, 600) } : {}),
+      },
+      assets: {
+        coverBackgroundImage: image(assets.coverBackgroundImage),
+        closingBackgroundImage: image(assets.closingBackgroundImage),
+        portraitPageBackgroundImage: image(assets.portraitPageBackgroundImage),
+        landscapePageBackgroundImage: image(assets.landscapePageBackgroundImage),
+        headerImage: image(assets.headerImage),
+        footerImage: image(assets.footerImage),
+      },
+      layout: {
+        backgroundFit: layout.backgroundFit === "fill" ? "fill" : "cover",
+        contentAlign: layout.contentAlign === "center" || layout.contentAlign === "left" ? layout.contentAlign : "right",
+        logoPosition: layout.logoPosition === "center" || layout.logoPosition === "left" ? layout.logoPosition : "right",
+        pageMarginMm: number(layout.pageMarginMm, seed.layout.pageMarginMm, 4, 30),
+        headerHeightMm: number(layout.headerHeightMm, seed.layout.headerHeightMm, 0, 50),
+        footerHeightMm: number(layout.footerHeightMm, seed.layout.footerHeightMm, 0, 50),
+        coverOverlayOpacity: number(layout.coverOverlayOpacity, seed.layout.coverOverlayOpacity, 0, 0.9),
+        borderRadiusPx: number(layout.borderRadiusPx, seed.layout.borderRadiusPx, 0, 32),
+        showHeader: layout.showHeader !== false,
+        showFooter: layout.showFooter !== false,
+        showLogo: layout.showLogo !== false,
+        showWatermark: layout.showWatermark === true,
+        coverColorMode: layout.coverColorMode === "solid" ? "solid" : "gradient",
+        coverGradientAngle: number(layout.coverGradientAngle, seed.layout.coverGradientAngle ?? 145, 0, 360),
+        closingColorMode: layout.closingColorMode === "solid" ? "solid" : layout.closingColorMode === "gradient" ? "gradient" : layout.coverColorMode === "solid" ? "solid" : "gradient",
+        closingGradientAngle: number(layout.closingGradientAngle, number(layout.coverGradientAngle, 145, 0, 360), 0, 360),
+        closingOverlayOpacity: number(layout.closingOverlayOpacity, number(layout.coverOverlayOpacity, seed.layout.coverOverlayOpacity, 0, 0.9), 0, 0.9),
+      },
+    }];
+  });
+}
+
 const A4_PREVIEW_WIDTH_PX = (210 * 96) / 25.4;
 const A4_PREVIEW_HEIGHT_PX = (297 * 96) / 25.4;
 
@@ -385,6 +551,7 @@ function SystemReportTemplatePreview({
   const previewLetterhead: CompanyReportLetterheadForm = {
     templateId: template.id,
     outputFormat: template.outputFormat,
+    customTemplates: [],
   };
 
   return (
@@ -843,6 +1010,16 @@ function normalizeReportDefaults(
     "pptx",
   );
   const rawReportSectionModels = (raw as { reportSectionModels?: unknown }).reportSectionModels;
+  const customSystemTemplates = normalizeSystemTemplateDefinitions(
+    (letterheadRaw as { customTemplates?: unknown }).customTemplates,
+  );
+  const requestedSystemTemplateId =
+    typeof letterheadRaw.templateId === "string" ? letterheadRaw.templateId.trim() : "";
+  const validSystemTemplateId =
+    requestedSystemTemplateId === "default-report-template" ||
+    customSystemTemplates.some((template) => template.id === requestedSystemTemplateId)
+      ? requestedSystemTemplateId
+      : "default-report-template";
   return {
     scope: merge(base.scope, raw.scope as Partial<typeof base.scope> | undefined),
     methodology: merge(base.methodology, raw.methodology as Partial<typeof base.methodology> | undefined),
@@ -859,12 +1036,18 @@ function normalizeReportDefaults(
       return models.length > 0 ? models : [createDefaultReportSectionModel()];
     })(),
     letterhead: {
-      templateId:
-        typeof letterheadRaw.templateId === "string" &&
-        LETTERHEAD_TEMPLATE_OPTIONS.some((template) => template.id === letterheadRaw.templateId?.trim())
-          ? letterheadRaw.templateId.trim()
-          : base.letterhead.templateId,
-      outputFormat: letterheadRaw.outputFormat === "pptx" ? "pptx" : "pdf",
+      templateId: validSystemTemplateId,
+      outputFormat: "pdf",
+      customTemplates: customSystemTemplates,
+      companyName: typeof letterheadRaw.companyName === "string" ? letterheadRaw.companyName.slice(0, 180) : "",
+      headerLine: typeof letterheadRaw.headerLine === "string" ? letterheadRaw.headerLine.slice(0, 300) : "",
+      footerText: typeof letterheadRaw.footerText === "string" ? letterheadRaw.footerText.slice(0, 300) : "",
+      logoPosition:
+        letterheadRaw.logoPosition === "center" || letterheadRaw.logoPosition === "left"
+          ? letterheadRaw.logoPosition
+          : "right",
+      showOnAllPages: letterheadRaw.showOnAllPages !== false,
+      dataModelId: typeof letterheadRaw.dataModelId === "string" ? letterheadRaw.dataModelId.slice(0, 120) : "",
     },
     aiTemplates: normalizeCompanyAiTemplates((raw as { aiTemplates?: unknown }).aiTemplates),
     wordTemplates,
@@ -1179,9 +1362,24 @@ function buildStandardReportSectionModel(
       .filter((section) => section.systemAnchor)
       .map((section) => [section.systemAnchor!, section] as const) ?? [],
   );
-  const builtInSections = createDetailedReportModelSections().map((seed) => {
+  const detailedSeeds = createDetailedReportModelSections();
+  // Once a detailed model has been saved, the section list is authoritative:
+  // removing one in the editor must not cause it to reappear on the next
+  // settings change. A missing existing model means this is a new company and
+  // receives the complete seven-section default.
+  const activeSeeds = existing
+    ? detailedSeeds.filter((seed) =>
+        existingSectionsByAnchor.has(seed.systemAnchor!) ||
+        existing?.sections.some((section) => section.id === seed.id),
+      )
+    : detailedSeeds;
+  const builtInSections = activeSeeds.map((seed) => {
     const existingSection =
       existingSectionsByAnchor.get(seed.systemAnchor!) ?? existing?.sections.find((section) => section.id === seed.id);
+    const companyAddedItems = companyAddedReportSectionItems(
+      seed.items,
+      existingSection?.items ?? [],
+    );
     return {
       ...seed,
       // Nullish, not falsy: a name cleared in the editor must stay cleared
@@ -1190,24 +1388,30 @@ function buildStandardReportSectionModel(
       title: existingSection?.title ?? seed.title,
       sectionNumber: existingSection?.sectionNumber ?? seed.sectionNumber,
       visibleInReport: existingSection?.visibleInReport !== false,
-      items: seed.items.map((seedItem) => {
-        const existingItem = existingItems.get(seedItem.id);
-        const [group, field] = seedItem.id.split(":", 2);
-        const defaultBody =
-          (group === "scope" || group === "methodology" || group === "assumptions") && field
-            ? ((defaults[group] as Record<string, string>)[field] ?? "")
-            : seedItem.body;
-        return {
-          ...seedItem,
-          title: existingItem?.title ?? seedItem.title,
-          // A system paragraph continues to read from the company defaults
-          // until an administrator explicitly writes a replacement in the
-          // model editor.
-          body: existingItem?.overrideSystemContent ? existingItem.body : defaultBody,
-          visibleInReport: existingItem?.visibleInReport !== false,
-          ...(existingItem?.overrideSystemContent ? { overrideSystemContent: true } : {}),
-        };
-      }),
+      items: [
+        ...seed.items.map((seedItem) => {
+          const existingItem = existingItems.get(seedItem.id);
+          const [group, field] = seedItem.id.split(":", 2);
+          const defaultBody =
+            (group === "scope" || group === "methodology" || group === "assumptions") && field
+              ? ((defaults[group] as Record<string, string>)[field] ?? "")
+              : seedItem.body;
+          return {
+            ...seedItem,
+            title: existingItem?.title ?? seedItem.title,
+            // A system paragraph continues to read from the company defaults
+            // until an administrator explicitly writes a replacement in the
+            // model editor.
+            body: existingItem?.overrideSystemContent ? existingItem.body : defaultBody,
+            visibleInReport: existingItem?.visibleInReport !== false,
+            ...(existingItem?.overrideSystemContent ? { overrideSystemContent: true } : {}),
+          };
+        }),
+        // Items created from the section-model sidebar are company content,
+        // not seed paragraphs. Keep them attached to their system section
+        // whenever the standard model is rebuilt after an editor change.
+        ...companyAddedItems,
+      ],
     };
   });
 
@@ -2292,7 +2496,7 @@ export default function CompanyAdminDashboard({
       setSubmitError(null);
       setStatus(null);
       try {
-        await apiJson("/api/company/user-signature", csrfToken, {
+        await apiJson(`/api/company/user-signature${productQuery}`, csrfToken, {
           method: "PATCH",
           body: JSON.stringify({ valuationReportSignatureDataUrl: url }),
         });
@@ -2311,7 +2515,7 @@ export default function CompanyAdminDashboard({
     setBrandingBusy(true);
     setSubmitError(null);
     try {
-      await apiJson("/api/company/branding", csrfToken, {
+      await apiJson(`/api/company/branding${productQuery}`, csrfToken, {
         method: "PATCH",
         body: JSON.stringify({
           logoDataUrl: logoDraft && logoDraft.length > 0 ? logoDraft : null,
@@ -2331,7 +2535,7 @@ export default function CompanyAdminDashboard({
     setBrandingBusy(true);
     setSubmitError(null);
     try {
-      await apiJson("/api/company/branding", csrfToken, {
+      await apiJson(`/api/company/branding${productQuery}`, csrfToken, {
         method: "PATCH",
         body: JSON.stringify({
           commercialRegistration: commercialRegistrationDraft.trim(),
@@ -2596,26 +2800,6 @@ export default function CompanyAdminDashboard({
       setReportDefaultsSaving(false);
     }
   }, [csrfToken]);
-
-  const applySystemReportTemplate = useCallback(
-    (template: LetterheadTemplateOption) => {
-      if (reportDefaultsSaving) return;
-
-      const next: CompanyReportDefaultsForm = {
-        ...reportDefaultsRef.current,
-        letterhead: {
-          ...reportDefaultsRef.current.letterhead,
-          templateId: template.id,
-          outputFormat: template.outputFormat,
-        },
-      };
-
-      setReportDefaults(next);
-      setReportDefaultsDirty(true);
-      setStatus(`تم اختيار قالب «${template.title}». احفظ التعديلات لتطبيقه.`);
-    },
-    [reportDefaultsSaving],
-  );
 
   const analyzeAiTemplatePdf = useCallback(async () => {
     if (!aiTemplateFile) {
@@ -3036,7 +3220,7 @@ export default function CompanyAdminDashboard({
       setSubmitError(null);
       setStatus(null);
       try {
-        await apiJson("/api/company/user-signature", csrfToken, {
+        await apiJson(`/api/company/user-signature${productQuery}`, csrfToken, {
           method: "PATCH",
           body: JSON.stringify({ userId, valuationReportSignatureDataUrl: url }),
         });
@@ -3058,7 +3242,7 @@ export default function CompanyAdminDashboard({
       setStatus(null);
       try {
         await apiJson(
-          `/api/company/report-signatories/${encodeURIComponent(signatoryId)}/signature`,
+          `/api/company/report-signatories/${encodeURIComponent(signatoryId)}/signature${productQuery}`,
           csrfToken,
           {
             method: "PATCH",
@@ -3157,7 +3341,7 @@ export default function CompanyAdminDashboard({
     setStatus(null);
     try {
       await apiJson(
-        `/api/company/report-signatories/${encodeURIComponent(deleteReportOnlyTarget.id)}`,
+        `/api/company/report-signatories/${encodeURIComponent(deleteReportOnlyTarget.id)}${productQuery}`,
         csrfToken,
         { method: "DELETE" },
       );
@@ -3341,13 +3525,60 @@ export default function CompanyAdminDashboard({
     variant === "embedded"
       ? "flex min-h-0 flex-1 flex-col overflow-hidden"
       : "flex min-h-screen flex-col bg-[#f4f6fb]";
-  const letterheadCatalogTemplates = LETTERHEAD_TEMPLATE_OPTIONS;
+  const letterheadCatalogTemplates = LETTERHEAD_TEMPLATE_OPTIONS.slice(0, 1);
   const letterheadPreviewTemplate = letterheadPreviewId
     ? (letterheadCatalogTemplates.find((item) => item.id === letterheadPreviewId) ?? null)
     : null;
-  const selectedSystemTemplate =
-    letterheadCatalogTemplates.find((item) => item.id === reportDefaults.letterhead.templateId) ??
-    LETTERHEAD_TEMPLATE_OPTIONS[0]!;
+  const initialReportDesignTab: CompanyReportDesignTab =
+    currentTab === "word-template"
+      ? "word"
+      : currentTab === "pptx-template"
+        ? "pptx"
+        : "system";
+  const systemTemplateLibrary = (
+    <CompanySystemTemplateLibrary
+      templates={reportDefaults.letterhead.customTemplates}
+      reportDataModels={reportDefaults.reportDataModels}
+      selectedTemplateId={reportDefaults.letterhead.templateId ?? "default-report-template"}
+      disabled={reportDefaultsSaving}
+      officialPreview={(
+        <SystemReportTemplatePreview
+          template={LETTERHEAD_TEMPLATE_OPTIONS[0]!}
+          companyName={data?.company?.name ?? "شركة التقييم"}
+          companyLogoSrc={logoDraft}
+        />
+      )}
+      companyData={{
+        companyName: data?.company?.name ?? "شركة التقييم",
+        logoSrc: logoDraft,
+        commercialRegistration: commercialRegistrationDraft || data?.company?.commercialRegistration || "",
+        managerName: data?.users.find((row) => row.role === "company_admin")?.valuationReportDisplayName?.trim() || data?.users.find((row) => row.role === "company_admin")?.username || "",
+        managerMembershipNo: data?.users.find((row) => row.role === "company_admin")?.valuationReportMembershipNo?.trim() || "",
+        reportTitle: "تقرير تقييم الآلات والمعدات",
+        clientName: "اسم العميل",
+        reportReference: "VT-2026-001",
+      }}
+      onPreviewOfficial={() => setLetterheadPreviewId("default-report-template")}
+      onCommit={async (customTemplates, templateId) => {
+        // Save straight to the server: a template saved/approved in the studio
+        // must survive a page reload without a second "save" step.
+        const current = reportDefaultsRef.current;
+        const next: CompanyReportDefaultsForm = {
+          ...current,
+          letterhead: {
+            ...current.letterhead,
+            customTemplates,
+            templateId,
+            outputFormat: "pdf",
+          },
+        };
+        setReportDefaults(next);
+        const saved = await persistReportDefaults(next);
+        if (saved) setStatus("تم حفظ مكتبة قوالب النظام والقالب المعتمد.");
+        return saved;
+      }}
+    />
+  );
 
   const reportSectionsEditor = (
     <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -3782,7 +4013,7 @@ export default function CompanyAdminDashboard({
         ) : null}
 
         <Tabs
-          value={currentTab}
+          value={reportDefaultsOnly ? "report-data-models" : currentTab}
           onValueChange={setActiveTab}
           className="flex min-h-0 flex-col gap-4"
           dir="rtl"
@@ -4597,99 +4828,7 @@ export default function CompanyAdminDashboard({
                   <div className="min-w-0">
 
                   <TabsContent value="system-template" className="m-0 space-y-3 outline-none">
-                    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-                      <div className="grid gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
-                        <div className="flex items-center justify-center border-b border-slate-100 bg-[radial-gradient(circle_at_50%_18%,#e0f2fe,transparent_58%),linear-gradient(135deg,#f8fafc,#eaf3f8)] p-5 lg:border-b-0 lg:border-l">
-                          <SystemReportTemplatePreview
-                            template={selectedSystemTemplate}
-                            companyName={data?.company?.name ?? "شركة التقييم"}
-                            companyLogoSrc={logoDraft}
-                          />
-                        </div>
-                        <div className="flex min-w-0 flex-col justify-center p-4 md:p-5">
-                          <div className="mb-3 flex flex-wrap items-center gap-2">
-                            <Badge className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] text-[#0C447C] ring-1 ring-sky-100">القالب المعتمد للنظام</Badge>
-                            <Badge variant="secondary" className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] text-slate-600">{selectedSystemTemplate.badge}</Badge>
-                          </div>
-                          <h3 className="text-[18px] font-black tracking-tight text-slate-950">{selectedSystemTemplate.title}</h3>
-                          <p className="mt-1.5 max-w-2xl text-[12px] font-semibold leading-6 text-slate-500">{selectedSystemTemplate.description}</p>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <Button type="button" variant="outline" className="h-9 gap-1.5 rounded-xl text-[12px] font-black" onClick={() => setLetterheadPreviewId(selectedSystemTemplate.id)}>
-                              <Eye className="h-3.5 w-3.5" />
-                              معاينة كاملة
-                            </Button>
-                            <span className="inline-flex h-9 items-center rounded-xl bg-slate-50 px-3 text-[10.5px] font-bold text-slate-500 ring-1 ring-slate-100">
-                              يُستخدم تلقائياً للمشاريع التي لم تحدد قالباً، دون تغيير اختيار أي مشروع قائم.
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </section>
-
-                    <section className="rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h3 className="text-[14px] font-black text-slate-900">مكتبة قوالب النظام</h3>
-                          <p className="mt-0.5 text-[10.5px] font-semibold text-slate-500">اختر القالب ثم احفظه ليُستخدم في التقارير الجديدة.</p>
-                        </div>
-                        <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">{letterheadCatalogTemplates.length} قوالب</Badge>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {letterheadCatalogTemplates.map((template) => {
-                          const selected = template.id === selectedSystemTemplate.id;
-                          return (
-                            <article
-                              key={template.id}
-                              className={cn(
-                                "overflow-hidden rounded-2xl border bg-white shadow-sm transition",
-                                selected ? "border-[#0C447C] ring-2 ring-[#0C447C]/10" : "border-slate-200 hover:border-slate-300",
-                              )}
-                            >
-                              <div className="relative overflow-hidden bg-slate-100/80 py-3">
-                                <SystemReportTemplatePreview
-                                  template={template}
-                                  companyName={data?.company?.name ?? "شركة التقييم"}
-                                  companyLogoSrc={logoDraft}
-                                />
-                                <div className="absolute inset-x-3 top-3 flex items-center justify-between gap-2">
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="secondary"
-                                    className="h-8 w-8 rounded-full bg-white/95 text-slate-800 shadow-sm hover:bg-white"
-                                    title="معاينة"
-                                    aria-label={`معاينة ${template.title}`}
-                                    onClick={() => setLetterheadPreviewId(template.id)}
-                                  >
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Badge className="rounded-full bg-white text-[10px] text-slate-800 shadow-sm">{template.badge}</Badge>
-                                </div>
-                              </div>
-                              <div className="p-3 text-right">
-                                <div className="flex items-center justify-between gap-2">
-                                  <h4 className="min-w-0 truncate text-[13px] font-black text-slate-900">{template.title}</h4>
-                                  {selected ? (
-                                    <Badge className="gap-1 rounded-full bg-[#0C447C] px-2 py-0.5 text-[9px] text-white"><CheckCircle2 className="h-3 w-3" />معتمد</Badge>
-                                  ) : null}
-                                </div>
-                                <p className="mt-1.5 min-h-10 text-[10.5px] font-semibold leading-5 text-slate-500">{template.description}</p>
-                                <Button
-                                  type="button"
-                                  variant={selected ? "outline" : "default"}
-                                  className={cn("mt-3 h-8 w-full gap-1.5 rounded-lg text-[10.5px] font-black", !selected && "bg-[#0C447C] hover:bg-[#0a3a66]")}
-                                  disabled={selected || reportDefaultsSaving}
-                                  onClick={() => void applySystemReportTemplate(template)}
-                                >
-                                  {selected ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Palette className="h-3.5 w-3.5" />}
-                                  {selected ? "القالب المعتمد" : "اعتماد كقالب النظام"}
-                                </Button>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </section>
+                    {systemTemplateLibrary}
                   </TabsContent>
 
                   <TabsContent value="report-sections" className="m-0 outline-none">
@@ -4765,6 +4904,75 @@ export default function CompanyAdminDashboard({
                 models={reportDefaults.reportDataModels}
                 saving={reportDefaultsSaving}
                 dirty={reportDefaultsDirty}
+                initialStudioView={currentTab === "report-data-models" ? "model" : "report"}
+                reportDesign={
+                  <CompanyReportDesignTabs
+                    initialTab={initialReportDesignTab}
+                    systemTemplates={systemTemplateLibrary}
+                    reportSections={
+                      <CompanyReportSectionModelDashboard
+                        models={reportSectionModelsForEditor}
+                        reportDataModels={reportDefaults.reportDataModels}
+                        loading={!reportDefaultsLoaded}
+                        saving={reportDefaultsSaving}
+                        onSave={() => persistReportDefaults()}
+                        onChange={(models) => {
+                          setReportDefaults((current) => mergeStandardReportSectionModel(current, models));
+                          setReportDefaultsDirty(true);
+                        }}
+                      />
+                    }
+                    companyLetterhead={
+                      <CompanyReportLetterheadEditor
+                        value={reportDefaults.letterhead}
+                        companyName={data?.company?.name ?? "شركة التقييم"}
+                        companyLogoSrc={logoDraft}
+                        models={reportDefaults.reportDataModels}
+                        disabled={reportDefaultsSaving}
+                        onChange={(letterhead) => {
+                          setReportDefaults((current) => ({ ...current, letterhead: { ...current.letterhead, ...letterhead } }));
+                          setReportDefaultsDirty(true);
+                        }}
+                      />
+                    }
+                    wordTemplates={
+                      <CompanyReportDocumentTemplateDashboard
+                        format="word"
+                        templates={reportDefaults.wordTemplates}
+                        reportDataModels={reportDefaults.reportDataModels}
+                        selectedTemplateId={selectedCompanyWordTemplateId}
+                        loading={!reportDefaultsLoaded}
+                        saving={reportDefaultsSaving}
+                        dirty={reportDefaultsDirty}
+                        onSelect={setSelectedCompanyWordTemplateId}
+                        onUploadNew={(file, modelId) => uploadCompanyWordTemplate(file, "new", modelId)}
+                        onReplace={(file, modelId) => uploadCompanyWordTemplate(file, "replace", modelId)}
+                        onRename={(name, finalize) => renameCompanyDocumentTemplate("word", name, finalize)}
+                        onRemove={removeCompanyWordTemplate}
+                        onChange={({ variableMappings, excludedVariableNames }) => updateCompanyDocumentTemplateMappings("word", variableMappings, excludedVariableNames)}
+                        onSave={() => void persistReportDefaults()}
+                      />
+                    }
+                    pptxTemplates={
+                      <CompanyReportDocumentTemplateDashboard
+                        format="pptx"
+                        templates={reportDefaults.pptxTemplates}
+                        reportDataModels={reportDefaults.reportDataModels}
+                        selectedTemplateId={selectedCompanyPptxTemplateId}
+                        loading={!reportDefaultsLoaded}
+                        saving={reportDefaultsSaving}
+                        dirty={reportDefaultsDirty}
+                        onSelect={setSelectedCompanyPptxTemplateId}
+                        onUploadNew={(file, modelId) => uploadCompanyPptxTemplate(file, "new", modelId)}
+                        onReplace={(file, modelId) => uploadCompanyPptxTemplate(file, "replace", modelId)}
+                        onRename={(name, finalize) => renameCompanyDocumentTemplate("pptx", name, finalize)}
+                        onRemove={removeCompanyPptxTemplate}
+                        onChange={({ variableMappings, excludedVariableNames }) => updateCompanyDocumentTemplateMappings("pptx", variableMappings, excludedVariableNames)}
+                        onSave={() => void persistReportDefaults()}
+                      />
+                    }
+                  />
+                }
                 onChange={(models) => {
                   // Store the editor draft as-is; normalizing here would trim
                   // the text while the administrator is still typing.
@@ -5621,7 +5829,9 @@ export default function CompanyAdminDashboard({
             <AlertDialogTitle>حذف المستخدم؟</AlertDialogTitle>
             <AlertDialogDescription className="text-right">
               {deleteTarget
-                ? `سيتم حذف «${userDisplayName(deleteTarget)}» نهائياً من الشركة. لا يمكن التراجع عن هذا الإجراء.`
+                ? productId === "machine-valuation"
+                  ? `سيُنقل «${userDisplayName(deleteTarget)}» إلى سلة المحذوفات ويفقد دخوله إلى النظام. يمكن استعادته منها.`
+                  : `سيتم حذف «${userDisplayName(deleteTarget)}» نهائياً من الشركة. لا يمكن التراجع عن هذا الإجراء.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -5655,7 +5865,7 @@ export default function CompanyAdminDashboard({
             <AlertDialogTitle>حذف معدّ التقرير؟</AlertDialogTitle>
             <AlertDialogDescription className="text-right">
               {deleteReportOnlyTarget
-                ? `سيتم حذف «${deleteReportOnlyTarget.name}» من المقيمون والتوقيعات. لن يظهر لاحقاً في اختيار معدّي التقرير.`
+                ? `سيتم حذف «${deleteReportOnlyTarget.name}» من المقيمون والتوقيعات. لن يظهر لاحقاً في اختيار معدّي التقرير.${productId === "machine-valuation" ? " يمكن استعادته من سلة المحذوفات." : ""}`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

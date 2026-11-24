@@ -43,7 +43,7 @@ export default function MvSettingsHub({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row" dir={dir}>
-      {items.length > 0 ? (
+      {items.length > 0 && section !== "report" ? (
         <aside className="w-full shrink-0 rounded-xl border border-slate-200/80 bg-white p-1.5 lg:w-52">
           {sectionLabel ? (
             <p className="px-3 pb-1 pt-1.5 text-[11px] font-bold text-slate-400">{t(sectionLabel)}</p>

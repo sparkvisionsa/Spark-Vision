@@ -172,6 +172,12 @@ export interface MvAiVariableContext {
   reportDataValues?: Record<string, unknown>;
   /** Values of custom `field:<id>` report-data-model fields. */
   customFieldValues?: Record<string, string>;
+  /**
+   * The report's own variable resolver (the one system templates use): the
+   * value the report actually prints for a key, with fallbacks, user edits
+   * and formatting applied. Used for keys without a dedicated resolver.
+   */
+  resolveVariable?: (key: string) => string | null | undefined;
 }
 
 type VariableResolver = (ctx: MvAiVariableContext) => string | null | undefined;
@@ -237,6 +243,12 @@ export function resolveAiVariable(source: string | undefined, ctx: MvAiVariableC
     return typeof customValue === "string" && customValue.trim() ? customValue.trim() : null;
   }
   const resolver = VARIABLE_RESOLVERS[normalizeSourceKey(rawSource)];
+  if (!resolver && ctx.resolveVariable) {
+    // `reportData.intendedUse` / `project.x` style keys name the same field.
+    const plainKey = rawSource.replace(/^(?:reportData|project|company)\./i, "");
+    const shared = ctx.resolveVariable(plainKey) ?? (plainKey !== rawSource ? ctx.resolveVariable(rawSource) : null);
+    if (typeof shared === "string" && shared.trim()) return shared.trim();
+  }
   const directValue = resolver ? resolver(ctx) : ctx.reportDataValues?.[rawSource];
   const value =
     typeof directValue === "number" || typeof directValue === "string"

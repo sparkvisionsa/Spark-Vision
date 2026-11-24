@@ -128,7 +128,7 @@ function cloneSection(section: MvReportDataModelSection): MvReportDataModelSecti
 export function createDefaultReportDataModel(): MvReportDataModel {
   return {
     id: MV_DEFAULT_REPORT_DATA_MODEL_ID,
-    name: "نموذج فرد",
+    name: "نموذج البيانات",
     isDefault: true,
     sections: DEFAULT_SECTIONS.map((section) => ({
       id: section.id,
@@ -151,11 +151,35 @@ export function normalizeReportDataModels(value: unknown): MvReportDataModel[] {
   const models: MvReportDataModel[] = [];
 
   for (const raw of rawModels) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const model = parseReportDataModel(raw);
+    if (!model || seenModels.has(model.id)) continue;
+    seenModels.add(model.id);
+    models.push(model);
+  }
+
+  const defaultIndex = models.findIndex(
+    (model) => model.id === MV_DEFAULT_REPORT_DATA_MODEL_ID || model.isDefault,
+  );
+  if (defaultIndex < 0) return [createDefaultReportDataModel(), ...models];
+
+  const defaultModel = models[defaultIndex]!;
+  const normalizedDefault: MvReportDataModel = {
+    ...defaultModel,
+    id: MV_DEFAULT_REPORT_DATA_MODEL_ID,
+    isDefault: true,
+  };
+  const rest = models
+    .filter((_, index) => index !== defaultIndex)
+    .map((model) => ({ ...model, isDefault: false }));
+  return [normalizedDefault, ...rest];
+}
+
+function parseReportDataModel(raw: unknown): MvReportDataModel | null {
+  {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const modelRaw = raw as Record<string, unknown>;
     const id = cleanText(modelRaw.id, 120);
-    if (!id || seenModels.has(id)) continue;
-    seenModels.add(id);
+    if (!id) return null;
     const sectionsRaw = Array.isArray(modelRaw.sections)
       ? modelRaw.sections.slice(0, MV_REPORT_DATA_MODEL_SECTION_LIMIT)
       : [];
@@ -193,35 +217,115 @@ export function normalizeReportDataModels(value: unknown): MvReportDataModel[] {
       }
       sections.push({ id: sectionId, title, fields });
     }
-    if (sections.length === 0) continue;
+    if (sections.length === 0) return null;
     const rawName = cleanText(modelRaw.name, 160);
     const isDefault = modelRaw.isDefault === true || id === MV_DEFAULT_REPORT_DATA_MODEL_ID;
-    models.push({
+    return {
       id,
       name:
-        isDefault && (rawName === "نموذج أفراد" || rawName === "نموذج الافراد")
-          ? "نموذج فرد"
-          : rawName || "نموذج بيانات التقرير",
+        isDefault && (rawName === "نموذج أفراد" || rawName === "نموذج الافراد" || rawName === "نموذج فرد")
+          ? "نموذج البيانات"
+          : rawName || "نموذج البيانات",
       isDefault,
       sections,
-    });
+    };
   }
+}
 
-  const defaultIndex = models.findIndex(
-    (model) => model.id === MV_DEFAULT_REPORT_DATA_MODEL_ID || model.isDefault,
-  );
-  if (defaultIndex < 0) return [createDefaultReportDataModel(), ...models];
+/** The project's own copy of a model (no default injection, no catalogue rules). */
+export function normalizeReportDataModelSnapshot(value: unknown): MvReportDataModel | null {
+  const model = parseReportDataModel(value);
+  return model ? { id: model.id, name: model.name, sections: model.sections } : null;
+}
 
-  const defaultModel = models[defaultIndex]!;
-  const normalizedDefault: MvReportDataModel = {
-    ...defaultModel,
-    id: MV_DEFAULT_REPORT_DATA_MODEL_ID,
-    isDefault: true,
+export function createReportDataModelSnapshot(model: MvReportDataModel): MvReportDataModel {
+  return { id: model.id, name: model.name, sections: model.sections.map(cloneSection) };
+}
+
+export type MvProjectReportDataModelSource =
+  /** The company model still exists: the project follows its definition. */
+  | "company"
+  /** The company model is gone: the project's saved copy is used. */
+  | "snapshot"
+  /** Older project without a copy: rebuilt from the project's own fields. */
+  | "recovered";
+
+type ProjectModelData = {
+  reportDataModelId?: string;
+  reportDataModelSnapshot?: unknown;
+  customFields?: ReadonlyArray<{
+    id: string;
+    sectionId: string;
+    modelId?: string;
+    label: string;
+    type: MvReportCustomFieldType;
+    required: boolean;
+  }>;
+  customSections?: ReadonlyArray<{ id: string; modelId?: string; title: string }>;
+};
+
+/** The model id a project was set up with (explicit, or inherited by its fields). */
+export function projectReportDataModelId(data: ProjectModelData | null | undefined): string {
+  const explicit = data?.reportDataModelId?.trim() ?? "";
+  if (explicit) return explicit;
+  const snapshotId = normalizeReportDataModelSnapshot(data?.reportDataModelSnapshot)?.id ?? "";
+  if (snapshotId) return snapshotId;
+  return (data?.customFields ?? []).find((field) => field.modelId?.trim())?.modelId?.trim() ?? "";
+}
+
+/**
+ * The model a project works with. A project never silently moves to another
+ * model: when the company model was deleted, the project's copy (or, for older
+ * projects, a copy rebuilt from its own sections and fields) keeps the form,
+ * the data and the template bindings exactly as they were.
+ */
+export function resolveProjectReportDataModel(
+  companyModels: readonly MvReportDataModel[] | undefined,
+  data: ProjectModelData | null | undefined,
+): { model: MvReportDataModel; source: MvProjectReportDataModelSource } | null {
+  const id = projectReportDataModelId(data);
+  if (!id) return null;
+  const company = normalizeReportDataModels(companyModels).find((model) => model.id === id);
+  if (company) return { model: company, source: "company" };
+  const snapshot = normalizeReportDataModelSnapshot(data?.reportDataModelSnapshot);
+  if (snapshot && snapshot.id === id) return { model: snapshot, source: "snapshot" };
+  const base = createDefaultReportDataModel();
+  if (id === MV_DEFAULT_REPORT_DATA_MODEL_ID) {
+    return { model: { id: base.id, name: base.name, sections: base.sections }, source: "recovered" };
+  }
+  // Older project whose model was deleted before copies existed: keep every
+  // system field visible (nothing hidden) and rebuild the model's own
+  // sections/fields from what the project stored.
+  const fields = data?.customFields ?? [];
+  const modelFieldsOf = (sectionId: string) =>
+    fields
+      .filter((field) => field.modelId === id && field.sectionId === sectionId)
+      .map(recoveredField);
+  const sections: MvReportDataModelSection[] = base.sections.map((section) => ({
+    ...section,
+    fields: [...section.fields, ...modelFieldsOf(section.id)],
+  }));
+  for (const section of data?.customSections ?? []) {
+    if (section.modelId !== id || sections.some((item) => item.id === section.id)) continue;
+    sections.push({ id: section.id, title: section.title, fields: modelFieldsOf(section.id) });
+  }
+  return { model: { id, name: "نموذج المشروع المحفوظ", sections }, source: "recovered" };
+}
+
+function recoveredField(field: {
+  id: string;
+  label: string;
+  type: MvReportCustomFieldType;
+  required: boolean;
+}): MvReportDataModelField {
+  return {
+    id: field.id,
+    label: field.label,
+    sourceKey: `field:${field.id}`,
+    type: field.type,
+    required: field.required,
+    system: false,
   };
-  const rest = models
-    .filter((_, index) => index !== defaultIndex)
-    .map((model) => ({ ...model, isDefault: false }));
-  return [normalizedDefault, ...rest];
 }
 
 export function getReportDataModel(

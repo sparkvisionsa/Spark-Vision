@@ -2,7 +2,17 @@
 
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Check, ChevronsUpDown, Files, Loader2, MapPinned, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, MapPinned, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -226,8 +236,12 @@ interface MvInspectionLocationsFieldsProps {
    */
   pickerPopoverHost: HTMLElement | null;
   className?: string;
-  onOpenInspectorFiles?: (site: MvProjectInspectionSiteForm) => void;
-  openingInspectorFilesSiteId?: string | null;
+  /** Content shown at the bottom of each site card (the site's files). */
+  renderSiteFooter?: (site: MvProjectInspectionSiteForm, index: number) => ReactNode;
+  /** Files attached to a site: removing it asks first and says where they go. */
+  siteFileCount?: (siteId: string) => number;
+  /** A site with uploads in progress cannot be removed. */
+  isSiteBusy?: (siteId: string) => boolean;
 }
 
 function InspectionField({
@@ -266,8 +280,9 @@ export function MvInspectionLocationsFields({
   disabled,
   pickerPopoverHost,
   className,
-  onOpenInspectorFiles,
-  openingInspectorFilesSiteId,
+  renderSiteFooter,
+  siteFileCount,
+  isSiteBusy,
 }: MvInspectionLocationsFieldsProps) {
   const { t, dir } = useMvI18n();
   const clearFieldLabel = t("inspector.locations.clearField");
@@ -276,6 +291,7 @@ export function MvInspectionLocationsFields({
   const sites = value.length > 0 ? value : [createProjectInspectionSiteForm(0)];
   const [mapSiteId, setMapSiteId] = useState<string | null>(null);
   const [resolvingSiteId, setResolvingSiteId] = useState<string | null>(null);
+  const [removeCandidate, setRemoveCandidate] = useState<{ id: string; name: string; files: number } | null>(null);
   const activeMapSite = useMemo(
     () => sites.find((site) => site.id === mapSiteId) ?? null,
     [mapSiteId, sites],
@@ -324,6 +340,15 @@ export function MvInspectionLocationsFields({
     onChange(sites.filter((site) => site.id !== id));
   };
 
+  const requestRemoveSite = (site: MvProjectInspectionSiteForm, index: number) => {
+    const files = siteFileCount?.(site.id) ?? 0;
+    if (files === 0) {
+      removeSite(site.id);
+      return;
+    }
+    setRemoveCandidate({ id: site.id, name: site.name.trim() || defaultInspectionSiteName(index), files });
+  };
+
   const updateMapUrl = (site: MvProjectInspectionSiteForm, mapUrl: string) => {
     const parsed = parseCoordinatesFromText(mapUrl);
     updateSite(site.id, {
@@ -368,19 +393,6 @@ export function MvInspectionLocationsFields({
 
   return (
     <div className={cn("space-y-3 text-right", className)} dir={dir}>
-      <header className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 shrink-0 gap-2 rounded-lg border-sky-200 bg-white px-3 text-[12px] font-bold text-[#0C447C] shadow-sm hover:border-sky-300 hover:bg-sky-50/80"
-          onClick={addSite}
-          disabled={disabled || sites.length >= 10}
-        >
-          <Plus className="h-4 w-4" aria-hidden />
-          {t("inspector.locations.addSite")}
-        </Button>
-      </header>
-
       {catalogError ? (
         <p className="rounded-xl border border-amber-200/90 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
           {t("inspector.locations.catalogError")}
@@ -425,30 +437,15 @@ export function MvInspectionLocationsFields({
                     )}
                     {t("inspector.locations.map")}
                   </Button>
-                  {onOpenInspectorFiles ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 gap-1.5 rounded-lg border-violet-200/90 bg-white px-2.5 text-[11px] font-bold text-violet-900 hover:bg-violet-50/70"
-                      onClick={() => onOpenInspectorFiles(site)}
-                      disabled={disabled || openingInspectorFilesSiteId === site.id}
-                    >
-                      {openingInspectorFilesSiteId === site.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                      ) : (
-                        <Files className="h-4 w-4 shrink-0" aria-hidden />
-                      )}
-                      {t("inspector.locations.attachFiles")}
-                    </Button>
-                  ) : null}
                   {sites.length > 1 ? (
                     <Button
                       type="button"
                       variant="outline"
                       size="icon"
                       className="h-8 w-8 rounded-lg border-red-200/80 bg-white text-red-600 hover:bg-red-50/90"
-                      onClick={() => removeSite(site.id)}
-                      disabled={disabled}
+                      onClick={() => requestRemoveSite(site, index)}
+                      disabled={disabled || Boolean(isSiteBusy?.(site.id))}
+                      title={isSiteBusy?.(site.id) ? t("inspector.sites.removeBusy") : t("inspector.locations.deleteSite")}
                       aria-label={t("inspector.locations.deleteSite")}
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
@@ -635,10 +632,46 @@ export function MvInspectionLocationsFields({
                   </div>
                 </InspectionField>
               </div>
+              {renderSiteFooter?.(site, index)}
             </section>
           );
         })}
       </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 w-full gap-2 rounded-xl border-dashed border-sky-300 bg-white text-[12.5px] font-bold text-[#0C447C] hover:border-sky-400 hover:bg-sky-50/70"
+        onClick={addSite}
+        disabled={disabled || sites.length >= 10}
+      >
+        <Plus className="h-4 w-4" aria-hidden />
+        {sites.length >= 10 ? t("inspector.sites.maxSites") : t("inspector.locations.addSite")}
+      </Button>
+
+      <AlertDialog open={removeCandidate != null} onOpenChange={(open) => !open && setRemoveCandidate(null)}>
+        <AlertDialogContent dir={dir} className="text-start">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("inspector.sites.removeTitle", { name: removeCandidate?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("inspector.sites.removeWithFiles", { count: removeCandidate?.files ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel type="button">{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              type="button"
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={() => {
+                if (removeCandidate) removeSite(removeCandidate.id);
+                setRemoveCandidate(null);
+              }}
+            >
+              {t("inspector.sites.removeConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MvProjectMapPicker
         open={mapSiteId != null}

@@ -31,10 +31,54 @@ export const REPORT_INTERIOR_FRAME_MM = {
   },
 } as const;
 
+export type ReportInteriorFrameMm = {
+  paddingInline: number;
+  header: number;
+  footer: number;
+  bodyPaddingTop: number;
+  bodyPaddingBottom: number;
+};
+
+/** Body padding used by custom system templates (studio, shell and paginator). */
+export const REPORT_CUSTOM_TEMPLATE_BODY_PADDING_MM = 4;
+
+type FrameTemplateLayout = {
+  layout: {
+    pageMarginMm: number;
+    headerHeightMm: number;
+    footerHeightMm: number;
+    showHeader: boolean;
+    showFooter: boolean;
+  };
+};
+
+/**
+ * The single source of truth for an interior page frame.  The page shell, the
+ * flow paginator and the template studio all read it, so a custom template is
+ * paginated with exactly the header/footer/margins it is rendered with — no
+ * clipped content and no unexplained blank space at the bottom of a page.
+ */
+export function resolveReportInteriorFrameMm(
+  orientation: ReportPageOrientation = "portrait",
+  template?: FrameTemplateLayout | null,
+): ReportInteriorFrameMm {
+  if (!template) return REPORT_INTERIOR_FRAME_MM[orientation];
+  const { layout } = template;
+  return {
+    paddingInline: layout.pageMarginMm,
+    header: layout.showHeader === false ? 0 : Math.max(0, layout.headerHeightMm),
+    footer: layout.showFooter === false ? 0 : Math.max(0, layout.footerHeightMm),
+    bodyPaddingTop: REPORT_CUSTOM_TEMPLATE_BODY_PADDING_MM,
+    bodyPaddingBottom: REPORT_CUSTOM_TEMPLATE_BODY_PADDING_MM,
+  };
+}
+
 /** عرض منطقة المحتوى الداخلية (210mm − padding أفقي 6mm). */
-export function getReportInteriorBodyWidthPx(orientation: ReportPageOrientation = "portrait") {
+export function getReportInteriorBodyWidthPx(
+  orientation: ReportPageOrientation = "portrait",
+  frame: ReportInteriorFrameMm = REPORT_INTERIOR_FRAME_MM[orientation],
+) {
   const pageWidthMm = orientation === "landscape" ? 297 : 210;
-  const frame = REPORT_INTERIOR_FRAME_MM[orientation];
   return Math.floor((pageWidthMm - frame.paddingInline * 2) * REPORT_CSS_PX_PER_MM);
 }
 
@@ -42,9 +86,11 @@ export function getReportInteriorBodyWidthPx(orientation: ReportPageOrientation 
  * أقصى ارتفاع للمحتوى داخل صفحة داخلية قبل الفوتر.
  * تقدير محافظ: A4 − هيدر − فوتر − padding.
  */
-export function getReportInteriorBodyMaxPx(orientation: ReportPageOrientation = "portrait") {
+export function getReportInteriorBodyMaxPx(
+  orientation: ReportPageOrientation = "portrait",
+  frame: ReportInteriorFrameMm = REPORT_INTERIOR_FRAME_MM[orientation],
+) {
   const pageMm = orientation === "landscape" ? 210 : 297;
-  const frame = REPORT_INTERIOR_FRAME_MM[orientation];
   const bodyPaddingMm = frame.bodyPaddingTop + frame.bodyPaddingBottom;
   const raw = Math.floor(
     (pageMm - frame.header - frame.footer - bodyPaddingMm) * REPORT_CSS_PX_PER_MM,

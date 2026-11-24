@@ -53,7 +53,7 @@ test("handbook onboarding, persistence, accessibility and responsive reading", {
     await book.getByRole("button", { name: "ابدأ الاطلاع", exact: true }).click();
     await expect(book.getByRole("heading", { name: "الصورة العامة لمسار العمل", exact: true })).toBeFocused();
     await page.keyboard.press("ArrowLeft");
-    await expect(book.getByRole("heading", { name: "أرشيف المشاريع والاستعادة", exact: true })).toBeVisible();
+    await expect(book.getByRole("heading", { name: "سلة المحذوفات والاستعادة", exact: true })).toBeVisible();
     await page.keyboard.press("ArrowLeft");
     await expect(book.getByRole("heading", { name: "نموذج البيانات: أساس التقرير", exact: true })).toBeVisible();
     await book.getByRole("button", { name: /^تكبير لقطة/ }).click();

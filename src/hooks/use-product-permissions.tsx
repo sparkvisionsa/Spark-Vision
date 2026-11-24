@@ -146,7 +146,9 @@ function requiredPageGrant(pathname: string, productId: ValueTechProductId): str
     return "transactions.access";
   }
   const panel = parts[1] ?? "projects";
-  if (panel === "archive" || panel === "projects" || panel === "dashboard") return "projects.access";
+  // سلة المحذوفات لكل الأدوار؛ الخادم يقصر كل مستخدم على ما حذفه بنفسه.
+  if (panel === "trash" || panel === "archive") return null;
+  if (panel === "projects" || panel === "dashboard") return "projects.access";
   if (panel === "data-extraction") return "data_extraction.access";
   if (panel === "clients") return "clients.access";
   if (panel === "support" || panel === "developer-requests") return "support.access";

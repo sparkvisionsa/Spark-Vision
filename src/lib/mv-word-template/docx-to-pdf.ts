@@ -1,5 +1,7 @@
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { sanitizeCloneColorsForHtml2Canvas } from "@/lib/html2canvas-safe-colors";
+import { createCaptureScopeFilter } from "@/lib/html2canvas-capture-scope";
 
 const A4_WIDTH_PT = 595.28;
 const A4_HEIGHT_PT = 841.89;
@@ -104,6 +106,11 @@ async function captureElementToPdfPages(pdf: jsPDF, element: HTMLElement, startP
     height,
     windowWidth: width,
     windowHeight: height,
+    // Clone only the rendered Word host, not the whole app, for every page.
+    ignoreElements: createCaptureScopeFilter(element),
+    onclone: (clonedDoc, clonedElement) => {
+      sanitizeCloneColorsForHtml2Canvas(clonedDoc, clonedElement);
+    },
   });
 
   if (canvas.width < 8 || canvas.height < 8) {

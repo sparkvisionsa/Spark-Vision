@@ -1192,8 +1192,8 @@ export default function MvDataExtractionWorkspace() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t(
-                "سيتم حذف الأصل والصورة المصغرة والبيانات المستخرجة لهذا الملف.",
-                "The source, thumbnail and extracted data for this file will be deleted.",
+                "سيُنقل الملف ببياناته المستخرجة إلى سلة المحذوفات، ويمكن استعادته منها.",
+                "The file and its extracted data move to the trash and can be restored from there.",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>

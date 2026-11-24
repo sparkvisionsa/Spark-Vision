@@ -12,7 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { getUploads } from "@/lib/mv-background-uploads";
-import { fetchAttachmentSnapshot, watchAttachmentSnapshot, attachmentFields } from "@/lib/mv-attachment-sync";
+import { fetchAttachmentSnapshot, watchAttachmentSnapshot, attachmentFields, type AttachmentSnapshot } from "@/lib/mv-attachment-sync";
 import { attachmentKnownIds } from "@/lib/mv-attachment-uploads";
 import { systemArabicFont as reportFont } from "@/lib/system-fonts";
 import {
@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
+import { SystemTemplateReportPreview } from "@/components/system-template-report-preview";
 import {
   MvProjectReportHeader,
   readVisitedSimpleReportSteps,
@@ -61,6 +62,7 @@ import type {
   MvCompanyAiReportTemplate,
   MvCompanyReportCustomSection,
   MvCompanyReportSystemTemplate,
+  MvCompanyReportSystemTemplateDefinition,
   MvCompanyReportSectionModel,
   MvProject,
   MvProjectReportData,
@@ -124,6 +126,19 @@ import {
 } from "./mv-valuation-report-narrative-defaults";
 import { MV_REPORT_SCROLL_ANCHOR_ORDER, MV_REPORT_TOC_ROWS } from "./mv-valuation-report-toc";
 import { ReportViewportScaleContext } from "./mv-report-viewport-scale";
+import { sanitizeCloneColorsForHtml2Canvas } from "@/lib/html2canvas-safe-colors";
+import { createCaptureScopeFilter } from "@/lib/html2canvas-capture-scope";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { collectReportTemplateDataGaps, formatGapPages, type ReportTemplateDataGap } from "./mv-report-data-audit";
+import { normalizeAssetPhotoFit, type AssetPhotoFit } from "./mv-asset-photo-grid";
 import {
   normalizeReportPreparerOptions,
   normalizeReportTeam,
@@ -132,11 +147,14 @@ import {
 import {
   MV_DEFAULT_REPORT_SECTION_MODEL_ID,
   getReportSectionModel,
+  isCompactDefaultReportSectionModel,
   materializeReportSectionModel,
   normalizeReportSectionModels,
+  reportSectionModelAnchor,
+  reportSectionModelItemAnchor,
 } from "./mv-report-section-models";
 
-function applyMvReportCaptureClone(clonedDoc: Document) {
+function applyMvReportCaptureClone(clonedDoc: Document, clonedElement?: HTMLElement) {
   const stableCaptureStyle = clonedDoc.createElement("style");
   stableCaptureStyle.textContent = `
     [data-mv-report-sheet] {
@@ -224,6 +242,12 @@ function applyMvReportCaptureClone(clonedDoc: Document) {
     span.className = "my-1 block text-[12px] font-semibold text-slate-900";
     inp.replaceWith(span);
   });
+  // html2canvas cannot parse color()/color-mix()/oklch() — convert them to rgba on the clone.
+  sanitizeCloneColorsForHtml2Canvas(clonedDoc, clonedElement ?? clonedDoc.body);
+}
+
+function isReportChromeNode(node: Element) {
+  return node.classList?.contains("mv-report-chrome") ?? false;
 }
 
 function mvExportToastDescription(error: unknown, fallbackKey: string, t: MvT): string {
@@ -861,6 +885,21 @@ function isReportNavGroupActive(activeSection: ReportSectionId, activeAnchors: s
   return activeAnchors.some((anchor) => activeSection === anchor || activeSection.startsWith(`${anchor}-`));
 }
 
+/** Resolve an exact anchor inside this report, never from another document instance. */
+function findReportAnchor(root: HTMLElement | null, id: string): HTMLElement | null {
+  if (!root) return null;
+  if (root.id === id) return root;
+  return Array.from(root.querySelectorAll<HTMLElement>("[id]")).find((element) => element.id === id) ?? null;
+}
+
+const REPORT_MODEL_NATIVE_SECTION_ANCHORS = new Set([
+  "report-cover",
+  "mv-annex-1",
+  "mv-annex-2",
+  "mv-annex-3",
+  "mv-report-closing",
+]);
+
 type ReportSignatureRow = {
   id: string;
   name: string;
@@ -978,9 +1017,11 @@ type MvReportTemplateOption = {
     | "premium"
     | "creative"
     | "deck"
+    | "custom"
     | "ai";
   usesAiTemplate?: boolean;
   aiTemplate?: MvCompanyAiTemplate;
+  systemTemplate?: MvCompanyReportSystemTemplateDefinition;
 };
 
 const REPORT_TEMPLATE_OPTIONS = (t: MvT): MvReportTemplateOption[] => [
@@ -1083,6 +1124,7 @@ function findReportTemplateOption(id: string | null | undefined, t: MvT): MvRepo
 
 function normalizeReportTemplateId(id: string | null | undefined, t: MvT): string {
   if (typeof id === "string" && id.startsWith(AI_REPORT_TEMPLATE_ID_PREFIX)) return id.trim().slice(0, 180);
+  if (typeof id === "string" && id.startsWith("system-template-")) return id.trim().slice(0, 180);
   return findReportTemplateOption(typeof id === "string" ? id : null, t).id;
 }
 
@@ -1224,7 +1266,14 @@ function ReportTemplateArtwork({
 
   return (
     <div className={cn("absolute inset-0 overflow-hidden", large ? "text-[11px]" : "text-[9px]")}>
-      {option.previewKind === "ai" ? (
+      {option.previewKind === "custom" && option.systemTemplate ? (
+        <SystemTemplateReportPreview
+          template={option.systemTemplate}
+          page="cover"
+          data={{ companyName: "" }}
+          className="absolute inset-0"
+        />
+      ) : option.previewKind === "ai" ? (
         <>
           <div className="absolute inset-0 bg-violet-950" />
           <div className="absolute inset-x-0 top-0 h-[18%] bg-gradient-to-l from-violet-700 via-sky-600 to-emerald-500" />
@@ -1317,6 +1366,7 @@ function ReportTemplateArtwork({
           option.previewKind === "industrial" && "left-[16%] right-[36%] bg-stone-100",
           option.previewKind === "minimal" && "left-[18%] right-[18%] top-[25%] shadow-none ring-0",
           option.previewKind === "deck" && "left-[49%] right-[9%] bg-white/95",
+          option.previewKind === "custom" && "bg-white/90",
         )}
       >
         <div className={titleBars}>
@@ -1508,6 +1558,12 @@ type ReportLayoutPrefs = {
   assetImagesPerPage: number;
   assetImagesPerRow: number;
   assetImagesUniformSize: boolean;
+  /** ملء صفحة صور الأصول تلقائياً (أعمدة وصفوف ذكية). */
+  assetImagesAutoLayout: boolean;
+  /** ملاءمة الصورة داخل إطارها: قص لملء الإطار / الصورة كاملة / تمطيط. */
+  assetImagesFit: AssetPhotoFit;
+  /** ترقيم صور الأصول. */
+  assetImagesNumbered: boolean;
   /** نصف قطر حواف الصور (px). 0 = حواف حادة. */
   imageCornerRadius: number;
   /** ارتفاع السطر داخل الفقرات (×). */
@@ -1725,6 +1781,9 @@ const defaultReportLayout: ReportLayoutPrefs = {
   assetImagesPerPage: 9,
   assetImagesPerRow: 3,
   assetImagesUniformSize: true,
+  assetImagesAutoLayout: true,
+  assetImagesFit: "cover",
+  assetImagesNumbered: false,
   imageCornerRadius: 6,
   paragraphLineHeight: 1.75,
   headingScale: 1,
@@ -1742,6 +1801,9 @@ const legacyDefaultReportLayout: ReportLayoutPrefs = {
   assetImagesPerPage: 9,
   assetImagesPerRow: 3,
   assetImagesUniformSize: true,
+  assetImagesAutoLayout: true,
+  assetImagesFit: "cover",
+  assetImagesNumbered: false,
   imageCornerRadius: 0,
   paragraphLineHeight: 1.75,
   headingScale: 1,
@@ -1768,6 +1830,14 @@ function readLayoutFromBundle(bundle: ValuationReportSessionBundle | null | unde
     assetImagesPerRow: n("assetImagesPerRow", defaultReportLayout.assetImagesPerRow),
     assetImagesUniformSize:
       typeof o.assetImagesUniformSize === "boolean" ? o.assetImagesUniformSize : defaultReportLayout.assetImagesUniformSize,
+    assetImagesAutoLayout:
+      typeof o.assetImagesAutoLayout === "boolean" ? o.assetImagesAutoLayout : defaultReportLayout.assetImagesAutoLayout,
+    assetImagesFit: normalizeAssetPhotoFit(
+      o.assetImagesFit,
+      typeof o.assetImagesUniformSize === "boolean" ? o.assetImagesUniformSize : true,
+    ),
+    assetImagesNumbered:
+      typeof o.assetImagesNumbered === "boolean" ? o.assetImagesNumbered : defaultReportLayout.assetImagesNumbered,
     imageCornerRadius: n("imageCornerRadius", defaultReportLayout.imageCornerRadius),
     paragraphLineHeight: n("paragraphLineHeight", defaultReportLayout.paragraphLineHeight),
     headingScale: n("headingScale", defaultReportLayout.headingScale),
@@ -1809,6 +1879,16 @@ export default function MvValuationReportWorkspace({
   const initialLayout = readLayoutFromBundle(initialBundle ?? undefined);
   const [project, setProject] = useState<MvProject | null>(() => initialProject);
   const projectRef = useRef<MvProject | null>(project);
+  /**
+   * Newest attachment snapshot seen. The project summary is slower and cacheable,
+   * so it must never put older attachments back over this one.
+   */
+  const freshAttachmentsRef = useRef<AttachmentSnapshot | null>(null);
+  const withFreshAttachments = useCallback((next: MvProject | null): MvProject | null => {
+    const fresh = freshAttachmentsRef.current;
+    if (!next || !fresh || fresh._id !== next._id) return next;
+    return { ...next, ...Object.fromEntries(attachmentFields.map((field) => [field, fresh[field]])) };
+  }, []);
   const reportDataPersistTimerRef = useRef<number | null>(null);
   const reportDataPersistRequestRef = useRef(0);
   const beforeWordMergeRef = useRef<() => Promise<void>>(async () => undefined);
@@ -1851,6 +1931,8 @@ export default function MvValuationReportWorkspace({
   const [companyReportSectionModels, setCompanyReportSectionModels] =
     useState<MvCompanyReportSectionModel[]>([]);
   const reportSectionModelSyncRef = useRef<string | null>(null);
+  /** Company section models arrived: until then the report keeps its saved sections as they are. */
+  const [companyReportSectionModelsLoaded, setCompanyReportSectionModelsLoaded] = useState(false);
   const [letterheadTemplate, setLetterheadTemplate] = useState<MvCompanyReportSystemTemplate | null>(null);
   const [companyDocumentTemplates, setCompanyDocumentTemplates] =
     useState<MvCompanyDocumentTemplatesAvailability>(UNKNOWN_COMPANY_DOCUMENT_TEMPLATES);
@@ -1883,6 +1965,7 @@ export default function MvValuationReportWorkspace({
   );
   const [tocApproxPages, setTocApproxPages] = useState<Record<string, string>>({});
   const [activeSection, setActiveSection] = useState<ReportSectionId>("report-cover");
+  const [expandedReportModelSections, setExpandedReportModelSections] = useState<Set<string>>(new Set());
   const [marginX, setMarginX] = useState(initialLayout.marginX);
   const [marginY, setMarginY] = useState(initialLayout.marginY);
   const [sectionGap, setSectionGap] = useState(initialLayout.sectionGap);
@@ -1893,6 +1976,9 @@ export default function MvValuationReportWorkspace({
   const [assetImagesPerPage, setAssetImagesPerPage] = useState(initialLayout.assetImagesPerPage);
   const [assetImagesPerRow, setAssetImagesPerRow] = useState(initialLayout.assetImagesPerRow);
   const [assetImagesUniformSize, setAssetImagesUniformSize] = useState(initialLayout.assetImagesUniformSize);
+  const [assetImagesAutoLayout, setAssetImagesAutoLayout] = useState(initialLayout.assetImagesAutoLayout);
+  const [assetImagesFit, setAssetImagesFit] = useState<AssetPhotoFit>(initialLayout.assetImagesFit);
+  const [assetImagesNumbered, setAssetImagesNumbered] = useState(initialLayout.assetImagesNumbered);
   const [imageCornerRadius, setImageCornerRadius] = useState(initialLayout.imageCornerRadius);
   const [paragraphLineHeight, setParagraphLineHeight] = useState(initialLayout.paragraphLineHeight);
   const [headingScale, setHeadingScale] = useState(initialLayout.headingScale);
@@ -1909,6 +1995,7 @@ export default function MvValuationReportWorkspace({
   const [pdfExportLabel, setPdfExportLabel] = useState("");
   const autoPdfTriggeredRef = useRef(false);
   const reportSectionsScrollRef = useRef<HTMLDivElement>(null);
+  const reportNavigationFrameRef = useRef<number | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const assetImagesPreviewScrollRef = useRef<HTMLDivElement>(null);
   const reportPdfRef = useRef<HTMLElement | null>(null);
@@ -1918,6 +2005,37 @@ export default function MvValuationReportWorkspace({
   const [downloadingPptx, setDownloadingPptx] = useState(false);
   const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [downloadingDocxTemplate, setDownloadingDocxTemplate] = useState(false);
+  /** Format whose pre-export attachment check is running, so the export button reacts at once. */
+  const [checkingExportFormat, setCheckingExportFormat] = useState<MvReportExportFormat | null>(null);
+  const exportCheckInFlightRef = useRef(false);
+  const [templateDataGapPrompt, setTemplateDataGapPrompt] = useState<{
+    gaps: ReportTemplateDataGap[];
+    resolve: (proceed: boolean) => void;
+  } | null>(null);
+  /**
+   * Before exporting, make sure every template field has its report data.
+   * Lists any field that would print blank and lets the user review or export.
+   */
+  const confirmReportTemplateData = useCallback(() => {
+    const root = reportPdfRef.current;
+    const gaps = root ? collectReportTemplateDataGaps(root) : [];
+    if (gaps.length === 0) return Promise.resolve(true);
+    // The check bar gives way to the prompt: nothing runs while the user decides.
+    setPdfExportProgress(null);
+    setPdfExportLabel("");
+    return new Promise<boolean>((resolve) => setTemplateDataGapPrompt({ gaps, resolve }));
+  }, []);
+  const closeTemplateDataGapPrompt = useCallback((proceed: boolean, reviewPage?: number) => {
+    setTemplateDataGapPrompt((current) => {
+      current?.resolve(proceed);
+      return null;
+    });
+    if (reviewPage) {
+      const sheet = reportPdfRef.current?.querySelectorAll<HTMLElement>("[data-mv-report-sheet]")[reviewPage - 1];
+      const missing = sheet?.querySelector<HTMLElement>("[data-mv-template-missing]");
+      window.setTimeout(() => (missing ?? sheet)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+    }
+  }, []);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [assetImagesPreviewOpen, setAssetImagesPreviewOpen] = useState(false);
   const [reportImageCacheVersion, setReportImageCacheVersion] = useState(0);
@@ -1975,6 +2093,9 @@ export default function MvValuationReportWorkspace({
     setAssetImagesPerPage(d.assetImagesPerPage);
     setAssetImagesPerRow(d.assetImagesPerRow);
     setAssetImagesUniformSize(d.assetImagesUniformSize);
+    setAssetImagesAutoLayout(d.assetImagesAutoLayout);
+    setAssetImagesFit(d.assetImagesFit);
+    setAssetImagesNumbered(d.assetImagesNumbered);
     setImageCornerRadius(d.imageCornerRadius);
     setParagraphLineHeight(d.paragraphLineHeight);
     setHeadingScale(d.headingScale);
@@ -2040,7 +2161,7 @@ export default function MvValuationReportWorkspace({
         ]);
       };
       setProject((prev) => {
-        const nextP = quickProject ?? prev;
+        const nextP = withFreshAttachments(quickProject ?? prev);
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, {
           ...prevBundle,
@@ -2171,7 +2292,7 @@ export default function MvValuationReportWorkspace({
         });
       }
       setProject((prev) => {
-        const nextP =
+        const nextP = withFreshAttachments(
           fetchedProject
             ? {
                 ...fetchedProject,
@@ -2182,7 +2303,8 @@ export default function MvValuationReportWorkspace({
                     : { reportPresentationDraft: draftModeOverrideRef.current }),
                 },
               }
-            : prev;
+            : prev,
+        );
         const prevBundle = readMvWorkflowSessionJson<ValuationReportSessionBundle>(sessionKey) ?? {};
         writeMvWorkflowSessionJson(sessionKey, {
           ...prevBundle,
@@ -2211,7 +2333,7 @@ export default function MvValuationReportWorkspace({
         if (loadAbortRef.current === controller) loadAbortRef.current = null;
       }
     }
-  }, [projectId, sessionKey]);
+  }, [projectId, sessionKey, withFreshAttachments]);
 
   useEffect(() => {
     void load();
@@ -2236,7 +2358,17 @@ export default function MvValuationReportWorkspace({
 
   const reportTemplateOptions = useMemo<MvReportTemplateOption[]>(
     () => [
-      ...REPORT_TEMPLATE_OPTIONS(t),
+      ...REPORT_TEMPLATE_OPTIONS(t).slice(0, 1),
+      ...(letterheadTemplate?.customTemplates ?? []).map((template) => ({
+        id: template.id,
+        title: template.name,
+        description: template.description || "قالب نظام مخصص معتمد من إعدادات الشركة.",
+        badge: "PDF",
+        outputFormat: "pdf" as const,
+        accentClass: "from-[#061B2D] via-[#0C447C] to-[#C9A227]",
+        previewKind: "custom" as const,
+        systemTemplate: template,
+      })),
       ...companyAiTemplates.map((template) => ({
         id: `${AI_REPORT_TEMPLATE_ID_PREFIX}${template.id}`,
         title: template.name,
@@ -2252,7 +2384,7 @@ export default function MvValuationReportWorkspace({
         aiTemplate: template,
       })),
     ],
-    [companyAiTemplates, t],
+    [companyAiTemplates, letterheadTemplate?.customTemplates, t],
   );
 
   useEffect(() => {
@@ -2370,6 +2502,7 @@ export default function MvValuationReportWorkspace({
               .filter((section) => section.title.trim() || section.body.trim())
           : [];
         setCompanyDefaultSections(customSections);
+        setCompanyReportSectionModelsLoaded(true);
         setCompanyReportSectionModels(
           normalizeReportSectionModels(data.reportDefaults?.reportSectionModels),
         );
@@ -2378,7 +2511,16 @@ export default function MvValuationReportWorkspace({
           rawLetterhead
             ? {
                 templateId: typeof rawLetterhead.templateId === "string" ? rawLetterhead.templateId : null,
-                outputFormat: rawLetterhead.outputFormat === "pptx" ? "pptx" : "pdf",
+                outputFormat: "pdf",
+                customTemplates: Array.isArray(rawLetterhead.customTemplates)
+                  ? rawLetterhead.customTemplates.filter(
+                      (template): template is MvCompanyReportSystemTemplateDefinition =>
+                        Boolean(template) &&
+                        typeof template === "object" &&
+                        typeof template.id === "string" &&
+                        typeof template.name === "string",
+                    )
+                  : [],
               }
             : null,
         );
@@ -2463,6 +2605,9 @@ export default function MvValuationReportWorkspace({
         assetImagesPerPage,
         assetImagesPerRow,
         assetImagesUniformSize,
+        assetImagesAutoLayout,
+        assetImagesFit,
+        assetImagesNumbered,
         imageCornerRadius,
         paragraphLineHeight,
         headingScale,
@@ -2492,6 +2637,9 @@ export default function MvValuationReportWorkspace({
     assetImagesPerPage,
     assetImagesPerRow,
     assetImagesUniformSize,
+    assetImagesAutoLayout,
+    assetImagesFit,
+    assetImagesNumbered,
     imageCornerRadius,
     paragraphLineHeight,
     headingScale,
@@ -2505,6 +2653,7 @@ export default function MvValuationReportWorkspace({
 
   const refreshAttachments = useCallback(async () => {
     const fresh = await fetchAttachmentSnapshot(projectId);
+    freshAttachmentsRef.current = fresh;
     const fields = attachmentFields;
     const changed = fields.some(field => JSON.stringify(projectRef.current?.[field]) !== JSON.stringify(fresh[field]));
     if (changed) setProject(current => current ? { ...current, ...Object.fromEntries(fields.map(field => [field, fresh[field]])) } : fresh as MvProject);
@@ -2512,35 +2661,64 @@ export default function MvValuationReportWorkspace({
   }, [projectId]);
 
   useEffect(() => watchAttachmentSnapshot(projectId, (fresh) => {
+    freshAttachmentsRef.current = fresh;
     if (loading || !projectRef.current || downloadingPdf || downloadingPptx || downloadingDocx || downloadingDocxTemplate) return false;
     setProject(current => current ? { ...current, ...Object.fromEntries(attachmentFields.map(field => [field, fresh[field]])) } : current);
   }), [projectId, loading, downloadingPdf, downloadingPptx, downloadingDocx, downloadingDocxTemplate]);
 
-  const ensureAttachmentsReady = useCallback(async () => {
+  /**
+   * Pre-export check, visible from the first click: confirms no attachment upload
+   * is still running and that the report shows the latest saved attachments. When
+   * newer attachments are found the report is refreshed and the export carries on
+   * by itself. On success the progress bar is left for the export to take over.
+   */
+  const ensureAttachmentsReady = useCallback(async (format: MvReportExportFormat) => {
+    if (exportCheckInFlightRef.current) return false;
+    exportCheckInFlightRef.current = true;
+    setCheckingExportFormat(format);
+    setPdfExportProgress(1);
+    setPdfExportLabel(t("report.export.checkingAttachments"));
+    let ready = false;
     try {
       const localPending = getUploads().some(job => job.projectId === projectId && job.attachment && job.state !== "done");
       const response = await fetch(`/api/mv/projects/${encodeURIComponent(projectId)}/attachment-jobs`, { credentials: "include", cache: "no-store" });
-      if (!response.ok) throw new Error("تعذر التحقق من اكتمال المرفقات. أعد المحاولة بعد عودة الاتصال.");
+      if (!response.ok) throw new Error(t("report.export.attachmentsCheckOffline"));
       const pending = await response.json();
       if (localPending || !Array.isArray(pending) || pending.length) {
-        toast({ description: "رفع المرفقات أو تحويلها لم يكتمل بعد. انتظر اكتمال الحفظ في بطاقة الرفع ثم صدّر التقرير." });
+        toast({ description: t("report.export.attachmentsPending") });
         return false;
       }
       if (await refreshAttachments()) {
-        toast({ description: "تم تحديث صور المرفقات في التقرير. راجع النتيجة واضغط التصدير مجددًا." });
-        return false;
+        setPdfExportProgress(2);
+        setPdfExportLabel(t("report.export.refreshingAttachments"));
+        // Let React commit the refreshed attachments, then wait for the pages to settle.
+        await sleep(150);
+        const root = reportPdfRef.current;
+        if (root) await waitForReportStableLayout(root, 2500);
       }
+      ready = true;
       return true;
     } catch (error) {
-      toast({ variant: "destructive", description: error instanceof Error ? error.message : "تعذر التحقق من المرفقات." });
+      toast({
+        variant: "destructive",
+        description: error instanceof Error && error.message.trim() ? error.message : t("report.export.attachmentsCheckFailed"),
+      });
       return false;
+    } finally {
+      exportCheckInFlightRef.current = false;
+      setCheckingExportFormat(null);
+      if (!ready) {
+        setPdfExportProgress(null);
+        setPdfExportLabel("");
+      }
     }
-  }, [projectId, refreshAttachments, toast]);
+  }, [projectId, refreshAttachments, t, toast]);
 
   const downloadAsPdf = useCallback(async () => {
     if (loading || reportMediaLoading) return;
-    if (!await ensureAttachmentsReady()) return;
+    if (!await ensureAttachmentsReady("pdf")) return;
     const hostedInIframe = typeof window !== "undefined" && window.parent !== window.self;
+    if (!hostedInIframe && !await confirmReportTemplateData()) return;
     setDownloadingPdf(true);
     setPdfExportProgress(3);
     setPdfExportLabel(t("report.export.preparing"));
@@ -2570,7 +2748,10 @@ export default function MvValuationReportWorkspace({
       const sheets = Array.from(root.querySelectorAll<HTMLElement>("[data-mv-report-sheet]"));
       if (sheets.length === 0) return;
 
-      let pdf: import("jspdf").jsPDF | null = null;
+      let pdf = null as import("jspdf").jsPDF | null;
+      // JPEG encoding of page N runs while page N+1 is being captured; pages
+      // are still appended strictly in order and at most two canvases live.
+      let previousPage: Promise<void> = Promise.resolve();
 
       for (let i = 0; i < sheets.length; i++) {
         setPdfExportLabel(t("report.export.exportingPage", { current: i + 1, total: sheets.length }));
@@ -2603,23 +2784,33 @@ export default function MvValuationReportWorkspace({
             windowHeight: sliceHeightCss,
             imageTimeout: 12000,
             removeContainer: true,
-            ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
+            ignoreElements: createCaptureScopeFilter(el, isReportChromeNode),
             onclone: applyMvReportCaptureClone,
           });
-          try {
-            const imgData = await canvasToReportJpegBytes(canvas);
-            if (!pdf) {
-              pdf = new jsPDF({ orientation, unit: "pt", format: "a4" });
-            } else {
-              pdf.addPage("a4", orientation);
-            }
-            pdf.addImage(imgData, "JPEG", 0, 0, pdfW, pdfH, `mv-report-${i + 1}-${sliceIndex + 1}`, "FAST");
-          } finally {
+          const imageBytes = canvasToReportJpegBytes(canvas).finally(() => {
             canvas.width = 1;
             canvas.height = 1;
-          }
+          });
+          const pageNumber = i + 1;
+          const sliceNumber = sliceIndex + 1;
+          const before = previousPage;
+          const current = before
+            .then(() => imageBytes)
+            .then((imgData) => {
+              if (!pdf) {
+                pdf = new jsPDF({ orientation, unit: "pt", format: "a4" });
+              } else {
+                pdf.addPage("a4", orientation);
+              }
+              pdf.addImage(imgData, "JPEG", 0, 0, pdfW, pdfH, `mv-report-${pageNumber}-${sliceNumber}`, "FAST");
+            });
+          // Failures surface through the awaits below, never as unhandled rejections.
+          current.catch(() => undefined);
+          await before;
+          previousPage = current;
         }
       }
+      await previousPage;
 
       if (pdf) {
         setPdfExportProgress(98);
@@ -2652,11 +2843,12 @@ export default function MvValuationReportWorkspace({
         postReportPdfExportToParent(projectId, exportOk);
       }
     }
-  }, [ensureAttachmentsReady, loading, project?.name, projectId, reportMediaLoading, t, toast]);
+  }, [confirmReportTemplateData, ensureAttachmentsReady, loading, project?.name, projectId, reportMediaLoading, t, toast]);
 
   const downloadAsPptx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
-    if (!await ensureAttachmentsReady()) return;
+    if (!await ensureAttachmentsReady("pptx")) return;
+    if (!await confirmReportTemplateData()) return;
     setDownloadingPptx(true);
     setPdfExportProgress(3);
     setPdfExportLabel(t("report.export.preparingPpt"));
@@ -2717,7 +2909,7 @@ export default function MvValuationReportWorkspace({
             windowHeight: sliceHeightCss,
             imageTimeout: 30000,
             removeContainer: true,
-            ignoreElements: (node) => (node as HTMLElement).classList?.contains("mv-report-chrome") ?? false,
+            ignoreElements: createCaptureScopeFilter(el, isReportChromeNode),
             onclone: applyMvReportCaptureClone,
           });
           slides.push({
@@ -2755,11 +2947,12 @@ export default function MvValuationReportWorkspace({
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
+  }, [confirmReportTemplateData, ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
 
   const downloadAsDocx = useCallback(async () => {
     if (loading || reportMediaLoading) return;
-    if (!await ensureAttachmentsReady()) return;
+    if (!await ensureAttachmentsReady("docx")) return;
+    if (!await confirmReportTemplateData()) return;
     setDownloadingDocx(true);
     setPdfExportProgress(3);
     setPdfExportLabel(t("report.export.preparingWord"));
@@ -2817,7 +3010,7 @@ export default function MvValuationReportWorkspace({
       setPdfExportProgress(null);
       setPdfExportLabel("");
     }
-  }, [ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
+  }, [confirmReportTemplateData, ensureAttachmentsReady, loading, project?.name, reportMediaLoading, t, toast]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2849,16 +3042,39 @@ export default function MvValuationReportWorkspace({
       ),
     [companyReportSectionModels, reportData.reportSectionModelId],
   );
-  const visibleReportSectionModels = useMemo(
-    () => companyReportSectionModels.filter((model) => model.visibleInReport !== false),
+  const companyDefaultReportSectionModel = useMemo(
+    () => companyReportSectionModels.find((model) => model.isDefault && model.visibleInReport !== false) ?? companyReportSectionModels[0] ?? null,
     [companyReportSectionModels],
   );
+  const visibleReportSectionModels = useMemo(
+    () =>
+      companyReportSectionModels.filter(
+        (model) => model.visibleInReport !== false && model.id !== companyDefaultReportSectionModel?.id,
+      ),
+    [companyDefaultReportSectionModel, companyReportSectionModels],
+  );
   const selectedReportSectionModelIsHidden = selectedReportSectionModel?.visibleInReport === false;
+  const modelDrivenReportNavigation = Boolean(
+    selectedReportSectionModel &&
+      selectedReportSectionModel.visibleInReport !== false &&
+      (selectedReportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID ||
+        isCompactDefaultReportSectionModel(selectedReportSectionModel)),
+  );
+  const reportModelNavEntries = useMemo(() => {
+    if (!modelDrivenReportNavigation || !selectedReportSectionModel) return [];
+    return selectedReportSectionModel.sections
+      .filter((section) => section.visibleInReport !== false && section.items.some((item) => item.visibleInReport !== false))
+      .map((section) => ({
+        section,
+        anchor: reportSectionModelAnchor(selectedReportSectionModel.id, section),
+      }));
+  }, [modelDrivenReportNavigation, selectedReportSectionModel]);
   const projectReportSectionModelId =
     typeof reportData.reportSectionModelId === "string" ? reportData.reportSectionModelId.trim() : "";
   const hasProjectReportSectionModelSelection =
     Boolean(projectReportSectionModelId) &&
-    companyReportSectionModels.some((model) => model.id === projectReportSectionModelId);
+    companyReportSectionModels.some((model) => model.id === projectReportSectionModelId) &&
+    projectReportSectionModelId !== companyDefaultReportSectionModel?.id;
   const reportSectionModelSelectValue = hasProjectReportSectionModelSelection
     ? projectReportSectionModelId
     : "__company-default-report-section-model__";
@@ -3056,7 +3272,6 @@ export default function MvValuationReportWorkspace({
 
   const downloadAsDocxTemplate = useCallback(async () => {
     if (loading || reportMediaLoading) return;
-    if (!await ensureAttachmentsReady()) return;
     if (companyDocumentTemplates.word.status === "missing") {
       toast({
         variant: "destructive",
@@ -3064,6 +3279,7 @@ export default function MvValuationReportWorkspace({
       });
       return;
     }
+    if (!await ensureAttachmentsReady("docx-template")) return;
     setDownloadingDocxTemplate(true);
     setPdfExportProgress(8);
     setPdfExportLabel(t("report.export.preparingWordData"));
@@ -3217,6 +3433,13 @@ export default function MvValuationReportWorkspace({
   const renderedLetterheadTemplate = useMemo<MvCompanyReportSystemTemplate | null>(() => {
     if (appliedReportTemplateId === DEFAULT_REPORT_TEMPLATE_ID) return null;
     const appliedTemplate = findReportTemplateOptionFrom(reportTemplateOptions, appliedReportTemplateId);
+    if (appliedTemplate.systemTemplate) {
+      return {
+        templateId: appliedTemplate.id,
+        outputFormat: "pdf",
+        customTemplates: [appliedTemplate.systemTemplate],
+      };
+    }
     if (appliedTemplate.usesAiTemplate && appliedTemplate.aiTemplate) {
       /**
        * لا نستخدم أي لقطة شاشة من ملف PDF المرفوع (غلاف أو صفحة داخلية) كخلفية إطلاقاً.
@@ -3311,6 +3534,13 @@ export default function MvValuationReportWorkspace({
             name: p.name,
             reportType: p.reportType ?? "simple",
             reportData: normalizedReportData,
+            // أسماء الأقسام المحذوفة من التقرير كما يراها المستخدم، لعرضها في سلة المحذوفات.
+            trashLabels: Object.fromEntries(
+              (normalizedReportData.reportHiddenAnchorIds ?? []).map((anchorId) => {
+                const row = MV_REPORT_TOC_ROWS.find((item) => item.anchor === anchorId);
+                return [anchorId, row ? `${row.num} ${row.title}` : anchorId];
+              }),
+            ),
           }),
         });
         if (!res.ok) return false;
@@ -3377,7 +3607,8 @@ export default function MvValuationReportWorkspace({
       if (value === "__company-default-report-section-model__") {
         // Clearing the project override makes this report follow whichever
         // visible model the company has marked as its default.
-        onReportDataPatch({ reportSectionModelId: undefined });
+        // "" (not undefined): the server keeps keys a save does not carry.
+        onReportDataPatch({ reportSectionModelId: "" });
         return;
       }
       const model = companyReportSectionModels.find((entry) => entry.id === value);
@@ -3512,11 +3743,15 @@ export default function MvValuationReportWorkspace({
    * sections are intentionally kept untouched.
    */
   useEffect(() => {
-    if (!project) return;
+    if (!project || !companyReportSectionModelsLoaded) return;
     const requestedModelId =
       typeof reportData.reportSectionModelId === "string"
         ? reportData.reportSectionModelId.trim()
         : "";
+    // The project chose a model the company has since deleted: the report
+    // keeps the sections it already copied from it (never swapped for the
+    // default model's sections, never emptied).
+    if (requestedModelId && !companyReportSectionModels.some((model) => model.id === requestedModelId)) return;
     const modelId = selectedReportSectionModel?.id ?? requestedModelId;
     const syncKey = modelId + ":" + JSON.stringify(selectedReportSectionModel ?? null);
     if (reportSectionModelSyncRef.current === syncKey) return;
@@ -3543,6 +3778,8 @@ export default function MvValuationReportWorkspace({
       return sectionsChanged ? next : current;
     });
   }, [
+    companyReportSectionModels,
+    companyReportSectionModelsLoaded,
     onReportDataPatch,
     project,
     reportData.reportSectionModelId,
@@ -3590,6 +3827,23 @@ export default function MvValuationReportWorkspace({
     reportPageOrientations,
     toast,
   ]);
+
+  // Ctrl/⌘ + S saves the report instead of opening the browser's "Save page" dialog.
+  const saveShortcutRef = useRef<() => void>(() => {});
+  saveShortcutRef.current = () => {
+    if (!canEditReports || reportSaving || loading) return;
+    void saveReportSettingsNow();
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "s" && event.code !== "KeyS") return;
+      event.preventDefault();
+      saveShortcutRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const toggleDraftMode = useCallback(() => {
     setProject((p) => {
@@ -3664,11 +3918,14 @@ export default function MvValuationReportWorkspace({
   );
 
   const sectionIdsOrdered = useMemo((): ReportSectionId[] => {
+    if (modelDrivenReportNavigation) {
+      return reportModelNavEntries.map((entry) => entry.anchor);
+    }
     return [
       ...MV_REPORT_SCROLL_ANCHOR_ORDER,
       ...editableSections.map((s) => `custom:${s.id}` as ReportSectionId),
     ];
-  }, [editableSections]);
+  }, [editableSections, modelDrivenReportNavigation, reportModelNavEntries]);
 
   /** ربط الفهرس بورقة التقرير الفعلية دون عرض رقم الصفحة على الورقة. */
   useLayoutEffect(() => {
@@ -3681,19 +3938,13 @@ export default function MvValuationReportWorkspace({
     };
 
     const sheets = collectSheets(root);
-    const activeTocAnchors =
-      selectedReportSectionModel && selectedReportSectionModel.id !== MV_DEFAULT_REPORT_SECTION_MODEL_ID
-        ? selectedReportSectionModel.sections
-            .filter(
-              (section) =>
-                section.visibleInReport !== false && section.items.some((item) => item.visibleInReport !== false),
-            )
-            .map((section) => `custom:report-model:${selectedReportSectionModel.id}:${section.id}`)
-        : MV_REPORT_TOC_ROWS.map((row) => row.anchor);
+    const activeTocAnchors = modelDrivenReportNavigation
+      ? reportModelNavEntries.map((entry) => entry.anchor)
+      : MV_REPORT_TOC_ROWS.map((row) => row.anchor);
 
     const next: Record<string, string> = {};
     for (const anchor of activeTocAnchors) {
-      const el = document.getElementById(anchor);
+      const el = findReportAnchor(root, anchor);
       if (!el) {
         next[anchor] = "—";
         continue;
@@ -3731,6 +3982,8 @@ export default function MvValuationReportWorkspace({
     companyBrand.name,
     companyBrand.logoSrc,
     selectedReportSectionModel,
+    modelDrivenReportNavigation,
+    reportModelNavEntries,
   ]);
 
   /**
@@ -3836,6 +4089,9 @@ export default function MvValuationReportWorkspace({
     assetImagesPerPage,
     assetImagesPerRow,
     assetImagesUniformSize,
+    assetImagesAutoLayout,
+    assetImagesFit,
+    assetImagesNumbered,
     imageCornerRadius,
     paragraphLineHeight,
     headingScale,
@@ -3864,21 +4120,47 @@ export default function MvValuationReportWorkspace({
 
   const scrollToSection = useCallback((id: ReportSectionId) => {
     setActiveSection(id);
-    window.requestAnimationFrame(() => {
-      const el = document.getElementById(id);
+    if (reportNavigationFrameRef.current != null) {
+      window.cancelAnimationFrame(reportNavigationFrameRef.current);
+    }
+
+    const navigateToRenderedAnchor = (remainingFrames: number) => {
       const container = reportSectionsScrollRef.current;
-      if (!el) return;
-      if (container) {
-        const cRect = container.getBoundingClientRect();
-        const elRect = el.getBoundingClientRect();
-        const padding = 8;
-        const nextTop =
-          container.scrollTop + (elRect.top - cRect.top) - padding;
-        container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
-      } else {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      const reportRoot = reportPdfRef.current;
+      const el =
+        findReportAnchor(reportRoot, id);
+      const ownerFlow = el?.closest<HTMLElement>("[data-mv-report-flow-ready]");
+      const flowPending = Boolean(ownerFlow && ownerFlow.dataset.mvReportFlowReady !== "true");
+      if ((!container || !el || flowPending) && remainingFrames > 0) {
+        reportNavigationFrameRef.current = window.requestAnimationFrame(() => {
+          navigateToRenderedAnchor(remainingFrames - 1);
+        });
+        return;
       }
+      reportNavigationFrameRef.current = null;
+      if (!container || !el) return;
+      el.classList.remove("mv-report-nav-highlight");
+      // Force a reflow so repeated clicks restart the four-second attention cue.
+      void el.offsetWidth;
+      el.classList.add("mv-report-nav-highlight");
+      window.setTimeout(() => el.classList.remove("mv-report-nav-highlight"), 4000);
+      const cRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const nextTop = container.scrollTop + (elRect.top - cRect.top) - 8;
+      // An immediate scroll is deliberate: it cannot be interrupted by the
+      // paginator replacing a measured flow page during a smooth animation.
+      container.scrollTo({ top: Math.max(0, nextTop), behavior: "auto" });
+    };
+
+    reportNavigationFrameRef.current = window.requestAnimationFrame(() => {
+      navigateToRenderedAnchor(60);
     });
+  }, []);
+
+  useEffect(() => () => {
+    if (reportNavigationFrameRef.current != null) {
+      window.cancelAnimationFrame(reportNavigationFrameRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -3892,7 +4174,7 @@ export default function MvValuationReportWorkspace({
         const anchor = cRect.top + 72;
         let current: ReportSectionId = "report-cover";
         for (const id of sectionIdsOrdered) {
-          const el = document.getElementById(id);
+          const el = findReportAnchor(reportPdfRef.current, id);
           if (!el) continue;
           const top = el.getBoundingClientRect().top;
           if (top <= anchor) current = id;
@@ -3918,8 +4200,8 @@ export default function MvValuationReportWorkspace({
     if (downloadingPptx) return "pptx";
     if (downloadingDocxTemplate) return "docx-template";
     if (downloadingDocx) return "docx";
-    return null;
-  }, [downloadingPdf, downloadingPptx, downloadingDocx, downloadingDocxTemplate]);
+    return checkingExportFormat;
+  }, [checkingExportFormat, downloadingPdf, downloadingPptx, downloadingDocx, downloadingDocxTemplate]);
 
   const exportActionsDisabled = loading || reportMediaLoading || exportingFormat != null;
 
@@ -4146,7 +4428,7 @@ export default function MvValuationReportWorkspace({
                           {selectedReportSectionModel?.name ?? "النموذج المختار"} — مخفي
                         </SelectItem>
                       ) : null}
-                      {visibleReportSectionModels.length === 0 ? (
+                      {companyReportSectionModels.length === 0 ? (
                         <SelectItem value="__no-report-section-model__" disabled>
                           لا يوجد نموذج ظاهر للتقرير
                         </SelectItem>
@@ -4260,7 +4542,7 @@ export default function MvValuationReportWorkspace({
                 className="h-8 shrink-0 gap-1.5 rounded-lg bg-emerald-700 px-3 text-[10.5px] font-black text-white shadow-sm hover:bg-emerald-800"
                 disabled={reportSaving || loading}
                 onClick={() => void saveReportSettingsNow()}
-                title={t("report.toolbar.saveChanges")}
+                title={`${t("report.toolbar.saveChanges")} (Ctrl+S)`}
               >
                 {reportSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 <span>{t("report.toolbar.save")}</span>
@@ -4319,7 +4601,64 @@ export default function MvValuationReportWorkspace({
                   navCollapsed ? "space-y-1 px-1 py-1.5" : "space-y-0.5 px-1.5 py-1.5",
                 )}
               >
-                {MV_REPORT_NAV_GROUPS(t).map((row) => (
+                {modelDrivenReportNavigation ? reportModelNavEntries.map(({ section, anchor }) => {
+                  const expanded = expandedReportModelSections.has(section.id);
+                  const active = isReportNavGroupActive(activeSection, [anchor]);
+                  const hasNavigableItems = !REPORT_MODEL_NATIVE_SECTION_ANCHORS.has(section.systemAnchor ?? "");
+                  return (
+                    <div key={section.id} className="space-y-0.5">
+                      <ReportTocItem
+                        active={active}
+                        icon={section.systemAnchor === "mv-annex-2" ? <ImageIcon className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+                        title={`${section.sectionNumber ? `${section.sectionNumber} ` : ""}${section.title}`}
+                        onClick={() => {
+                          if (hasNavigableItems) {
+                            setExpandedReportModelSections((current) => {
+                              const next = new Set(current);
+                              if (next.has(section.id)) next.delete(section.id); else next.add(section.id);
+                              return next;
+                            });
+                          }
+                          scrollToSection(anchor);
+                          if (section.systemAnchor === "mv-annex-2") {
+                            setSettingsImagesTab("assets");
+                            setSettingsDrawerTab("images");
+                            setSettingsDrawerOpen(true);
+                          }
+                        }}
+                        collapsed={navCollapsed}
+                      />
+                      {!navCollapsed && expanded && hasNavigableItems ? (
+                        <div className="mr-7 space-y-0.5 border-r border-slate-200 pr-2">
+                          {section.items
+                            .filter(
+                              (item) =>
+                                item.visibleInReport !== false,
+                            )
+                            .map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className="block w-full truncate rounded px-2 py-1 text-right text-[9.5px] font-semibold text-slate-500 transition hover:bg-sky-50 hover:text-[#0C447C]"
+                              title={item.title}
+                              onClick={() =>
+                                scrollToSection(
+                                  reportSectionModelItemAnchor(
+                                    selectedReportSectionModel!.id,
+                                    section,
+                                    item.id,
+                                  ) as ReportSectionId,
+                                )
+                              }
+                            >
+                              {item.title}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                }) : MV_REPORT_NAV_GROUPS(t).map((row) => (
                   <ReportTocItem
                     key={row.anchor}
                     active={isReportNavGroupActive(activeSection, row.activeAnchors)}
@@ -4336,12 +4675,12 @@ export default function MvValuationReportWorkspace({
                     collapsed={navCollapsed}
                   />
                 ))}
-                {editableSections.length > 0 && !navCollapsed ? (
+                {!modelDrivenReportNavigation && editableSections.length > 0 && !navCollapsed ? (
                   <p className="px-1 pt-1.5 pb-0.5 text-[9px] font-black uppercase tracking-wider text-slate-400">
                     {t("report.nav.additionalSections")}
                   </p>
                 ) : null}
-                {editableSections.map((s) => (
+                {!modelDrivenReportNavigation && editableSections.map((s) => (
                   <ReportTocItem
                     key={s.id}
                     active={activeSection === `custom:${s.id}`}
@@ -4553,7 +4892,7 @@ export default function MvValuationReportWorkspace({
                             <SelectItem value="__company-default-report-section-model__">
                               الافتراضي للشركة — {selectedReportSectionModel?.name ?? "بدون نموذج"}
                             </SelectItem>
-                            {visibleReportSectionModels.length === 0 ? (
+                            {companyReportSectionModels.length === 0 ? (
                               <SelectItem value="__no-report-section-model__" disabled>لا يوجد نموذج ظاهر للتقرير</SelectItem>
                             ) : null}
                             {visibleReportSectionModels.map((model) => (
@@ -4827,12 +5166,18 @@ export default function MvValuationReportWorkspace({
                       assetImagesPerPage={assetImagesPerPage}
                       assetImagesPerRow={assetImagesPerRow}
                       assetImagesUniformSize={assetImagesUniformSize}
+                      assetImagesAutoLayout={assetImagesAutoLayout}
+                      assetImagesFit={assetImagesFit}
+                      assetImagesNumbered={assetImagesNumbered}
+                      onAssetImagesAutoLayoutChange={setAssetImagesAutoLayout}
+                      onAssetImagesFitChange={setAssetImagesFit}
+                      onAssetImagesNumberedChange={setAssetImagesNumbered}
                       onAssetReorder={setImageOrder}
                       getAssetImageSrc={(file) => reportDriveFileImageSrc(projectId, file)}
                       onAssetWidthChange={setAssetImageWidth}
                       onAssetImagesPerPageChange={setAssetImagesPerPage}
                       onAssetImagesPerRowChange={(count) => {
-                        const next = Math.min(20, Math.max(1, Math.round(count)));
+                        const next = Math.min(8, Math.max(1, Math.round(count)));
                         setAssetImagesPerRow(next);
                         setAssetImageWidth(Math.round((100 / next) * 100) / 100);
                       }}
@@ -5066,6 +5411,62 @@ export default function MvValuationReportWorkspace({
           </div>
         </MvDialogContent>
       </Dialog>
+      <AlertDialog
+        open={templateDataGapPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) closeTemplateDataGapPrompt(false);
+        }}
+      >
+        <AlertDialogContent dir={dir} className="max-w-lg" data-testid="report-data-check">
+          <AlertDialogHeader className="text-start">
+            <AlertDialogTitle className="flex items-center gap-2 text-base font-black text-[#0a1f33]">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-amber-100 text-sm text-amber-700" aria-hidden>!</span>
+              {t("report.dataCheck.title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-start text-xs leading-relaxed text-slate-600">
+              {t("report.dataCheck.description")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="max-h-[45vh] space-y-1.5 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50/60 p-2">
+            {(templateDataGapPrompt?.gaps ?? []).slice(0, 12).map((gap) => (
+              <li key={gap.label} className="flex items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 text-xs shadow-sm">
+                <span className="min-w-0 truncate font-bold text-slate-800" dir="auto">{gap.label}</span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold text-[#0C447C] hover:bg-sky-50"
+                  title={t("report.dataCheck.review")}
+                  onClick={() => closeTemplateDataGapPrompt(false, gap.pages[0])}
+                >
+                  {t("report.dataCheck.pages", { pages: formatGapPages(gap.pages) })}
+                </button>
+              </li>
+            ))}
+            {(templateDataGapPrompt?.gaps.length ?? 0) > 12 ? (
+              <li className="px-2.5 py-1 text-[11px] font-bold text-slate-500">
+                {t("report.dataCheck.more", { count: (templateDataGapPrompt?.gaps.length ?? 0) - 12 })}
+              </li>
+            ) : null}
+          </ul>
+          <AlertDialogFooter className="gap-2 sm:justify-start">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-lg bg-[#0C447C] px-4 text-sm font-bold text-white shadow-sm hover:bg-[#0a3866]"
+              onClick={() => closeTemplateDataGapPrompt(false, templateDataGapPrompt?.gaps[0]?.pages[0])}
+            >
+              {t("report.dataCheck.review")}
+            </button>
+            <AlertDialogCancel
+              className="mt-0 h-9 text-sm font-bold"
+              onClick={(event) => {
+                event.preventDefault();
+                closeTemplateDataGapPrompt(true);
+              }}
+            >
+              {t("report.dataCheck.exportAnyway")}
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ReportRichSelectionToolbar containerRef={reportPdfRef} enabled={!loading && !previewOpen && !assetImagesPreviewOpen} />
     </MvWorkflowPageFrame>
   );

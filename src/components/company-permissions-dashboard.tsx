@@ -355,7 +355,7 @@ function PermissionsWorkspace({ productId, csrfToken, users, onUsersChanged }: D
       <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open && !busy) setDeleteTarget(null); }}>
         <DialogContent dir="rtl" hideCloseButton={busy} className="w-[calc(100%-2rem)] rounded-2xl bg-white sm:rounded-2xl">
           <DialogTitle className="text-right">حذف صلاحية «{deleteTarget?.name}»</DialogTitle>
-          <DialogDescription className="text-right leading-6">ستُزال هذه الصلاحية من المستخدمين المرتبطين بها. سيعتمد من ليس لديه صلاحية أخرى على الصلاحية الافتراضية مع الاحتفاظ بالتخصيصات الفردية.</DialogDescription>
+          <DialogDescription className="text-right leading-6">ستُزال هذه الصلاحية من المستخدمين المرتبطين بها. سيعتمد من ليس لديه صلاحية أخرى على الصلاحية الافتراضية مع الاحتفاظ بالتخصيصات الفردية.{productId === "machine-valuation" ? " تُنقل الصلاحية إلى سلة المحذوفات، واستعادتها تعيدها إلى مستخدميها." : ""}</DialogDescription>
           {errorMessage}
           <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={busy} onClick={() => setDeleteTarget(null)}>إلغاء</Button><Button type="button" variant="destructive" disabled={busy} onClick={() => void removeProfile()}>{busy ? <Loader2 className="animate-spin" /> : <Trash2 />}تأكيد الحذف</Button></div>
         </DialogContent>

@@ -386,7 +386,18 @@ export function projectInspectionSitesFromData(
   });
 }
 
-export function projectContactDataFromInspectionSites(forms: MvProjectInspectionSiteForm[], t?: MvT): {
+export function projectContactDataFromInspectionSites(
+  forms: MvProjectInspectionSiteForm[],
+  t?: MvT,
+  options: {
+    /**
+     * Sites saved even when nothing but their default name is filled in —
+     * sites that hold files, or that a file is being uploaded to. A file is
+     * never attached to a site that does not exist in the project.
+     */
+    keepSiteIds?: ReadonlySet<string>;
+  } = {},
+): {
   locations: MvProjectLocation[];
   contacts: MvProjectContact[];
 } {
@@ -412,7 +423,8 @@ export function projectContactDataFromInspectionSites(forms: MvProjectInspection
       mapUrl ||
       primaryPhone ||
       notes ||
-      name !== defaultInspectionSiteName(index, tr);
+      name !== defaultInspectionSiteName(index, tr) ||
+      options.keepSiteIds?.has(siteId);
 
     if (!hasSiteData) return;
 

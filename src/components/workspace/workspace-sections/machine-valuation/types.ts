@@ -2,6 +2,7 @@ import type { MvColumnFormatKind } from "@/lib/mv-hyperformula";
 import type { MvValuationAccountingStore } from "./mv-valuation-accounting-store";
 import type { MvClientDocumentsStore } from "./mv-client-documents-store";
 import type { MvReportCustomField, MvReportCustomSection } from "./mv-report-custom-fields";
+import type { MvReportDataModel } from "./mv-report-data-models";
 
 export type { MvReportCustomField, MvReportCustomFieldType, MvReportCustomSection } from "./mv-report-custom-fields";
 
@@ -88,6 +89,143 @@ export interface MvCompanyReportSectionModel {
 export interface MvCompanyReportSystemTemplate {
   templateId?: string | null;
   outputFormat?: "pdf" | "pptx" | null;
+  customTemplates?: MvCompanyReportSystemTemplateDefinition[];
+}
+
+/** One row of the executive-summary table: a report-data field and its label. */
+export interface MvCompanyReportSummaryTableField {
+  id: string;
+  /** Report-data source key (system key such as `clientName`, or `field:<id>`). */
+  sourceKey: string;
+  label: string;
+  type?: "text" | "textarea" | "number" | "date";
+  /** Own value text for the row; may contain `{{variables}}`. Overrides the field value. */
+  valueTemplate?: string;
+}
+
+/** Two-column table (field name | value) shown in the report's executive summary. */
+export interface MvCompanyReportSummaryTable {
+  enabled: boolean;
+  title?: string;
+  /** Width of the field-name column, in percent of the table width. */
+  labelColumnPct?: number;
+  fields: MvCompanyReportSummaryTableField[];
+}
+
+export interface MvCompanyReportSystemTemplateDefinition {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  canvasElements?: MvCompanyReportTemplateCanvasElement[];
+  summaryTable?: MvCompanyReportSummaryTable;
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    coverText: string;
+    text: string;
+    mutedText: string;
+    pageBackground: string;
+    headerBackground: string;
+    footerBackground: string;
+    closingPrimary?: string;
+    closingSecondary?: string;
+    closingText?: string;
+  };
+  typography: {
+    fontFamily: string;
+    headingFontFamily: string;
+    baseFontSize: number;
+    headingScale: number;
+    lineHeight: number;
+    fontWeight: number;
+    googleFontUrl?: string;
+  };
+  assets: {
+    coverBackgroundImage?: string | null;
+    closingBackgroundImage?: string | null;
+    portraitPageBackgroundImage?: string | null;
+    landscapePageBackgroundImage?: string | null;
+    headerImage?: string | null;
+    footerImage?: string | null;
+  };
+  layout: {
+    backgroundFit: "cover" | "fill";
+    contentAlign: "right" | "center" | "left";
+    logoPosition: "right" | "center" | "left";
+    pageMarginMm: number;
+    headerHeightMm: number;
+    footerHeightMm: number;
+    coverOverlayOpacity: number;
+    borderRadiusPx: number;
+    showHeader: boolean;
+    showFooter: boolean;
+    showLogo: boolean;
+    showWatermark: boolean;
+    coverColorMode?: "solid" | "gradient";
+    coverGradientAngle?: number;
+    closingColorMode?: "solid" | "gradient";
+    closingGradientAngle?: number;
+    closingOverlayOpacity?: number;
+  };
+}
+
+export type MvCompanyReportTemplateCanvasPage = "cover" | "interior" | "closing";
+export type MvCompanyReportTemplateCanvasElementKind = "text" | "logo" | "shape" | "image" | "binding";
+export type MvCompanyReportTemplateCanvasBinding =
+  | "companyName"
+  | "reportContent"
+  | "footerContent"
+  | "reportTitle"
+  | "clientName"
+  | "commercialRegistration"
+  | "companyManagerName"
+  | "companyManagerMembership"
+  | "reportReference"
+  | "reportDate";
+export type MvCompanyReportTemplateCanvasShape =
+  | "rectangle"
+  | "rounded"
+  | "circle"
+  | "pill"
+  | "line"
+  | "triangle"
+  | "diamond"
+  | "hexagon"
+  | "star"
+  | "arrow"
+  | "chevron"
+  | "speech";
+
+export interface MvCompanyReportTemplateCanvasElement {
+  id: string;
+  name: string;
+  page: MvCompanyReportTemplateCanvasPage;
+  kind: MvCompanyReportTemplateCanvasElementKind;
+  binding?: MvCompanyReportTemplateCanvasBinding;
+  shapeType?: MvCompanyReportTemplateCanvasShape;
+  text?: string;
+  imageDataUrl?: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  zIndex: number;
+  opacity: number;
+  color?: string;
+  backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  textAlign?: "right" | "center" | "left";
+  locked?: boolean;
+  hidden?: boolean;
 }
 
 /** قوالب التقرير النهائي الافتراضية على مستوى الشركة. */
@@ -205,6 +343,12 @@ export type MvReportPageOrientationPreference = "portrait" | "landscape";
 export interface MvProjectReportData {
   /** Company report-data model selected for this simplified project. */
   reportDataModelId?: string;
+  /**
+   * The project's own copy of its report-data model. Keeps the report's
+   * sections, labels and field types intact if the company later edits or
+   * deletes the original model.
+   */
+  reportDataModelSnapshot?: MvReportDataModel;
   /** Company final-report content model selected once for this project. */
   reportSectionModelId?: string;
   reportReference?: string;
